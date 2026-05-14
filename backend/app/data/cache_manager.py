@@ -3,6 +3,7 @@ import json
 import os
 import time
 from typing import Any, Optional
+from ..utils import console_error
 
 
 class CacheManager:

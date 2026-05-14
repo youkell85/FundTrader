@@ -1,5 +1,6 @@
 """基金排名筛选服务"""
 from typing import List, Dict, Any, Optional
+from ..utils import console_error
 from ..data.akshare_fetcher import get_fund_ranking, get_fund_info
 from ..data.eastmoney_fetcher import get_fund_ranking_em
 from ..data.cache_manager import cache

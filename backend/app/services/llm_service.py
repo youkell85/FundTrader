@@ -2,6 +2,7 @@
 import json
 import urllib.request
 from typing import Optional
+from ..utils import console_error
 from ..config import LLM_API_URL, LLM_API_KEY, LLM_MODEL
 
 

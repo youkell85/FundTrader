@@ -2,6 +2,7 @@
 import json
 import urllib.request
 from typing import Optional, List, Dict, Any
+from ..utils import console_error
 
 
 def _fetch_json(url: str) -> Optional[Any]:

@@ -2,6 +2,7 @@
 import efinance as ef
 import pandas as pd
 from typing import Optional, List, Dict, Any
+from ..utils import console_error
 
 
 def get_fund_nav_history(code: str, start_date: str = "", end_date: str = "") -> List[Dict[str, Any]]:

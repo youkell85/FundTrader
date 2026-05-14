@@ -2,6 +2,7 @@
 import akshare as ak
 import pandas as pd
 from typing import Optional, List, Dict, Any
+from ..utils import console_error
 
 
 def get_fund_ranking(fund_type: str = "全部") -> List[Dict[str, Any]]:
