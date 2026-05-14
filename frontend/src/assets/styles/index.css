@@ -1,0 +1,66 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --bg: #0D1117;
+    --bg-card: #161B22;
+    --bg-hover: #1C2333;
+    --bg-input: #21262D;
+    --text-primary: #E6EDF3;
+    --text-secondary: #8B949E;
+    --text-muted: #484F58;
+    --primary: #1A73E8;
+    --gold: #E8A735;
+    --rise: #EF4444;
+    --fall: #22C55E;
+    --warn: #F59E0B;
+    --info: #6366F1;
+  }
+
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
+  body {
+    font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    background-color: var(--bg);
+    color: var(--text-primary);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* 滚动条 */
+  ::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--text-muted);
+    border-radius: 2px;
+  }
+
+  /* 红涨绿跌 */
+  .text-rise { color: var(--rise); }
+  .text-fall { color: var(--fall); }
+  .bg-rise { background-color: var(--rise); }
+  .bg-fall { background-color: var(--fall); }
+}
+
+@layer components {
+  .glass-card {
+    @apply bg-bg-card/80 backdrop-blur-xl border border-white/5 rounded-xl;
+  }
+  .glow-gold {
+    box-shadow: 0 0 20px rgba(232, 167, 53, 0.15);
+  }
+  .glow-primary {
+    box-shadow: 0 0 20px rgba(26, 115, 232, 0.15);
+  }
+}
