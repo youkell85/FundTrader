@@ -15,7 +15,7 @@ CACHE_TTL_INFO = int(os.getenv("CACHE_TTL_INFO", "7200"))  # 2小时
 # LLM配置
 LLM_API_URL = os.getenv("LLM_API_URL", "https://api.siliconflow.cn/v1/chat/completions")
 LLM_API_KEY = os.getenv("LLM_API_KEY", "")
-LLM_MODEL = os.getenv("LLM_MODEL", "Qwen/Qwen2.5-72B-Instruct")
+LLM_MODEL = os.getenv("LLM_MODEL", "deepseek-ai/DeepSeek-V4-Flash")
 
 # CORS
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*")
