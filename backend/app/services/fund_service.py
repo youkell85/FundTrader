@@ -69,6 +69,80 @@ def get_fund_list(
     }
 
 
+def get_fund_list_from_watchlist(
+    category: str = "全部",
+    tag: Optional[str] = None,
+    keyword: Optional[str] = None,
+    sort_by: str = "今年来",
+    sort_order: str = "desc",
+    page: int = 1,
+    page_size: int = 20,
+) -> Dict[str, Any]:
+    """从自选基金列表获取基金数据"""
+    from ..services.watchlist_service import get_watchlist
+    watchlist = get_watchlist()
+
+    if not watchlist:
+        # 自选为空时回退到国元名单
+        return get_fund_list(category, tag, keyword, sort_by, sort_order, page, page_size, guoyuan_only=True)
+
+    # 为自选基金获取业绩数据
+    funds = _get_watchlist_with_performance(watchlist)
+
+    # 按标签筛选
+    if tag:
+        funds = [f for f in funds if tag in f.get("tags", []) or tag in f.get("name", "")]
+
+    # 按关键词筛选
+    if keyword:
+        funds = [f for f in funds if keyword in f.get("name", "") or keyword in f.get("code", "")]
+
+    # 按类型筛选
+    if category != "全部":
+        funds = [f for f in funds if f.get("type", "") == category]
+
+    # 排序
+    sort_field_map = {
+        "近1月": "near_1m", "近3月": "near_3m", "近6月": "near_6m",
+        "近1年": "near_1y", "近3年": "near_3y", "今年来": "ytd",
+    }
+    sort_field = sort_field_map.get(sort_by, "ytd")
+    reverse = sort_order == "desc"
+    funds.sort(key=lambda x: float(x.get(sort_field, 0) or 0), reverse=reverse)
+
+    # 分页
+    total = len(funds)
+    start = (page - 1) * page_size
+    end = start + page_size
+    page_funds = funds[start:end]
+
+    return {
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "funds": page_funds,
+        "categories": FUND_CATEGORIES,
+        "types": FUND_TYPES,
+    }
+
+
+def _get_watchlist_with_performance(watchlist: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """为自选基金获取业绩数据"""
+    result = []
+    for fund in watchlist:
+        fund_data = dict(fund)
+        perf_cache_key = f"fund_perf_{fund['code']}"
+        perf = cache.get(perf_cache_key, CACHE_TTL_RANKING)
+        if perf is None:
+            perf = _fetch_fund_performance(fund["code"])
+            if perf:
+                cache.set(perf_cache_key, perf)
+        if perf:
+            fund_data.update(perf)
+        result.append(fund_data)
+    return result
+
+
 def _get_guoyuan_funds_with_performance() -> List[Dict[str, Any]]:
     """获取国元证券基金名单及业绩数据"""
     cache_key = "guoyuan_funds_performance"

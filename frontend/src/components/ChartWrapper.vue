@@ -4,7 +4,7 @@
       <h3 class="text-sm font-medium text-text-primary">{{ title }}</h3>
     </div>
     <div class="p-4">
-      <v-chart :option="chartOption" :autoresize="true" style="height: 260px" />
+      <v-chart :option="chartOption" :autoresize="true" :style="{ height: chartHeight }" />
     </div>
   </div>
 </template>
@@ -29,11 +29,14 @@ use([
 const props = defineProps<{
   title?: string
   option: Record<string, unknown>
+  height?: string
 }>()
+
+const chartHeight = computed(() => props.height || '260px')
 
 const chartOption = computed(() => ({
   backgroundColor: 'transparent',
-  textStyle: { color: '#8B949E', fontFamily: 'PingFang SC' },
+  textStyle: { color: '#94A3B8', fontFamily: 'PingFang SC' },
   ...props.option,
 }))
 </script>

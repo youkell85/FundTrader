@@ -35,6 +35,12 @@ const routes = [
     component: () => import('../views/Professional.vue'),
     meta: { title: '专业分析', icon: 'LineChart' },
   },
+  {
+    path: '/settings',
+    name: 'Settings',
+    component: () => import('../views/Settings.vue'),
+    meta: { title: '设置', icon: 'Settings' },
+  },
 ]
 
 const router = createRouter({

@@ -17,7 +17,7 @@
 
 <script setup lang="ts">
 import { useRoute } from 'vue-router'
-import { LayoutGrid, Sparkles, TrendingUp, LineChart, BarChart3 } from 'lucide-vue-next'
+import { LayoutGrid, Sparkles, TrendingUp, LineChart, Settings } from 'lucide-vue-next'
 
 const route = useRoute()
 
@@ -26,6 +26,7 @@ const navItems = [
   { path: '/recommend', label: '推荐', icon: Sparkles },
   { path: '/dca', label: '定投', icon: TrendingUp },
   { path: '/professional', label: '分析', icon: LineChart },
+  { path: '/settings', label: '设置', icon: Settings },
 ]
 
 function isActive(path: string): boolean {

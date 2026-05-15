@@ -48,37 +48,54 @@ def get_fund_manager_info(code: str) -> Optional[Dict[str, Any]]:
         df = ak.fund_manager_em()
         if df is None or df.empty:
             return None
-        managers = df[df["基金代码"] == code]
+        # 处理列名可能不同的情况
+        code_col = "基金代码" if "基金代码" in df.columns else df.columns[0] if len(df.columns) > 0 else None
+        if code_col is None:
+            return None
+        managers = df[df[code_col] == code]
         if managers.empty:
             return None
         row = managers.iloc[0]
-        return {
-            "name": row.get("姓名", ""),
-            "tenure_days": row.get("任职时间", 0),
-            "best_fund": row.get("代表基金", ""),
-        }
+        # 尝试多种可能的列名
+        name = row.get("姓名", row.get("基金经理", row.get("manager_name", "")))
+        tenure = row.get("任职时间", row.get("任职天数", row.get("tenure", 0)))
+        best = row.get("代表基金", row.get("best_fund", ""))
+        return {"name": name, "tenure_days": tenure, "best_fund": best}
     except Exception as e:
         console_error(f"AkShare fund manager error for {code}: {e}")
         return None
 
 
 def get_fund_portfolio(code: str) -> Optional[Dict[str, Any]]:
-    """获取基金持仓信息"""
-    try:
-        # 股票持仓
-        stock_df = ak.fund_portfolio_hold_em(symbol=code, date="2024")
-        holdings = []
-        if stock_df is not None and not stock_df.empty:
-            for _, row in stock_df.head(10).iterrows():
-                holdings.append({
-                    "name": row.get("股票名称", ""),
-                    "code": row.get("股票代码", ""),
-                    "ratio": row.get("占净值比例", 0),
-                })
-        return {"stock_holdings": holdings}
-    except Exception as e:
-        console_error(f"AkShare fund portfolio error for {code}: {e}")
-        return None
+    """获取基金持仓信息 - 自动适配最新报告期"""
+    from datetime import datetime
+    current_year = datetime.now().year
+    holdings = []
+
+    # 尝试当前年份和上一年
+    for year in [current_year, current_year - 1, current_year - 2]:
+        try:
+            stock_df = ak.fund_portfolio_hold_em(symbol=code, date=str(year))
+            if stock_df is not None and not stock_df.empty:
+                for _, row in stock_df.head(10).iterrows():
+                    ratio_val = row.get("占净值比例", 0)
+                    # 处理百分比字符串，如 "12.34%"
+                    if isinstance(ratio_val, str):
+                        ratio_val = ratio_val.replace("%", "").strip()
+                    try:
+                        ratio = float(ratio_val)
+                    except (ValueError, TypeError):
+                        ratio = 0
+                    holdings.append({
+                        "name": row.get("股票名称", ""),
+                        "code": row.get("股票代码", ""),
+                        "ratio": ratio,
+                    })
+                break  # 成功获取后退出
+        except Exception:
+            continue
+
+    return {"stock_holdings": holdings}
 
 
 def get_fund_industry_board() -> List[Dict[str, Any]]:

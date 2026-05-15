@@ -2,7 +2,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .config import API_PREFIX, CORS_ORIGINS
-from .api import fund, analysis, recommend, dca, professional
+from .api import fund, analysis, recommend, dca, professional, settings
 
 app = FastAPI(
     title="FundTrader API",
@@ -26,6 +26,7 @@ app.include_router(analysis.router)
 app.include_router(recommend.router)
 app.include_router(dca.router)
 app.include_router(professional.router)
+app.include_router(settings.router)
 
 
 @app.get("/health")

@@ -1,7 +1,7 @@
 """基金排名筛选API"""
 from fastapi import APIRouter, Query
 from typing import Optional
-from ..services.fund_service import get_fund_list
+from ..services.fund_service import get_fund_list, get_fund_list_from_watchlist
 
 router = APIRouter(prefix="/fund", tags=["基金排名筛选"])
 
@@ -16,7 +16,10 @@ async def fund_list(
     page: int = Query(1, ge=1, description="页码"),
     page_size: int = Query(20, ge=1, le=100, description="每页数量"),
     guoyuan_only: bool = Query(True, description="仅国元名单"),
+    use_watchlist: bool = Query(False, description="使用自选基金列表"),
 ):
+    if use_watchlist:
+        return get_fund_list_from_watchlist(category, tag, keyword, sort_by, sort_order, page, page_size)
     return get_fund_list(category, tag, keyword, sort_by, sort_order, page, page_size, guoyuan_only)
 
 

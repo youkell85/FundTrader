@@ -18,6 +18,18 @@
           :class="currentCategory === cat ? 'bg-gold/20 text-gold border border-gold/30' : 'bg-bg-input text-text-secondary hover:text-text-primary border border-transparent'"
           @click="selectCategory(cat)">{{ cat }}</button>
       </div>
+      <div class="flex items-center gap-2 px-4 pb-2">
+        <button @click="useWatchlist = !useWatchlist; fetchFunds()"
+          class="text-xs px-3 py-1 rounded-md transition-all flex items-center gap-1"
+          :class="useWatchlist ? 'bg-primary/20 text-primary' : 'bg-bg-input text-text-secondary hover:text-text-primary'">
+          <Star :class="useWatchlist ? 'w-3 h-3 fill-primary' : 'w-3 h-3'" />
+          {{ useWatchlist ? '自选' : '默认' }}
+        </button>
+        <router-link to="/settings"
+          class="text-xs px-3 py-1 rounded-md bg-bg-input text-text-secondary hover:text-text-primary transition-all flex items-center gap-1">
+          <Settings2 class="w-3 h-3" /> 管理自选
+        </router-link>
+      </div>
       <div class="flex gap-1 px-4 pb-3 overflow-x-auto scrollbar-hide">
         <button v-for="s in sortOptions" :key="s"
           class="shrink-0 text-[11px] px-2.5 py-1 rounded-md transition-all"
@@ -52,7 +64,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { Search, Sliders } from 'lucide-vue-next'
+import { Search, Sliders, Star, Settings2 } from 'lucide-vue-next'
 import FundCard from '../components/FundCard.vue'
 import { getFundList } from '../api'
 
@@ -64,6 +76,7 @@ const currentCategory = ref('全部')
 const currentSort = ref('今年来')
 const currentTag = ref('')
 const showFilter = ref(false)
+const useWatchlist = ref(false)
 const allTags = ref(['消费', '医药', '科技', '新能源', '金融', '成长', '价值', '蓝筹', 'QDII', '量化', '指数', '中小盘', '全球'])
 
 const categories = ['全部', '股票型', '混合型', '债券型', '指数型', 'QDII']
@@ -77,7 +90,8 @@ async function fetchFunds() {
       tag: currentTag.value || undefined,
       keyword: keyword.value || undefined,
       sort_by: currentSort.value,
-      guoyuan_only: true,
+      guoyuan_only: !useWatchlist.value,
+      use_watchlist: useWatchlist.value,
     })
     funds.value = res?.funds || []
   } catch (e) {

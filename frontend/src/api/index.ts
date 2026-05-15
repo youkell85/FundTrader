@@ -52,4 +52,35 @@ export const getProfessionalAnalysis = (code: string): Promise<ApiResult> =>
 export const postCorrelation = (codes: string[]): Promise<ApiResult> =>
   api.post('/professional/correlation', null, { params: { codes } })
 
+// 设置与自选管理
+export const getWatchlist = (): Promise<ApiResult> =>
+  api.get('/settings/watchlist')
+
+export const addToWatchlist = (data: { code: string; name?: string; type?: string; tags?: string[] }): Promise<ApiResult> =>
+  api.post('/settings/watchlist/add', data)
+
+export const batchAddToWatchlist = (funds: { code: string; name?: string; type?: string; tags?: string[] }[]): Promise<ApiResult> =>
+  api.post('/settings/watchlist/add-batch', { funds })
+
+export const removeFromWatchlist = (code: string): Promise<ApiResult> =>
+  api.delete(`/settings/watchlist/${code}`)
+
+export const clearWatchlist = (): Promise<ApiResult> =>
+  api.delete('/settings/watchlist')
+
+export const uploadFundFile = (file: File): Promise<ApiResult> => {
+  const formData = new FormData()
+  formData.append('file', file)
+  return api.post('/settings/upload', formData, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: 60000,
+  })
+}
+
+export const getGuoyuanFunds = (): Promise<ApiResult> =>
+  api.get('/settings/guoyuan-funds')
+
+export const importGuoyuanFunds = (): Promise<ApiResult> =>
+  api.post('/settings/import-guoyuan')
+
 export default api
