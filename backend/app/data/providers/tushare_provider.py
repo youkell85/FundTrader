@@ -175,18 +175,37 @@ class TushareProvider(DataProvider):
         if df is None or df.empty:
             return []
 
-        result = []
+        # 提取持仓股票代码
+        holdings_raw = []
+        symbols = []
         for _, row in df.head(10).iterrows():
             ratio = row.get("stk_mkv_ratio", 0)
             if isinstance(ratio, str):
                 ratio = ratio.replace("%", "").strip()
-            # 优先使用 name 字段，回退到 symbol
-            stock_name = row.get("name", "") or row.get("symbol", "")
-            stock_code = str(row.get("symbol", ""))
+            symbol = str(row.get("symbol", ""))
+            holdings_raw.append((symbol, self._safe_float(ratio) or 0))
+            if symbol:
+                symbols.append(symbol)
+
+        # 批量查询股票名称
+        name_map = {}
+        if symbols:
+            try:
+                ts_codes = ",".join(symbols)
+                stock_df = self._safe_call(pro.stock_basic, ts_code=ts_codes)
+                if stock_df is not None and not stock_df.empty:
+                    for _, row in stock_df.iterrows():
+                        name_map[str(row.get("ts_code", ""))] = row.get("name", "")
+            except Exception as e:
+                console_error(f"stock_basic batch query error: {e}")
+
+        result = []
+        for symbol, ratio in holdings_raw:
+            stock_name = name_map.get(symbol, symbol)
             result.append(FundHolding(
                 name=stock_name,
-                code=stock_code,
-                ratio=self._safe_float(ratio) or 0,
+                code=symbol,
+                ratio=ratio,
             ))
         return result
 
