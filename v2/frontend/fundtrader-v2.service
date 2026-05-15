@@ -1,0 +1,17 @@
+[Unit]
+Description=FundTrader 2.0 Hono BFF Service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/fundtrader-v2/v2/frontend
+Environment=NODE_ENV=production
+Environment=PORT=3000
+Environment=FUNDTRADER_API_BASE=http://127.0.0.1:8766/fund/api
+ExecStart=/root/.nvm/versions/node/v22.22.1/bin/node dist/boot.js
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
