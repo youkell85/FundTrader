@@ -14,6 +14,9 @@ def analyze_manager_style(
     holdings_data: str = "",
 ) -> Optional[str]:
     """调用LLM分析基金经理投资风格"""
+    if not LLM_API_KEY:
+        return "AI分析服务未配置（缺少LLM_API_KEY），请联系管理员配置SiliconFlow API密钥"
+
     prompt = f"""你是一位专业的公募基金分析师。请基于以下信息，分析基金经理{manager_name}的投资风格：
 
 基金：{fund_name}（{fund_code}）
@@ -62,6 +65,9 @@ def generate_recommendation_analysis(
     market_summary: str = "",
 ) -> Optional[str]:
     """调用LLM生成推荐分析"""
+    if not LLM_API_KEY:
+        return None
+
     fund_names = "、".join([f.get("name", "") for f in funds[:5]])
     prompt = f"""你是一位专业的公募基金理财顾问。请基于以下信息，给出配置建议：
 

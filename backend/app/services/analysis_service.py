@@ -27,6 +27,22 @@ def analyze_fund(code: str) -> Dict[str, Any]:
         if not manager and detail.basic and detail.basic.manager:
             manager = {"name": detail.basic.manager, "tenure_days": 0}
 
+        # 计算任职天数
+        if manager and manager.get("begin_date"):
+            try:
+                from datetime import datetime
+                begin_str = str(manager["begin_date"]).replace("-", "").replace(".", "")
+                if len(begin_str) == 8:
+                    begin_dt = datetime.strptime(begin_str, "%Y%m%d")
+                    tenure_days = (datetime.now() - begin_dt).days
+                    manager = dict(manager)
+                    manager["tenure_days"] = tenure_days
+            except Exception:
+                pass
+        if manager and "tenure_days" not in manager:
+            manager = dict(manager) if manager else {}
+            manager["tenure_days"] = 0
+
         # 计算策略信号
         score, signal, confidence, reasons = _calc_strategy_signal_fusion(detail)
 
