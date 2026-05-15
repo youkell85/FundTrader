@@ -1,16 +1,54 @@
 """专业分析服务 - 夏普比率、最大回撤、波动率等"""
 from typing import Dict, Any, Optional, List
 import numpy as np
-from ..data.efinance_fetcher import get_fund_nav_history
 from ..data.akshare_fetcher import get_fund_portfolio
 from ..data.cache_manager import cache
 from ..config import CACHE_TTL_NAV
 
 
+def _get_nav_history_pro(code: str) -> List[Dict[str, Any]]:
+    """优先使用融合层获取净值历史，失败回退到efinance"""
+    try:
+        from ..data.providers.fusion import get_fusion
+        fusion = get_fusion()
+        nav_list = fusion.get_fund_nav(code)
+        if nav_list:
+            result = [
+                {"date": n.date, "nav": n.nav, "acc_nav": n.accum_nav, "day_growth": n.day_growth}
+                for n in nav_list if n.nav
+            ]
+            if result:
+                return result
+    except Exception as e:
+        from ..utils import console_error
+        console_error(f"Fusion nav history fallback for {code}: {e}")
+    from ..data.efinance_fetcher import get_fund_nav_history
+    return get_fund_nav_history(code)
+
+
+def _get_portfolio_fusion(code: str) -> Optional[Dict[str, Any]]:
+    """优先使用融合层获取持仓，失败回退到AkShare"""
+    try:
+        from ..data.providers.fusion import get_fusion
+        fusion = get_fusion()
+        holdings = fusion.get_fund_holdings(code)
+        if holdings:
+            return {
+                "stock_holdings": [
+                    {"name": h.name, "code": h.code, "ratio": h.ratio}
+                    for h in holdings
+                ]
+            }
+    except Exception as e:
+        from ..utils import console_error
+        console_error(f"Fusion portfolio fallback for {code}: {e}")
+    return get_fund_portfolio(code)
+
+
 def professional_analysis(code: str) -> Dict[str, Any]:
     """专业分析"""
-    # 获取净值数据
-    nav_data = get_fund_nav_history(code)
+    # 获取净值数据（优先融合层）
+    nav_data = _get_nav_history_pro(code)
     if not nav_data or len(nav_data) < 60:
         return {"code": code, "error": "净值数据不足，无法进行专业分析"}
 
@@ -27,8 +65,8 @@ def professional_analysis(code: str) -> Dict[str, Any]:
     calmar = _calc_calmar_ratio(returns, navs)
     sortino = _calc_sortino_ratio(returns)
 
-    # 资产配置
-    portfolio = get_fund_portfolio(code)
+    # 资产配置（优先融合层）
+    portfolio = _get_portfolio_fusion(code)
     asset_allocation = _analyze_asset_allocation(portfolio)
     industry_distribution = _analyze_industry_distribution(portfolio)
 
@@ -164,7 +202,7 @@ def calc_correlation_matrix(codes: List[str]) -> Dict[str, Any]:
     """计算基金间相关性矩阵"""
     nav_dict = {}
     for code in codes:
-        nav_data = get_fund_nav_history(code)
+        nav_data = _get_nav_history_pro(code)
         if nav_data and len(nav_data) > 60:
             navs = [p.get("nav", 0) for p in nav_data if p.get("nav", 0) > 0]
             returns = np.diff(navs) / navs[:-1]

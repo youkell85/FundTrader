@@ -17,6 +17,7 @@ class FundBasic:
     found_date: str = ""
     benchmark: str = ""
     status: str = ""
+    fund_share: Optional[float] = None  # 最新份额规模（万份）
 
 
 @dataclass
@@ -80,6 +81,7 @@ class FundDetail:
     nav_history: List[FundNav] = field(default_factory=list)
     manager_info: Dict[str, Any] = field(default_factory=dict)
     industry_dist: Dict[str, float] = field(default_factory=dict)
+    rating: Optional[int] = None  # 基金评级（晨星等，1-5星）
     source: str = ""  # 数据来源标识
 
 

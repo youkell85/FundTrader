@@ -1,8 +1,59 @@
 """定投回测服务"""
 from typing import Dict, Any, List
-from ..data.efinance_fetcher import calculate_dca_backtest, get_fund_names
+from ..data.efinance_fetcher import _calc_fixed_dca, _calc_ma_dca, get_fund_names
 from ..data.cache_manager import cache
 from ..config import CACHE_TTL_NAV
+
+
+def _get_nav_history(code: str, start_date: str = "", end_date: str = "") -> List[Dict[str, Any]]:
+    """优先使用融合层获取净值历史，失败回退到efinance"""
+    try:
+        from ..data.providers.fusion import get_fusion
+        fusion = get_fusion()
+        nav_list = fusion.get_fund_nav(code)
+        if nav_list:
+            result = [
+                {"date": n.date, "nav": n.nav, "acc_nav": n.accum_nav, "day_growth": n.day_growth}
+                for n in nav_list if n.nav
+            ]
+            if start_date:
+                result = [r for r in result if r["date"] >= start_date]
+            if end_date:
+                result = [r for r in result if r["date"] <= end_date]
+            if result:
+                return result
+    except Exception as e:
+        from ..utils import console_error
+        console_error(f"Fusion nav history fallback for {code}: {e}")
+    from ..data.efinance_fetcher import get_fund_nav_history
+    return get_fund_nav_history(code, start_date, end_date)
+
+
+def _calculate_dca_backtest(
+    code: str,
+    amount: float = 1000,
+    frequency: str = "monthly",
+    strategy: str = "compare",
+    start_date: str = "",
+    end_date: str = "",
+    ma_window: int = 200,
+) -> Dict[str, Any]:
+    """基于融合层数据的定投回测计算"""
+    nav_data = _get_nav_history(code, start_date, end_date)
+    if not nav_data:
+        return {"error": f"无法获取基金 {code} 的净值数据"}
+
+    nav_data.sort(key=lambda x: x["date"])
+
+    results = {}
+    if strategy in ("fixed", "compare"):
+        results["fixed"] = _calc_fixed_dca(nav_data, amount, frequency)
+    if strategy in ("ma", "compare"):
+        results["ma"] = _calc_ma_dca(nav_data, amount, frequency, ma_window)
+    if strategy == "compare":
+        return {"fund_code": code, "strategies": results}
+
+    return results.get(strategy, {})
 
 
 def run_dca_backtest(
@@ -30,7 +81,7 @@ def run_dca_backtest(
         cache_key = f"dca_{code}_{strategy}_{frequency}_{start_date}_{end_date}"
         result = cache.get(cache_key, CACHE_TTL_NAV)
         if result is None:
-            result = calculate_dca_backtest(
+            result = _calculate_dca_backtest(
                 code, amount, frequency, strategy, start_date, end_date
             )
             if "error" not in result:
@@ -73,8 +124,7 @@ def _calc_combined_backtest(results: List[Dict], fund_count: int) -> Dict[str, A
 def get_dca_suggestion(code: str) -> Dict[str, Any]:
     """获取定投建议"""
     # 获取近期净值判断当前时点
-    from ..data.efinance_fetcher import get_fund_nav_history
-    nav_data = get_fund_nav_history(code)
+    nav_data = _get_nav_history(code)
     if not nav_data or len(nav_data) < 60:
         return {"score": 50, "suggestion": "数据不足，建议观察"}
 

@@ -74,9 +74,18 @@ class DataFusion:
                     primary.day_growth = detail.day_growth
                 if not primary.name and detail.name:
                     primary.name = detail.name
+                if primary.rating is None and detail.rating is not None:
+                    primary.rating = detail.rating
                 # 补充净值历史
                 if not primary.nav_history and detail.nav_history:
                     primary.nav_history = detail.nav_history
+                # 补充基金经理信息
+                if not primary.manager_info and detail.manager_info:
+                    primary.manager_info = detail.manager_info
+                # 补充basic信息（如份额规模）
+                if primary.basic and detail.basic:
+                    if not primary.basic.fund_share and detail.basic.fund_share:
+                        primary.basic.fund_share = detail.basic.fund_share
             except Exception as e:
                 console_error(f"Provider {provider.name} merge error: {e}")
 
@@ -133,6 +142,27 @@ class DataFusion:
         """获取融合后的持仓数据"""
         available = self._get_available()
         return self._merge_holdings(code, available)
+
+    def get_fund_performance(self, code: str) -> Optional[FundPerformance]:
+        """获取融合后的阶段收益数据，优先使用Tushare本地计算"""
+        available = self._get_available()
+        for provider in available:
+            # 优先使用Tushare的本地计算能力
+            if provider.name == "tushare" and hasattr(provider, "get_fund_performance"):
+                try:
+                    perf = provider.get_fund_performance(code)
+                    if perf:
+                        return perf
+                except Exception as e:
+                    console_error(f"Tushare performance calc error: {e}")
+            # 其他数据源的performance字段
+            try:
+                detail = provider.get_fund_detail(code)
+                if detail and detail.performance:
+                    return detail.performance
+            except Exception:
+                continue
+        return None
 
     def get_providers_status(self) -> List[Dict[str, Any]]:
         """获取所有数据源的状态"""
