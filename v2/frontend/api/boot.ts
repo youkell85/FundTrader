@@ -24,18 +24,21 @@ app.use("/api/trpc/*", async (c) => {
 
 // Serve static files
 const distPath = path.resolve(import.meta.dirname, "../dist/public");
-app.use("*", serveStatic({ root: "./dist/public" }));
+const indexHtml = fs.existsSync(path.resolve(distPath, "index.html"))
+  ? fs.readFileSync(path.resolve(distPath, "index.html"), "utf-8")
+  : null;
+
+app.use("*", serveStatic({
+  root: distPath,
+  rewriteRequestPath: (p) => p.replace(/^\/fund/, "") || "/",
+}));
 
 app.notFound((c) => {
   const accept = c.req.header("accept") ?? "";
-  if (!accept.includes("text/html")) {
+  if (accept.includes("application/json") && !accept.includes("text/html")) {
     return c.json({ error: "Not Found" }, 404);
   }
-  const indexPath = path.resolve(distPath, "index.html");
-  if (fs.existsSync(indexPath)) {
-    const content = fs.readFileSync(indexPath, "utf-8");
-    return c.html(content);
-  }
+  if (indexHtml) return c.html(indexHtml);
   return c.json({ error: "Not Found" }, 404);
 });
 

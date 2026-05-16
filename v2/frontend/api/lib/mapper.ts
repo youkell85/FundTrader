@@ -23,6 +23,14 @@ const riskMap: Record<string, string> = {
   "高风险": "high",
 };
 
+// 推荐风险等级映射（中文 → 英文）
+const recRiskMap: Record<string, string> = {
+  "保守": "conservative",
+  "稳健": "balanced",
+  "积极": "aggressive",
+  "激进": "aggressive",
+};
+
 // 为基金生成稳定的数字 ID
 function codeToId(code: string): number {
   let hash = 0;
@@ -47,11 +55,14 @@ function generateTags(name: string, type: string): string[] {
 
 // 映射基金列表项
 export function mapFundItem(item: any): any {
+  if (!item || typeof item !== "object") return null;
   const code = item.code || "";
   const name = item.name || "";
   const type = item.type || "";
   const perf = item.performance || {};
-  const mgr = item.manager || {};
+  // 兼容 manager 为字符串或对象的情况
+  const mgrRaw = item.manager_info || item.manager;
+  const mgr = typeof mgrRaw === "string" ? { name: mgrRaw } : (mgrRaw || {});
   const id = codeToId(code);
 
   return {
@@ -63,27 +74,27 @@ export function mapFundItem(item: any): any {
     category: type || "其他",
     company: item.company || item.management || "—",
     riskLevel: riskMap[item.risk_level || item.riskLevel] || "medium",
-    isContinuousMarketing: item.isContinuousMarketing ?? 1,
-    nav: item.nav ? String(item.nav) : "—",
-    accumNav: item.accum_nav ? String(item.accum_nav) : item.nav ? String(item.nav) : "—",
-    dailyChange: item.day_growth !== null ? String(item.day_growth) : "0",
-    totalScale: item.total_scale ? String(item.total_scale) : "—",
+    isContinuousMarketing: item.isContinuousMarketing ?? 0,
+    nav: item.nav != null ? String(item.nav) : "—",
+    accumNav: item.accum_nav != null ? String(item.accum_nav) : item.nav != null ? String(item.nav) : "—",
+    dailyChange: item.day_growth != null ? String(item.day_growth) : "0",
+    totalScale: item.total_scale != null ? String(item.total_scale) : item.scale != null ? String(item.scale) : "—",
     benchmark: item.benchmark || "—",
-    feeManage: item.feeManage || "0.0150",
-    feeCustody: item.feeCustody || "0.0025",
+    feeManage: item.feeManage ?? item.fee_rate ?? "—",
+    feeCustody: item.feeCustody ?? "—",
     stars: item.stars || (item.rating ? Math.min(5, Math.max(1, item.rating)) : 4),
     managerId: mgr.name ? codeToId(mgr.name) : null,
     tags: item.tags || generateTags(name, type),
     trackingIndex: item.trackingIndex || null,
     performance: {
-      return1m: perf.near_1m !== undefined ? String(perf.near_1m) : item.near_1m !== undefined ? String(item.near_1m) : "0",
-      return3m: perf.near_3m !== undefined ? String(perf.near_3m) : item.near_3m !== undefined ? String(item.near_3m) : "0",
-      return6m: perf.near_6m !== undefined ? String(perf.near_6m) : item.near_6m !== undefined ? String(item.near_6m) : "0",
-      return1y: perf.near_1y !== undefined ? String(perf.near_1y) : item.near_1y !== undefined ? String(item.near_1y) : "0",
-      return2y: perf.near_2y !== undefined ? String(perf.near_2y) : "0",
-      return3y: perf.near_3y !== undefined ? String(perf.near_3y) : item.near_3y !== undefined ? String(item.near_3y) : "0",
-      return5y: perf.near_5y !== undefined ? String(perf.near_5y) : "0",
-      returnThisYear: perf.ytd !== undefined ? String(perf.ytd) : item.ytd !== undefined ? String(item.ytd) : "0",
+      return1m: perf.near_1m != null ? String(perf.near_1m) : item.near_1m != null ? String(item.near_1m) : "0",
+      return3m: perf.near_3m != null ? String(perf.near_3m) : item.near_3m != null ? String(item.near_3m) : "0",
+      return6m: perf.near_6m != null ? String(perf.near_6m) : item.near_6m != null ? String(item.near_6m) : "0",
+      return1y: perf.near_1y != null ? String(perf.near_1y) : item.near_1y != null ? String(item.near_1y) : "0",
+      return2y: perf.near_2y != null ? String(perf.near_2y) : "0",
+      return3y: perf.near_3y != null ? String(perf.near_3y) : item.near_3y != null ? String(item.near_3y) : "0",
+      return5y: perf.near_5y != null ? String(perf.near_5y) : "0",
+      returnThisYear: perf.ytd != null ? String(perf.ytd) : item.ytd != null ? String(item.ytd) : "0",
       annualizedReturn: perf.annualizedReturn || item.annualizedReturn || "0",
       annualizedVolatility: perf.annualizedVolatility || "0",
       sharpeRatio: perf.sharpeRatio || item.sharpe_ratio || "0",
@@ -94,52 +105,53 @@ export function mapFundItem(item: any): any {
       alpha: perf.alpha || "0",
       beta: perf.beta || "0",
       winRate: perf.winRate || "0",
-      recoveryPeriod: perf.recoveryPeriod || 0,
+      recoveryPeriod: perf.recoveryPeriod != null ? String(perf.recoveryPeriod) : "0",
     },
     manager: mgr.name ? {
       id: codeToId(mgr.name),
       name: mgr.name,
-      gender: "male",
-      education: "硕士",
-      careerStart: mgr.begin_date || "2010-01-01",
+      gender: mgr.gender || null,
+      education: mgr.education || null,
+      careerStart: mgr.begin_date || mgr.career_start || "2010-01-01",
       manageYears: mgr.tenure_days ? (mgr.tenure_days / 365).toFixed(2) : "5.00",
-      totalScale: "200.00",
-      fundCount: 3,
+      totalScale: mgr.total_scale != null ? String(mgr.total_scale) : "—",
+      fundCount: mgr.fund_count ?? 1,
       company: item.company || "—",
-      investmentStyle: "均衡配置",
-      philosophy: "坚持价值投资，精选优质企业",
-      styleDescription: "",
-      bestReturn: "50.00",
-      worstReturn: "-20.00",
+      investmentStyle: mgr.style_analysis || mgr.investment_style || "均衡配置",
+      philosophy: mgr.philosophy || "坚持价值投资，精选优质企业",
+      styleDescription: mgr.style_description || "",
+      bestReturn: mgr.best_return != null ? String(mgr.best_return) : "—",
+      worstReturn: mgr.worst_return != null ? String(mgr.worst_return) : "—",
     } : null,
   };
 }
 
 // 映射基金详情
 export function mapFundDetail(analysis: any): any {
+  if (!analysis || typeof analysis !== "object") return null;
   const base = mapFundItem(analysis);
-  const navData = (analysis.nav_data || []).map((n: any, i: number) => ({
-    navDate: n.date,
-    nav: String(n.nav),
-    dailyReturn: n.day_growth !== null ? String(n.day_growth) : "0",
+  const navData = (analysis.nav_data || []).map((n: any) => ({
+    navDate: n?.date,
+    nav: n?.nav != null ? String(n.nav) : "—",
+    dailyReturn: n?.day_growth != null ? String(n.day_growth) : "0",
   }));
 
-  const holdings = (analysis.holdings || []).map((h: any, i: number) => ({
-    fundId: base.id,
-    stockCode: h.code || "",
-    stockName: h.name || "",
-    industry: "—",
-    ratio: h.ratio ? (h.ratio / 100).toFixed(4) : "0",
-    changeRatio: "0",
-    quarter: "2024Q4",
+  const holdings = (analysis.holdings || []).map((h: any) => ({
+    fundId: base?.id,
+    stockCode: h?.code || "",
+    stockName: h?.name || "",
+    industry: h?.industry || "—",
+    ratio: h?.ratio != null ? (h.ratio / 100).toFixed(4) : "0",
+    changeRatio: h?.change_ratio != null ? String(h.change_ratio) : "0",
+    quarter: h?.quarter || null,
   }));
 
   const industries: any[] = [];
   if (holdings.length > 0) {
-    const industriesSet = new Set(holdings.map((h: any) => h.industry).filter(Boolean));
+    const industriesSet = new Set(holdings.map((h: any) => h.industry).filter((ind: any) => ind && ind !== "—"));
     industriesSet.forEach((ind: any) => {
       const total = holdings.filter((h: any) => h.industry === ind).reduce((s: number, h: any) => s + parseFloat(h.ratio), 0);
-      industries.push({ fundId: base.id, industry: ind, ratio: total.toFixed(4), changeRatio: "0", quarter: "2024Q4" });
+      industries.push({ fundId: base?.id, industry: ind, ratio: total.toFixed(4), changeRatio: "0", quarter: holdings[0]?.quarter || null });
     });
   }
 
@@ -153,23 +165,27 @@ export function mapFundDetail(analysis: any): any {
 
 // 映射推荐方案
 export function mapRecommendation(rec: any, fundsMap: Map<string, any>): any {
+  rec = rec || {};
+  const rawRisk = rec.riskProfile || rec.risk_level || "balanced";
+  const riskProfile = recRiskMap[rawRisk] || rawRisk;
+
   return {
     id: rec.id || 1,
     name: rec.name || "推荐组合",
     description: rec.description || "",
-    riskProfile: rec.riskProfile || rec.risk_level || "balanced",
+    riskProfile,
     marketCondition: rec.marketCondition || "全市场周期",
     expectedReturn: rec.expectedReturn || rec.expected_return || "8.00",
     expectedRisk: rec.expectedRisk || rec.expected_risk || "10.00",
     rationale: rec.rationale || rec.analysis_summary || "",
     tags: rec.tags || [],
     fundAllocations: (rec.funds || rec.fundAllocations || []).map((fa: any, i: number) => {
-      const code = fa.code || "";
+      const code = fa?.code || "";
       const fund = fundsMap.get(code);
       return {
-        fundId: fund?.id || i + 1,
-        weight: Math.round((fa.ratio || 20) * 100),
-        reason: fa.reason || "核心配置",
+        fundId: fund?.id || codeToId(code),
+        weight: Math.round((fa?.ratio ?? 0) * 100),
+        reason: fa?.reason || "核心配置",
         fund: fund || null,
       };
     }),
@@ -178,30 +194,37 @@ export function mapRecommendation(rec: any, fundsMap: Map<string, any>): any {
 
 // 映射回测结果
 export function mapBacktestResult(result: any): any {
+  result = result || {};
+  // 后端返回结构：{ individual: [...], combined: {...} } 或 { strategies: {...} }
+  const individual = Array.isArray(result.individual) ? result.individual : [];
+  const combined = result.combined || {};
+  const first = individual[0] || combined || {};
+
   return {
     id: result.id || 1,
     name: result.name || "定投回测",
     type: result.type || "single",
-    fundIds: result.fundIds || (result.individual ? result.individual.map((r: any) => r.fund_code) : []),
+    fundIds: result.fundIds || individual.map((r: any) => r?.fund_code).filter(Boolean),
     weights: result.weights || [],
     strategy: result.strategy || "fixed_amount",
     startDate: result.startDate || result.start_date || "",
     endDate: result.endDate || result.end_date || "",
     investAmount: result.investAmount || result.amount || "1000",
     investFrequency: result.investFrequency || result.frequency || "monthly",
-    totalInvested: result.totalInvested || result.total_invested || "0",
-    finalValue: result.finalValue || result.total_value || "0",
-    totalReturn: result.totalReturn || result.total_profit_rate || "0",
-    annualizedReturn: result.annualizedReturn || result.annual_return || "0",
-    maxDrawdown: result.maxDrawdown || result.max_drawdown || "0",
-    sharpeRatio: result.sharpeRatio || "0",
-    benchmarkReturn: result.benchmarkReturn || "0",
-    excessReturn: result.excessReturn || "0",
+    totalInvested: first.total_invested != null ? String(first.total_invested) : "0",
+    finalValue: first.total_value != null ? String(first.total_value) : "0",
+    totalReturn: first.total_profit_rate != null ? String(first.total_profit_rate) : "0",
+    annualizedReturn: first.annual_return != null ? String(first.annual_return) : "0",
+    maxDrawdown: first.max_drawdown != null ? String(first.max_drawdown) : "0",
+    sharpeRatio: first.sharpe_ratio != null ? String(first.sharpe_ratio) : "0",
+    benchmarkReturn: first.benchmark_return != null ? String(first.benchmark_return) : "0",
+    excessReturn: first.excess_return != null ? String(first.excess_return) : "0",
   };
 }
 
 // 映射市场概览
 export function mapMarketOverview(data: any): any {
+  data = data || {};
   const funds = data.funds || [];
   const totalFunds = data.totalFunds || funds.length || 14;
   const avgReturn = data.avgReturn || "8.50";

@@ -7,18 +7,32 @@ const API_BASE = process.env.FUNDTRADER_API_BASE || "http://localhost:8766";
 
 export async function ftFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const url = `${API_BASE}${path}`;
-  const res = await fetch(url, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(options?.headers || {}),
-    },
-  });
-  if (!res.ok) {
-    const text = await res.text().catch(() => "");
-    throw new Error(`FundTrader API ${path} error ${res.status}: ${text}`);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 15000);
+  try {
+    const res = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+      headers: {
+        "Content-Type": "application/json",
+        ...(options?.headers || {}),
+      },
+    });
+    clearTimeout(timer);
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`FundTrader API ${path} error ${res.status}: ${text}`);
+    }
+    const text = await res.text();
+    try {
+      return JSON.parse(text) as T;
+    } catch {
+      throw new Error(`FundTrader API ${path} returned invalid JSON: ${text.slice(0, 200)}`);
+    }
+  } catch (err) {
+    clearTimeout(timer);
+    throw err;
   }
-  return res.json();
 }
 
 // 基金列表
@@ -73,9 +87,10 @@ export async function getProfessionalAnalysis(code: string) {
 
 // 相关性矩阵
 export async function getCorrelationMatrix(codes: string[]) {
-  return ftFetch<any>("/professional/correlation", {
+  const qs = new URLSearchParams();
+  codes.forEach((c) => qs.append("codes", c));
+  return ftFetch<any>(`/professional/correlation?${qs.toString()}`, {
     method: "POST",
-    body: JSON.stringify({ codes }),
   });
 }
 

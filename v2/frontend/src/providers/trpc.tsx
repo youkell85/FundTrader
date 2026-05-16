@@ -19,7 +19,7 @@ const queryClient = new QueryClient({
 const trpcClient = trpc.createClient({
   links: [
     httpBatchLink({
-      url: "./api/trpc",
+      url: "/fund/api/trpc",
       transformer: superjson,
       fetch(input, init) {
         return globalThis.fetch(input, {
