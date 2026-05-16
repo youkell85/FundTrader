@@ -63,12 +63,24 @@ export const fundRouter = createRouter({
         const sortBy = opts.sortBy ?? "dailyChange";
         const sortOrder = opts.sortOrder ?? "desc";
 
-        // 先拉取全部数据，再本地筛选分页（避免后端分页截断）
-        const ftResult = await getFundList({
-          guoyuan_only: true,
-          page_size: 10000,
-        });
-        const rawFunds = Array.isArray(ftResult?.funds) ? ftResult.funds : [];
+        // 先拉取全部数据，再本地筛选分页（后端限制 page_size <= 100，需循环拉取）
+        const allFunds: any[] = [];
+        let backendPage = 1;
+        let backendTotal = Infinity;
+        while (allFunds.length < backendTotal) {
+          const pageResult = await getFundList({
+            guoyuan_only: true,
+            page: backendPage,
+            page_size: 100,
+          });
+          const batch = Array.isArray(pageResult?.funds) ? pageResult.funds : [];
+          if (batch.length === 0) break;
+          allFunds.push(...batch);
+          backendTotal = pageResult?.total ?? allFunds.length;
+          backendPage++;
+          if (backendPage > 100) break; // 安全上限
+        }
+        const rawFunds = allFunds;
         let result = rawFunds.map(mapFundItem).filter(Boolean);
 
         // 本地筛选
@@ -113,7 +125,7 @@ export const fundRouter = createRouter({
     .input(z.object({ id: z.number() }))
     .query(async ({ input }) => {
       try {
-        const ftList = await getFundList({ guoyuan_only: true, page_size: 10000 });
+        const ftList = await getFundList({ guoyuan_only: true, page_size: 100 });
         const rawFunds = Array.isArray(ftList?.funds) ? ftList.funds : [];
         const fund = rawFunds.find((f: any) => {
           const mapped = mapFundItem(f);
@@ -133,7 +145,7 @@ export const fundRouter = createRouter({
     .input(z.object({ id: z.number() }))
     .query(async ({ input }) => {
       try {
-        const ftList = await getFundList({ guoyuan_only: true, page_size: 10000 });
+        const ftList = await getFundList({ guoyuan_only: true, page_size: 100 });
         const rawFunds = Array.isArray(ftList?.funds) ? ftList.funds : [];
         const allFunds = rawFunds.map(mapFundItem).filter(Boolean);
         const managerFund = allFunds.find((f: any) => f.managerId === input.id);
@@ -164,7 +176,7 @@ export const fundRouter = createRouter({
   // 持续营销名单
   continuousMarketing: publicQuery.query(async () => {
     try {
-      const ftResult = await getFundList({ guoyuan_only: true, page_size: 10000 });
+      const ftResult = await getFundList({ guoyuan_only: true, page_size: 100 });
       const rawFunds = Array.isArray(ftResult?.funds) ? ftResult.funds : [];
       return rawFunds.map(mapFundItem).filter((f: any) => f?.isContinuousMarketing === 1);
     } catch (err) {
@@ -187,7 +199,7 @@ export const fundRouter = createRouter({
           throw new Error("Invalid recommendation response");
         }
 
-        const ftList = await getFundList({ guoyuan_only: true, page_size: 10000 });
+        const ftList = await getFundList({ guoyuan_only: true, page_size: 100 });
         const rawFunds = Array.isArray(ftList?.funds) ? ftList.funds : [];
         const fundsMap = new Map(rawFunds.map((f: any) => [f.code, mapFundItem(f)]));
 
@@ -224,7 +236,7 @@ export const fundRouter = createRouter({
     )
     .query(async ({ input }) => {
       try {
-        const ftList = await getFundList({ guoyuan_only: true, page_size: 10000 });
+        const ftList = await getFundList({ guoyuan_only: true, page_size: 100 });
         const rawFunds = Array.isArray(ftList?.funds) ? ftList.funds : [];
         const allFunds = rawFunds.map(mapFundItem).filter(Boolean);
         const codes = input.fundIds.map((id) => {
@@ -272,7 +284,7 @@ export const fundRouter = createRouter({
   // 市场概览
   marketOverview: publicQuery.query(async () => {
     try {
-      const ftResult = await getFundList({ guoyuan_only: true, page_size: 10000 });
+      const ftResult = await getFundList({ guoyuan_only: true, page_size: 100 });
       const rawFunds = Array.isArray(ftResult?.funds) ? ftResult.funds : [];
       const funds = rawFunds.map(mapFundItem).filter(Boolean);
       const totalFunds = funds.length;
