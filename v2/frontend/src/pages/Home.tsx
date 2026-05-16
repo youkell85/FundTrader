@@ -222,19 +222,19 @@ export default function Home() {
           />
           <div className="flex gap-2 flex-wrap">
             <select value={fundType} onChange={(e) => { setFundType(e.target.value); setPage(1); }}
-              className="h-11 px-3 rounded-xl bg-white/[0.03] border border-white/[0.06] text-white/70 text-sm focus:outline-none focus:border-[#3B6CFF]/50">
-              <option value="">全部类型</option>
-              {Object.entries(typeLabels).map(([k, v]) => (<option key={k} value={k}>{v}</option>))}
+              className="h-11 px-3 rounded-xl bg-[#0B1021] border border-white/[0.08] text-white text-sm focus:outline-none focus:border-[#3B6CFF]/50">
+              <option value="" className="bg-[#0B1021] text-white">全部类型</option>
+              {Object.entries(typeLabels).map(([k, v]) => (<option key={k} value={k} className="bg-[#0B1021] text-white">{v}</option>))}
             </select>
             <select value={riskLevel} onChange={(e) => { setRiskLevel(e.target.value); setPage(1); }}
-              className="h-11 px-3 rounded-xl bg-white/[0.03] border border-white/[0.06] text-white/70 text-sm focus:outline-none focus:border-[#3B6CFF]/50">
-              <option value="">全部风险</option>
-              {Object.entries(riskLabels).map(([k, v]) => (<option key={k} value={k}>{v}</option>))}
+              className="h-11 px-3 rounded-xl bg-[#0B1021] border border-white/[0.08] text-white text-sm focus:outline-none focus:border-[#3B6CFF]/50">
+              <option value="" className="bg-[#0B1021] text-white">全部风险</option>
+              {Object.entries(riskLabels).map(([k, v]) => (<option key={k} value={k} className="bg-[#0B1021] text-white">{v}</option>))}
             </select>
             <select value={category} onChange={(e) => { setCategory(e.target.value); setPage(1); }}
-              className="h-11 px-3 rounded-xl bg-white/[0.03] border border-white/[0.06] text-white/70 text-sm focus:outline-none focus:border-[#3B6CFF]/50">
-              <option value="">全部分类</option>
-              {filterOpts.categories?.map((c) => (<option key={c} value={c}>{c}</option>))}
+              className="h-11 px-3 rounded-xl bg-[#0B1021] border border-white/[0.08] text-white text-sm focus:outline-none focus:border-[#3B6CFF]/50">
+              <option value="" className="bg-[#0B1021] text-white">全部分类</option>
+              {filterOpts.categories?.map((c) => (<option key={c} value={c} className="bg-[#0B1021] text-white">{c}</option>))}
             </select>
             <button onClick={() => { setIsMarketingOnly(!isMarketingOnly); setPage(1); }}
               className={`h-11 px-4 rounded-xl text-sm font-medium transition-all ${isMarketingOnly ? "bg-[#3B6CFF]/20 text-[#00F0FF] border border-[#3B6CFF]/30" : "bg-white/[0.03] text-white/50 border border-white/[0.06] hover:bg-white/[0.06]"}`}>
