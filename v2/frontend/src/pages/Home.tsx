@@ -1,6 +1,6 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef, useCallback } from "react";
 import { Link } from "react-router";
-import { Search, TrendingUp, TrendingDown, Star, PieChart, Activity, Shield } from "lucide-react";
+import { Search, TrendingUp, TrendingDown, Star, PieChart, Activity, Shield, Camera, X, Loader2 } from "lucide-react";
 import {
   getEnrichedFunds,
   getFilterOptions,
@@ -17,6 +17,13 @@ const riskLabels: Record<string, string> = {
   medium_high: "中高风险", high: "高风险",
 };
 
+interface ImageSearchResult {
+  summary: string;
+  recognizedCount: number;
+  matchedCount: number;
+  funds: any[];
+}
+
 export default function Home() {
   const allFunds = useMemo(() => getEnrichedFunds(), []);
   const filterOpts = useMemo(() => getFilterOptions(), []);
@@ -32,6 +39,13 @@ export default function Home() {
   const [page, setPage] = useState(1);
   const pageSize = 15;
   const [hoveredRow, setHoveredRow] = useState<number | null>(null);
+
+  // Image search states
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [isRecognizing, setIsRecognizing] = useState(false);
+  const [imageResult, setImageResult] = useState<ImageSearchResult | null>(null);
+  const [imageError, setImageError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const filteredFunds = useMemo(() => {
     let result = [...allFunds];
@@ -66,6 +80,87 @@ export default function Home() {
   }, [filteredFunds, page]);
 
   const totalPages = Math.ceil(filteredFunds.length / pageSize);
+
+  // Compress image before upload to reduce base64 size
+  const compressImage = useCallback((file: File, maxWidth = 1200, quality = 0.7): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        img.src = e.target?.result as string;
+        img.onload = () => {
+          const canvas = document.createElement("canvas");
+          let { width, height } = img;
+          if (width > maxWidth) {
+            height = (height * maxWidth) / width;
+            width = maxWidth;
+          }
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext("2d");
+          ctx?.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL("image/jpeg", quality));
+        };
+        img.onerror = reject;
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }, []);
+
+  const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith("image/")) {
+      setImageError("请选择图片文件");
+      return;
+    }
+    // Validate file size (max 10MB)
+    if (file.size > 10 * 1024 * 1024) {
+      setImageError("图片大小不能超过10MB");
+      return;
+    }
+
+    setImageError(null);
+    setImageResult(null);
+    setIsRecognizing(true);
+
+    try {
+      const compressed = await compressImage(file);
+      setImagePreview(compressed);
+
+      const res = await fetch("/fund/api/image-search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ image_base64: compressed }),
+      });
+      const data = await res.json();
+
+      if (!data.success) {
+        setImageError(data.error || "识别失败");
+      } else {
+        setImageResult({
+          summary: data.summary || "",
+          recognizedCount: data.recognized_count || 0,
+          matchedCount: data.matched_count || 0,
+          funds: data.funds || [],
+        });
+      }
+    } catch (err: any) {
+      setImageError(err.message || "上传识别失败，请重试");
+    } finally {
+      setIsRecognizing(false);
+    }
+  }, [compressImage]);
+
+  const clearImageSearch = useCallback(() => {
+    setImagePreview(null);
+    setImageResult(null);
+    setImageError(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }, []);
 
   return (
     <div className="min-h-screen pt-14 pb-12">
@@ -110,6 +205,21 @@ export default function Home() {
               className="w-full h-11 pl-10 pr-4 rounded-xl bg-white/[0.03] border border-white/[0.06] text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-[#3B6CFF]/50 focus:bg-white/[0.05] transition-all"
             />
           </div>
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="h-11 px-4 rounded-xl bg-white/[0.03] border border-white/[0.06] text-white/60 text-sm hover:bg-white/[0.06] hover:text-white transition-all flex items-center gap-2 shrink-0"
+            title="拍照识别基金"
+          >
+            <Camera className="w-4 h-4" />
+            <span className="hidden md:inline">拍照识别</span>
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handleFileSelect}
+          />
           <div className="flex gap-2 flex-wrap">
             <select value={fundType} onChange={(e) => { setFundType(e.target.value); setPage(1); }}
               className="h-11 px-3 rounded-xl bg-white/[0.03] border border-white/[0.06] text-white/70 text-sm focus:outline-none focus:border-[#3B6CFF]/50">
@@ -132,6 +242,67 @@ export default function Home() {
             </button>
           </div>
         </div>
+
+        {/* Image search result panel */}
+        {(imagePreview || isRecognizing || imageResult || imageError) && (
+          <div className="mt-4 liquid-glass-sm p-4 relative">
+            <button
+              onClick={clearImageSearch}
+              className="absolute top-3 right-3 text-white/30 hover:text-white/60 transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+            <div className="flex items-start gap-4">
+              {imagePreview && (
+                <div className="shrink-0">
+                  <img src={imagePreview} alt="识别图片" className="w-24 h-24 object-cover rounded-lg border border-white/[0.06]" />
+                </div>
+              )}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-2">
+                  <Camera className="w-4 h-4 text-[#00F0FF]" />
+                  <span className="text-white/80 text-sm font-medium">AI 图片识别</span>
+                  {isRecognizing && (
+                    <span className="flex items-center gap-1 text-white/40 text-xs">
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      识别中...
+                    </span>
+                  )}
+                </div>
+                {imageError && (
+                  <p className="text-[#FF3366] text-sm">{imageError}</p>
+                )}
+                {imageResult && (
+                  <div>
+                    <p className="text-white/50 text-xs mb-2">{imageResult.summary}</p>
+                    <p className="text-white/40 text-xs mb-3">
+                      识别到 {imageResult.recognizedCount} 只基金，匹配到 {imageResult.matchedCount} 只
+                    </p>
+                    {imageResult.funds.length > 0 ? (
+                      <div className="flex flex-wrap gap-2">
+                        {imageResult.funds.map((fund: any) => (
+                          <Link
+                            key={fund.id || fund.code}
+                            to={`/fund/${fund.id}`}
+                            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.06] hover:bg-white/[0.08] hover:border-[#3B6CFF]/30 transition-all"
+                          >
+                            <div>
+                              <div className="text-white text-sm font-medium">{fund.fundAbbr || fund.fundName}</div>
+                              <div className="text-white/30 text-xs">{fund.fundCode}</div>
+                            </div>
+                            <TrendingUp className="w-3 h-3 text-[#A3FF12]" />
+                          </Link>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="text-white/30 text-sm">未在基金库中匹配到相关产品</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="mt-4 flex items-center gap-2 flex-wrap">
           <span className="text-white/30 text-xs">排序:</span>

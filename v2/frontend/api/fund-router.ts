@@ -12,6 +12,7 @@ import {
   getProfessionalAnalysis,
   getCorrelationMatrix,
   getWatchlist,
+  imageSearchFund,
 } from "./lib/fundtrader-client";
 import {
   mapFundItem,
@@ -302,4 +303,30 @@ export const fundRouter = createRouter({
       return mapMarketOverview({});
     }
   }),
+
+  // 图片识别基金
+  imageSearch: publicQuery
+    .input(z.object({ imageBase64: z.string() }))
+    .mutation(async ({ input }) => {
+      try {
+        const result = await ftFetch<any>(`/fund/image-search?image_base64=${encodeURIComponent(input.imageBase64)}`, {
+          method: "POST",
+        });
+        if (!result.success) {
+          throw new Error(result.error || "图片识别失败");
+        }
+        // 将后端原始基金数据映射为前端格式
+        const mappedFunds = Array.isArray(result.funds)
+          ? result.funds.map(mapFundItem).filter(Boolean)
+          : [];
+        return {
+          summary: result.summary || "",
+          recognizedCount: result.recognized_count || 0,
+          matchedCount: result.matched_count || 0,
+          funds: mappedFunds,
+        };
+      } catch (err) {
+        wrapError(err, "图片识别基金失败");
+      }
+    }),
 });

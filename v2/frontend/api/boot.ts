@@ -13,6 +13,23 @@ const app = new Hono<{ Bindings: HttpBindings }>();
 
 app.use(bodyLimit({ maxSize: 50 * 1024 * 1024 }));
 
+// Image search proxy: forwards base64 JSON to FastAPI backend
+const API_BASE = process.env.FUNDTRADER_API_BASE || "http://localhost:8766";
+app.post("/api/image-search", async (c) => {
+  try {
+    const body = await c.req.json();
+    const res = await fetch(`${API_BASE}/fund/image-search`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    return c.json(data);
+  } catch (err: any) {
+    return c.json({ success: false, error: err.message || "识别服务异常" }, 500);
+  }
+});
+
 app.use("/api/trpc/*", async (c) => {
   return fetchRequestHandler({
     endpoint: "/api/trpc",

@@ -103,3 +103,34 @@ export async function getWatchlist() {
 export async function healthCheck() {
   return ftFetch<any>("/health");
 }
+
+// 图片识别基金
+export async function imageSearchFund(file: File) {
+  const url = `${API_BASE}/fund/image-search`;
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 60000);
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      body: formData,
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`Image search error ${res.status}: ${text}`);
+    }
+    const text = await res.text();
+    try {
+      return JSON.parse(text) as any;
+    } catch {
+      throw new Error(`Image search returned invalid JSON: ${text.slice(0, 200)}`);
+    }
+  } catch (err) {
+    clearTimeout(timer);
+    throw err;
+  }
+}
