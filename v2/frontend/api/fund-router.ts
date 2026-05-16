@@ -31,14 +31,18 @@ export const fundRouter = createRouter({
         riskLevel: z.string().optional(),
         isContinuousMarketing: z.number().optional(),
         search: z.string().optional(),
-        sortBy: z.string().default("dailyChange"),
-        sortOrder: z.enum(["asc", "desc"]).default("desc"),
-        page: z.number().default(1),
-        pageSize: z.number().default(20),
-      })
+        sortBy: z.string().optional(),
+        sortOrder: z.enum(["asc", "desc"]).optional(),
+        page: z.number().optional(),
+        pageSize: z.number().optional(),
+      }).optional()
     )
     .query(async ({ input }) => {
-      const opts = input;
+      const opts = input || {};
+      const page = opts.page ?? 1;
+      const pageSize = opts.pageSize ?? 20;
+      const sortBy = opts.sortBy ?? "dailyChange";
+      const sortOrder = opts.sortOrder ?? "desc";
 
       // 调用 FundTrader 后端获取基金列表
       const ftResult = await getFundList({
@@ -63,8 +67,8 @@ export const fundRouter = createRouter({
       }
 
       // 排序
-      const sortKey = opts.sortBy;
-      const sortDir = opts.sortOrder;
+      const sortKey = sortBy;
+      const sortDir = sortOrder;
       result.sort((a: any, b: any) => {
         const aPerf = a.performance || {};
         const bPerf = b.performance || {};
@@ -78,8 +82,6 @@ export const fundRouter = createRouter({
       });
 
       const total = result.length;
-      const page = opts.page;
-      const pageSize = opts.pageSize;
       const paginated = result.slice((page - 1) * pageSize, page * pageSize);
 
       return { funds: paginated, total, page, pageSize };
