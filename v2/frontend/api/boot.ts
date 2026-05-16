@@ -45,6 +45,12 @@ const indexHtml = fs.existsSync(path.resolve(distPath, "index.html"))
   ? fs.readFileSync(path.resolve(distPath, "index.html"), "utf-8")
   : null;
 
+// SPA fallback: serve index.html for all non-API routes
+app.get("/fund/*", (c) => {
+  if (indexHtml) return c.html(indexHtml);
+  return c.json({ error: "Not Found" }, 404);
+});
+
 app.use("*", serveStatic({
   root: distPath,
   rewriteRequestPath: (p) => p.replace(/^\/fund/, "") || "/",
