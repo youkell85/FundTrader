@@ -1,6 +1,5 @@
 import type { FetchCreateContextFnOptions } from "@trpc/server/adapters/fetch";
 import type { User } from "@db/schema";
-import { authenticateRequest } from "./kimi/auth";
 
 export type TrpcContext = {
   req: Request;
@@ -11,11 +10,6 @@ export type TrpcContext = {
 export async function createContext(
   opts: FetchCreateContextFnOptions,
 ): Promise<TrpcContext> {
-  const ctx: TrpcContext = { req: opts.req, resHeaders: opts.resHeaders };
-  try {
-    ctx.user = await authenticateRequest(opts.req.headers);
-  } catch {
-    // Authentication is optional here
-  }
-  return ctx;
+  // FundTrader 2.0: no authentication system, return empty context
+  return { req: opts.req, resHeaders: opts.resHeaders };
 }
