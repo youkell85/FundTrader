@@ -17,7 +17,7 @@ from .base import (
     DataProvider, FundBasic, FundNav, FundHolding, FundDetail,
     FundPerformance, FundRisk, FundDividend, FundScale, FundCompany,
 )
-from ...utils import console_error, console_log
+from ...utils import console_error
 
 
 class iFinDProvider(DataProvider):
