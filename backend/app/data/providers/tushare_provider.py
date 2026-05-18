@@ -322,20 +322,30 @@ class TushareProvider(DataProvider):
         return result
 
     def get_fund_scale(self, code: str) -> Optional[FundScale]:
-        """获取基金最新规模"""
+        """获取基金最新规模（通过fund_share接口获取份额，fund_nav获取资产净值）"""
         pro = self._get_pro()
         if pro is None:
             return None
-        df = self._safe_call(pro.fund_scale, ts_code=f"{code}.OF")
-        if df is None or df.empty:
+        ts_code = f"{code}.OF"
+        # 获取最新份额
+        share_df = self._safe_call(pro.fund_share, ts_code=ts_code)
+        if share_df is None or share_df.empty:
             return None
-        # 取最新一期
-        df = df.sort_values(by="end_date", ascending=False)
-        row = df.iloc[0]
+        share_df = share_df.sort_values(by="trade_date", ascending=False)
+        row = share_df.iloc[0]
+        fd_share = self._safe_float(row.get("fd_share"))
+        # 尝试从最新净值获取资产净值
+        total_nav = None
+        nav_df = self._safe_call(pro.fund_nav, ts_code=ts_code, end_date=str(row.get("trade_date", "")))
+        if nav_df is not None and not nav_df.empty:
+            nav_df = nav_df.sort_values(by="nav_date", ascending=False)
+            latest_nav = self._safe_float(nav_df.iloc[0].get("unit_nav"))
+            if latest_nav and fd_share:
+                total_nav = round(latest_nav * fd_share / 100000, 4)  # 万份*单位净值/100000=亿元
         return FundScale(
-            end_date=self._parse_date(str(row.get("end_date", ""))),
-            total_nav=self._safe_float(row.get("total_nav")),
-            fd_share=self._safe_float(row.get("fd_share")),
+            end_date=self._parse_date(str(row.get("trade_date", ""))),
+            total_nav=total_nav,
+            fd_share=fd_share,
         )
 
     def get_etf_basic(self, code: str = "") -> List[FundBasic]:
@@ -365,7 +375,7 @@ class TushareProvider(DataProvider):
         return result
 
     def get_etf_daily(self, code: str, start_date: str = "", end_date: str = "") -> List[FundNav]:
-        """获取ETF日线行情"""
+        """获取ETF日线行情（使用fund_daily接口）"""
         pro = self._get_pro()
         if pro is None:
             return []
@@ -376,7 +386,7 @@ class TushareProvider(DataProvider):
             kwargs["start_date"] = start_date.replace("-", "")
         if end_date:
             kwargs["end_date"] = end_date.replace("-", "")
-        df = self._safe_call(pro.etf_daily, **kwargs)
+        df = self._safe_call(pro.fund_daily, **kwargs)
         if df is None or df.empty:
             return []
         df = df.sort_values(by="trade_date", ascending=True)
