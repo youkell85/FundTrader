@@ -10,6 +10,8 @@ Environment=API_HOST=0.0.0.0
 Environment=API_PORT=8766
 Environment=API_PREFIX=/fund/api
 Environment=CACHE_DIR=/tmp/fundtrader_cache
+Environment=TICKFLOW_API_KEY=tk_3adaccdabb854cde9d5346b334557fcd
+Environment=TICKFLOW_API_LEVEL=free
 ExecStart=/usr/bin/python3 -m uvicorn app.main:app --host 0.0.0.0 --port 8766 --root-path /fund/api
 Restart=always
 RestartSec=5

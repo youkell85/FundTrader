@@ -1,4 +1,15 @@
 """FundTrader FastAPI 主入口"""
+from pathlib import Path
+from dotenv import load_dotenv
+
+# 加载 .env 文件（优先加载 backend/.env，再加载项目根目录 .env）
+_env_backend = Path(__file__).resolve().parent.parent / ".env"
+_env_root = Path(__file__).resolve().parent.parent.parent / ".env"
+if _env_backend.exists():
+    load_dotenv(_env_backend)
+elif _env_root.exists():
+    load_dotenv(_env_root)
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .config import API_PREFIX, CORS_ORIGINS
