@@ -125,22 +125,38 @@ class iFinDProvider(DataProvider):
             return None
 
     def _parse_mcp_content(self, content: list) -> Optional[Dict]:
-        """解析 MCP content 数组"""
+        """解析 MCP content 数组
+
+        iFinD MCP 实际响应格式：
+        {"jsonrpc":"2.0","result":{"content":[{"text":"{\"code\":1,\"msg\":\"success\",\"data\":{\"text\":[...]}}","type":"text"}]},"id":1}
+
+        即 content[0].text 是一个 JSON 字符串，其中 data.text 是实际数据
+        """
         if not content:
             return None
-        # MCP content 通常是 [{type: "text", text: "..."}]
         texts = []
         for item in content:
             if isinstance(item, dict) and item.get("type") == "text":
                 texts.append(item.get("text", ""))
-        if texts:
-            full_text = "\n".join(texts)
-            # 尝试解析为 JSON
-            try:
-                return json.loads(full_text)
-            except Exception:
-                return {"data": full_text}
-        return None
+        if not texts:
+            return None
+
+        full_text = "\n".join(texts)
+        try:
+            outer = json.loads(full_text)
+            # iFinD 标准响应: {code:1, msg:"success", data:{text: ...}}
+            if isinstance(outer, dict):
+                if outer.get("code") == 1 and "data" in outer:
+                    data = outer["data"]
+                    # data.text 可能是列表（基金搜索）或字符串（股票摘要）
+                    return data
+                # 其他 JSON 结构直接返回
+                return outer
+        except Exception:
+            pass
+
+        # 非标准 JSON，返回原始文本
+        return {"text": full_text}
 
     def _mcporter_call(self, server_name: str, tool_name: str, query: str) -> Optional[Dict]:
         """通过 mcporter CLI 调用 iFinD MCP (备选方案)"""
@@ -333,54 +349,61 @@ class iFinDProvider(DataProvider):
     # ========== MCP 专属方法 ==========
 
     def search_funds(self, query: str) -> List[Dict[str, Any]]:
-        """MCP: 自然语言搜索基金"""
+        """MCP: 自然语言搜索基金
+
+        iFinD 返回格式: data.text = [{"基金简称": "xxx", "基金代码": "159807.SZ"}, ...]
+        """
         result = self._request(self.MCP_FUND_URL, "hexin-ifind-fund", "search_funds", query)
         if not result:
             return []
-        data = result.get("data", [])
-        return data if isinstance(data, list) else []
+        # result 是 data 对象，其中 text 字段是列表
+        items = result.get("text", []) if isinstance(result, dict) else []
+        if isinstance(items, str):
+            # 有时 text 是字符串（如股票摘要），直接返回
+            return [{"text": items}]
+        return items
 
     def get_fund_profile(self, code: str) -> Optional[Dict[str, Any]]:
         """MCP: 获取基金基本资料"""
         result = self._request(self.MCP_FUND_URL, "hexin-ifind-fund", "get_fund_profile", code)
         if not result:
             return None
-        return result.get("data", result)
+        return result.get("text", result) if isinstance(result, dict) else result
 
     def get_fund_market_performance(self, code: str) -> Optional[Dict[str, Any]]:
         """MCP: 获取基金行情与业绩"""
         result = self._request(self.MCP_FUND_URL, "hexin-ifind-fund", "get_fund_market_performance", code)
         if not result:
             return None
-        return result.get("data", result)
+        return result.get("text", result) if isinstance(result, dict) else result
 
     def get_fund_ownership(self, code: str) -> Optional[Dict[str, Any]]:
         """MCP: 获取基金份额与持有人结构"""
         result = self._request(self.MCP_FUND_URL, "hexin-ifind-fund", "get_fund_ownership", code)
         if not result:
             return None
-        return result.get("data", result)
+        return result.get("text", result) if isinstance(result, dict) else result
 
     def get_fund_portfolio(self, code: str) -> Optional[Dict[str, Any]]:
         """MCP: 获取基金投资标的与资产配置"""
         result = self._request(self.MCP_FUND_URL, "hexin-ifind-fund", "get_fund_portfolio", code)
         if not result:
             return None
-        return result.get("data", result)
+        return result.get("text", result) if isinstance(result, dict) else result
 
     def get_fund_financials(self, code: str) -> Optional[Dict[str, Any]]:
         """MCP: 获取基金财务指标"""
         result = self._request(self.MCP_FUND_URL, "hexin-ifind-fund", "get_fund_financials", code)
         if not result:
             return None
-        return result.get("data", result)
+        return result.get("text", result) if isinstance(result, dict) else result
 
     def get_fund_company_info(self, company_name: str) -> Optional[Dict[str, Any]]:
         """MCP: 获取基金公司信息"""
         result = self._request(self.MCP_FUND_URL, "hexin-ifind-fund", "get_fund_company_info", company_name)
         if not result:
             return None
-        return result.get("data", result)
+        return result.get("text", result) if isinstance(result, dict) else result
 
     # ========== 股票数据接口 ==========
 
@@ -389,63 +412,63 @@ class iFinDProvider(DataProvider):
         result = self._request(self.MCP_STOCK_URL, "hexin-ifind-stock", "get_stock_summary", query)
         if not result:
             return None
-        return result.get("data", result)
+        return result.get("text", result) if isinstance(result, dict) else result
 
     def search_stocks(self, query: str) -> Optional[Dict[str, Any]]:
         """MCP: 智能选股"""
         result = self._request(self.MCP_STOCK_URL, "hexin-ifind-stock", "search_stocks", query)
         if not result:
             return None
-        return result.get("data", result)
+        return result.get("text", result) if isinstance(result, dict) else result
 
     def get_stock_performance(self, query: str) -> Optional[Dict[str, Any]]:
         """MCP: 获取股票历史行情与技术指标"""
         result = self._request(self.MCP_STOCK_URL, "hexin-ifind-stock", "get_stock_perfomance", query)
         if not result:
             return None
-        return result.get("data", result)
+        return result.get("text", result) if isinstance(result, dict) else result
 
     def get_stock_info(self, query: str) -> Optional[Dict[str, Any]]:
         """MCP: 获取股票基本资料"""
         result = self._request(self.MCP_STOCK_URL, "hexin-ifind-stock", "get_stock_info", query)
         if not result:
             return None
-        return result.get("data", result)
+        return result.get("text", result) if isinstance(result, dict) else result
 
     def get_stock_shareholders(self, query: str) -> Optional[Dict[str, Any]]:
         """MCP: 获取股本结构与股东数据"""
         result = self._request(self.MCP_STOCK_URL, "hexin-ifind-stock", "get_stock_shareholders", query)
         if not result:
             return None
-        return result.get("data", result)
+        return result.get("text", result) if isinstance(result, dict) else result
 
     def get_stock_financials(self, query: str) -> Optional[Dict[str, Any]]:
         """MCP: 获取股票财务数据与指标"""
         result = self._request(self.MCP_STOCK_URL, "hexin-ifind-stock", "get_stock_financials", query)
         if not result:
             return None
-        return result.get("data", result)
+        return result.get("text", result) if isinstance(result, dict) else result
 
     def get_risk_indicators(self, query: str) -> Optional[Dict[str, Any]]:
         """MCP: 获取风险指标"""
         result = self._request(self.MCP_STOCK_URL, "hexin-ifind-stock", "get_risk_indicators", query)
         if not result:
             return None
-        return result.get("data", result)
+        return result.get("text", result) if isinstance(result, dict) else result
 
     def get_stock_events(self, query: str) -> Optional[Dict[str, Any]]:
         """MCP: 获取公开披露事件"""
         result = self._request(self.MCP_STOCK_URL, "hexin-ifind-stock", "get_stock_events", query)
         if not result:
             return None
-        return result.get("data", result)
+        return result.get("text", result) if isinstance(result, dict) else result
 
     def get_esg_data(self, query: str) -> Optional[Dict[str, Any]]:
         """MCP: 获取ESG评级"""
         result = self._request(self.MCP_STOCK_URL, "hexin-ifind-stock", "get_esg_data", query)
         if not result:
             return None
-        return result.get("data", result)
+        return result.get("text", result) if isinstance(result, dict) else result
 
     # ========== 宏观/新闻接口 ==========
 
@@ -454,11 +477,11 @@ class iFinDProvider(DataProvider):
         result = self._request(self.MCP_EDB_URL, "hexin-ifind-edb", "get_macro_data", query)
         if not result:
             return None
-        return result.get("data", result)
+        return result.get("text", result) if isinstance(result, dict) else result
 
     def get_company_news(self, query: str) -> Optional[Dict[str, Any]]:
         """MCP: 获取公司公告与新闻资讯"""
         result = self._request(self.MCP_NEWS_URL, "hexin-ifind-news", "get_company_news", query)
         if not result:
             return None
-        return result.get("data", result)
+        return result.get("text", result) if isinstance(result, dict) else result
