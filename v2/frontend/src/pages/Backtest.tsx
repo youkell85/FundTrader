@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
-import { Calculator, Play, RotateCcw } from "lucide-react";
+import { Calculator, Play, RotateCcw, Loader2, AlertCircle } from "lucide-react";
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from "recharts";
-import { getEnrichedFunds, getBacktests } from "@/hooks/useFundData";
+import { trpc } from "@/providers/trpc";
 
 const strategies = [
   { value: "fixed_amount", label: "固定金额定投", desc: "每期投入固定金额，适合收入稳定的投资者" },
@@ -18,8 +18,10 @@ const frequencies = [
 ];
 
 export default function Backtest() {
-  const allFunds = useMemo(() => getEnrichedFunds(), []);
-  const backtestList = useMemo(() => getBacktests(), []);
+  const { data: listData, isLoading: listLoading } = trpc.fund.list.useQuery({ pageSize: 1000 });
+  const { data: backtestListData } = trpc.fund.backtests.useQuery();
+  const allFunds = listData?.funds ?? [];
+  const backtestList = backtestListData ?? [];
 
   const [selectedFunds, setSelectedFunds] = useState<number[]>([]);
   const [weights, setWeights] = useState<number[]>([]);
@@ -29,6 +31,10 @@ export default function Backtest() {
   const [startDate, setStartDate] = useState("2023-01-01");
   const [endDate, setEndDate] = useState("2025-05-15");
   const [result, setResult] = useState<any>(null);
+  const [isRunning, setIsRunning] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
+
+  const utils = trpc.useUtils();
 
   const handleAddFund = (fundId: number) => {
     if (!selectedFunds.includes(fundId)) {
@@ -44,28 +50,50 @@ export default function Backtest() {
     setWeights(newFunds.map(() => Math.floor(100 / newFunds.length)));
   };
 
-  const handleRun = () => {
+  const handleRun = async () => {
     if (selectedFunds.length === 0) return;
-    // Simulate backtest result
-    const totalInvested = parseFloat(amount) * 30;
-    const totalReturn = 15 + Math.random() * 20;
-    const finalValue = totalInvested * (1 + totalReturn / 100);
-    const monthlyData = Array.from({ length: 30 }, (_, i) => ({
-      date: `2023-${String(i + 1).padStart(2, "0")}-01`,
-      invested: (parseFloat(amount) * (i + 1)).toFixed(2),
-      value: (parseFloat(amount) * (i + 1) * (1 + (totalReturn / 100) * ((i + 1) / 30) + Math.sin(i * 0.5) * 0.05)).toFixed(2),
-    }));
-    setResult({
-      totalInvested: totalInvested.toFixed(2),
-      finalValue: finalValue.toFixed(2),
-      totalReturn: totalReturn.toFixed(2),
-      annualizedReturn: (totalReturn / 2.5).toFixed(2),
-      maxDrawdown: (-(12 + Math.random() * 10)).toFixed(2),
-      sharpeRatio: (0.6 + Math.random() * 0.5).toFixed(2),
-      benchmarkReturn: (totalReturn * 0.7).toFixed(2),
-      excessReturn: (totalReturn * 0.3).toFixed(2),
-      monthlyData,
-    });
+    const investAmount = parseFloat(amount);
+    if (!investAmount || investAmount <= 0) {
+      setErrorMsg("单次投入金额必须大于0");
+      return;
+    }
+    if (new Date(startDate) >= new Date(endDate)) {
+      setErrorMsg("起始日期必须早于结束日期");
+      return;
+    }
+    setIsRunning(true);
+    setErrorMsg("");
+    try {
+      let normalizedWeights = weights.length > 0
+        ? weights
+        : selectedFunds.map(() => Math.floor(100 / selectedFunds.length));
+      // 自动归一化权重使其总和为100
+      const totalW = normalizedWeights.reduce((a, b) => a + b, 0);
+      if (totalW !== 100 && totalW > 0) {
+        normalizedWeights = normalizedWeights.map((w) => Math.round((w / totalW) * 100));
+        // 修正舍入误差
+        const diff = 100 - normalizedWeights.reduce((a, b) => a + b, 0);
+        if (diff !== 0) normalizedWeights[0] += diff;
+      }
+      const data = await utils.fund.runBacktest.fetch({
+        fundIds: selectedFunds,
+        weights: normalizedWeights,
+        strategy: strategy as any,
+        startDate,
+        endDate,
+        investAmount,
+        investFrequency: frequency as any,
+      });
+      if (data) {
+        setResult(data);
+      }
+    } catch (err: any) {
+      const msg = err?.message || "回测计算失败，请检查参数后重试";
+      console.error("回测失败:", err);
+      setErrorMsg(msg);
+    } finally {
+      setIsRunning(false);
+    }
   };
 
   const selectedFundDetails = selectedFunds.map((id) => allFunds.find((f: any) => f.id === id)).filter(Boolean);
@@ -153,9 +181,16 @@ export default function Backtest() {
                 </div>
               </div>
 
-              <button onClick={handleRun} disabled={selectedFunds.length === 0}
+              {errorMsg && (
+                <div className="mb-3 flex items-start gap-2 text-xs text-[#FF3366]">
+                  <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                  <span>{errorMsg}</span>
+                </div>
+              )}
+              <button onClick={handleRun} disabled={selectedFunds.length === 0 || isRunning}
                 className="w-full h-11 rounded-xl bg-gradient-to-r from-[#3B6CFF] to-[#2A52CC] text-white font-medium text-sm flex items-center justify-center gap-2 hover:from-[#4A7CFF] hover:to-[#3A62CC] transition-all disabled:opacity-40 disabled:cursor-not-allowed">
-                <Play className="w-4 h-4" />开始回测
+                {isRunning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+                {isRunning ? "回测中..." : "开始回测"}
               </button>
             </div>
 
@@ -183,12 +218,12 @@ export default function Backtest() {
               <div className="space-y-6">
                 <div className="grid grid-cols-3 gap-3">
                   {[
-                    { label: "总投入", value: `¥${parseFloat(result.totalInvested || 0).toLocaleString()}`, color: "#3B6CFF" },
-                    { label: "最终价值", value: `¥${parseFloat(result.finalValue || 0).toLocaleString()}`, color: "#00F0FF" },
-                    { label: "总收益率", value: `+${result.totalReturn}%`, color: "#A3FF12" },
-                    { label: "年化收益", value: `${result.annualizedReturn}%`, color: "#FFB800" },
-                    { label: "最大回撤", value: `${result.maxDrawdown}%`, color: "#FF3366" },
-                    { label: "夏普比率", value: result.sharpeRatio, color: "#A3FF12" },
+                    { label: "总投入", value: `¥${(parseFloat(result.totalInvested) || 0).toLocaleString()}`, color: "#3B6CFF" },
+                    { label: "最终价值", value: `¥${(parseFloat(result.finalValue) || 0).toLocaleString()}`, color: "#00F0FF" },
+                    { label: "总收益率", value: `${parseFloat(result.totalReturn) >= 0 ? "+" : ""}${result.totalReturn ?? 0}%`, color: "#A3FF12" },
+                    { label: "年化收益", value: `${result.annualizedReturn ?? 0}%`, color: "#FFB800" },
+                    { label: "最大回撤", value: `${result.maxDrawdown ?? 0}%`, color: "#FF3366" },
+                    { label: "夏普比率", value: result.sharpeRatio ?? "—", color: "#A3FF12" },
                   ].map((card) => (
                     <div key={card.label} className="liquid-glass-sm p-4 text-center group hover:bg-white/[0.06] transition-all">
                       <div className="text-white/30 text-xs mb-1">{card.label}</div>
@@ -231,8 +266,8 @@ export default function Backtest() {
                     <div className="space-y-3">
                       <h3 className="text-sm text-white/40">回测表现</h3>
                       <div className="space-y-2 text-sm">
-                        <div className="flex justify-between"><span className="text-white/30">超额收益</span><span className="data-number text-[#00F0FF]">+{result.excessReturn}%</span></div>
-                        <div className="flex justify-between"><span className="text-white/30">基准收益</span><span className="data-number text-white/50">{result.benchmarkReturn}%</span></div>
+                        <div className="flex justify-between"><span className="text-white/30">超额收益</span><span className="data-number text-[#00F0FF]">{parseFloat(result.excessReturn) >= 0 ? "+" : ""}{result.excessReturn ?? 0}%</span></div>
+                        <div className="flex justify-between"><span className="text-white/30">基准收益</span><span className="data-number text-white/50">{result.benchmarkReturn ?? 0}%</span></div>
                       </div>
                     </div>
                     <div className="space-y-3">

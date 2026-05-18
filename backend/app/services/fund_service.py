@@ -170,6 +170,8 @@ def _get_guoyuan_funds_with_performance() -> List[Dict[str, Any]]:
 
 def _fetch_fund_performance(code: str) -> Optional[Dict[str, Any]]:
     """获取单只基金业绩数据"""
+    from ..utils.common_utils import safe_float
+    
     try:
         import akshare as ak
         df = ak.fund_open_fund_rank_em(symbol="全部")
@@ -178,15 +180,16 @@ def _fetch_fund_performance(code: str) -> Optional[Dict[str, Any]]:
             if not row.empty:
                 r = row.iloc[0]
                 return {
-                    "nav": float(r.get("单位净值", 0) or 0),
-                    "day_growth": float(r.get("日增长率", 0) or 0),
-                    "near_1m": float(r.get("近1月", 0) or 0),
-                    "near_3m": float(r.get("近3月", 0) or 0),
-                    "near_6m": float(r.get("近6月", 0) or 0),
-                    "near_1y": float(r.get("近1年", 0) or 0),
-                    "near_3y": float(r.get("近3年", 0) or 0),
-                    "ytd": float(r.get("今年来", 0) or 0),
+                    "nav": safe_float(r.get("单位净值")),
+                    "day_growth": safe_float(r.get("日增长率")),
+                    "near_1m": safe_float(r.get("近1月")),
+                    "near_3m": safe_float(r.get("近3月")),
+                    "near_6m": safe_float(r.get("近6月")),
+                    "near_1y": safe_float(r.get("近1年")),
+                    "near_3y": safe_float(r.get("近3年")),
+                    "ytd": safe_float(r.get("今年来")),
                 }
     except Exception as e:
-        console_error(f"Performance fetch error for {code}: {e}")
+        from ..utils.common_utils import handle_error_and_log
+        handle_error_and_log(e, f"Performance fetch error for {code}")
     return None

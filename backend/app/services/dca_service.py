@@ -1,16 +1,18 @@
 """定投回测服务"""
 from typing import Dict, Any, List
-from ..data.efinance_fetcher import _calc_fixed_dca, _calc_ma_dca, get_fund_names
 from ..data.cache_manager import cache
 from ..config import CACHE_TTL_NAV
 
 
 def _get_nav_history(code: str, start_date: str = "", end_date: str = "") -> List[Dict[str, Any]]:
     """优先使用融合层获取净值历史，失败回退到efinance"""
-    try:
-        from ..data.providers.fusion import get_fusion
+    from ..data.common import get_nav_history_with_fallback
+    from ..data.providers.fusion import get_fusion
+    from ..data.efinance_fetcher import get_fund_nav_history
+    
+    def primary_func(c):
         fusion = get_fusion()
-        nav_list = fusion.get_fund_nav(code)
+        nav_list = fusion.get_fund_nav(c)
         if nav_list:
             result = [
                 {"date": n.date, "nav": n.nav, "acc_nav": n.accum_nav, "day_growth": n.day_growth}
@@ -22,11 +24,17 @@ def _get_nav_history(code: str, start_date: str = "", end_date: str = "") -> Lis
                 result = [r for r in result if r["date"] <= end_date]
             if result:
                 return result
-    except Exception as e:
-        from ..utils import console_error
-        console_error(f"Fusion nav history fallback for {code}: {e}")
-    from ..data.efinance_fetcher import get_fund_nav_history
-    return get_fund_nav_history(code, start_date, end_date)
+        return None
+    
+    def fallback_func(c):
+        return get_fund_nav_history(c, start_date, end_date)
+    
+    return get_nav_history_with_fallback(
+        code, 
+        primary_func, 
+        fallback_func, 
+        error_msg_prefix="Fusion nav history fallback"
+    )
 
 
 def _calculate_dca_backtest(
@@ -39,6 +47,8 @@ def _calculate_dca_backtest(
     ma_window: int = 200,
 ) -> Dict[str, Any]:
     """基于融合层数据的定投回测计算"""
+    from ..data.efinance_fetcher import _calc_fixed_dca, _calc_ma_dca
+
     nav_data = _get_nav_history(code, start_date, end_date)
     if not nav_data:
         return {"error": f"无法获取基金 {code} 的净值数据"}

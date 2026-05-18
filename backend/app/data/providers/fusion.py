@@ -39,70 +39,40 @@ class DataFusion:
         """融合多个数据源的基金详情
         策略：按优先级逐个获取，合并非空字段
         """
+        from ...data.common import get_fund_detail_with_fallback
+        
         available = self._get_available()
         if not available:
             return None
 
-        # 主数据源：取优先级最高的完整数据
-        primary = None
-        for provider in available:
-            try:
-                detail = provider.get_fund_detail(code)
-                if detail:
-                    primary = detail
-                    break
-            except Exception as e:
-                console_error(f"Provider {provider.name} detail error: {e}")
+        def detail_extractor(provider, code):
+            return provider.get_fund_detail(code)
 
-        if primary is None:
-            return None
+        def merger(primary, detail):
+            # 合并字段：其他数据源的非空字段覆盖主数据源的空字段
+            if not primary.nav and detail.nav:
+                primary.nav = detail.nav
+            if not primary.nav_date and detail.nav_date:
+                primary.nav_date = detail.nav_date
+            if primary.day_growth is None and detail.day_growth is not None:
+                primary.day_growth = detail.day_growth
+            if not primary.name and detail.name:
+                primary.name = detail.name
+            if primary.rating is None and detail.rating is not None:
+                primary.rating = detail.rating
+            # 补充净值历史
+            if not primary.nav_history and detail.nav_history:
+                primary.nav_history = detail.nav_history
+            # 补充基金经理信息
+            if not primary.manager_info and detail.manager_info:
+                primary.manager_info = detail.manager_info
+            # 补充basic信息（如份额规模）
+            if primary.basic and detail.basic:
+                if not primary.basic.fund_share and detail.basic.fund_share:
+                    primary.basic.fund_share = detail.basic.fund_share
+            return primary
 
-        # 补充数据源：合并其他数据源的非空字段
-        for provider in available:
-            if provider.name == primary.source:
-                continue
-            try:
-                detail = provider.get_fund_detail(code)
-                if not detail:
-                    continue
-                # 合并字段：其他数据源的非空字段覆盖主数据源的空字段
-                if not primary.nav and detail.nav:
-                    primary.nav = detail.nav
-                if not primary.nav_date and detail.nav_date:
-                    primary.nav_date = detail.nav_date
-                if primary.day_growth is None and detail.day_growth is not None:
-                    primary.day_growth = detail.day_growth
-                if not primary.name and detail.name:
-                    primary.name = detail.name
-                if primary.rating is None and detail.rating is not None:
-                    primary.rating = detail.rating
-                # 补充净值历史
-                if not primary.nav_history and detail.nav_history:
-                    primary.nav_history = detail.nav_history
-                # 补充基金经理信息
-                if not primary.manager_info and detail.manager_info:
-                    primary.manager_info = detail.manager_info
-                # 补充basic信息（如份额规模）
-                if primary.basic and detail.basic:
-                    if not primary.basic.fund_share and detail.basic.fund_share:
-                        primary.basic.fund_share = detail.basic.fund_share
-            except Exception as e:
-                console_error(f"Provider {provider.name} merge error: {e}")
-
-        # 获取持仓（所有数据源中最好的）
-        primary.holdings = self._merge_holdings(code, available)
-
-        # 获取净值历史（所有数据源合并）
-        if not primary.nav_history:
-            primary.nav_history = self._merge_nav_history(code, available)
-
-        # 补充最新净值信息
-        if primary.nav_history and not primary.nav:
-            latest = primary.nav_history[-1]
-            primary.nav = latest.nav
-            primary.nav_date = latest.date
-
-        return primary
+        return get_fund_detail_with_fallback(code, available, detail_extractor, merger)
 
     def _merge_holdings(self, code: str, providers: List[DataProvider]) -> List[FundHolding]:
         """合并多个数据源的持仓数据"""

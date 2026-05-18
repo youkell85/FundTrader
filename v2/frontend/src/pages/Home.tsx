@@ -1,12 +1,7 @@
 import { useState, useMemo, useRef, useCallback } from "react";
 import { Link } from "react-router";
 import { Search, TrendingUp, TrendingDown, Star, PieChart, Activity, Shield, Camera, X, Loader2 } from "lucide-react";
-import {
-  getEnrichedFunds,
-  getFilterOptions,
-  getMarketOverview,
-  getContinuousMarketing,
-} from "@/hooks/useFundData";
+import { trpc } from "@/providers/trpc";
 
 const typeLabels: Record<string, string> = {
   equity: "股票型", hybrid: "混合型", bond: "债券型",
@@ -25,9 +20,13 @@ interface ImageSearchResult {
 }
 
 export default function Home() {
-  const allFunds = useMemo(() => getEnrichedFunds(), []);
-  const filterOpts = useMemo(() => getFilterOptions(), []);
-  const overview = useMemo(() => getMarketOverview(), []);
+  const { data: listData, isLoading: listLoading } = trpc.fund.list.useQuery({ pageSize: 1000 });
+  const { data: filterOptsData } = trpc.fund.filterOptions.useQuery();
+  const { data: overviewData } = trpc.fund.marketOverview.useQuery();
+
+  const allFunds = listData?.funds ?? [];
+  const filterOpts = filterOptsData ?? { types: [], categories: [], companies: [], riskLevels: [] };
+  const overview = overviewData ?? { totalFunds: 0, avgReturn: "0", avgSharpe: "0", avgMaxDD: "0", marketingCount: 0 };
 
   const [search, setSearch] = useState("");
   const [fundType, setFundType] = useState("");
@@ -336,7 +335,11 @@ export default function Home() {
             <div className="col-span-2 text-center">AI标签</div>
           </div>
 
-          {paginatedFunds.length === 0 ? (
+          {listLoading ? (
+            <div className="p-8 text-center text-white/30 flex items-center justify-center gap-2">
+              <Loader2 className="w-4 h-4 animate-spin" />加载中...
+            </div>
+          ) : paginatedFunds.length === 0 ? (
             <div className="p-8 text-center text-white/30">暂无数据</div>
           ) : (
             paginatedFunds.map((fund: any) => {

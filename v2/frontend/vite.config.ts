@@ -26,5 +26,27 @@ export default defineConfig({
   build: {
     outDir: path.resolve(__dirname, "dist/public"),
     emptyOutDir: true,
+    sourcemap: false,
+    reportCompressedSize: true,
+    chunkSizeWarningLimit: 500,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          "react-vendor": ["react", "react-dom", "react-router"],
+          "trpc-vendor": ["@trpc/client", "@trpc/react-query", "@trpc/server", "@tanstack/react-query", "superjson"],
+          "charts-vendor": ["recharts"],
+          "motion-vendor": ["framer-motion"],
+          "utils-vendor": ["date-fns", "zod", "clsx", "class-variance-authority", "tailwind-merge"],
+          "radix-common": [
+            "@radix-ui/react-dialog",
+            "@radix-ui/react-dropdown-menu",
+            "@radix-ui/react-select",
+            "@radix-ui/react-tooltip",
+            "@radix-ui/react-tabs",
+          ],
+        },
+      },
+    },
+    minify: "esbuild",
   },
 });

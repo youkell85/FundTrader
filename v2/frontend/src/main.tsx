@@ -4,8 +4,13 @@ import './index.css'
 import { TRPCProvider } from "@/providers/trpc"
 import App from './App.tsx'
 
-createRoot(document.getElementById('root')!).render(
-  <BrowserRouter>
+const rootEl = document.getElementById('root')
+if (!rootEl) {
+  throw new Error('Root element #root not found in DOM')
+}
+
+createRoot(rootEl).render(
+  <BrowserRouter basename="/fund">
     <TRPCProvider>
       <App />
     </TRPCProvider>

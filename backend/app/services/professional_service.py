@@ -8,10 +8,13 @@ from ..config import CACHE_TTL_NAV
 
 def _get_nav_history_pro(code: str) -> List[Dict[str, Any]]:
     """优先使用融合层获取净值历史，失败回退到efinance"""
-    try:
-        from ..data.providers.fusion import get_fusion
+    from ..data.common import get_nav_history_with_fallback
+    from ..data.providers.fusion import get_fusion
+    from ..data.efinance_fetcher import get_fund_nav_history
+    
+    def primary_func(c):
         fusion = get_fusion()
-        nav_list = fusion.get_fund_nav(code)
+        nav_list = fusion.get_fund_nav(c)
         if nav_list:
             result = [
                 {"date": n.date, "nav": n.nav, "acc_nav": n.accum_nav, "day_growth": n.day_growth}
@@ -19,11 +22,17 @@ def _get_nav_history_pro(code: str) -> List[Dict[str, Any]]:
             ]
             if result:
                 return result
-    except Exception as e:
-        from ..utils import console_error
-        console_error(f"Fusion nav history fallback for {code}: {e}")
-    from ..data.efinance_fetcher import get_fund_nav_history
-    return get_fund_nav_history(code)
+        return None
+    
+    def fallback_func(c):
+        return get_fund_nav_history(c)
+    
+    return get_nav_history_with_fallback(
+        code, 
+        primary_func, 
+        fallback_func, 
+        error_msg_prefix="Fusion nav history fallback"
+    )
 
 
 def _get_portfolio_fusion(code: str) -> Optional[Dict[str, Any]]:
@@ -40,8 +49,8 @@ def _get_portfolio_fusion(code: str) -> Optional[Dict[str, Any]]:
                 ]
             }
     except Exception as e:
-        from ..utils import console_error
-        console_error(f"Fusion portfolio fallback for {code}: {e}")
+        from ..utils.common_utils import handle_error_and_log
+        handle_error_and_log(e, f"Fusion portfolio fallback for {code}")
     return get_fund_portfolio(code)
 
 
@@ -96,51 +105,32 @@ def professional_analysis(code: str) -> Dict[str, Any]:
 
 def _calc_sharpe_ratio(returns: np.ndarray, risk_free: float = 0.02 / 252) -> float:
     """夏普比率"""
-    if len(returns) < 2 or np.std(returns) == 0:
-        return 0
-    return (np.mean(returns) - risk_free) / np.std(returns) * np.sqrt(252)
+    from ..utils.common_utils import calculate_sharpe_ratio
+    return calculate_sharpe_ratio(returns, risk_free)
 
 
 def _calc_max_drawdown(navs: List[float]) -> float:
     """最大回撤"""
-    peak = navs[0]
-    max_dd = 0
-    for nav in navs:
-        if nav > peak:
-            peak = nav
-        dd = (peak - nav) / peak * 100
-        if dd > max_dd:
-            max_dd = dd
-    return max_dd
+    from ..utils.common_utils import calculate_max_drawdown
+    return calculate_max_drawdown(navs)
 
 
 def _calc_volatility(returns: np.ndarray) -> float:
     """年化波动率"""
-    if len(returns) < 2:
-        return 0
-    return np.std(returns) * np.sqrt(252) * 100
+    from ..utils.common_utils import calculate_volatility
+    return calculate_volatility(returns)
 
 
 def _calc_calmar_ratio(returns: np.ndarray, navs: List[float]) -> float:
     """Calmar比率"""
-    max_dd = _calc_max_drawdown(navs)
-    if max_dd == 0:
-        return 0
-    annual_return = (1 + np.mean(returns)) ** 252 - 1
-    return annual_return / (max_dd / 100)
+    from ..utils.common_utils import calculate_calmar_ratio
+    return calculate_calmar_ratio(returns, navs)
 
 
 def _calc_sortino_ratio(returns: np.ndarray, risk_free: float = 0.02 / 252) -> float:
     """Sortino比率"""
-    if len(returns) < 2:
-        return 0
-    downside = returns[returns < risk_free] - risk_free
-    if len(downside) == 0:
-        return 0
-    downside_std = np.sqrt(np.mean(downside ** 2))
-    if downside_std == 0:
-        return 0
-    return (np.mean(returns) - risk_free) / downside_std * np.sqrt(252)
+    from ..utils.common_utils import calculate_sortino_ratio
+    return calculate_sortino_ratio(returns, risk_free)
 
 
 def _analyze_asset_allocation(portfolio: Optional[Dict]) -> Dict[str, Any]:

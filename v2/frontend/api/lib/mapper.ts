@@ -200,6 +200,22 @@ export function mapBacktestResult(result: any): any {
   const combined = result.combined || {};
   const first = individual[0] || combined || {};
 
+  // 提取时序数据（从 nav_curve 或 strategies.fixed.nav_curve）
+  let monthlyData: any[] = [];
+  if (first.nav_curve && Array.isArray(first.nav_curve)) {
+    monthlyData = first.nav_curve.map((p: any) => ({
+      date: p.date || "",
+      invested: p.invested != null ? String(p.invested) : "0",
+      value: p.value != null ? String(p.value) : "0",
+    }));
+  } else if (first.strategies && first.strategies.fixed && first.strategies.fixed.nav_curve) {
+    monthlyData = first.strategies.fixed.nav_curve.map((p: any) => ({
+      date: p.date || "",
+      invested: p.invested != null ? String(p.invested) : "0",
+      value: p.value != null ? String(p.value) : "0",
+    }));
+  }
+
   return {
     id: result.id || 1,
     name: result.name || "定投回测",
@@ -219,6 +235,7 @@ export function mapBacktestResult(result: any): any {
     sharpeRatio: first.sharpe_ratio != null ? String(first.sharpe_ratio) : "0",
     benchmarkReturn: first.benchmark_return != null ? String(first.benchmark_return) : "0",
     excessReturn: first.excess_return != null ? String(first.excess_return) : "0",
+    monthlyData,
   };
 }
 

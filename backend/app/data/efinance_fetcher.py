@@ -1,5 +1,4 @@
 """efinance 数据获取层 - 基金净值与定投回测"""
-import efinance as ef
 import pandas as pd
 from typing import Optional, List, Dict, Any
 from ..utils import console_error
@@ -8,6 +7,7 @@ from ..utils import console_error
 def get_fund_nav_history(code: str, start_date: str = "", end_date: str = "") -> List[Dict[str, Any]]:
     """获取基金历史净值数据"""
     try:
+        import efinance as ef
         df = ef.fund.get_fund_net_value(code)
         if df is None or df.empty:
             return []
@@ -30,6 +30,7 @@ def get_fund_names(codes: List[str]) -> Dict[str, str]:
     """批量获取基金名称"""
     result = {}
     try:
+        import efinance as ef
         for code in codes:
             try:
                 df = ef.fund.get_fund_base_info(code)

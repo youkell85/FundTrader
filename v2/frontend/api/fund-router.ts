@@ -13,6 +13,7 @@ import {
   getCorrelationMatrix,
   getWatchlist,
   imageSearchFund,
+  ftFetch,
 } from "./lib/fundtrader-client";
 import {
   mapFundItem,
@@ -266,17 +267,48 @@ export const fundRouter = createRouter({
       }
     }),
 
-  // 行业分布统计
+  // 行业分布统计（基于基金持仓聚合，抽样前30只基金）
   industryStats: publicQuery.query(async () => {
     try {
-      // FundTrader 后端没有行业统计接口，返回模拟数据
-      return [
-        { industry: "食品饮料", totalRatio: "12.50" },
-        { industry: "医药生物", totalRatio: "10.30" },
-        { industry: "电子", totalRatio: "9.80" },
-        { industry: "电力设备", totalRatio: "8.60" },
-        { industry: "银行", totalRatio: "7.40" },
-      ];
+      const ftResult = await getFundList({ guoyuan_only: true, page_size: 100 });
+      const rawFunds = Array.isArray(ftResult?.funds) ? ftResult.funds : [];
+      // 抽样前30只基金获取持仓
+      const sample = rawFunds.slice(0, 30);
+      const industryMap = new Map<string, number>();
+      let totalRatio = 0;
+
+      await Promise.all(
+        sample.map(async (f: any) => {
+          try {
+            const analysis = await getFundAnalysis(f.code);
+            const holdings = Array.isArray(analysis?.holdings) ? analysis.holdings : [];
+            holdings.forEach((h: any) => {
+              const ind = h.industry || "其他";
+              const ratio = parseFloat(h.ratio || "0");
+              if (ratio > 0) {
+                industryMap.set(ind, (industryMap.get(ind) || 0) + ratio);
+                totalRatio += ratio;
+              }
+            });
+          } catch {
+            // 单只基金分析失败不影响整体统计
+          }
+        })
+      );
+
+      if (industryMap.size === 0) {
+        return [{ industry: "暂无数据", totalRatio: "100.00" }];
+      }
+
+      // 归一化为百分比并排序
+      const sorted = Array.from(industryMap.entries())
+        .map(([industry, sum]) => ({
+          industry,
+          totalRatio: totalRatio > 0 ? ((sum / totalRatio) * 100).toFixed(2) : "0",
+        }))
+        .sort((a, b) => parseFloat(b.totalRatio) - parseFloat(a.totalRatio));
+
+      return sorted.slice(0, 10);
     } catch (err) {
       wrapError(err, "获取行业统计失败");
     }

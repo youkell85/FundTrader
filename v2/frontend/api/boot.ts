@@ -25,27 +25,38 @@ app.post("/api/image-search", async (c) => {
     });
     const data = await res.json();
     return c.json(data);
-  } catch (err: any) {
-    return c.json({ success: false, error: err.message || "识别服务异常" }, 500);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "识别服务异常";
+    return c.json({ success: false, error: message }, 500);
   }
 });
 
-app.use("/api/trpc/*", async (c) => {
+// tRPC routes
+app.use("/fund/api/trpc/*", async (c) => {
   return fetchRequestHandler({
-    endpoint: "/api/trpc",
+    endpoint: "/fund/api/trpc",
     req: c.req.raw,
     router: appRouter,
     createContext,
   });
 });
 
-// Serve static files
+// Static files - MUST be before SPA fallback
 const distPath = path.resolve(import.meta.dirname, "../dist/public");
+
+app.use("/fund/assets/*", serveStatic({
+  root: distPath,
+  rewriteRequestPath: (p) => p.replace(/^\/fund/, "") || "/",
+}));
+
 const indexHtml = fs.existsSync(path.resolve(distPath, "index.html"))
   ? fs.readFileSync(path.resolve(distPath, "index.html"), "utf-8")
   : null;
 
-// SPA fallback: serve index.html for all non-API routes
+// Redirect /fund -> /fund/ for consistent routing
+app.get("/fund", (c) => c.redirect("/fund/"));
+
+// SPA fallback: serve index.html for all non-API routes under /fund/
 app.get("/fund/*", (c) => {
   if (indexHtml) return c.html(indexHtml);
   return c.json({ error: "Not Found" }, 404);

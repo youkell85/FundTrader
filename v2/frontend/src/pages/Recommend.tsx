@@ -1,7 +1,16 @@
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import { Link } from "react-router";
-import { Shield, TrendingUp, Target, Users, Zap, ArrowRight } from "lucide-react";
-import { getRecommendations } from "@/hooks/useFundData";
+import { Shield, TrendingUp, Target, Users, Zap, ArrowRight, Loader2 } from "lucide-react";
+import { trpc } from "@/providers/trpc";
+
+function LoadingScreen() {
+  return (
+    <div className="flex flex-col items-center justify-center py-24 text-white/30">
+      <Loader2 className="w-8 h-8 animate-spin mb-3" />
+      <span className="text-sm">加载推荐方案中...</span>
+    </div>
+  );
+}
 
 const riskProfiles = [
   { value: "", label: "全部", icon: Target },
@@ -13,7 +22,8 @@ const riskProfiles = [
 
 export default function Recommend() {
   const [riskProfile, setRiskProfile] = useState("");
-  const recommendations = useMemo(() => getRecommendations(riskProfile || undefined), [riskProfile]);
+  const { data: recommendationsData, isLoading } = trpc.fund.recommendations.useQuery({ riskProfile: riskProfile || undefined });
+  const recommendations = recommendationsData ?? [];
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
   return (
@@ -40,10 +50,12 @@ export default function Recommend() {
           })}
         </div>
 
+        {isLoading ? <LoadingScreen /> : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {recommendations.map((rec: any) => {
             const isExpanded = expandedId === rec.id;
-            const totalWeight = rec.fundDetails?.reduce((sum: number, fd: any) => sum + (fd.weight || 0), 0) || 100;
+            const allocations = rec.fundAllocations || rec.fundDetails || [];
+            const totalWeight = allocations.reduce((sum: number, fd: any) => sum + (fd.weight || 0), 0) || 100;
             return (
               <div key={rec.id} className="liquid-glass overflow-hidden">
                 <div className="p-6">
@@ -76,13 +88,13 @@ export default function Recommend() {
 
                   <div className="mb-4">
                     <div className="flex items-center gap-1 h-3 rounded-full overflow-hidden bg-white/[0.03]">
-                      {rec.fundDetails?.map((fd: any, i: number) => {
+                      {allocations.map((fd: any, i: number) => {
                         const colors = ["#3B6CFF", "#00F0FF", "#A3FF12", "#FFB800", "#FF3366"];
                         return <div key={i} className="h-full transition-all" style={{ width: `${(fd.weight / totalWeight) * 100}%`, backgroundColor: colors[i % colors.length] }} />;
                       })}
                     </div>
                     <div className="flex flex-wrap gap-3 mt-2">
-                      {rec.fundDetails?.map((fd: any, i: number) => {
+                      {allocations.map((fd: any, i: number) => {
                         const colors = ["#3B6CFF", "#00F0FF", "#A3FF12", "#FFB800", "#FF3366"];
                         return (
                           <div key={i} className="flex items-center gap-1.5">
@@ -109,7 +121,7 @@ export default function Recommend() {
                       </div>
                       <div className="space-y-3">
                         <h3 className="text-sm text-white/40">基金配置明细</h3>
-                        {rec.fundDetails?.map((fd: any, i: number) => (
+                        {allocations.map((fd: any, i: number) => (
                           <Link key={i} to={`/fund/${fd.fundId}`}
                             className="flex items-center gap-3 liquid-glass-sm p-3 hover:bg-white/[0.06] transition-all group">
                             <div className="data-number text-white/20 text-xs w-5">{i + 1}</div>
@@ -132,6 +144,7 @@ export default function Recommend() {
             );
           })}
         </div>
+        )}
       </div>
     </div>
   );

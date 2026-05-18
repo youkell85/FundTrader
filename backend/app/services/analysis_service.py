@@ -1,7 +1,6 @@
 """深度产品分析服务 - 多数据源融合版"""
 from typing import Dict, Any, Optional, List
 from ..data.akshare_fetcher import get_fund_info, get_fund_manager_info, get_fund_portfolio
-from ..data.efinance_fetcher import get_fund_nav_history
 from ..data.providers.fusion import get_fusion
 from ..data.cache_manager import cache
 from ..config import CACHE_TTL_NAV, CACHE_TTL_INFO
@@ -86,6 +85,7 @@ def _analyze_fund_legacy(code: str) -> Dict[str, Any]:
     nav_cache_key = f"fund_nav_{code}"
     nav_data = cache.get(nav_cache_key, CACHE_TTL_NAV)
     if nav_data is None:
+        from ..data.efinance_fetcher import get_fund_nav_history
         nav_data = get_fund_nav_history(code)
         if nav_data:
             cache.set(nav_cache_key, nav_data)
@@ -131,44 +131,14 @@ def _analyze_fund_legacy(code: str) -> Dict[str, Any]:
 
 def _extract_latest_nav(nav_data: Optional[List[Dict]]) -> Dict[str, Any]:
     """从净值历史中提取最新净值、日期和日涨跌幅"""
-    if not nav_data:
-        return {"nav": None, "nav_date": None, "day_growth": None}
-    # 按日期排序取最新
-    sorted_data = sorted(nav_data, key=lambda x: x.get("date", "") or x.get("净值日期", "") or "", reverse=True)
-    latest = sorted_data[0] if sorted_data else {}
-    nav = latest.get("nav") or latest.get("单位净值") or latest.get("nav_value")
-    nav_date = latest.get("date") or latest.get("净值日期") or latest.get("nav_date")
-    day_growth = latest.get("day_growth") or latest.get("日增长率") or latest.get("daily_change")
-    # 尝试从最新两条计算日涨跌幅
-    if day_growth is None and len(sorted_data) >= 2:
-        try:
-            prev = sorted_data[1]
-            prev_nav = float(prev.get("nav") or prev.get("单位净值") or 0)
-            curr_nav = float(nav or 0)
-            if prev_nav > 0:
-                day_growth = round((curr_nav - prev_nav) / prev_nav * 100, 2)
-        except (ValueError, TypeError):
-            pass
-    return {
-        "nav": nav,
-        "nav_date": nav_date,
-        "day_growth": day_growth,
-    }
+    from ..utils.common_utils import extract_latest_nav
+    return extract_latest_nav(nav_data)
 
 
 def _extract_fund_name(info: Optional[Dict], code: str) -> str:
     """从多种可能的数据源格式中提取基金名称"""
-    if not info:
-        return code
-    # 尝试多种可能的键名
-    for key in ["基金简称", "name", "基金名称", "fund_name", "简称", "名称"]:
-        if key in info and info[key]:
-            return info[key]
-    # 如果info是item-value格式
-    for key, val in info.items():
-        if isinstance(val, str) and len(val) > 4 and "基金" in val:
-            return val
-    return code
+    from ..utils.common_utils import extract_fund_name
+    return extract_fund_name(info, code)
 
 
 def _calc_strategy_signal(

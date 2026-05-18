@@ -1,22 +1,35 @@
 import { useState, useMemo } from "react";
 import { Link } from "react-router";
-import { TrendingUp, Search, BrainCircuit, User, ArrowRight } from "lucide-react";
+import { TrendingUp, Search, BrainCircuit, User, ArrowRight, Loader2 } from "lucide-react";
 import { RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, ResponsiveContainer, PieChart as RePie, Pie, Cell } from "recharts";
-import { getEnrichedFunds, getManagerDetail, getIndustryStats, getMarketOverview } from "@/hooks/useFundData";
+import { trpc } from "@/providers/trpc";
+
+function LoadingScreen({ text = "数据加载中..." }: { text?: string }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-24 text-white/30">
+      <Loader2 className="w-8 h-8 animate-spin mb-3" />
+      <span className="text-sm">{text}</span>
+    </div>
+  );
+}
 
 const COLORS = ["#3B6CFF", "#00F0FF", "#A3FF12", "#FFB800", "#FF3366", "#8B5CF6", "#EC4899", "#14B8A6"];
 
 export default function Analysis() {
-  const allFunds = useMemo(() => getEnrichedFunds(), []);
-  const industryStats = useMemo(() => getIndustryStats(), []);
-  const overview = useMemo(() => getMarketOverview(), []);
+  const { data: listData, isLoading: listLoading } = trpc.fund.list.useQuery({ pageSize: 1000 });
+  const { data: industryStatsData } = trpc.fund.industryStats.useQuery();
+  const { data: overviewData } = trpc.fund.marketOverview.useQuery();
+
+  const allFunds = listData?.funds ?? [];
+  const industryStats = industryStatsData ?? [];
+  const overview = overviewData ?? { totalFunds: 0, avgReturn: "0", avgSharpe: "0", avgMaxDD: "0", marketingCount: 0 };
 
   const [selectedManagerId, setSelectedManagerId] = useState<number | null>(null);
   const [searchManager, setSearchManager] = useState("");
 
-  const managerDetail = useMemo(() =>
-    selectedManagerId ? getManagerDetail(selectedManagerId) : null,
-    [selectedManagerId]
+  const { data: managerDetail } = trpc.fund.managerDetail.useQuery(
+    { id: selectedManagerId! },
+    { enabled: selectedManagerId != null }
   );
 
   const managers = useMemo(() => {
@@ -30,14 +43,32 @@ export default function Analysis() {
     (a: any, b: any) => parseFloat(b.performance?.return1y || "0") - parseFloat(a.performance?.return1y || "0")
   ).slice(0, 10), [allFunds]);
 
-  const radarData = [
-    { metric: "选股能力", value: 85, avg: 60 },
-    { metric: "择时能力", value: 72, avg: 55 },
-    { metric: "风控能力", value: 90, avg: 65 },
-    { metric: "稳定性", value: 88, avg: 70 },
-    { metric: "超额收益", value: 78, avg: 58 },
-    { metric: "规模适应", value: 70, avg: 62 },
-  ];
+  // 动态雷达图数据：从选中基金经理的在管基金业绩计算
+  const radarData = useMemo(() => {
+    if (!managerDetail?.funds || managerDetail.funds.length === 0) {
+      return [
+        { metric: "选股能力", value: 50, avg: 50 },
+        { metric: "择时能力", value: 50, avg: 50 },
+        { metric: "风控能力", value: 50, avg: 50 },
+        { metric: "稳定性", value: 50, avg: 50 },
+        { metric: "超额收益", value: 50, avg: 50 },
+        { metric: "规模适应", value: 50, avg: 50 },
+      ];
+    }
+    const funds = managerDetail.funds;
+    const avgReturn1y = funds.reduce((s: number, f: any) => s + parseFloat(f.performance?.return1y || "0"), 0) / funds.length;
+    const avgSharpe = funds.reduce((s: number, f: any) => s + parseFloat(f.performance?.sharpeRatio || "0"), 0) / funds.length;
+    const avgMaxDD = funds.reduce((s: number, f: any) => s + parseFloat(f.performance?.maxDrawdown || "0"), 0) / funds.length;
+
+    return [
+      { metric: "选股能力", value: Math.min(100, Math.max(0, 50 + avgSharpe * 20)), avg: 50 },
+      { metric: "择时能力", value: Math.min(100, Math.max(0, 50 + avgReturn1y / 5)), avg: 55 },
+      { metric: "风控能力", value: Math.min(100, Math.max(0, 100 + avgMaxDD * 2)), avg: 65 },
+      { metric: "稳定性", value: Math.min(100, Math.max(0, 50 + avgSharpe * 15)), avg: 70 },
+      { metric: "超额收益", value: Math.min(100, Math.max(0, 50 + avgReturn1y / 4)), avg: 58 },
+      { metric: "规模适应", value: Math.min(100, Math.max(0, 60 - Math.abs(avgMaxDD))), avg: 62 },
+    ];
+  }, [managerDetail]);
 
   return (
     <div className="min-h-screen pt-14 pb-12">
@@ -47,6 +78,7 @@ export default function Analysis() {
           <p className="mt-2 text-white/40 text-base">多维度公募基金分析工具，洞察市场趋势与基金表现</p>
         </div>
 
+        {listLoading ? <LoadingScreen /> : (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 space-y-6">
             <div className="liquid-glass p-6">
@@ -109,13 +141,17 @@ export default function Analysis() {
                 <div className="liquid-glass-sm p-4">
                   <h3 className="text-sm text-[#00F0FF] mb-2">市场趋势研判</h3>
                   <p className="text-white/50 text-sm leading-relaxed">
-                    当前A股市场处于结构性震荡整理期，消费与医药板块估值已回归合理区间，具备中长期配置价值。新能源与高端制造领域持续受益于政策支持和产业升级。建议采用均衡配置策略，以低估值价值型产品作为底仓，辅以成长性赛道基金增强收益。
+                    {overview.totalFunds > 0
+                      ? `当前基金池共 ${overview.totalFunds} 只产品，持续营销基金 ${overview.marketingCount} 只。市场平均年化收益 ${overview.avgReturn}%，平均夏普比率 ${overview.avgSharpe}。建议关注近1年收益率排名前20%的基金，结合行业配置分散风险。`
+                      : "数据加载中，请稍候..."}
                   </p>
                 </div>
                 <div className="liquid-glass-sm p-4">
                   <h3 className="text-sm text-[#A3FF12] mb-2">基金经理优选逻辑</h3>
                   <p className="text-white/50 text-sm leading-relaxed">
-                    基于多维度量化评估体系，重点考察基金经理的夏普比率、信息比率、最大回撤修复能力等指标。朱少醒、谢治宇等均衡型选手在震荡市中表现稳健，适合作为核心配置。刘格菘、赵诣等成长型选手在结构性行情中弹性充足。
+                    {topFunds.length > 0
+                      ? `基于近1年收益排行榜，${topFunds[0]?.fundAbbr ?? "—"} 以 ${topFunds[0]?.performance?.return1y ?? "0"}% 的收益率位居榜首。优选基金经理时，建议重点关注任职年限超过5年、管理规模稳定、历史最大回撤控制在20%以内的选手。`
+                      : "数据加载中，请稍候..."}
                   </p>
                 </div>
               </div>
@@ -137,8 +173,8 @@ export default function Analysis() {
                 {filteredManagers.map((m: any) => (
                   <button key={m.id} onClick={() => setSelectedManagerId(m.id)}
                     className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-all ${selectedManagerId === m.id ? "bg-[#3B6CFF]/15 text-[#00F0FF]" : "text-white/50 hover:bg-white/[0.03] hover:text-white/70"}`}>
-                    <div className="w-6 h-6 rounded-full bg-gradient-to-br from-[#3B6CFF] to-[#00F0FF] flex items-center justify-center text-white text-[10px] font-medium">{m.name[0]}</div>
-                    <span className="flex-1 text-left">{m.name}</span>
+                    <div className="w-6 h-6 rounded-full bg-gradient-to-br from-[#3B6CFF] to-[#00F0FF] flex items-center justify-center text-white text-[10px] font-medium">{m.name?.[0] ?? "?"}</div>
+                    <span className="flex-1 text-left">{m.name ?? "未知"}</span>
                     <ArrowRight className="w-3 h-3 opacity-30" />
                   </button>
                 ))}
@@ -148,9 +184,9 @@ export default function Analysis() {
             {managerDetail && (
               <div className="liquid-glass p-5">
                 <div className="flex items-center gap-3 mb-4">
-                  <div className="w-14 h-14 rounded-full bg-gradient-to-br from-[#3B6CFF] to-[#00F0FF] flex items-center justify-center text-white font-semibold text-lg">{managerDetail.name[0]}</div>
+                  <div className="w-14 h-14 rounded-full bg-gradient-to-br from-[#3B6CFF] to-[#00F0FF] flex items-center justify-center text-white font-semibold text-lg">{managerDetail.name?.[0] ?? "?"}</div>
                   <div>
-                    <div className="text-white font-medium">{managerDetail.name}</div>
+                    <div className="text-white font-medium">{managerDetail.name ?? "未知"}</div>
                     <div className="text-white/30 text-xs">{managerDetail.company}</div>
                   </div>
                 </div>
@@ -232,6 +268,7 @@ export default function Analysis() {
             </div>
           </div>
         </div>
+        )}
       </div>
     </div>
   );

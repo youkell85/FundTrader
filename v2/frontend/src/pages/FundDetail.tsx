@@ -1,8 +1,8 @@
 import { useParams, Link } from "react-router";
 import { useMemo } from "react";
-import { ArrowLeft, User, BarChart3, PieChart, Layers, Target, Award, Zap } from "lucide-react";
+import { ArrowLeft, User, BarChart3, PieChart, Layers, Target, Award, Zap, Loader2 } from "lucide-react";
 import { XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from "recharts";
-import { getFundDetail } from "@/hooks/useFundData";
+import { trpc } from "@/providers/trpc";
 
 const typeLabels: Record<string, string> = {
   equity: "股票型", hybrid: "混合型", bond: "债券型",
@@ -16,7 +16,7 @@ const riskLabels: Record<string, string> = {
 export default function FundDetail() {
   const { id } = useParams<{ id: string }>();
   const fundId = parseInt(id || "0");
-  const fund = useMemo(() => getFundDetail(fundId), [fundId]);
+  const { data: fund, isLoading } = trpc.fund.detail.useQuery({ id: fundId }, { enabled: fundId > 0 });
 
   const radarData = useMemo(() => {
     if (!fund?.performance) return [];
@@ -33,6 +33,7 @@ export default function FundDetail() {
     ];
   }, [fund]);
 
+  if (isLoading) return <div className="min-h-screen pt-20 text-center text-white/30 flex items-center justify-center gap-2"><Loader2 className="w-4 h-4 animate-spin" />加载中...</div>;
   if (!fund) return <div className="min-h-screen pt-20 text-center text-white/30">基金不存在</div>;
 
   const perf = fund.performance;
@@ -245,10 +246,10 @@ export default function FundDetail() {
                 </h2>
                 <div className="flex items-center gap-3 mb-4">
                   <div className="w-14 h-14 rounded-full bg-gradient-to-br from-[#3B6CFF] to-[#00F0FF] flex items-center justify-center text-white font-semibold text-lg">
-                    {fund.manager.name[0]}
+                    {fund.manager.name?.[0] ?? "?"}
                   </div>
                   <div>
-                    <div className="text-white font-medium">{fund.manager.name}</div>
+                    <div className="text-white font-medium">{fund.manager.name ?? "未知"}</div>
                     <div className="text-white/30 text-xs">{fund.manager.company} · {fund.manager.education}</div>
                     <div className="text-white/30 text-xs">从业{fund.manager.manageYears}年 · 管理{fund.manager.fundCount}只基金</div>
                   </div>
