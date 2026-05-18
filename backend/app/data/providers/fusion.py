@@ -1,4 +1,6 @@
 """多数据源融合层 - 按优先级聚合多个数据源的数据"""
+# 确保 dotenv 在任何 os.getenv 之前加载
+from ...config import IFIND_TOKEN as _  # noqa: F401 - 触发 dotenv 加载
 from typing import Optional, List, Dict, Any
 from .base import (
     DataProvider, FundDetail, FundNav, FundHolding, FundPerformance, FundRisk,
