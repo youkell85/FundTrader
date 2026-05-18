@@ -39,11 +39,20 @@ class iFinDProvider(DataProvider):
     MCP_NEWS_URL = f"{MCP_BASE}/hexin-ifind-ds-news-mcp"
 
     def __init__(self):
-        self._token = os.getenv("IFIND_TOKEN", "")
-        self._use_mcp = os.getenv("IFIND_USE_MCP", "true").lower() == "true"
+        self._token_loaded = False
+        self._token = ""
+        self._use_mcp = True
         self._mcporter_config = os.path.expanduser("~/.openclaw/mcporter.json")
 
+    def _ensure_token(self):
+        """延迟加载 token（确保 dotenv 已执行）"""
+        if not self._token_loaded:
+            self._token = os.getenv("IFIND_TOKEN", "")
+            self._use_mcp = os.getenv("IFIND_USE_MCP", "true").lower() == "true"
+            self._token_loaded = True
+
     def is_available(self) -> bool:
+        self._ensure_token()
         return bool(self._token)
 
     def _mcp_http_request(self, server_url: str, tool_name: str, query: str) -> Optional[Dict]:
@@ -53,6 +62,7 @@ class iFinDProvider(DataProvider):
         - 先 initialize 握手
         - 再调用 tools/call
         """
+        self._ensure_token()
         if not self._token:
             return None
         try:
@@ -160,6 +170,7 @@ class iFinDProvider(DataProvider):
 
     def _mcporter_call(self, server_name: str, tool_name: str, query: str) -> Optional[Dict]:
         """通过 mcporter CLI 调用 iFinD MCP (备选方案)"""
+        self._ensure_token()
         try:
             cmd = [
                 "mcporter", "--config", self._mcporter_config,
