@@ -1,8 +1,9 @@
-"""基金排名筛选服务"""
+"""基金排名筛选服务 - 多数据源融合版"""
 from typing import List, Dict, Any, Optional
 from ..utils import console_error
 from ..data.akshare_fetcher import get_fund_ranking, get_fund_info
 from ..data.eastmoney_fetcher import get_fund_ranking_em
+from ..data.providers.fusion import get_fusion
 from ..data.cache_manager import cache
 from ..constants.guoyuan_funds import GUOYUAN_FUND_LIST, FUND_CATEGORIES, FUND_TYPES
 from ..config import CACHE_TTL_RANKING
@@ -169,9 +170,28 @@ def _get_guoyuan_funds_with_performance() -> List[Dict[str, Any]]:
 
 
 def _fetch_fund_performance(code: str) -> Optional[Dict[str, Any]]:
-    """获取单只基金业绩数据"""
+    """获取单只基金业绩数据 - 优先使用DataFusion"""
     from ..utils.common_utils import safe_float
     
+    # 优先使用DataFusion
+    try:
+        fusion = get_fusion()
+        perf = fusion.get_fund_performance(code)
+        if perf:
+            return {
+                "nav": None,  # performance不含nav，从detail获取
+                "day_growth": None,
+                "near_1m": perf.near_1m,
+                "near_3m": perf.near_3m,
+                "near_6m": perf.near_6m,
+                "near_1y": perf.near_1y,
+                "near_3y": perf.near_3y,
+                "ytd": perf.ytd,
+            }
+    except Exception as e:
+        console_error(f"DataFusion performance error for {code}: {e}")
+    
+    # 回退到AkShare
     try:
         import akshare as ak
         df = ak.fund_open_fund_rank_em(symbol="全部")
