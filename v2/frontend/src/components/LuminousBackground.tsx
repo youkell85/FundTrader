@@ -1,4 +1,5 @@
 import { useRef, useMemo, useEffect, useState, lazy, Suspense } from "react";
+import type { ShaderMaterial } from "three";
 
 interface NavigatorWithMemory extends Navigator {
   deviceMemory?: number;
@@ -26,7 +27,7 @@ function StaticBackground() {
 // Lazy-load the entire Three.js background component with error fallback
 const ThreeBackground = lazy(async () => {
   try {
-    const { default: THREE } = await import("three");
+    const THREE = await import("three");
     const { Canvas, useFrame, useThree } = await import("@react-three/fiber");
 
   const vertexShader = `
@@ -111,7 +112,7 @@ void main() {
 `;
 
   function RibbonMesh() {
-    const materialRef = useRef<THREE.ShaderMaterial>(null);
+    const materialRef = useRef<ShaderMaterial>(null);
     const { size } = useThree();
     const uniforms = useMemo(
       () => ({

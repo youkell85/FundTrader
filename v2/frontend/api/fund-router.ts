@@ -5,14 +5,10 @@ import {
   getFundList,
   getCategories as ftGetCategories,
   getFundAnalysis,
-  getMarketIndex,
   runDcaBacktest,
-  getDcaSuggestion,
   getRecommendations,
-  getProfessionalAnalysis,
-  getCorrelationMatrix,
   getWatchlist,
-  imageSearchFund,
+  addToWatchlist,
   ftFetch,
 } from "./lib/fundtrader-client";
 import {
@@ -40,6 +36,46 @@ function wrapError(err: unknown, message: string): never {
   });
 }
 
+async function fetchAllFundList(params: Record<string, any>) {
+  const allFunds: any[] = [];
+  let backendPage = 1;
+  let backendTotal = Infinity;
+
+  while (allFunds.length < backendTotal) {
+    const pageResult = await getFundList({
+      ...params,
+      page: backendPage,
+      page_size: 100,
+    });
+    const batch = Array.isArray(pageResult?.funds) ? pageResult.funds : [];
+    if (batch.length === 0) break;
+    allFunds.push(...batch);
+    backendTotal = pageResult?.total ?? allFunds.length;
+    backendPage++;
+    if (backendPage > 100) break;
+  }
+
+  return allFunds;
+}
+
+async function fetchHomeFunds() {
+  const fundsByCode = new Map<string, any>();
+
+  for (const fund of await fetchAllFundList({ guoyuan_only: true })) {
+    if (fund?.code) fundsByCode.set(fund.code, fund);
+  }
+
+  const watchlist = await getWatchlist().catch(() => null);
+  const watchlistFunds = Array.isArray(watchlist?.funds) ? watchlist.funds : [];
+  if (watchlistFunds.length > 0) {
+    for (const fund of await fetchAllFundList({ use_watchlist: true })) {
+      if (fund?.code) fundsByCode.set(fund.code, fund);
+    }
+  }
+
+  return Array.from(fundsByCode.values());
+}
+
 export const fundRouter = createRouter({
   // 基金列表查询（支持筛选和排序）
   list: publicQuery
@@ -65,24 +101,7 @@ export const fundRouter = createRouter({
         const sortBy = opts.sortBy ?? "dailyChange";
         const sortOrder = opts.sortOrder ?? "desc";
 
-        // 先拉取全部数据，再本地筛选分页（后端限制 page_size <= 100，需循环拉取）
-        const allFunds: any[] = [];
-        let backendPage = 1;
-        let backendTotal = Infinity;
-        while (allFunds.length < backendTotal) {
-          const pageResult = await getFundList({
-            guoyuan_only: true,
-            page: backendPage,
-            page_size: 100,
-          });
-          const batch = Array.isArray(pageResult?.funds) ? pageResult.funds : [];
-          if (batch.length === 0) break;
-          allFunds.push(...batch);
-          backendTotal = pageResult?.total ?? allFunds.length;
-          backendPage++;
-          if (backendPage > 100) break; // 安全上限
-        }
-        const rawFunds = allFunds;
+        const rawFunds = await fetchHomeFunds();
         let result = rawFunds.map(mapFundItem).filter(Boolean);
 
         // 本地筛选
@@ -127,8 +146,7 @@ export const fundRouter = createRouter({
     .input(z.object({ id: z.number() }))
     .query(async ({ input }) => {
       try {
-        const ftList = await getFundList({ guoyuan_only: true, page_size: 100 });
-        const rawFunds = Array.isArray(ftList?.funds) ? ftList.funds : [];
+        const rawFunds = await fetchHomeFunds();
         const fund = rawFunds.find((f: any) => {
           const mapped = mapFundItem(f);
           return mapped?.id === input.id;
@@ -151,6 +169,24 @@ export const fundRouter = createRouter({
         return mapFundDetail(analysis);
       } catch (err) {
         wrapError(err, "按基金代码获取详情失败");
+      }
+    }),
+
+  addByCode: publicQuery
+    .input(z.object({ code: z.string().regex(/^\d{6}$/) }))
+    .mutation(async ({ input }) => {
+      try {
+        const analysis = await getFundAnalysis(input.code);
+        const fund = mapFundDetail(analysis);
+        await addToWatchlist(
+          input.code,
+          fund?.fundName || fund?.fundAbbr || input.code,
+          fund?.category || "",
+          fund?.tags || []
+        );
+        return fund;
+      } catch (err) {
+        wrapError(err, "添加基金到首页列表失败");
       }
     }),
 
@@ -215,7 +251,7 @@ export const fundRouter = createRouter({
 
         const ftList = await getFundList({ guoyuan_only: true, page_size: 100 });
         const rawFunds = Array.isArray(ftList?.funds) ? ftList.funds : [];
-        const fundsMap = new Map(rawFunds.map((f: any) => [f.code, mapFundItem(f)]));
+        const fundsMap = new Map<string, any>(rawFunds.map((f: any) => [f.code, mapFundItem(f)]));
 
         const rec = mapRecommendation(ftResult, fundsMap);
         if (input?.riskProfile) {

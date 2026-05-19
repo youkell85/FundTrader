@@ -21,9 +21,16 @@ interface ImageSearchResult {
 
 export default function Home() {
   const navigate = useNavigate();
+  const utils = trpc.useUtils();
   const { data: listData, isLoading: listLoading } = trpc.fund.list.useQuery({ pageSize: 1000 });
   const { data: filterOptsData } = trpc.fund.filterOptions.useQuery();
   const { data: overviewData } = trpc.fund.marketOverview.useQuery();
+  const addFundByCode = trpc.fund.addByCode.useMutation({
+    onSuccess: () => {
+      utils.fund.list.invalidate();
+      utils.fund.marketOverview.invalidate();
+    },
+  });
 
   const allFunds = listData?.funds ?? [];
   const filterOpts = filterOptsData ?? { types: [], categories: [], companies: [], riskLevels: [] };
@@ -39,6 +46,7 @@ export default function Home() {
   const [page, setPage] = useState(1);
   const pageSize = 15;
   const [hoveredRow, setHoveredRow] = useState<number | null>(null);
+  const [searchError, setSearchError] = useState<string | null>(null);
 
   // Image search states
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -81,20 +89,30 @@ export default function Home() {
 
   const totalPages = Math.ceil(filteredFunds.length / pageSize);
 
-  const handleSearchSubmit = useCallback((e: React.FormEvent<HTMLFormElement>) => {
+  const handleSearchSubmit = useCallback(async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const query = search.trim();
+    setSearchError(null);
+    if (addFundByCode.isPending) return;
     if (!query) return;
 
     if (/^\d{6}$/.test(query)) {
-      navigate(`/fund/${query}`);
+      try {
+        await addFundByCode.mutateAsync({ code: query });
+        await utils.fund.list.invalidate();
+        await utils.fund.marketOverview.invalidate();
+        navigate(`/fund/${query}`);
+      } catch (err) {
+        console.error("Add fund by code failed:", err);
+        setSearchError("基金代码添加失败，请稍后重试");
+      }
       return;
     }
 
     if (filteredFunds.length === 1) {
       navigate(`/fund/${filteredFunds[0].id}`);
     }
-  }, [filteredFunds, navigate, search]);
+  }, [addFundByCode, filteredFunds, navigate, search, utils]);
 
   // Compress image before upload to reduce base64 size
   const compressImage = useCallback((file: File, maxWidth = 1200, quality = 0.7): Promise<string> => {
@@ -213,18 +231,20 @@ export default function Home() {
           <form className="relative flex-1" onSubmit={handleSearchSubmit}>
             <button
               type="submit"
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60 transition-colors"
+              disabled={addFundByCode.isPending}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60 transition-colors disabled:opacity-50"
               title="搜索基金"
             >
-              <Search className="w-4 h-4" />
+              {addFundByCode.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
             </button>
             <input
               type="text"
               value={search}
-              onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+              onChange={(e) => { setSearch(e.target.value); setSearchError(null); setPage(1); }}
               placeholder="输入基金代码 / 名称 / 基金经理..."
               className="w-full h-11 pl-10 pr-4 rounded-xl bg-white/[0.03] border border-white/[0.06] text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-[#3B6CFF]/50 focus:bg-white/[0.05] transition-all"
             />
+            {searchError && <div className="absolute left-0 top-full mt-1 text-xs text-[#FF3366]">{searchError}</div>}
           </form>
           <button
             onClick={() => fileInputRef.current?.click()}

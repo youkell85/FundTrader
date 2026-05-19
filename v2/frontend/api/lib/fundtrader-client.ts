@@ -99,6 +99,13 @@ export async function getWatchlist() {
   return ftFetch<any>("/settings/watchlist");
 }
 
+export async function addToWatchlist(code: string, name = "", type = "", tags: string[] = []) {
+  return ftFetch<any>("/settings/watchlist/add", {
+    method: "POST",
+    body: JSON.stringify({ code, name, type, tags }),
+  });
+}
+
 // 健康检查
 export async function healthCheck() {
   return ftFetch<any>("/health");
