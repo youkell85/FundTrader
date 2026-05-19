@@ -9,6 +9,7 @@ import {
   getRecommendations,
   getWatchlist,
   addToWatchlist,
+  removeFromWatchlist as ftRemoveFromWatchlist,
   ftFetch,
 } from "./lib/fundtrader-client";
 import {
@@ -37,6 +38,27 @@ function wrapError(err: unknown, message: string): never {
   });
 }
 
+// ========== BFF 层内存缓存 ==========
+const bffCache = new Map<string, { expiresAt: number; data: any }>();
+const BFF_CACHE_TTL = 5 * 60 * 1000; // 5分钟
+
+function getCached<T>(key: string): T | null {
+  const entry = bffCache.get(key);
+  if (entry && entry.expiresAt > Date.now()) return entry.data as T;
+  bffCache.delete(key); // 过期清理
+  return null;
+}
+
+function setCache<T>(key: string, data: T, ttlMs = BFF_CACHE_TTL): void {
+  bffCache.set(key, { expiresAt: Date.now() + ttlMs, data });
+}
+
+function invalidateCache(prefix: string): void {
+  for (const key of bffCache.keys()) {
+    if (key.startsWith(prefix)) bffCache.delete(key);
+  }
+}
+
 async function fetchAllFundList(params: Record<string, any>) {
   const allFunds: any[] = [];
   let backendPage = 1;
@@ -60,21 +82,30 @@ async function fetchAllFundList(params: Record<string, any>) {
 }
 
 async function fetchHomeFunds() {
+  const cached = getCached<any[]>("homeFunds");
+  if (cached) return cached;
+
   const fundsByCode = new Map<string, any>();
+  const watchlistCodes = new Set<string>();
 
   for (const fund of await fetchAllFundList({ guoyuan_only: true })) {
-    if (fund?.code) fundsByCode.set(fund.code, fund);
+    if (fund?.code) fundsByCode.set(fund.code, { ...fund, _source: "guoyuan" });
   }
 
   const watchlist = await getWatchlist().catch(() => null);
   const watchlistFunds = Array.isArray(watchlist?.funds) ? watchlist.funds : [];
   if (watchlistFunds.length > 0) {
     for (const fund of await fetchAllFundList({ use_watchlist: true })) {
-      if (fund?.code) fundsByCode.set(fund.code, fund);
+      if (fund?.code) {
+        watchlistCodes.add(fund.code);
+        fundsByCode.set(fund.code, { ...fund, _source: "watchlist" });
+      }
     }
   }
 
-  return Promise.all(Array.from(fundsByCode.values()).map(enrichFundSummary));
+  const enriched = await Promise.all(Array.from(fundsByCode.values()).map(enrichFundSummary));
+  setCache("homeFunds", enriched);
+  return enriched;
 }
 
 function needsFundName(fund: any, code: string) {
@@ -195,7 +226,9 @@ export const fundRouter = createRouter({
         if (!fund) return null;
 
         const analysis = await getFundAnalysis(fund.code);
-        return mapFundDetail(await enrichFundAnalysis(analysis, fund.code));
+        const enriched = await enrichFundAnalysis(analysis, fund.code);
+        setCache(`analysis_${fund.code}`, enriched, 5 * 60 * 1000);
+        return mapFundDetail(enriched);
       } catch (err) {
         wrapError(err, "获取基金详情失败");
       }
@@ -206,8 +239,14 @@ export const fundRouter = createRouter({
     .input(z.object({ code: z.string().regex(/^\d{6}$/) }))
     .query(async ({ input }) => {
       try {
+        const cacheKey = `analysis_${input.code}`;
+        const cachedAnalysis = getCached<any>(cacheKey);
+        if (cachedAnalysis) return mapFundDetail(cachedAnalysis);
+
         const analysis = await getFundAnalysis(input.code);
-        return mapFundDetail(await enrichFundAnalysis(analysis, input.code));
+        const enriched = await enrichFundAnalysis(analysis, input.code);
+        setCache(cacheKey, enriched, 5 * 60 * 1000);
+        return mapFundDetail(enriched);
       } catch (err) {
         wrapError(err, "按基金代码获取详情失败");
       }
@@ -217,6 +256,8 @@ export const fundRouter = createRouter({
     .input(z.object({ code: z.string().regex(/^\d{6}$/) }))
     .mutation(async ({ input }) => {
       try {
+        invalidateCache("homeFunds");
+        invalidateCache("analysis_");
         const quote = await fetchFundQuote(input.code);
         const name = quote?.name || "";
         await addToWatchlist(input.code, name);
@@ -227,9 +268,24 @@ export const fundRouter = createRouter({
           accum_nav: quote?.accumNav,
           nav_date: quote?.navDate,
           day_growth: quote?.dayGrowth,
+          _source: "watchlist",
         });
       } catch (err) {
         wrapError(err, "添加基金到首页列表失败");
+      }
+    }),
+
+  // 移除自选基金
+  removeFromWatchlist: publicQuery
+    .input(z.object({ code: z.string().regex(/^\d{6}$/) }))
+    .mutation(async ({ input }) => {
+      try {
+        invalidateCache("homeFunds");
+        invalidateCache("analysis_");
+        await ftRemoveFromWatchlist(input.code);
+        return { success: true, code: input.code };
+      } catch (err) {
+        wrapError(err, "移除自选基金失败");
       }
     }),
 

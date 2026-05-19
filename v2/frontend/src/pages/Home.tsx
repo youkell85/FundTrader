@@ -1,6 +1,6 @@
 import { useState, useMemo, useRef, useCallback } from "react";
 import { Link, useNavigate } from "react-router";
-import { Search, TrendingUp, TrendingDown, Star, PieChart, Activity, Shield, Camera, X, Loader2 } from "lucide-react";
+import { Search, TrendingUp, TrendingDown, Star, PieChart, Activity, Shield, Camera, X, Loader2, Trash2 } from "lucide-react";
 import { trpc } from "@/providers/trpc";
 
 const typeLabels: Record<string, string> = {
@@ -26,6 +26,12 @@ export default function Home() {
   const { data: filterOptsData } = trpc.fund.filterOptions.useQuery();
   const { data: overviewData } = trpc.fund.marketOverview.useQuery();
   const addFundByCode = trpc.fund.addByCode.useMutation({
+    onSuccess: () => {
+      utils.fund.list.invalidate();
+      utils.fund.marketOverview.invalidate();
+    },
+  });
+  const removeFund = trpc.fund.removeFromWatchlist.useMutation({
     onSuccess: () => {
       utils.fund.list.invalidate();
       utils.fund.marketOverview.invalidate();
@@ -96,19 +102,25 @@ export default function Home() {
     if (addFundByCode.isPending) return;
     if (!query) return;
 
+    // 6位基金代码：跳转详情页并加入自选列表
     if (/^\d{6}$/.test(query)) {
-      navigate(`/${query}`);
       addFundByCode.mutate(
         { code: query },
         {
+          onSuccess: () => {
+            navigate(`/${query}`);
+          },
           onError: (err) => {
-            console.error("Add fund by code failed:", err);
+            setSearchError(`添加基金失败: ${err.message}`);
+            // 即使添加失败也跳转到详情页（可能已在列表中）
+            navigate(`/${query}`);
           },
         }
       );
       return;
     }
 
+    // 名称/经理搜索：如果匹配唯一基金则跳转
     if (filteredFunds.length === 1) {
       navigate(`/${filteredFunds[0].id}`);
     }
@@ -324,7 +336,7 @@ export default function Home() {
                         {imageResult.funds.map((fund: any) => (
                           <Link
                             key={fund.id || fund.code}
-                            to={`/${fund.id}`}
+                            to={`/${fund.fundCode || fund.code}`}
                             className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.06] hover:bg-white/[0.08] hover:border-[#3B6CFF]/30 transition-all"
                           >
                             <div>
@@ -390,14 +402,20 @@ export default function Home() {
               const return1y = parseFloat(perf?.return1y || "0");
               const maxDD = parseFloat(perf?.maxDrawdown || "0");
               const sharpe = parseFloat(perf?.sharpeRatio || "0");
+              const isWatchlistFund = fund.source === "watchlist";
               return (
-                <Link key={fund.id} to={`/${fund.id}`}
+                <div key={fund.id}
                   className="grid grid-cols-12 gap-2 px-5 py-3 text-sm border-b border-white/[0.03] items-center hover:bg-white/[0.04] transition-all group cursor-pointer relative"
                   onMouseEnter={() => setHoveredRow(fund.id)} onMouseLeave={() => setHoveredRow(null)}>
                   <div className={`absolute top-0 left-0 w-full h-full pointer-events-none transition-all duration-500 ${hoveredRow === fund.id ? "opacity-100" : "opacity-0"}`}
                     style={{ background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.03), transparent)" }} />
+                  <Link to={`/${fund.fundCode}`}
+                    className="contents">
                   <div className="col-span-3 relative z-10">
-                    <div className="text-white font-medium text-sm">{fund.fundAbbr || fund.fundName}</div>
+                    <div className="text-white font-medium text-sm flex items-center gap-1">
+                      {fund.fundAbbr || fund.fundName}
+                      {isWatchlistFund && <Star className="w-3 h-3 text-[#FFB800] fill-[#FFB800]" />}
+                    </div>
                     <div className="text-white/25 text-xs mt-0.5 flex items-center gap-1.5">
                       <span className="data-number">{fund.fundCode}</span>
                       <span>{fund.manager?.name}</span>
@@ -431,7 +449,22 @@ export default function Home() {
                       <span key={tag} className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-[#3B6CFF]/10 text-[#00F0FF] border border-[#3B6CFF]/20">{tag}</span>
                     ))}
                   </div>
-                </Link>
+                  </Link>
+                  {/* 移除自选按钮 */}
+                  {isWatchlistFund && hoveredRow === fund.id && (
+                    <button
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        removeFund.mutate({ code: fund.fundCode });
+                      }}
+                      className="absolute top-2 right-2 z-20 w-6 h-6 rounded-md bg-[#FF3366]/10 text-[#FF3366] hover:bg-[#FF3366]/20 flex items-center justify-center transition-all"
+                      title="移除自选"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
               );
             })
           )}

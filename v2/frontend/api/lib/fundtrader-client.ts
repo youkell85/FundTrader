@@ -106,6 +106,13 @@ export async function addToWatchlist(code: string, name = "", type = "", tags: s
   });
 }
 
+// 移除自选基金
+export async function removeFromWatchlist(code: string) {
+  return ftFetch<any>(`/settings/watchlist/${code}`, {
+    method: "DELETE",
+  });
+}
+
 // 健康检查
 export async function healthCheck() {
   return ftFetch<any>("/health");

@@ -175,6 +175,7 @@ export function mapFundItem(item: any): any {
   const mgrRaw = item.manager_info || item.manager;
   const mgr = typeof mgrRaw === "string" ? { name: mgrRaw } : (mgrRaw || {});
   const id = codeToId(code);
+  const source = item._source || "guoyuan";
 
   return {
     id,
@@ -197,6 +198,7 @@ export function mapFundItem(item: any): any {
     managerId: mgr.name ? codeToId(mgr.name) : null,
     tags: item.tags || generateTags(name, type),
     trackingIndex: item.trackingIndex || null,
+    source, // guoyuan / watchlist 标记
     performance: {
       return1m: perf.near_1m != null ? String(perf.near_1m) : item.near_1m != null ? String(item.near_1m) : navPerformance.return1m || "0",
       return3m: perf.near_3m != null ? String(perf.near_3m) : item.near_3m != null ? String(item.near_3m) : navPerformance.return3m || "0",
@@ -268,7 +270,8 @@ export function mapFundDetail(analysis: any): any {
 
   return {
     ...base,
-    navHistory: navData.slice(-120),
+    navHistory: navData, // 返回全量净值数据，由前端按周期裁剪
+    navHistoryFull: navData, // 保留完整历史供周期切换
     holdings,
     industries,
   };

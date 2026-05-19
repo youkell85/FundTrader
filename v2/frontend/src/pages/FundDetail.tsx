@@ -1,5 +1,5 @@
 import { useParams, Link } from "react-router";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { AlertCircle, ArrowLeft, User, BarChart3, PieChart, Layers, Target, Award, Zap, Loader2 } from "lucide-react";
 import { XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from "recharts";
 import { trpc } from "@/providers/trpc";
@@ -18,6 +18,7 @@ export default function FundDetail() {
   const routeParam = id || "";
   const isFundCode = /^\d{6}$/.test(routeParam);
   const fundId = isFundCode ? 0 : parseInt(routeParam || "0");
+  const [navPeriod, setNavPeriod] = useState<string>("1y");
   const detailById = trpc.fund.detail.useQuery({ id: fundId }, { enabled: !isFundCode && fundId > 0 });
   const detailByCode = trpc.fund.detailByCode.useQuery({ code: routeParam }, { enabled: isFundCode });
   const fund = isFundCode ? detailByCode.data : detailById.data;
@@ -39,6 +40,27 @@ export default function FundDetail() {
       { metric: "Alpha", value: Math.min(parseFloat(p.alpha || "0") * 5 + 50, 100), raw: p.alpha },
     ];
   }, [fund]);
+
+  // 按周期裁剪净值数据
+  const periodNavData = useMemo(() => {
+    if (!fund?.navHistory || fund.navHistory.length === 0) return [];
+    const all = fund.navHistory;
+    if (navPeriod === "all") return all;
+    const daysMap: Record<string, number> = { "3m": 90, "6m": 180, "1y": 365, "3y": 365 * 3, "5y": 365 * 5 };
+    const days = daysMap[navPeriod] ?? 365;
+    const latest = all[all.length - 1];
+    const latestTime = new Date(latest.navDate).getTime();
+    const targetTime = latestTime - days * 24 * 60 * 60 * 1000;
+    // 找到起始点索引
+    let startIdx = 0;
+    for (let i = 0; i < all.length; i++) {
+      if (new Date(all[i].navDate).getTime() >= targetTime) {
+        startIdx = i;
+        break;
+      }
+    }
+    return all.slice(startIdx);
+  }, [fund?.navHistory, navPeriod]);
 
   if (isLoading) {
     return (
@@ -154,10 +176,29 @@ export default function FundDetail() {
 
               {fund.navHistory && fund.navHistory.length > 0 && (
                 <div>
-                  <h3 className="text-sm text-white/40 mb-3">净值走势 (近2年)</h3>
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-sm text-white/40">净值走势</h3>
+                    <div className="flex gap-1">
+                      {[ 
+                        { key: "3m", label: "近3月", days: 90 },
+                        { key: "6m", label: "近6月", days: 180 },
+                        { key: "1y", label: "近1年", days: 365 },
+                        { key: "3y", label: "近3年", days: 365 * 3 },
+                        { key: "5y", label: "近5年", days: 365 * 5 },
+                        { key: "all", label: "成立以来", days: Infinity },
+                      ].map((p) => (
+                        <button key={p.key}
+                          onClick={() => setNavPeriod(p.key)}
+                          className={`px-2 py-1 rounded-md text-xs font-medium transition-all ${navPeriod === p.key ? "bg-[#3B6CFF]/15 text-[#00F0FF]" : "text-white/30 hover:text-white/60 hover:bg-white/[0.04]"}`}
+                        >
+                          {p.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                   <div className="h-64">
                     <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={fund.navHistory}>
+                      <AreaChart data={periodNavData}>
                         <defs>
                           <linearGradient id="navGrad" x1="0" y1="0" x2="0" y2="1">
                             <stop offset="0%" stopColor="#3B6CFF" stopOpacity={0.3} />
