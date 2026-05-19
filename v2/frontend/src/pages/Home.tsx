@@ -2,6 +2,7 @@ import { useState, useMemo, useRef, useCallback } from "react";
 import { Link, useNavigate } from "react-router";
 import { Search, TrendingUp, TrendingDown, Star, PieChart, Activity, Shield, Camera, X, Loader2, Trash2 } from "lucide-react";
 import { trpc } from "@/providers/trpc";
+import { UP_COLOR, DOWN_COLOR, ACCENT_PRIMARY, RISK_COLOR, POSITIVE_METRIC_COLOR, getChangeTextClass } from "@/lib/colors";
 
 const typeLabels: Record<string, string> = {
   equity: "股票型", hybrid: "混合型", bond: "债券型",
@@ -219,21 +220,21 @@ export default function Home() {
           </p>
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-8">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3 mt-6 md:mt-8">
           {[
-            { label: "在售基金", value: overview.totalFunds, suffix: "只", icon: PieChart, color: "#3B6CFF" },
-            { label: "持续营销", value: overview.marketingCount, suffix: "只", icon: Activity, color: "#00F0FF" },
-            { label: "平均年化收益", value: overview.avgReturn, suffix: "%", icon: TrendingUp, color: "#A3FF12" },
-            { label: "平均夏普比率", value: overview.avgSharpe, suffix: "", icon: Shield, color: "#FFB800" },
+            { label: "在售基金", value: overview.totalFunds, suffix: "只", icon: PieChart, color: ACCENT_PRIMARY },
+            { label: "持续营销", value: overview.marketingCount, suffix: "只", icon: Activity, color: ACCENT_PRIMARY },
+            { label: "平均年化收益", value: overview.avgReturn, suffix: "%", icon: TrendingUp, color: parseFloat(overview.avgReturn) >= 0 ? UP_COLOR : DOWN_COLOR },
+            { label: "平均夏普比率", value: overview.avgSharpe, suffix: "", icon: Shield, color: POSITIVE_METRIC_COLOR },
           ].map((card) => (
-            <div key={card.label} className="liquid-glass-sm p-4 group hover:bg-white/[0.06] transition-all">
-              <div className="flex items-center gap-2 mb-2">
+            <div key={card.label} className="liquid-glass-sm p-3 md:p-4 group hover:bg-white/[0.06] transition-all">
+              <div className="flex items-center gap-2 mb-1.5 md:mb-2">
                 <card.icon className="w-4 h-4" style={{ color: card.color }} />
-                <span className="text-white/40 text-xs">{card.label}</span>
+                <span className="text-white/40 text-[11px] md:text-xs">{card.label}</span>
               </div>
-              <div className="data-number text-2xl font-medium text-white">
+              <div className="data-number text-xl md:text-2xl font-medium text-white">
                 {card.value}
-                <span className="text-sm text-white/40 ml-0.5">{card.suffix}</span>
+                <span className="text-xs md:text-sm text-white/40 ml-0.5">{card.suffix}</span>
               </div>
             </div>
           ))}
@@ -374,9 +375,10 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="px-6 max-w-7xl mx-auto">
+      <section className="px-4 md:px-6 max-w-7xl mx-auto">
         <div className="liquid-glass overflow-hidden">
-          <div className="grid grid-cols-12 gap-2 px-5 py-3 text-xs text-white/30 font-medium border-b border-white/[0.06] items-center"
+          {/* 桌面端表头（仅 md+ 显示） */}
+          <div className="hidden md:grid grid-cols-12 gap-2 px-5 py-3 text-xs text-white/30 font-medium border-b border-white/[0.06] items-center"
             style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.04) 0%, transparent 100%)" }}>
             <div className="col-span-3">基金名称</div>
             <div className="col-span-1 text-right">净值</div>
@@ -403,62 +405,100 @@ export default function Home() {
               const maxDD = parseFloat(perf?.maxDrawdown || "0");
               const sharpe = parseFloat(perf?.sharpeRatio || "0");
               const isWatchlistFund = fund.source === "watchlist";
+              const dailyClass = getChangeTextClass(dailyChange);
+              const return1yClass = getChangeTextClass(return1y);
               return (
                 <div key={fund.id}
-                  className="grid grid-cols-12 gap-2 px-5 py-3 text-sm border-b border-white/[0.03] items-center hover:bg-white/[0.04] transition-all group cursor-pointer relative"
+                  className="border-b border-white/[0.03] hover:bg-white/[0.04] transition-all group cursor-pointer relative"
                   onMouseEnter={() => setHoveredRow(fund.id)} onMouseLeave={() => setHoveredRow(null)}>
-                  <div className={`absolute top-0 left-0 w-full h-full pointer-events-none transition-all duration-500 ${hoveredRow === fund.id ? "opacity-100" : "opacity-0"}`}
-                    style={{ background: "linear-gradient(90deg, transparent, rgba(255,255,255,0.03), transparent)" }} />
-                  <Link to={`/${fund.fundCode}`}
-                    className="contents">
-                  <div className="col-span-3 relative z-10">
-                    <div className="text-white font-medium text-sm flex items-center gap-1">
-                      {fund.fundAbbr || fund.fundName}
-                      {isWatchlistFund && <Star className="w-3 h-3 text-[#FFB800] fill-[#FFB800]" />}
+                  {/* 桌面端行布局 */}
+                  <Link to={`/${fund.fundCode}`} className="hidden md:grid grid-cols-12 gap-2 px-5 py-3 text-sm items-center">
+                    <div className="col-span-3 relative z-10">
+                      <div className="text-white font-medium text-sm flex items-center gap-1">
+                        {fund.fundAbbr || fund.fundName}
+                        {isWatchlistFund && <Star className="w-3 h-3 text-[#FFB800] fill-[#FFB800]" />}
+                      </div>
+                      <div className="text-white/25 text-xs mt-0.5 flex items-center gap-1.5">
+                        <span className="data-number">{fund.fundCode}</span>
+                        <span>{fund.manager?.name}</span>
+                        <span>{fund.company}</span>
+                      </div>
                     </div>
-                    <div className="text-white/25 text-xs mt-0.5 flex items-center gap-1.5">
-                      <span className="data-number">{fund.fundCode}</span>
-                      <span>{fund.manager?.name}</span>
-                      <span>{fund.company}</span>
+                    <div className="col-span-1 text-right data-number text-white/80 relative z-10">{fund.nav}</div>
+                    <div className={`col-span-1 text-right data-number font-medium ${dailyClass} relative z-10`}>
+                      <span className="inline-flex items-center gap-0.5">
+                        {dailyChange >= 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                        {dailyChange >= 0 ? "+" : ""}{fund.dailyChange}%
+                      </span>
                     </div>
-                  </div>
-                  <div className="col-span-1 text-right data-number text-white/80 relative z-10">{fund.nav}</div>
-                  <div className={`col-span-1 text-right data-number font-medium ${dailyChange >= 0 ? "text-[#00F0FF]" : "text-[#FF3366]"} relative z-10`}>
-                    <span className="inline-flex items-center gap-0.5">
-                      {dailyChange >= 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-                      {dailyChange >= 0 ? "+" : ""}{fund.dailyChange}%
-                    </span>
-                  </div>
-                  <div className={`col-span-1 text-right data-number ${return1y >= 0 ? "text-[#00F0FF]" : "text-[#FF3366]"} relative z-10`}>
-                    {return1y >= 0 ? "+" : ""}{perf?.return1y}%
-                  </div>
-                  <div className="col-span-1 text-right data-number text-[#A3FF12] relative z-10">{sharpe.toFixed(2)}</div>
-                  <div className="col-span-1 text-right data-number text-[#FF3366] relative z-10">{maxDD.toFixed(2)}%</div>
-                  <div className="col-span-1 flex justify-center relative z-10">
-                    <div className="flex gap-0.5">
-                      {Array.from({ length: 5 }).map((_, i) => (
-                        <Star key={i} className={`w-3 h-3 ${i < (fund.stars || 0) ? "text-[#FFB800] fill-[#FFB800]" : "text-white/10"}`} />
+                    <div className={`col-span-1 text-right data-number ${return1yClass} relative z-10`}>
+                      {return1y >= 0 ? "+" : ""}{perf?.return1y}%
+                    </div>
+                    <div className="col-span-1 text-right data-number relative z-10" style={{ color: POSITIVE_METRIC_COLOR }}>{sharpe.toFixed(2)}</div>
+                    <div className="col-span-1 text-right data-number relative z-10" style={{ color: RISK_COLOR }}>{maxDD.toFixed(2)}%</div>
+                    <div className="col-span-1 flex justify-center relative z-10">
+                      <div className="flex gap-0.5">
+                        {Array.from({ length: 5 }).map((_, i) => (
+                          <Star key={i} className={`w-3 h-3 ${i < (fund.stars || 0) ? "text-[#FFB800] fill-[#FFB800]" : "text-white/10"}`} />
+                        ))}
+                      </div>
+                    </div>
+                    <div className="col-span-1 text-center relative z-10">
+                      <span className="px-2 py-0.5 rounded text-xs bg-white/[0.05] text-white/50">{typeLabels[fund.fundType] || fund.fundType}</span>
+                    </div>
+                    <div className="col-span-2 flex justify-center gap-1 flex-wrap relative z-10">
+                      {(fund.tags || []).slice(0, 2).map((tag: string) => (
+                        <span key={tag} className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-[#3B6CFF]/10 text-[#5AA9FF] border border-[#3B6CFF]/20">{tag}</span>
                       ))}
                     </div>
-                  </div>
-                  <div className="col-span-1 text-center relative z-10">
-                    <span className="px-2 py-0.5 rounded text-xs bg-white/[0.05] text-white/50">{typeLabels[fund.fundType] || fund.fundType}</span>
-                  </div>
-                  <div className="col-span-2 flex justify-center gap-1 flex-wrap relative z-10">
-                    {(fund.tags || []).slice(0, 2).map((tag: string) => (
-                      <span key={tag} className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-[#3B6CFF]/10 text-[#00F0FF] border border-[#3B6CFF]/20">{tag}</span>
-                    ))}
-                  </div>
                   </Link>
-                  {/* 移除自选按钮 */}
-                  {isWatchlistFund && hoveredRow === fund.id && (
+
+                  {/* 移动端卡片布局 */}
+                  <Link to={`/${fund.fundCode}`} className="md:hidden flex flex-col gap-2 px-4 py-3.5 text-sm">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="text-white font-medium text-[15px] flex items-center gap-1 truncate">
+                          {fund.fundAbbr || fund.fundName}
+                          {isWatchlistFund && <Star className="w-3.5 h-3.5 text-[#FFB800] fill-[#FFB800] shrink-0" />}
+                        </div>
+                        <div className="text-white/30 text-xs mt-1 flex items-center gap-2 flex-wrap">
+                          <span className="data-number">{fund.fundCode}</span>
+                          <span className="px-1.5 py-0.5 rounded bg-white/[0.05]">{typeLabels[fund.fundType] || fund.fundType}</span>
+                          <span>{fund.manager?.name}</span>
+                        </div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <div className="data-number text-white text-base font-semibold">{fund.nav}</div>
+                        <div className={`data-number text-sm font-medium ${dailyClass}`}>
+                          {dailyChange >= 0 ? "+" : ""}{fund.dailyChange}%
+                        </div>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 pt-1 text-[11px]">
+                      <div>
+                        <div className="text-white/30">近1年</div>
+                        <div className={`data-number font-medium ${return1yClass}`}>{return1y >= 0 ? "+" : ""}{perf?.return1y}%</div>
+                      </div>
+                      <div>
+                        <div className="text-white/30">夏普比</div>
+                        <div className="data-number font-medium" style={{ color: POSITIVE_METRIC_COLOR }}>{sharpe.toFixed(2)}</div>
+                      </div>
+                      <div>
+                        <div className="text-white/30">最大回撤</div>
+                        <div className="data-number font-medium" style={{ color: RISK_COLOR }}>{maxDD.toFixed(2)}%</div>
+                      </div>
+                    </div>
+                  </Link>
+
+                  {/* 移除自选按钮 - 桌面端hover显示，移动端常驻 */}
+                  {isWatchlistFund && (
                     <button
                       onClick={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
                         removeFund.mutate({ code: fund.fundCode });
                       }}
-                      className="absolute top-2 right-2 z-20 w-6 h-6 rounded-md bg-[#FF3366]/10 text-[#FF3366] hover:bg-[#FF3366]/20 flex items-center justify-center transition-all"
+                      className={`absolute top-2 right-2 z-20 w-7 h-7 rounded-md bg-[#F5384B]/10 text-[#F5384B] hover:bg-[#F5384B]/20 flex items-center justify-center transition-all ${hoveredRow === fund.id ? "opacity-100" : "md:opacity-0 opacity-100"}`}
                       title="移除自选"
                     >
                       <Trash2 className="w-3.5 h-3.5" />

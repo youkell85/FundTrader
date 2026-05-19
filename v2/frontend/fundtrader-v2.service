@@ -9,7 +9,7 @@ WorkingDirectory=/opt/fundtrader/v2/frontend
 Environment=NODE_ENV=production
 Environment=PORT=3000
 Environment=FUNDTRADER_API_BASE=http://127.0.0.1:8766
-ExecStart=/usr/local/bin/node dist/boot.js
+ExecStart=/usr/bin/node dist/boot.js
 Restart=always
 RestartSec=5
 

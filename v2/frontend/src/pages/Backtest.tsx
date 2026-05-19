@@ -1,7 +1,17 @@
 import { useState } from "react";
-import { Calculator, Play, RotateCcw, Loader2, AlertCircle } from "lucide-react";
+import { Calculator, Play, RotateCcw, Loader2, AlertCircle, Sparkles } from "lucide-react";
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { trpc } from "@/providers/trpc";
+import {
+  UP_COLOR,
+  DOWN_COLOR,
+  ACCENT_PRIMARY,
+  ACCENT_INFO,
+  ACCENT_HIGHLIGHT,
+  RISK_COLOR,
+  POSITIVE_METRIC_COLOR,
+  getChangeTextClass,
+} from "@/lib/colors";
 
 const strategies = [
   { value: "fixed_amount", label: "固定金额定投", desc: "每期投入固定金额，适合收入稳定的投资者" },
@@ -33,8 +43,11 @@ export default function Backtest() {
   const [result, setResult] = useState<any>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+  const [llmReview, setLlmReview] = useState<any>(null);
+  const [llmLoading, setLlmLoading] = useState(false);
 
   const utils = trpc.useUtils();
+  const llmMutation = trpc.fund.analyzeDcaLLM.useMutation();
 
   const handleAddFund = (fundId: number) => {
     if (!selectedFunds.includes(fundId)) {
@@ -63,15 +76,14 @@ export default function Backtest() {
     }
     setIsRunning(true);
     setErrorMsg("");
+    setLlmReview(null);
     try {
       let normalizedWeights = weights.length > 0
         ? weights
         : selectedFunds.map(() => Math.floor(100 / selectedFunds.length));
-      // 自动归一化权重使其总和为100
       const totalW = normalizedWeights.reduce((a, b) => a + b, 0);
       if (totalW !== 100 && totalW > 0) {
         normalizedWeights = normalizedWeights.map((w) => Math.round((w / totalW) * 100));
-        // 修正舍入误差
         const diff = 100 - normalizedWeights.reduce((a, b) => a + b, 0);
         if (diff !== 0) normalizedWeights[0] += diff;
       }
@@ -96,21 +108,54 @@ export default function Backtest() {
     }
   };
 
+  const handleLLMReview = async () => {
+    if (!result || llmLoading) return;
+    setLlmLoading(true);
+    try {
+      const code = result.fundCode || (allFunds.find((f: any) => f.id === selectedFunds[0])?.fundCode ?? "");
+      const name = result.fundName || (allFunds.find((f: any) => f.id === selectedFunds[0])?.fundAbbr ?? code);
+      const review = await llmMutation.mutateAsync({
+        code,
+        name,
+        dca: {
+          totalInvested: result.totalInvested,
+          finalValue: result.finalValue,
+          totalReturn: result.totalReturn,
+          annualizedReturn: result.annualizedReturn,
+          maxDrawdown: result.maxDrawdown,
+          sharpeRatio: result.sharpeRatio,
+          strategy,
+          frequency,
+        },
+        benchmark: result.benchmark || {},
+      });
+      setLlmReview(review?.review ?? review);
+    } catch (err) {
+      console.error("LLM 评价失败:", err);
+      setLlmReview({ raw: "AI 评价服务暂时不可用，请稍后重试。" });
+    } finally {
+      setLlmLoading(false);
+    }
+  };
+
   const selectedFundDetails = selectedFunds.map((id) => allFunds.find((f: any) => f.id === id)).filter(Boolean);
+  const totalReturnNum = parseFloat(result?.totalReturn || "0");
+  const benchmarkReturnNum = parseFloat(result?.benchmark?.totalReturn || result?.benchmarkReturn || "0");
+  const excessNum = totalReturnNum - benchmarkReturnNum;
 
   return (
     <div className="min-h-screen pt-14 pb-12">
-      <div className="max-w-7xl mx-auto px-6">
-        <div className="pt-12 pb-8">
-          <h1 className="text-4xl font-semibold text-white tracking-tight" style={{ letterSpacing: "-1.2px" }}>智能定投与回测</h1>
-          <p className="mt-2 text-white/40 text-base">通过历史数据验证定投策略的有效性，为您的投资决策提供量化支持</p>
+      <div className="max-w-7xl mx-auto px-4 md:px-6">
+        <div className="pt-8 md:pt-12 pb-6 md:pb-8">
+          <h1 className="text-2xl md:text-4xl font-semibold text-white tracking-tight" style={{ letterSpacing: "-1.2px" }}>智能定投与回测</h1>
+          <p className="mt-2 text-white/40 text-sm md:text-base">通过历史数据验证定投策略的有效性，为您的投资决策提供量化支持</p>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
           <div className="lg:col-span-1 space-y-4">
-            <div className="liquid-glass p-5">
-              <h2 className="text-lg font-medium text-white mb-4 flex items-center gap-2">
-                <Calculator className="w-5 h-5 text-[#00F0FF]" />策略配置
+            <div className="liquid-glass p-4 md:p-5">
+              <h2 className="text-base md:text-lg font-medium text-white mb-4 flex items-center gap-2">
+                <Calculator className="w-5 h-5" style={{ color: ACCENT_PRIMARY }} />策略配置
               </h2>
 
               <div className="mb-4">
@@ -129,9 +174,9 @@ export default function Backtest() {
                         {selectedFunds.length > 1 && (
                           <input type="number" value={weights[i] || 0}
                             onChange={(e) => { const newW = [...weights]; newW[i] = parseInt(e.target.value) || 0; setWeights(newW); }}
-                            className="w-14 h-6 rounded bg-white/[0.05] border border-white/[0.06] text-white/60 text-xs data-number text-center" />
+                            className="w-14 h-7 rounded bg-white/[0.05] border border-white/[0.06] text-white/60 text-xs data-number text-center" />
                         )}
-                        <button onClick={() => handleRemoveFund(i)} className="text-white/20 hover:text-[#FF3366] text-xs">x</button>
+                        <button onClick={() => handleRemoveFund(i)} className="text-white/30 hover:text-[#F5384B] text-xs px-1">×</button>
                       </div>
                     ))}
                   </div>
@@ -144,7 +189,7 @@ export default function Backtest() {
                   {strategies.map((s) => (
                     <button key={s.value} onClick={() => setStrategy(s.value)}
                       className={`w-full text-left px-3 py-2.5 rounded-lg text-sm transition-all ${
-                        strategy === s.value ? "bg-[#3B6CFF]/15 text-[#00F0FF] border border-[#3B6CFF]/20" : "text-white/50 hover:text-white/70 hover:bg-white/[0.03] border border-transparent"
+                        strategy === s.value ? "bg-[#3B6CFF]/15 text-[#5AA9FF] border border-[#3B6CFF]/20" : "text-white/50 hover:text-white/70 hover:bg-white/[0.03] border border-transparent"
                       }`}>
                       <div className="font-medium">{s.label}</div>
                       <div className="text-[10px] text-white/30 mt-0.5">{s.desc}</div>
@@ -182,7 +227,7 @@ export default function Backtest() {
               </div>
 
               {errorMsg && (
-                <div className="mb-3 flex items-start gap-2 text-xs text-[#FF3366]">
+                <div className="mb-3 flex items-start gap-2 text-xs" style={{ color: UP_COLOR }}>
                   <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
                   <span>{errorMsg}</span>
                 </div>
@@ -198,16 +243,19 @@ export default function Backtest() {
               <div className="liquid-glass p-5">
                 <h2 className="text-sm font-medium text-white/40 mb-3">历史回测</h2>
                 <div className="space-y-2">
-                  {backtestList.map((bt: any) => (
-                    <div key={bt.id} className="liquid-glass-sm p-3 hover:bg-white/[0.06] transition-all cursor-pointer">
-                      <div className="text-white text-sm">{bt.name}</div>
-                      <div className="flex items-center gap-2 mt-1">
-                        <span className="data-number text-xs text-[#00F0FF]">+{bt.totalReturn}%</span>
-                        <span className="text-xs text-white/20">|</span>
-                        <span className="text-xs text-white/30">{bt.strategy === "fixed_amount" ? "固定金额" : bt.strategy === "value_averaging" ? "价值平均" : bt.strategy === "smart_beta" ? "智能Beta" : "马丁格尔"}</span>
+                  {backtestList.map((bt: any) => {
+                    const ret = parseFloat(bt.totalReturn || "0");
+                    return (
+                      <div key={bt.id} className="liquid-glass-sm p-3 hover:bg-white/[0.06] transition-all cursor-pointer">
+                        <div className="text-white text-sm">{bt.name}</div>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className={`data-number text-xs ${getChangeTextClass(ret)}`}>{ret >= 0 ? "+" : ""}{bt.totalReturn}%</span>
+                          <span className="text-xs text-white/20">|</span>
+                          <span className="text-xs text-white/30">{bt.strategy === "fixed_amount" ? "固定金额" : bt.strategy === "value_averaging" ? "价值平均" : bt.strategy === "smart_beta" ? "智能Beta" : "马丁格尔"}</span>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -215,84 +263,163 @@ export default function Backtest() {
 
           <div className="lg:col-span-2">
             {result ? (
-              <div className="space-y-6">
-                <div className="grid grid-cols-3 gap-3">
+              <div className="space-y-4 md:space-y-6">
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-2 md:gap-3">
                   {[
-                    { label: "总投入", value: `¥${(parseFloat(result.totalInvested) || 0).toLocaleString()}`, color: "#3B6CFF" },
-                    { label: "最终价值", value: `¥${(parseFloat(result.finalValue) || 0).toLocaleString()}`, color: "#00F0FF" },
-                    { label: "总收益率", value: `${parseFloat(result.totalReturn) >= 0 ? "+" : ""}${result.totalReturn ?? 0}%`, color: "#A3FF12" },
-                    { label: "年化收益", value: `${result.annualizedReturn ?? 0}%`, color: "#FFB800" },
-                    { label: "最大回撤", value: `${result.maxDrawdown ?? 0}%`, color: "#FF3366" },
-                    { label: "夏普比率", value: result.sharpeRatio ?? "—", color: "#A3FF12" },
+                    { label: "总投入", value: `¥${(parseFloat(result.totalInvested) || 0).toLocaleString()}`, color: ACCENT_PRIMARY },
+                    { label: "最终价值", value: `¥${(parseFloat(result.finalValue) || 0).toLocaleString()}`, color: POSITIVE_METRIC_COLOR },
+                    { label: "总收益率", value: `${totalReturnNum >= 0 ? "+" : ""}${result.totalReturn ?? 0}%`, color: totalReturnNum >= 0 ? UP_COLOR : DOWN_COLOR },
+                    { label: "年化收益", value: `${result.annualizedReturn ?? 0}%`, color: parseFloat(result.annualizedReturn || "0") >= 0 ? UP_COLOR : DOWN_COLOR },
+                    { label: "最大回撤", value: `${result.maxDrawdown ?? 0}%`, color: RISK_COLOR },
+                    { label: "夏普比率", value: result.sharpeRatio ?? "—", color: POSITIVE_METRIC_COLOR },
                   ].map((card) => (
-                    <div key={card.label} className="liquid-glass-sm p-4 text-center group hover:bg-white/[0.06] transition-all">
-                      <div className="text-white/30 text-xs mb-1">{card.label}</div>
-                      <div className="data-number text-xl font-medium" style={{ color: card.color }}>{card.value}</div>
+                    <div key={card.label} className="liquid-glass-sm p-3 md:p-4 text-center group hover:bg-white/[0.06] transition-all">
+                      <div className="text-white/30 text-[10px] md:text-xs mb-1">{card.label}</div>
+                      <div className="data-number text-sm md:text-xl font-medium" style={{ color: card.color }}>{card.value}</div>
                     </div>
                   ))}
                 </div>
 
-                <div className="liquid-glass p-6">
-                  <h2 className="text-lg font-medium text-white mb-4">累计收益走势</h2>
-                  <div className="h-80">
+                <div className="liquid-glass p-4 md:p-6">
+                  <h2 className="text-base md:text-lg font-medium text-white mb-4">累计收益走势 vs 买入持有基准</h2>
+                  <div className="h-72 md:h-80">
                     <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={result.monthlyData || []}>
+                      <AreaChart data={result.monthlyData || []} margin={{ top: 16, right: 16, left: 0, bottom: 0 }}>
                         <defs>
                           <linearGradient id="investedGrad" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%" stopColor="#3B6CFF" stopOpacity={0.2} />
-                            <stop offset="100%" stopColor="#3B6CFF" stopOpacity={0} />
+                            <stop offset="0%" stopColor={ACCENT_PRIMARY} stopOpacity={0.2} />
+                            <stop offset="100%" stopColor={ACCENT_PRIMARY} stopOpacity={0} />
                           </linearGradient>
                           <linearGradient id="valueGrad" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%" stopColor="#00F0FF" stopOpacity={0.2} />
-                            <stop offset="100%" stopColor="#00F0FF" stopOpacity={0} />
+                            <stop offset="0%" stopColor={UP_COLOR} stopOpacity={0.25} />
+                            <stop offset="100%" stopColor={UP_COLOR} stopOpacity={0} />
+                          </linearGradient>
+                          <linearGradient id="benchmarkGrad" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor={ACCENT_HIGHLIGHT} stopOpacity={0.18} />
+                            <stop offset="100%" stopColor={ACCENT_HIGHLIGHT} stopOpacity={0} />
                           </linearGradient>
                         </defs>
-                        <XAxis dataKey="date" tick={{ fill: "rgba(255,255,255,0.2)", fontSize: 11 }} tickFormatter={(v) => v?.slice(0, 7) || ""} axisLine={{ stroke: "rgba(255,255,255,0.06)" }} tickLine={false} />
-                        <YAxis tick={{ fill: "rgba(255,255,255,0.2)", fontSize: 11 }} axisLine={false} tickLine={false} width={65} tickFormatter={(v) => `¥${(v / 10000).toFixed(1)}万`} />
+                        <XAxis dataKey="date" tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 10 }} tickFormatter={(v) => v?.slice(0, 7) || ""} axisLine={{ stroke: "rgba(255,255,255,0.06)" }} tickLine={false} />
+                        <YAxis
+                          tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 10 }}
+                          axisLine={false}
+                          tickLine={false}
+                          width={60}
+                          domain={[
+                            (dataMin: number) => Math.floor(Math.min(0, dataMin) * 0.95),
+                            (dataMax: number) => Math.ceil(dataMax * 1.08),
+                          ]}
+                          tickFormatter={(v) => `¥${(v / 10000).toFixed(1)}万`}
+                        />
                         <Tooltip contentStyle={{ background: "rgba(5, 8, 26, 0.95)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "8px", fontSize: "12px" }}
-                          labelStyle={{ color: "rgba(255,255,255,0.4)" }} itemStyle={{ color: "#00F0FF" }}
-                          formatter={(v: any, n: string) => [`¥${parseFloat(v).toLocaleString()}`, n === "invested" ? "累计投入" : "持仓价值"]} />
-                        <Legend wrapperStyle={{ fontSize: "12px", color: "rgba(255,255,255,0.4)" }} />
-                        <Area type="monotone" dataKey="invested" name="累计投入" stroke="#3B6CFF" strokeWidth={1.5} fill="url(#investedGrad)" />
-                        <Area type="monotone" dataKey="value" name="持仓价值" stroke="#00F0FF" strokeWidth={1.5} fill="url(#valueGrad)" />
+                          labelStyle={{ color: "rgba(255,255,255,0.4)" }}
+                          formatter={(v: any, n: string) => {
+                            if (v === null || v === undefined) return ["—", n];
+                            const label = n === "invested" ? "累计投入" : n === "value" ? "定投价值" : "买入持有";
+                            return [`¥${parseFloat(v).toLocaleString()}`, label];
+                          }} />
+                        <Legend wrapperStyle={{ fontSize: "11px", color: "rgba(255,255,255,0.5)" }} />
+                        <Area type="monotone" dataKey="invested" name="累计投入" stroke={ACCENT_PRIMARY} strokeWidth={1.5} fill="url(#investedGrad)" />
+                        <Area type="monotone" dataKey="value" name="定投价值" stroke={UP_COLOR} strokeWidth={2} fill="url(#valueGrad)" />
+                        <Area type="monotone" dataKey="benchmark" name="买入持有基准" stroke={ACCENT_HIGHLIGHT} strokeWidth={1.5} strokeDasharray="4 3" fill="url(#benchmarkGrad)" connectNulls />
                       </AreaChart>
                     </ResponsiveContainer>
                   </div>
                 </div>
 
-                <div className="liquid-glass p-6">
-                  <h2 className="text-lg font-medium text-white mb-4">策略分析</h2>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-3">
-                      <h3 className="text-sm text-white/40">回测表现</h3>
-                      <div className="space-y-2 text-sm">
-                        <div className="flex justify-between"><span className="text-white/30">超额收益</span><span className="data-number text-[#00F0FF]">{parseFloat(result.excessReturn) >= 0 ? "+" : ""}{result.excessReturn ?? 0}%</span></div>
-                        <div className="flex justify-between"><span className="text-white/30">基准收益</span><span className="data-number text-white/50">{result.benchmarkReturn ?? 0}%</span></div>
-                      </div>
+                <div className="liquid-glass p-4 md:p-6">
+                  <h2 className="text-base md:text-lg font-medium text-white mb-4">策略 vs 买入持有 对比</h2>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3 mb-4">
+                    <div className="liquid-glass-sm p-3 text-center">
+                      <div className="text-white/30 text-[10px] md:text-xs mb-1">定投总收益</div>
+                      <div className={`data-number text-sm md:text-base font-medium ${getChangeTextClass(totalReturnNum)}`}>{totalReturnNum >= 0 ? "+" : ""}{result.totalReturn}%</div>
                     </div>
-                    <div className="space-y-3">
-                      <h3 className="text-sm text-white/40">策略建议</h3>
-                      <p className="text-white/50 text-sm leading-relaxed">
-                        {parseFloat(result.sharpeRatio || 0) > 0.8 ? "该策略风险调整后收益表现优秀，建议作为核心配置策略。"
-                          : parseFloat(result.sharpeRatio || 0) > 0.5 ? "该策略具备合理的风险收益比，适合作为中长期定投方案。"
-                            : "该策略在当前回测区间表现一般，建议调整基金选择或定投参数。"}
-                      </p>
+                    <div className="liquid-glass-sm p-3 text-center">
+                      <div className="text-white/30 text-[10px] md:text-xs mb-1">买入持有</div>
+                      <div className={`data-number text-sm md:text-base font-medium ${getChangeTextClass(benchmarkReturnNum)}`}>{benchmarkReturnNum >= 0 ? "+" : ""}{benchmarkReturnNum.toFixed(2)}%</div>
+                    </div>
+                    <div className="liquid-glass-sm p-3 text-center">
+                      <div className="text-white/30 text-[10px] md:text-xs mb-1">超额收益</div>
+                      <div className={`data-number text-sm md:text-base font-medium ${getChangeTextClass(excessNum)}`}>{excessNum >= 0 ? "+" : ""}{excessNum.toFixed(2)}%</div>
+                    </div>
+                    <div className="liquid-glass-sm p-3 text-center">
+                      <div className="text-white/30 text-[10px] md:text-xs mb-1">基准回撤</div>
+                      <div className="data-number text-sm md:text-base font-medium" style={{ color: RISK_COLOR }}>{result.benchmark?.maxDrawdown ?? "—"}%</div>
                     </div>
                   </div>
+                  <p className="text-white/50 text-xs md:text-sm leading-relaxed">
+                    {excessNum > 0
+                      ? `定投策略相比一次性买入持有产生了 ${excessNum.toFixed(2)}% 的超额收益，在该时段的波动市场中体现出成本平摊优势。`
+                      : excessNum < -2
+                      ? `本时段为单边上行市，一次性买入持有领先定投 ${Math.abs(excessNum).toFixed(2)}%，建议在震荡或下跌市场中再考虑定投。`
+                      : `定投与买入持有表现接近，差异 ${Math.abs(excessNum).toFixed(2)}%，可结合风险偏好选择。`}
+                  </p>
                 </div>
 
-                <button onClick={() => setResult(null)} className="flex items-center gap-2 text-white/30 hover:text-white/60 text-sm transition-colors">
+                <div className="liquid-glass p-4 md:p-6">
+                  <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
+                    <h2 className="text-base md:text-lg font-medium text-white flex items-center gap-2">
+                      <Sparkles className="w-5 h-5" style={{ color: ACCENT_INFO }} />AI 定投策略评价
+                    </h2>
+                    <button onClick={handleLLMReview} disabled={llmLoading}
+                      className="h-9 px-4 rounded-lg text-xs font-medium transition-all disabled:opacity-40"
+                      style={{ background: `${ACCENT_INFO}1A`, color: ACCENT_INFO, border: `1px solid ${ACCENT_INFO}40` }}>
+                      {llmLoading ? "AI 评价生成中..." : llmReview ? "重新生成评价" : "生成 AI 专业评价"}
+                    </button>
+                  </div>
+                  {llmLoading && (
+                    <div className="flex items-center gap-2 text-white/40 text-sm py-6">
+                      <Loader2 className="w-4 h-4 animate-spin" />DeepSeek 正在分析定投表现...
+                    </div>
+                  )}
+                  {!llmLoading && !llmReview && (
+                    <p className="text-white/40 text-sm">点击上方按钮调用 DeepSeek-V4 LLM 对当前回测策略生成专业评价。</p>
+                  )}
+                  {!llmLoading && llmReview && (
+                    <div className="space-y-3">
+                      {llmReview.verdict && (
+                        <div className="liquid-glass-sm p-3">
+                          <div className="text-xs mb-1" style={{ color: ACCENT_INFO }}>综合评级</div>
+                          <div className="text-white text-sm font-medium">{llmReview.verdict}</div>
+                        </div>
+                      )}
+                      {llmReview.analysis && (
+                        <div className="liquid-glass-sm p-3">
+                          <div className="text-xs mb-1" style={{ color: ACCENT_INFO }}>专业分析</div>
+                          <div className="text-white/70 text-sm leading-relaxed whitespace-pre-wrap">{llmReview.analysis}</div>
+                        </div>
+                      )}
+                      {Array.isArray(llmReview.suggestions) && llmReview.suggestions.length > 0 && (
+                        <div className="liquid-glass-sm p-3">
+                          <div className="text-xs mb-2" style={{ color: ACCENT_HIGHLIGHT }}>优化建议</div>
+                          <ul className="space-y-1.5">
+                            {llmReview.suggestions.map((s: string, i: number) => (
+                              <li key={i} className="text-white/70 text-sm flex gap-2">
+                                <span className="text-white/30">{i + 1}.</span><span>{s}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {llmReview.raw && (
+                        <p className="text-white/60 text-sm leading-relaxed whitespace-pre-wrap">{llmReview.raw}</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <button onClick={() => { setResult(null); setLlmReview(null); }} className="flex items-center gap-2 text-white/30 hover:text-white/60 text-sm transition-colors">
                   <RotateCcw className="w-4 h-4" />重新配置
                 </button>
               </div>
             ) : (
-              <div className="liquid-glass p-12 flex flex-col items-center justify-center text-center min-h-[500px]">
-                <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-[#3B6CFF]/20 to-[#00F0FF]/10 flex items-center justify-center mb-4">
+              <div className="liquid-glass p-8 md:p-12 flex flex-col items-center justify-center text-center min-h-[400px] md:min-h-[500px]">
+                <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-[#3B6CFF]/20 to-[#5AA9FF]/10 flex items-center justify-center mb-4">
                   <Calculator className="w-10 h-10 text-[#3B6CFF]/50" />
                 </div>
                 <h3 className="text-xl font-medium text-white/60 mb-2">配置您的定投策略</h3>
                 <p className="text-white/30 text-sm max-w-md">
-                  选择基金产品、设定定投参数，我们将基于历史数据为您计算策略的回测表现
+                  选择基金产品、设定定投参数，我们将基于历史数据为您计算策略的回测表现，并提供 AI 专业评价
                 </p>
               </div>
             )}

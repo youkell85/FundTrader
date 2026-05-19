@@ -335,6 +335,27 @@ export function mapBacktestResult(result: any): any {
     }));
   }
 
+  // 提取买入持有基准曲线（来自后端 dca_service._calc_buy_and_hold_curve）
+  const benchmarkRaw =
+    first?.benchmark?.curve ||
+    strategyData?.benchmark?.curve ||
+    result?.benchmark?.curve ||
+    [];
+  const benchmarkCurve = Array.isArray(benchmarkRaw)
+    ? benchmarkRaw.map((p: any) => ({
+        date: p?.date || "",
+        value: p?.value != null ? String(p.value) : "0",
+      }))
+    : [];
+  // 合并定投曲线 + 基准曲线（按日期对齐）
+  const benchmarkMap = new Map<string, string>();
+  benchmarkCurve.forEach((p: any) => benchmarkMap.set(p.date, p.value));
+  const merged = monthlyData.map((p: any) => ({
+    ...p,
+    benchmark: benchmarkMap.get(p.date) ?? null,
+  }));
+
+  const benchSummary = first?.benchmark || strategyData?.benchmark || result?.benchmark || {};
   return {
     id: result.id || 1,
     name: result.name || "定投回测",
@@ -354,7 +375,16 @@ export function mapBacktestResult(result: any): any {
     sharpeRatio: metricsSource.sharpe_ratio != null ? String(metricsSource.sharpe_ratio) : "0",
     benchmarkReturn: metricsSource.benchmark_return != null ? String(metricsSource.benchmark_return) : "0",
     excessReturn: metricsSource.excess_return != null ? String(metricsSource.excess_return) : "0",
-    monthlyData,
+    monthlyData: merged,
+    benchmarkCurve,
+    benchmark: {
+      finalValue: benchSummary?.final_value != null ? String(benchSummary.final_value) : "0",
+      totalReturn: benchSummary?.total_return != null ? String(benchSummary.total_return) : "0",
+      annualReturn: benchSummary?.annual_return != null ? String(benchSummary.annual_return) : "0",
+      maxDrawdown: benchSummary?.max_drawdown != null ? String(benchSummary.max_drawdown) : "0",
+    },
+    fundCode: first?.fund_code || (individual[0]?.fund_code) || "",
+    fundName: first?.fund_name || (individual[0]?.fund_name) || "",
   };
 }
 

@@ -29,6 +29,35 @@ def _get_nav_history(code: str, start_date: str = "", end_date: str = "") -> Lis
     return get_fund_nav_history(code, start_date, end_date)
 
 
+def _calc_buy_and_hold_curve(nav_data: List[Dict], total_amount: float) -> Dict[str, Any]:
+    """计算一次性买入并持有（buy-and-hold）基准曲线。
+    完全在起始日一次性投入 total_amount，及后不再追加。返回逐点市值。"""
+    if not nav_data:
+        return {"curve": [], "final_value": 0, "profit_rate": 0}
+    first_nav = next((p.get("nav") for p in nav_data if p.get("nav", 0) > 0), 0)
+    if not first_nav or first_nav <= 0:
+        return {"curve": [], "final_value": 0, "profit_rate": 0}
+    shares = total_amount / first_nav
+    curve = []
+    for p in nav_data:
+        nav = p.get("nav", 0) or 0
+        if nav <= 0:
+            continue
+        value = shares * nav
+        curve.append({
+            "date": p["date"],
+            "value": round(value, 2),
+            "profit_rate": round((value - total_amount) / total_amount * 100, 2),
+        })
+    final_value = curve[-1]["value"] if curve else 0
+    return {
+        "curve": curve,
+        "final_value": round(final_value, 2),
+        "profit_rate": round((final_value - total_amount) / total_amount * 100, 2) if total_amount > 0 else 0,
+        "total_invested": total_amount,
+    }
+
+
 def _calculate_dca_backtest(
     code: str,
     amount: float = 1000,
@@ -50,10 +79,22 @@ def _calculate_dca_backtest(
         results["fixed"] = _calc_fixed_dca(nav_data, amount, frequency)
     if strategy in ("ma", "compare"):
         results["ma"] = _calc_ma_dca(nav_data, amount, frequency, ma_window)
-    if strategy == "compare":
-        return {"fund_code": code, "strategies": results}
 
-    return results.get(strategy, {})
+    # 计算买入持有基准曲线（以定投总投入为一次性投入金额）
+    primary = results.get("fixed") or results.get("ma") or {}
+    total_invested = primary.get("total_invested", amount * 12)
+    benchmark = _calc_buy_and_hold_curve(nav_data, total_invested)
+
+    if strategy == "compare":
+        return {
+            "fund_code": code,
+            "strategies": results,
+            "benchmark": benchmark,
+        }
+
+    out = results.get(strategy, {})
+    out["benchmark"] = benchmark
+    return out
 
 
 def run_dca_backtest(

@@ -118,6 +118,19 @@ export async function healthCheck() {
   return ftFetch<any>("/health");
 }
 
+// 基金评价 LLM 分析
+export async function getFundLLMReview(code: string) {
+  return ftFetch<any>(`/analysis/${code}/llm_review`);
+}
+
+// 定投回测 LLM 评价
+export async function getDcaLLMReview(payload: any) {
+  return ftFetch<any>(`/dca/llm_review`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 // 图片识别基金
 export async function imageSearchFund(file: File) {
   const url = `${API_BASE}/fund/image-search`;

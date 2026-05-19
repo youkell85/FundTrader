@@ -10,6 +10,8 @@ import {
   getWatchlist,
   addToWatchlist,
   removeFromWatchlist as ftRemoveFromWatchlist,
+  getFundLLMReview,
+  getDcaLLMReview,
   ftFetch,
 } from "./lib/fundtrader-client";
 import {
@@ -493,6 +495,51 @@ export const fundRouter = createRouter({
       return mapMarketOverview({});
     }
   }),
+
+  // 基金评价 LLM 分析（详情页使用）
+  analyzeFundLLM: publicQuery
+    .input(z.object({ code: z.string().regex(/^\d{6}$/) }))
+    .query(async ({ input }) => {
+      try {
+        const cacheKey = `llm_review_${input.code}`;
+        const cached = getCached<any>(cacheKey);
+        if (cached) return cached;
+        const data = await getFundLLMReview(input.code);
+        // BFF 缓存 30 分钟（后端同时有 12 小时文件缓存）
+        if (data && (data as any).review) setCache(cacheKey, data, 30 * 60 * 1000);
+        return data;
+      } catch (err) {
+        wrapError(err, "获取基金 LLM 分析失败");
+      }
+    }),
+
+  // 定投回测 LLM 评价
+  analyzeDcaLLM: publicQuery
+    .input(
+      z.object({
+        code: z.string(),
+        name: z.string().optional(),
+        dca: z.any(),
+        benchmark: z.any().optional(),
+      })
+    )
+    .mutation(async ({ input }) => {
+      try {
+        const cacheKey = `llm_dca_${input.code}_${JSON.stringify(input.dca || {}).slice(0, 50)}`;
+        const cached = getCached<any>(cacheKey);
+        if (cached) return cached;
+        const data = await getDcaLLMReview({
+          code: input.code,
+          name: input.name || input.code,
+          dca: input.dca,
+          benchmark: input.benchmark || {},
+        });
+        if (data && (data as any).review) setCache(cacheKey, data, 30 * 60 * 1000);
+        return data;
+      } catch (err) {
+        wrapError(err, "获取定投 LLM 评价失败");
+      }
+    }),
 
   // 图片识别基金
   imageSearch: publicQuery

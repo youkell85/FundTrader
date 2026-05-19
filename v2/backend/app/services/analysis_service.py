@@ -7,6 +7,46 @@ from ..data.cache_manager import cache
 from ..config import CACHE_TTL_NAV, CACHE_TTL_INFO
 
 
+def _supplement_nav_with_efinance(code: str, current_navs: List[Dict]) -> List[Dict]:
+    """优先使用 efinance 抓取长周期全量净值历史（东财涵盖从成立以来）。
+    若当前数据不足 365 点或起始日期不够早，从 efinance 补充。并使用文件缓存避免重复拉取。"""
+    nav_cache_key = f"fund_nav_full_{code}"
+    cached = cache.get(nav_cache_key, CACHE_TTL_NAV * 6)  # 6小时缓存
+    if cached and isinstance(cached, list) and len(cached) > 200:
+        return cached
+    try:
+        ef_nav = get_fund_nav_history(code)
+    except Exception:
+        ef_nav = []
+    if not ef_nav:
+        return current_navs
+    # 按日期去重合并
+    by_date: Dict[str, Dict] = {}
+    for n in current_navs:
+        d = n.get("date")
+        if d:
+            by_date[str(d)] = n
+    for n in ef_nav:
+        try:
+            d = n.get("date")
+            if not d:
+                continue
+            d = str(d)
+            if d not in by_date:
+                by_date[d] = {
+                    "date": d,
+                    "nav": float(n.get("nav")) if n.get("nav") not in (None, "") else None,
+                    "accum_nav": float(n.get("acc_nav")) if n.get("acc_nav") not in (None, "") else None,
+                    "day_growth": float(str(n.get("day_growth", "0")).replace("%", "")) if n.get("day_growth") not in (None, "") else None,
+                }
+        except Exception:
+            continue
+    merged = [by_date[d] for d in sorted(by_date.keys())]
+    if len(merged) > 200:
+        cache.set(nav_cache_key, merged)
+    return merged
+
+
 def analyze_fund(code: str) -> Dict[str, Any]:
     """深度分析单只基金 - 多数据源融合"""
     # 尝试使用多数据源融合层
@@ -19,6 +59,8 @@ def analyze_fund(code: str) -> Dict[str, Any]:
             {"date": n.date, "nav": n.nav, "accum_nav": n.accum_nav, "day_growth": n.day_growth}
             for n in (detail.nav_history or [])
         ]
+        # 关键修复：使用 efinance 补充长周期净值历史（解决净值图只到 2025-12-10 问题）
+        nav_data = _supplement_nav_with_efinance(code, nav_data)
         holdings = [
             {"name": h.name, "code": h.code, "ratio": h.ratio}
             for h in (detail.holdings or [])

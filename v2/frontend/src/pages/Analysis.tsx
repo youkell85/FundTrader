@@ -3,6 +3,15 @@ import { Link } from "react-router";
 import { TrendingUp, Search, BrainCircuit, User, ArrowRight, Loader2 } from "lucide-react";
 import { RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, ResponsiveContainer, PieChart as RePie, Pie, Cell } from "recharts";
 import { trpc } from "@/providers/trpc";
+import {
+  UP_COLOR,
+  DOWN_COLOR,
+  ACCENT_PRIMARY,
+  ACCENT_INFO,
+  ACCENT_HIGHLIGHT,
+  POSITIVE_METRIC_COLOR,
+  getChangeTextClass,
+} from "@/lib/colors";
 
 function LoadingScreen({ text = "数据加载中..." }: { text?: string }) {
   return (
@@ -13,7 +22,7 @@ function LoadingScreen({ text = "数据加载中..." }: { text?: string }) {
   );
 }
 
-const COLORS = ["#3B6CFF", "#00F0FF", "#A3FF12", "#FFB800", "#FF3366", "#8B5CF6", "#EC4899", "#14B8A6"];
+const COLORS = [ACCENT_PRIMARY, ACCENT_INFO, POSITIVE_METRIC_COLOR, ACCENT_HIGHLIGHT, "#9D7BFF", "#5AA9FF", "#7B9BFF", "#3B6CFF"];
 
 export default function Analysis() {
   const { data: listData, isLoading: listLoading } = trpc.fund.list.useQuery({ pageSize: 1000 });
@@ -72,18 +81,18 @@ export default function Analysis() {
 
   return (
     <div className="min-h-screen pt-14 pb-12">
-      <div className="max-w-7xl mx-auto px-6">
-        <div className="pt-12 pb-8">
-          <h1 className="text-4xl font-semibold text-white tracking-tight" style={{ letterSpacing: "-1.2px" }}>深度分析中心</h1>
-          <p className="mt-2 text-white/40 text-base">多维度公募基金分析工具，洞察市场趋势与基金表现</p>
+      <div className="max-w-7xl mx-auto px-4 md:px-6">
+        <div className="pt-8 md:pt-12 pb-6 md:pb-8">
+          <h1 className="text-2xl md:text-4xl font-semibold text-white tracking-tight" style={{ letterSpacing: "-1.2px" }}>深度分析中心</h1>
+          <p className="mt-2 text-white/40 text-sm md:text-base">多维度公募基金分析工具，洞察市场趋势与基金表现</p>
         </div>
 
         {listLoading ? <LoadingScreen /> : (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 space-y-6">
-            <div className="liquid-glass p-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
+          <div className="lg:col-span-2 space-y-4 md:space-y-6">
+            <div className="liquid-glass p-4 md:p-6">
               <h2 className="text-lg font-medium text-white mb-4 flex items-center gap-2">
-                <TrendingUp className="w-5 h-5 text-[#A3FF12]" />收益排行榜 (近1年)
+                <TrendingUp className="w-5 h-5" style={{ color: POSITIVE_METRIC_COLOR }} />收益排行榜 (近1年)
               </h2>
               <div className="space-y-2">
                 {topFunds.map((f: any, i: number) => {
@@ -92,27 +101,27 @@ export default function Analysis() {
                   return (
                     <Link key={f.id} to={`/${f.id}`}
                       className="flex items-center gap-3 py-2.5 border-b border-white/[0.03] hover:bg-white/[0.03] transition-all group px-2 rounded-lg">
-                      <span className={`data-number text-xs w-5 text-center font-medium ${i === 0 ? "text-[#FFB800]" : i === 1 ? "text-[#C0C0C0]" : i === 2 ? "text-[#CD7F32]" : "text-white/20"}`}>{i + 1}</span>
+                      <span className={`data-number text-xs w-5 text-center font-medium ${i === 0 ? "text-[#FFB800]" : i === 1 ? "text-[#C0C0C0]" : i === 2 ? "text-[#CD7F32]" : "text-white/30"}`}>{i + 1}</span>
                       <div className="flex-1 min-w-0">
-                        <div className="text-white text-sm truncate group-hover:text-[#00F0FF] transition-colors">{f.fundAbbr}</div>
-                        <div className="text-white/20 text-xs">{f.manager?.name} · {f.category}</div>
+                        <div className="text-white text-sm truncate group-hover:text-[#5AA9FF] transition-colors">{f.fundAbbr}</div>
+                        <div className="text-white/30 text-xs">{f.manager?.name} · {f.category}</div>
                       </div>
                       <div className="w-24 h-1.5 rounded-full bg-white/[0.03] overflow-hidden mr-3">
-                        <div className="h-full rounded-full bg-gradient-to-r from-[#3B6CFF] to-[#00F0FF]" style={{ width: `${(ret / maxRet) * 100}%` }} />
+                        <div className="h-full rounded-full" style={{ width: `${(ret / maxRet) * 100}%`, background: `linear-gradient(90deg, ${ACCENT_PRIMARY}, ${ACCENT_INFO})` }} />
                       </div>
-                      <div className={`data-number text-sm font-medium ${ret >= 0 ? "text-[#00F0FF]" : "text-[#FF3366]"}`}>{ret >= 0 ? "+" : ""}{f.performance?.return1y}%</div>
+                      <div className={`data-number text-sm font-medium ${getChangeTextClass(ret)}`}>{ret >= 0 ? "+" : ""}{f.performance?.return1y}%</div>
                     </Link>
                   );
                 })}
               </div>
             </div>
 
-            <div className="liquid-glass p-6">
-              <h2 className="text-lg font-medium text-white mb-4 flex items-center gap-2">
-                <TrendingUp className="w-5 h-5 text-[#3B6CFF]" />行业配置分布
+            <div className="liquid-glass p-4 md:p-6">
+              <h2 className="text-base md:text-lg font-medium text-white mb-4 flex items-center gap-2">
+                <TrendingUp className="w-5 h-5" style={{ color: ACCENT_PRIMARY }} />行业配置分布
               </h2>
-              <div className="flex items-center gap-6">
-                <div className="w-48 h-48">
+              <div className="flex flex-col md:flex-row items-center gap-4 md:gap-6">
+                <div className="w-40 h-40 md:w-48 md:h-48">
                   <ResponsiveContainer width="100%" height="100%">
                     <RePie>
                       <Pie data={industryStats} cx="50%" cy="50%" innerRadius={45} outerRadius={75} paddingAngle={2} dataKey="totalRatio">
@@ -133,13 +142,13 @@ export default function Analysis() {
               </div>
             </div>
 
-            <div className="liquid-glass p-6">
-              <h2 className="text-lg font-medium text-white mb-4 flex items-center gap-2">
-                <BrainCircuit className="w-5 h-5 text-[#00F0FF]" />AI 市场洞察
+            <div className="liquid-glass p-4 md:p-6">
+              <h2 className="text-base md:text-lg font-medium text-white mb-4 flex items-center gap-2">
+                <BrainCircuit className="w-5 h-5" style={{ color: ACCENT_INFO }} />AI 市场洞察
               </h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="liquid-glass-sm p-4">
-                  <h3 className="text-sm text-[#00F0FF] mb-2">市场趋势研判</h3>
+                  <h3 className="text-sm mb-2" style={{ color: ACCENT_INFO }}>市场趋势研判</h3>
                   <p className="text-white/50 text-sm leading-relaxed">
                     {overview.totalFunds > 0
                       ? `当前基金池共 ${overview.totalFunds} 只产品，持续营销基金 ${overview.marketingCount} 只。市场平均年化收益 ${overview.avgReturn}%，平均夏普比率 ${overview.avgSharpe}。建议关注近1年收益率排名前20%的基金，结合行业配置分散风险。`
@@ -147,7 +156,7 @@ export default function Analysis() {
                   </p>
                 </div>
                 <div className="liquid-glass-sm p-4">
-                  <h3 className="text-sm text-[#A3FF12] mb-2">基金经理优选逻辑</h3>
+                  <h3 className="text-sm mb-2" style={{ color: POSITIVE_METRIC_COLOR }}>基金经理优选逻辑</h3>
                   <p className="text-white/50 text-sm leading-relaxed">
                     {topFunds.length > 0
                       ? `基于近1年收益排行榜，${topFunds[0]?.fundAbbr ?? "—"} 以 ${topFunds[0]?.performance?.return1y ?? "0"}% 的收益率位居榜首。优选基金经理时，建议重点关注任职年限超过5年、管理规模稳定、历史最大回撤控制在20%以内的选手。`
@@ -159,9 +168,9 @@ export default function Analysis() {
           </div>
 
           <div className="space-y-6">
-            <div className="liquid-glass p-5">
+            <div className="liquid-glass p-4 md:p-5">
               <h2 className="text-lg font-medium text-white mb-4 flex items-center gap-2">
-                <User className="w-5 h-5 text-[#FFB800]" />基金经理分析
+                <User className="w-5 h-5" style={{ color: ACCENT_HIGHLIGHT }} />基金经理分析
               </h2>
               <div className="relative mb-3">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/20" />
@@ -182,7 +191,7 @@ export default function Analysis() {
             </div>
 
             {managerDetail && (
-              <div className="liquid-glass p-5">
+              <div className="liquid-glass p-4 md:p-5">
                 <div className="flex items-center gap-3 mb-4">
                   <div className="w-14 h-14 rounded-full bg-gradient-to-br from-[#3B6CFF] to-[#00F0FF] flex items-center justify-center text-white font-semibold text-lg">{managerDetail.name?.[0] ?? "?"}</div>
                   <div>
@@ -200,17 +209,17 @@ export default function Analysis() {
                     <div className="data-number text-white text-sm">{managerDetail.totalScale}亿</div>
                   </div>
                   <div className="liquid-glass-sm p-2 text-center">
-                    <div className="text-white/25 text-[10px]">最佳年度</div>
-                    <div className="data-number text-[#A3FF12] text-sm">+{managerDetail.bestReturn}%</div>
+                    <div className="text-white/30 text-[10px]">最佳年度</div>
+                    <div className="data-number text-sm" style={{ color: UP_COLOR }}>+{managerDetail.bestReturn}%</div>
                   </div>
                   <div className="liquid-glass-sm p-2 text-center">
-                    <div className="text-white/25 text-[10px]">最差年度</div>
-                    <div className="data-number text-[#FF3366] text-sm">{managerDetail.worstReturn}%</div>
+                    <div className="text-white/30 text-[10px]">最差年度</div>
+                    <div className="data-number text-sm" style={{ color: DOWN_COLOR }}>{managerDetail.worstReturn}%</div>
                   </div>
                 </div>
                 {managerDetail.styleDescription && (
                   <div className="mb-4">
-                    <h3 className="text-xs text-[#00F0FF] mb-2 flex items-center gap-1"><BrainCircuit className="w-3 h-3" />AI 风格画像</h3>
+                    <h3 className="text-xs mb-2 flex items-center gap-1" style={{ color: ACCENT_INFO }}><BrainCircuit className="w-3 h-3" />AI 风格画像</h3>
                     <p className="text-white/50 text-xs leading-relaxed">{managerDetail.styleDescription}</p>
                   </div>
                 )}
@@ -239,8 +248,8 @@ export default function Analysis() {
                     {managerDetail.funds?.map((f: any) => (
                       <Link key={f.id} to={`/${f.id}`}
                         className="flex items-center justify-between py-1.5 px-2 rounded hover:bg-white/[0.03] transition-all">
-                        <span className="text-white/50 text-xs">{f.fundAbbr}</span>
-                        <span className={`data-number text-xs ${parseFloat(f.performance?.return1y || "0") >= 0 ? "text-[#00F0FF]" : "text-[#FF3366]"}`}>
+                        <span className="text-white/60 text-xs">{f.fundAbbr}</span>
+                        <span className={`data-number text-xs ${getChangeTextClass(parseFloat(f.performance?.return1y || "0"))}`}>
                           {parseFloat(f.performance?.return1y || "0") >= 0 ? "+" : ""}{f.performance?.return1y}%
                         </span>
                       </Link>
@@ -250,14 +259,14 @@ export default function Analysis() {
               </div>
             )}
 
-            <div className="liquid-glass p-5">
+            <div className="liquid-glass p-4 md:p-5">
               <h2 className="text-sm font-medium text-white/40 mb-3">市场概览</h2>
               <div className="space-y-3">
                 {[
-                  { label: "基金总数", value: overview.totalFunds, color: "#3B6CFF" },
-                  { label: "持续营销", value: overview.marketingCount, color: "#00F0FF" },
-                  { label: "平均年化", value: `${overview.avgReturn}%`, color: "#A3FF12" },
-                  { label: "平均夏普", value: overview.avgSharpe, color: "#FFB800" },
+                  { label: "基金总数", value: overview.totalFunds, color: ACCENT_PRIMARY },
+                  { label: "持续营销", value: overview.marketingCount, color: ACCENT_INFO },
+                  { label: "平均年化", value: `${overview.avgReturn}%`, color: parseFloat(overview.avgReturn) >= 0 ? UP_COLOR : DOWN_COLOR },
+                  { label: "平均夏普", value: overview.avgSharpe, color: POSITIVE_METRIC_COLOR },
                 ].map((s) => (
                   <div key={s.label} className="flex items-center justify-between">
                     <span className="text-white/30 text-xs">{s.label}</span>

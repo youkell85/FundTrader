@@ -59,6 +59,116 @@ def analyze_manager_style(
         return f"LLM分析暂不可用（{str(e)[:50]}），请稍后重试"
 
 
+def analyze_fund_comprehensive(
+    fund_code: str,
+    fund_name: str,
+    perf_data: dict,
+    manager_data: dict,
+    holdings_data: list = None,
+) -> Optional[str]:
+    """调用 LLM 对基金业绩与基金经理进行全面分析。返回json格式的多维度点评。"""
+    if not LLM_API_KEY:
+        return None
+
+    perf_summary = []
+    for k, label in [("return1y", "近1年"), ("return3y", "近3年"), ("return5y", "近5年"),
+                     ("annualizedReturn", "年化收益"), ("sharpeRatio", "夏普"),
+                     ("maxDrawdown", "最大回撤")]:
+        v = perf_data.get(k)
+        if v is not None:
+            perf_summary.append(f"{label}={v}")
+
+    holdings_str = "、".join([f"{h.get('name','')}({h.get('ratio','')}%)" for h in (holdings_data or [])[:5]])
+    mgr_name = manager_data.get("name", "")
+    tenure_years = round((manager_data.get("tenure_days") or 0) / 365, 1)
+
+    prompt = f"""你是资深公募基金分析师，请对以下基金进行专业分析，仅输出JSON（不要markdown不要多余文本）：
+
+基金：{fund_name}({fund_code})
+业绩：{', '.join(perf_summary)}
+基金经理：{mgr_name}，任职{tenure_years}年
+重仓股：{holdings_str or '暂无数据'}
+
+JSON格式：
+{{"performance_review":"业绩点评150字以内","manager_review":"经理点评150字以内","holdings_review":"持仓点评100字以内","investment_advice":"投资建议100字以内","risk_warnings":["风险点1","风险点2"],"strengths":["优势1","优势2","优势3"]}}"""
+
+    try:
+        payload = json.dumps({
+            "model": LLM_MODEL,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 1200,
+            "temperature": 0.3,
+        }).encode("utf-8")
+        req = urllib.request.Request(LLM_API_URL, data=payload, headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {LLM_API_KEY}",
+        })
+        with urllib.request.urlopen(req, timeout=45) as resp:
+            result = json.loads(resp.read().decode("utf-8"))
+            content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+            content = content.strip().lstrip("`").rstrip("`")
+            if content.startswith("json"):
+                content = content[4:].strip()
+            try:
+                return json.loads(content)
+            except Exception:
+                return {"raw": content}
+    except Exception as e:
+        console_error(f"LLM comprehensive analysis error: {e}")
+        return None
+
+
+def analyze_dca_strategy(
+    fund_code: str,
+    fund_name: str,
+    dca_metrics: dict,
+    benchmark_metrics: dict,
+) -> Optional[str]:
+    """为定投回测生成专业评价，对比买入持有策略。"""
+    if not LLM_API_KEY:
+        return None
+    prompt = f"""你是资深基金定投策略顾问。请对以下回测结果进行专业评价：
+
+基金：{fund_name}({fund_code})
+【定投策略】
+  - 总投入：{dca_metrics.get('total_invested')}元
+  - 最终市值：{dca_metrics.get('final_value')}元
+  - 总收益率：{dca_metrics.get('total_return')}%
+  - 年化：{dca_metrics.get('annualized_return')}%
+  - 最大回撤：{dca_metrics.get('max_drawdown')}%
+【买入持有基准】
+  - 一次性投入：{benchmark_metrics.get('total_invested')}元
+  - 最终市值：{benchmark_metrics.get('final_value')}元
+  - 总收益率：{benchmark_metrics.get('profit_rate')}%
+
+请仅输出JSON（不要markdown）：
+{{"verdict":"定投还是一次性买入更优，30字内","analysis":"策略对比点评200字以内，包含夏普、回撤、心理负担三个角度","suggestions":["建葮1","建葮2","建葮3"]}}"""
+    try:
+        payload = json.dumps({
+            "model": LLM_MODEL,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 800,
+            "temperature": 0.3,
+        }).encode("utf-8")
+        req = urllib.request.Request(LLM_API_URL, data=payload, headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {LLM_API_KEY}",
+        })
+        with urllib.request.urlopen(req, timeout=45) as resp:
+            result = json.loads(resp.read().decode("utf-8"))
+            content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+            content = content.strip().lstrip("`").rstrip("`")
+            if content.startswith("json"):
+                content = content[4:].strip()
+            try:
+                return json.loads(content)
+            except Exception:
+                return {"raw": content}
+    except Exception as e:
+        console_error(f"LLM dca analysis error: {e}")
+        return None
+
+
 def generate_recommendation_analysis(
     risk_level: str,
     funds: list,

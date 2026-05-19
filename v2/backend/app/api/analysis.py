@@ -1,7 +1,9 @@
 """深度产品分析API"""
 from fastapi import APIRouter
 from ..services.analysis_service import analyze_fund
-from ..services.llm_service import analyze_manager_style
+from ..services.llm_service import analyze_manager_style, analyze_fund_comprehensive, analyze_dca_strategy
+from ..data.cache_manager import cache
+from ..config import CACHE_TTL_INFO
 
 router = APIRouter(prefix="/analysis", tags=["深度产品分析"])
 
@@ -16,7 +18,6 @@ async def fund_analysis(code: str):
 @router.get("/{code}/style")
 async def manager_style_analysis(code: str):
     """LLM分析基金经理投资风格"""
-    from ..services.analysis_service import analyze_fund
     fund_data = analyze_fund(code)
     manager = fund_data.get("manager")
     if not manager:
@@ -31,3 +32,33 @@ async def manager_style_analysis(code: str):
     )
 
     return {"code": code, "style_analysis": style}
+
+
+@router.get("/{code}/llm_review")
+async def fund_llm_review(code: str):
+    """LLM 全面点评基金业绩与经理（含多个维度）。带后端文件缓存。"""
+    cache_key = f"llm_review_{code}"
+    cached = cache.get(cache_key, CACHE_TTL_INFO * 6)  # 12小时缓存 LLM 评价
+    if cached:
+        return cached
+    fund_data = analyze_fund(code)
+    perf = {
+        "return1y": fund_data.get("return1y"),
+        "return3y": fund_data.get("return3y"),
+        "return5y": fund_data.get("return5y"),
+        "annualizedReturn": fund_data.get("annualized_return"),
+        "sharpeRatio": (fund_data.get("radar_scores", {}) or {}).get("stock_picking"),
+        "maxDrawdown": (fund_data.get("radar_scores", {}) or {}).get("risk_control"),
+    }
+    review = analyze_fund_comprehensive(
+        fund_code=code,
+        fund_name=fund_data.get("name", code),
+        perf_data=perf,
+        manager_data=fund_data.get("manager") or {},
+        holdings_data=fund_data.get("holdings") or [],
+    )
+    payload = {"code": code, "review": review or {"raw": "LLM 服务未配置或调用失败"}}
+    if review:
+        cache.set(cache_key, payload)
+    return payload
+
