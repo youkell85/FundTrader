@@ -41,7 +41,7 @@ function codeToId(code: string): number {
 }
 
 // 生成 AI 标签
-function generateTags(name: string, type: string): string[] {
+function generateTags(name: string, _type: string): string[] {
   const tags: string[] = [];
   if (name.includes("科技") || name.includes("创新") || name.includes("成长")) tags.push("科技成长");
   if (name.includes("消费") || name.includes("白酒")) tags.push("消费升级");
@@ -179,7 +179,7 @@ export function mapRecommendation(rec: any, fundsMap: Map<string, any>): any {
     expectedRisk: rec.expectedRisk || rec.expected_risk || "10.00",
     rationale: rec.rationale || rec.analysis_summary || "",
     tags: rec.tags || [],
-    fundAllocations: (rec.funds || rec.fundAllocations || []).map((fa: any, i: number) => {
+    fundAllocations: (rec.funds || rec.fundAllocations || []).map((fa: any) => {
       const code = fa?.code || "";
       const fund = fundsMap.get(code);
       return {

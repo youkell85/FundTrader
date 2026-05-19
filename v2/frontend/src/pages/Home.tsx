@@ -97,15 +97,15 @@ export default function Home() {
     if (!query) return;
 
     if (/^\d{6}$/.test(query)) {
-      try {
-        await addFundByCode.mutateAsync({ code: query });
-        await utils.fund.list.invalidate();
-        await utils.fund.marketOverview.invalidate();
-        navigate(`/fund/${query}`);
-      } catch (err) {
-        console.error("Add fund by code failed:", err);
-        setSearchError("基金代码添加失败，请稍后重试");
-      }
+      navigate(`/fund/${query}`);
+      addFundByCode.mutate(
+        { code: query },
+        {
+          onError: (err) => {
+            console.error("Add fund by code failed:", err);
+          },
+        }
+      );
       return;
     }
 

@@ -1,6 +1,6 @@
 import { useParams, Link } from "react-router";
 import { useMemo } from "react";
-import { ArrowLeft, User, BarChart3, PieChart, Layers, Target, Award, Zap, Loader2 } from "lucide-react";
+import { AlertCircle, ArrowLeft, User, BarChart3, PieChart, Layers, Target, Award, Zap, Loader2 } from "lucide-react";
 import { XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from "recharts";
 import { trpc } from "@/providers/trpc";
 
@@ -22,6 +22,8 @@ export default function FundDetail() {
   const detailByCode = trpc.fund.detailByCode.useQuery({ code: routeParam }, { enabled: isFundCode });
   const fund = isFundCode ? detailByCode.data : detailById.data;
   const isLoading = isFundCode ? detailByCode.isLoading : detailById.isLoading;
+  const queryError = isFundCode ? detailByCode.error : detailById.error;
+  const refetchDetail = isFundCode ? detailByCode.refetch : detailById.refetch;
 
   const radarData = useMemo(() => {
     if (!fund?.performance) return [];
@@ -38,7 +40,40 @@ export default function FundDetail() {
     ];
   }, [fund]);
 
-  if (isLoading) return <div className="min-h-screen pt-20 text-center text-white/30 flex items-center justify-center gap-2"><Loader2 className="w-4 h-4 animate-spin" />加载中...</div>;
+  if (isLoading) {
+    return (
+      <div className="min-h-screen pt-20 text-center text-white/30 flex items-center justify-center gap-2">
+        <Loader2 className="w-4 h-4 animate-spin" />
+        正在获取基金详情...
+      </div>
+    );
+  }
+
+  if (queryError) {
+    return (
+      <div className="min-h-screen pt-20 px-6">
+        <div className="max-w-xl mx-auto liquid-glass p-6 text-center">
+          <AlertCircle className="w-8 h-8 text-[#FF3366] mx-auto mb-3" />
+          <h1 className="text-white text-lg font-medium mb-2">基金详情获取失败</h1>
+          <p className="text-white/40 text-sm mb-5">
+            {routeParam ? `基金代码/ID：${routeParam}` : "请返回首页重新输入基金代码"}
+          </p>
+          <div className="flex justify-center gap-3">
+            <button
+              onClick={() => refetchDetail()}
+              className="h-10 px-4 rounded-lg bg-[#3B6CFF]/20 text-[#00F0FF] border border-[#3B6CFF]/30 text-sm hover:bg-[#3B6CFF]/30 transition-all"
+            >
+              重试
+            </button>
+            <Link to="/" className="h-10 px-4 rounded-lg bg-white/[0.03] text-white/60 border border-white/[0.06] text-sm hover:bg-white/[0.06] transition-all flex items-center">
+              返回首页
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (!fund) return <div className="min-h-screen pt-20 text-center text-white/30">基金不存在</div>;
 
   const perf = fund.performance;

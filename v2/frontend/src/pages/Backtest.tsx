@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import { Calculator, Play, RotateCcw, Loader2, AlertCircle } from "lucide-react";
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { trpc } from "@/providers/trpc";
@@ -18,7 +18,7 @@ const frequencies = [
 ];
 
 export default function Backtest() {
-  const { data: listData, isLoading: listLoading } = trpc.fund.list.useQuery({ pageSize: 1000 });
+  const { data: listData } = trpc.fund.list.useQuery({ pageSize: 1000 });
   const { data: backtestListData } = trpc.fund.backtests.useQuery();
   const allFunds = listData?.funds ?? [];
   const backtestList = backtestListData ?? [];

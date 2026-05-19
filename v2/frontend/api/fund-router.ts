@@ -176,15 +176,13 @@ export const fundRouter = createRouter({
     .input(z.object({ code: z.string().regex(/^\d{6}$/) }))
     .mutation(async ({ input }) => {
       try {
-        const analysis = await getFundAnalysis(input.code);
-        const fund = mapFundDetail(analysis);
-        await addToWatchlist(
-          input.code,
-          fund?.fundName || fund?.fundAbbr || input.code,
-          fund?.category || "",
-          fund?.tags || []
-        );
-        return fund;
+        await addToWatchlist(input.code, input.code);
+        return {
+          id: Number(input.code),
+          fundCode: input.code,
+          fundName: input.code,
+          fundAbbr: input.code,
+        };
       } catch (err) {
         wrapError(err, "添加基金到首页列表失败");
       }
