@@ -90,7 +90,7 @@ export default function Analysis() {
                   const ret = parseFloat(f.performance?.return1y || "0");
                   const maxRet = parseFloat(topFunds[0]?.performance?.return1y || "1");
                   return (
-                    <Link key={f.id} to={`/fund/${f.id}`}
+                    <Link key={f.id} to={`/${f.id}`}
                       className="flex items-center gap-3 py-2.5 border-b border-white/[0.03] hover:bg-white/[0.03] transition-all group px-2 rounded-lg">
                       <span className={`data-number text-xs w-5 text-center font-medium ${i === 0 ? "text-[#FFB800]" : i === 1 ? "text-[#C0C0C0]" : i === 2 ? "text-[#CD7F32]" : "text-white/20"}`}>{i + 1}</span>
                       <div className="flex-1 min-w-0">
@@ -237,7 +237,7 @@ export default function Analysis() {
                   <div className="text-xs text-white/20 mb-2">在管基金</div>
                   <div className="space-y-1.5">
                     {managerDetail.funds?.map((f: any) => (
-                      <Link key={f.id} to={`/fund/${f.id}`}
+                      <Link key={f.id} to={`/${f.id}`}
                         className="flex items-center justify-between py-1.5 px-2 rounded hover:bg-white/[0.03] transition-all">
                         <span className="text-white/50 text-xs">{f.fundAbbr}</span>
                         <span className={`data-number text-xs ${parseFloat(f.performance?.return1y || "0") >= 0 ? "text-[#00F0FF]" : "text-[#FF3366]"}`}>

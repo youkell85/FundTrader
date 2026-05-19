@@ -97,7 +97,7 @@ export default function Home() {
     if (!query) return;
 
     if (/^\d{6}$/.test(query)) {
-      navigate(`/fund/${query}`);
+      navigate(`/${query}`);
       addFundByCode.mutate(
         { code: query },
         {
@@ -110,7 +110,7 @@ export default function Home() {
     }
 
     if (filteredFunds.length === 1) {
-      navigate(`/fund/${filteredFunds[0].id}`);
+      navigate(`/${filteredFunds[0].id}`);
     }
   }, [addFundByCode, filteredFunds, navigate, search, utils]);
 
@@ -324,7 +324,7 @@ export default function Home() {
                         {imageResult.funds.map((fund: any) => (
                           <Link
                             key={fund.id || fund.code}
-                            to={`/fund/${fund.id}`}
+                            to={`/${fund.id}`}
                             className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.06] hover:bg-white/[0.08] hover:border-[#3B6CFF]/30 transition-all"
                           >
                             <div>
@@ -391,7 +391,7 @@ export default function Home() {
               const maxDD = parseFloat(perf?.maxDrawdown || "0");
               const sharpe = parseFloat(perf?.sharpeRatio || "0");
               return (
-                <Link key={fund.id} to={`/fund/${fund.id}`}
+                <Link key={fund.id} to={`/${fund.id}`}
                   className="grid grid-cols-12 gap-2 px-5 py-3 text-sm border-b border-white/[0.03] items-center hover:bg-white/[0.04] transition-all group cursor-pointer relative"
                   onMouseEnter={() => setHoveredRow(fund.id)} onMouseLeave={() => setHoveredRow(null)}>
                   <div className={`absolute top-0 left-0 w-full h-full pointer-events-none transition-all duration-500 ${hoveredRow === fund.id ? "opacity-100" : "opacity-0"}`}

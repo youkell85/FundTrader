@@ -122,7 +122,7 @@ export default function Recommend() {
                       <div className="space-y-3">
                         <h3 className="text-sm text-white/40">基金配置明细</h3>
                         {allocations.map((fd: any, i: number) => (
-                          <Link key={i} to={`/fund/${fd.fundId}`}
+                          <Link key={i} to={`/${fd.fundId}`}
                             className="flex items-center gap-3 liquid-glass-sm p-3 hover:bg-white/[0.06] transition-all group">
                             <div className="data-number text-white/20 text-xs w-5">{i + 1}</div>
                             <div className="flex-1">
