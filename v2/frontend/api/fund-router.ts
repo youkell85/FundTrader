@@ -18,6 +18,7 @@ import {
   mapBacktestResult,
   mapMarketOverview,
 } from "./lib/mapper";
+import { fetchFundQuote } from "./lib/fund-quote";
 
 const strategyMap: Record<string, string> = {
   fixed_amount: "fixed",
@@ -73,7 +74,47 @@ async function fetchHomeFunds() {
     }
   }
 
-  return Array.from(fundsByCode.values());
+  return Promise.all(Array.from(fundsByCode.values()).map(enrichFundSummary));
+}
+
+function needsFundName(fund: any, code: string) {
+  const name = String(fund?.name || fund?.fundName || "").trim();
+  return /^\d{6}$/.test(code) && (!name || name === code);
+}
+
+async function enrichFundSummary(fund: any) {
+  const code = String(fund?.code || fund?.fundCode || "").trim();
+  if (!needsFundName(fund, code)) return fund;
+
+  const quote = await fetchFundQuote(code);
+  if (!quote) return fund;
+
+  return {
+    ...fund,
+    code,
+    name: quote.name,
+    nav: fund?.nav ?? quote.nav,
+    accum_nav: fund?.accum_nav ?? quote.accumNav,
+    nav_date: fund?.nav_date ?? quote.navDate,
+    day_growth: fund?.day_growth ?? quote.dayGrowth,
+  };
+}
+
+async function enrichFundAnalysis(analysis: any, code: string) {
+  if (!analysis || !needsFundName(analysis, code)) return analysis;
+
+  const quote = await fetchFundQuote(code);
+  if (!quote) return analysis;
+
+  return {
+    ...analysis,
+    code,
+    name: quote.name,
+    nav: analysis?.nav ?? quote.nav,
+    accum_nav: analysis?.accum_nav ?? quote.accumNav,
+    nav_date: analysis?.nav_date ?? quote.navDate,
+    day_growth: analysis?.day_growth ?? quote.dayGrowth,
+  };
 }
 
 export const fundRouter = createRouter({
@@ -154,7 +195,7 @@ export const fundRouter = createRouter({
         if (!fund) return null;
 
         const analysis = await getFundAnalysis(fund.code);
-        return mapFundDetail(analysis);
+        return mapFundDetail(await enrichFundAnalysis(analysis, fund.code));
       } catch (err) {
         wrapError(err, "获取基金详情失败");
       }
@@ -166,7 +207,7 @@ export const fundRouter = createRouter({
     .query(async ({ input }) => {
       try {
         const analysis = await getFundAnalysis(input.code);
-        return mapFundDetail(analysis);
+        return mapFundDetail(await enrichFundAnalysis(analysis, input.code));
       } catch (err) {
         wrapError(err, "按基金代码获取详情失败");
       }
@@ -176,13 +217,17 @@ export const fundRouter = createRouter({
     .input(z.object({ code: z.string().regex(/^\d{6}$/) }))
     .mutation(async ({ input }) => {
       try {
-        await addToWatchlist(input.code, input.code);
-        return {
-          id: Number(input.code),
-          fundCode: input.code,
-          fundName: input.code,
-          fundAbbr: input.code,
-        };
+        const quote = await fetchFundQuote(input.code);
+        const name = quote?.name || "";
+        await addToWatchlist(input.code, name);
+        return mapFundItem({
+          code: input.code,
+          name: name || input.code,
+          nav: quote?.nav,
+          accum_nav: quote?.accumNav,
+          nav_date: quote?.navDate,
+          day_growth: quote?.dayGrowth,
+        });
       } catch (err) {
         wrapError(err, "添加基金到首页列表失败");
       }
