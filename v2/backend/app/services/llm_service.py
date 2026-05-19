@@ -1,9 +1,29 @@
 """LLM调用服务 - 分析基金经理投资风格"""
 import json
+import re
 import urllib.request
 from typing import Optional
 from ..utils import console_error
 from ..config import LLM_API_URL, LLM_API_KEY, LLM_MODEL
+
+
+def _parse_json_lenient(content: str) -> Optional[dict]:
+    """宽容解析 LLM 返回的 JSON：去除 markdown、提取首个 JSON 对象。"""
+    if not content:
+        return None
+    s = content.strip()
+    # 去除 ​```json ... ``` 包裹
+    fence = re.match(r"^```(?:json)?\s*([\s\S]*?)```\s*$", s)
+    if fence:
+        s = fence.group(1).strip()
+    # 提取第一个 {...}
+    m = re.search(r"\{[\s\S]*\}", s)
+    if m:
+        s = m.group(0)
+    try:
+        return json.loads(s)
+    except Exception:
+        return None
 
 
 def analyze_manager_style(
@@ -106,13 +126,10 @@ JSON格式：
         with urllib.request.urlopen(req, timeout=45) as resp:
             result = json.loads(resp.read().decode("utf-8"))
             content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
-            content = content.strip().lstrip("`").rstrip("`")
-            if content.startswith("json"):
-                content = content[4:].strip()
-            try:
-                return json.loads(content)
-            except Exception:
-                return {"raw": content}
+            parsed = _parse_json_lenient(content)
+            if parsed is not None:
+                return parsed
+            return {"raw": content}
     except Exception as e:
         console_error(f"LLM comprehensive analysis error: {e}")
         return None
@@ -157,13 +174,10 @@ def analyze_dca_strategy(
         with urllib.request.urlopen(req, timeout=45) as resp:
             result = json.loads(resp.read().decode("utf-8"))
             content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
-            content = content.strip().lstrip("`").rstrip("`")
-            if content.startswith("json"):
-                content = content[4:].strip()
-            try:
-                return json.loads(content)
-            except Exception:
-                return {"raw": content}
+            parsed = _parse_json_lenient(content)
+            if parsed is not None:
+                return parsed
+            return {"raw": content}
     except Exception as e:
         console_error(f"LLM dca analysis error: {e}")
         return None

@@ -1,10 +1,79 @@
 """深度产品分析服务 - 多数据源融合版"""
 from typing import Dict, Any, Optional, List
+from datetime import datetime, timedelta
 from ..data.akshare_fetcher import get_fund_info, get_fund_manager_info, get_fund_portfolio
 from ..data.efinance_fetcher import get_fund_nav_history
 from ..data.providers.fusion import get_fusion
 from ..data.cache_manager import cache
 from ..config import CACHE_TTL_NAV, CACHE_TTL_INFO
+
+
+def _calc_period_returns(nav_data: List[Dict]) -> Dict[str, Any]:
+    """基于 nav_data 计算 1y/3y/5y 区间收益率与年化收益。
+    nav_data 已按日期升序排列，每项含 date / nav / accum_nav。
+    优先使用 accum_nav（含分红再投资）。返回值为百分比数值（保留2位小数），无足够数据返回 None。
+    """
+    result = {"return1y": None, "return3y": None, "return5y": None, "annualized_return": None}
+    if not nav_data or len(nav_data) < 2:
+        return result
+    # 选择基准价：accum_nav 优先，否则 nav
+    def _val(p):
+        v = p.get("accum_nav") if p.get("accum_nav") not in (None, 0) else p.get("nav")
+        try:
+            return float(v) if v not in (None, "") else None
+        except Exception:
+            return None
+    # 过滤有效记录
+    pts = [p for p in nav_data if p.get("date") and _val(p) is not None]
+    if len(pts) < 2:
+        return result
+    # 解析日期
+    def _to_date(s):
+        s = str(s)
+        for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y%m%d"):
+            try:
+                return datetime.strptime(s[:10], fmt)
+            except Exception:
+                continue
+        return None
+    pts2 = [(p, _to_date(p["date"]), _val(p)) for p in pts]
+    pts2 = [t for t in pts2 if t[1] is not None]
+    if len(pts2) < 2:
+        return result
+    pts2.sort(key=lambda x: x[1])
+    last_date, last_val = pts2[-1][1], pts2[-1][2]
+    first_date, first_val = pts2[0][1], pts2[0][2]
+
+    def _return_at(years: int):
+        target = last_date - timedelta(days=int(365.25 * years))
+        if target < first_date:
+            return None
+        # 找 target 之前最近一条
+        chosen = None
+        for _, d, v in pts2:
+            if d <= target:
+                chosen = v
+            else:
+                break
+        if chosen is None or chosen <= 0:
+            return None
+        return round((last_val - chosen) / chosen * 100, 2)
+
+    result["return1y"] = _return_at(1)
+    result["return3y"] = _return_at(3)
+    result["return5y"] = _return_at(5)
+    # 年化（基于成立以来）
+    try:
+        days = (last_date - first_date).days
+        if days > 30 and first_val and first_val > 0:
+            years = days / 365.25
+            ratio = last_val / first_val
+            if ratio > 0:
+                annualized = (ratio ** (1.0 / years) - 1) * 100
+                result["annualized_return"] = round(annualized, 2)
+    except Exception:
+        pass
+    return result
 
 
 def _supplement_nav_with_efinance(code: str, current_navs: List[Dict]) -> List[Dict]:
@@ -91,6 +160,9 @@ def analyze_fund(code: str) -> Dict[str, Any]:
         # 雷达图评分
         radar = _calc_radar_scores_fusion(detail)
 
+        # 计算区间收益率
+        period = _calc_period_returns(nav_data or [])
+
         return {
             "code": code,
             "name": detail.name or code,
@@ -108,6 +180,10 @@ def analyze_fund(code: str) -> Dict[str, Any]:
             "source": detail.source,
             "style_analysis": None,
             "data_sources": fusion.get_providers_status(),
+            "return1y": period["return1y"],
+            "return3y": period["return3y"],
+            "return5y": period["return5y"],
+            "annualized_return": period["annualized_return"],
         }
 
     # 融合层失败，回退到旧的数据源
@@ -152,6 +228,9 @@ def _analyze_fund_legacy(code: str) -> Dict[str, Any]:
     # 提取基金名称
     fund_name = _extract_fund_name(info, code)
 
+    # 计算区间收益率
+    period = _calc_period_returns(nav_data or [])
+
     return {
         "code": code,
         "name": fund_name,
@@ -168,6 +247,10 @@ def _analyze_fund_legacy(code: str) -> Dict[str, Any]:
         "radar_scores": radar,
         "source": "legacy",
         "style_analysis": None,
+        "return1y": period["return1y"],
+        "return3y": period["return3y"],
+        "return5y": period["return5y"],
+        "annualized_return": period["annualized_return"],
     }
 
 
