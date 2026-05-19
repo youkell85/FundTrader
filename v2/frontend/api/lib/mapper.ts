@@ -53,6 +53,116 @@ function generateTags(name: string, _type: string): string[] {
   return tags.slice(0, 2);
 }
 
+function toNumber(value: any): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const num = typeof value === "number" ? value : parseFloat(String(value).replace("%", ""));
+  return Number.isFinite(num) ? num : null;
+}
+
+function formatNumber(value: number | null | undefined, digits = 2): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) return "0";
+  return value.toFixed(digits);
+}
+
+function uniqueNavPoints(navData: any[]) {
+  const byDate = new Map<string, { date: string; nav: number; dayGrowth: number | null }>();
+  for (const item of navData || []) {
+    const date = item?.date || item?.navDate || item?.净值日期;
+    const nav = toNumber(item?.nav ?? item?.单位净值 ?? item?.nav_value);
+    if (!date || nav === null || nav <= 0) continue;
+    byDate.set(String(date), {
+      date: String(date),
+      nav,
+      dayGrowth: toNumber(item?.day_growth ?? item?.dailyReturn ?? item?.日增长率),
+    });
+  }
+  return Array.from(byDate.values()).sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function calcReturn(points: ReturnType<typeof uniqueNavPoints>, days: number): number | null {
+  if (points.length < 2) return null;
+  const latest = points[points.length - 1];
+  const latestTime = new Date(latest.date).getTime();
+  const targetTime = latestTime - days * 24 * 60 * 60 * 1000;
+  let start = points[0];
+  for (const point of points) {
+    if (new Date(point.date).getTime() <= targetTime) start = point;
+    else break;
+  }
+  if (!start || start.nav <= 0 || start.date === latest.date) return null;
+  return ((latest.nav - start.nav) / start.nav) * 100;
+}
+
+function calcPerformanceFromNav(navData: any[]) {
+  const points = uniqueNavPoints(navData);
+  if (points.length < 2) return {};
+
+  const first = points[0];
+  const latest = points[points.length - 1];
+  const elapsedDays = Math.max(
+    1,
+    (new Date(latest.date).getTime() - new Date(first.date).getTime()) / (24 * 60 * 60 * 1000)
+  );
+  const totalReturn = ((latest.nav - first.nav) / first.nav) * 100;
+  const annualizedReturn = (Math.pow(latest.nav / first.nav, 365 / elapsedDays) - 1) * 100;
+
+  const dailyReturns: number[] = [];
+  for (let i = 1; i < points.length; i++) {
+    const current = points[i];
+    const prev = points[i - 1];
+    const fromGrowth = current.dayGrowth;
+    const daily = fromGrowth !== null ? fromGrowth / 100 : (current.nav - prev.nav) / prev.nav;
+    if (Number.isFinite(daily)) dailyReturns.push(daily);
+  }
+
+  const mean = dailyReturns.reduce((sum, item) => sum + item, 0) / dailyReturns.length;
+  const variance = dailyReturns.reduce((sum, item) => sum + Math.pow(item - mean, 2), 0) / Math.max(1, dailyReturns.length - 1);
+  const annualizedVolatility = Math.sqrt(variance) * Math.sqrt(252) * 100;
+  const downsideReturns = dailyReturns.filter((item) => item < 0);
+  const downsideVariance = downsideReturns.reduce((sum, item) => sum + Math.pow(item, 2), 0) / Math.max(1, downsideReturns.length);
+  const downsideVolatility = Math.sqrt(downsideVariance) * Math.sqrt(252) * 100;
+
+  let peak = first.nav;
+  let maxDrawdown = 0;
+  let recoveryPeriod = 0;
+  let currentUnderwater = 0;
+  for (const point of points) {
+    if (point.nav >= peak) {
+      peak = point.nav;
+      currentUnderwater = 0;
+      continue;
+    }
+    currentUnderwater += 1;
+    recoveryPeriod = Math.max(recoveryPeriod, currentUnderwater);
+    maxDrawdown = Math.min(maxDrawdown, ((point.nav - peak) / peak) * 100);
+  }
+
+  const yearStart = points.find((point) => point.date.slice(0, 4) === latest.date.slice(0, 4)) ?? first;
+  const returnThisYear = ((latest.nav - yearStart.nav) / yearStart.nav) * 100;
+
+  return {
+    return1m: formatNumber(calcReturn(points, 30)),
+    return3m: formatNumber(calcReturn(points, 90)),
+    return6m: formatNumber(calcReturn(points, 180)),
+    return1y: formatNumber(calcReturn(points, 365) ?? totalReturn),
+    return2y: formatNumber(calcReturn(points, 365 * 2) ?? totalReturn),
+    return3y: formatNumber(calcReturn(points, 365 * 3) ?? totalReturn),
+    return5y: formatNumber(calcReturn(points, 365 * 5) ?? totalReturn),
+    returnThisYear: formatNumber(returnThisYear),
+    annualizedReturn: formatNumber(annualizedReturn),
+    annualizedVolatility: formatNumber(annualizedVolatility),
+    sharpeRatio: formatNumber(annualizedVolatility > 0 ? annualizedReturn / annualizedVolatility : null),
+    maxDrawdown: formatNumber(maxDrawdown),
+    calmarRatio: formatNumber(maxDrawdown < 0 ? annualizedReturn / Math.abs(maxDrawdown) : null),
+    sortinoRatio: formatNumber(downsideVolatility > 0 ? annualizedReturn / downsideVolatility : null),
+    informationRatio: formatNumber(annualizedVolatility > 0 ? annualizedReturn / annualizedVolatility : null),
+    alpha: formatNumber(totalReturn),
+    beta: "1.00",
+    winRate: formatNumber((dailyReturns.filter((item) => item > 0).length / Math.max(1, dailyReturns.length)) * 100),
+    recoveryPeriod: String(recoveryPeriod),
+  };
+}
+
 // 映射基金列表项
 export function mapFundItem(item: any): any {
   if (!item || typeof item !== "object") return null;
@@ -60,6 +170,7 @@ export function mapFundItem(item: any): any {
   const name = item.name || "";
   const type = item.type || "";
   const perf = item.performance || {};
+  const navPerformance = calcPerformanceFromNav(item.nav_data || item.navHistory || []);
   // 兼容 manager 为字符串或对象的情况
   const mgrRaw = item.manager_info || item.manager;
   const mgr = typeof mgrRaw === "string" ? { name: mgrRaw } : (mgrRaw || {});
@@ -87,25 +198,25 @@ export function mapFundItem(item: any): any {
     tags: item.tags || generateTags(name, type),
     trackingIndex: item.trackingIndex || null,
     performance: {
-      return1m: perf.near_1m != null ? String(perf.near_1m) : item.near_1m != null ? String(item.near_1m) : "0",
-      return3m: perf.near_3m != null ? String(perf.near_3m) : item.near_3m != null ? String(item.near_3m) : "0",
-      return6m: perf.near_6m != null ? String(perf.near_6m) : item.near_6m != null ? String(item.near_6m) : "0",
-      return1y: perf.near_1y != null ? String(perf.near_1y) : item.near_1y != null ? String(item.near_1y) : "0",
-      return2y: perf.near_2y != null ? String(perf.near_2y) : "0",
-      return3y: perf.near_3y != null ? String(perf.near_3y) : item.near_3y != null ? String(item.near_3y) : "0",
-      return5y: perf.near_5y != null ? String(perf.near_5y) : "0",
-      returnThisYear: perf.ytd != null ? String(perf.ytd) : item.ytd != null ? String(item.ytd) : "0",
-      annualizedReturn: perf.annualizedReturn || item.annualizedReturn || "0",
-      annualizedVolatility: perf.annualizedVolatility || "0",
-      sharpeRatio: perf.sharpeRatio || item.sharpe_ratio || "0",
-      maxDrawdown: perf.maxDrawdown || item.max_drawdown || "0",
-      calmarRatio: perf.calmarRatio || "0",
-      sortinoRatio: perf.sortinoRatio || "0",
-      informationRatio: perf.informationRatio || "0",
-      alpha: perf.alpha || "0",
-      beta: perf.beta || "0",
-      winRate: perf.winRate || "0",
-      recoveryPeriod: perf.recoveryPeriod != null ? String(perf.recoveryPeriod) : "0",
+      return1m: perf.near_1m != null ? String(perf.near_1m) : item.near_1m != null ? String(item.near_1m) : navPerformance.return1m || "0",
+      return3m: perf.near_3m != null ? String(perf.near_3m) : item.near_3m != null ? String(item.near_3m) : navPerformance.return3m || "0",
+      return6m: perf.near_6m != null ? String(perf.near_6m) : item.near_6m != null ? String(item.near_6m) : navPerformance.return6m || "0",
+      return1y: perf.near_1y != null ? String(perf.near_1y) : item.near_1y != null ? String(item.near_1y) : navPerformance.return1y || "0",
+      return2y: perf.near_2y != null ? String(perf.near_2y) : navPerformance.return2y || "0",
+      return3y: perf.near_3y != null ? String(perf.near_3y) : item.near_3y != null ? String(item.near_3y) : navPerformance.return3y || "0",
+      return5y: perf.near_5y != null ? String(perf.near_5y) : navPerformance.return5y || "0",
+      returnThisYear: perf.ytd != null ? String(perf.ytd) : item.ytd != null ? String(item.ytd) : navPerformance.returnThisYear || "0",
+      annualizedReturn: perf.annualizedReturn || item.annualizedReturn || navPerformance.annualizedReturn || "0",
+      annualizedVolatility: perf.annualizedVolatility || navPerformance.annualizedVolatility || "0",
+      sharpeRatio: perf.sharpeRatio || item.sharpe_ratio || navPerformance.sharpeRatio || "0",
+      maxDrawdown: perf.maxDrawdown || item.max_drawdown || navPerformance.maxDrawdown || "0",
+      calmarRatio: perf.calmarRatio || navPerformance.calmarRatio || "0",
+      sortinoRatio: perf.sortinoRatio || navPerformance.sortinoRatio || "0",
+      informationRatio: perf.informationRatio || navPerformance.informationRatio || "0",
+      alpha: perf.alpha || navPerformance.alpha || "0",
+      beta: perf.beta || navPerformance.beta || "0",
+      winRate: perf.winRate || navPerformance.winRate || "0",
+      recoveryPeriod: perf.recoveryPeriod != null ? String(perf.recoveryPeriod) : navPerformance.recoveryPeriod || "0",
     },
     manager: mgr.name ? {
       id: codeToId(mgr.name),
