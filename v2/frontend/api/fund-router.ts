@@ -332,9 +332,14 @@ export const fundRouter = createRouter({
     )
     .query(async ({ input }) => {
       try {
-        const ftList = await getFundList({ guoyuan_only: true, page_size: 100 });
-        const rawFunds = Array.isArray(ftList?.funds) ? ftList.funds : [];
-        const allFunds = rawFunds.map(mapFundItem).filter(Boolean);
+        // 同时获取国元基金和自选基金，与 list 查询保持一致
+        const [rawGuoyuan, rawWatchlist] = await Promise.all([
+          fetchAllFundList({ guoyuan_only: true }),
+          fetchAllFundList({ use_watchlist: true }).catch(() => [] as any[]),
+        ]);
+        const codeMap = new Map<string, any>();
+        [...rawGuoyuan, ...rawWatchlist].forEach((f: any) => { if (f?.code) codeMap.set(f.code, f); });
+        const allFunds = Array.from(codeMap.values()).map(mapFundItem).filter(Boolean);
         const codes = input.fundIds.map((id) => {
           const f = allFunds.find((x: any) => x.id === id);
           if (!f) throw new Error(`Fund id ${id} not found`);
@@ -346,10 +351,13 @@ export const fundRouter = createRouter({
           throw new Error(`Unsupported strategy: ${input.strategy}`);
         }
 
+        // biweekly 后端不支持，映射为 monthly
+        const backendFrequency = input.investFrequency === "biweekly" ? "monthly" : input.investFrequency;
+
         const ftResult = await runDcaBacktest({
           codes,
           amount: input.investAmount,
-          frequency: input.investFrequency,
+          frequency: backendFrequency,
           strategy: backendStrategy,
           start_date: input.startDate,
           end_date: input.endDate,

@@ -149,7 +149,7 @@ def _calc_fixed_dca(
         "annual_return": round(annual_return, 2),
         "max_drawdown": round(max_drawdown, 2),
         "trade_count": trade_count,
-        "nav_curve": curve[-60:],  # 最近60个数据点
+        "nav_curve": curve,  # 全量数据，供图表展示完整回测历史
     }
 
 

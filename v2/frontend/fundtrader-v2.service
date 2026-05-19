@@ -1,15 +1,15 @@
 [Unit]
 Description=FundTrader 2.0 Hono BFF Service
-After=network.target
+After=network.target fundtrader.service
 
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/opt/fundtrader-v2/v2/frontend
+WorkingDirectory=/opt/fundtrader/v2/frontend
 Environment=NODE_ENV=production
 Environment=PORT=3000
 Environment=FUNDTRADER_API_BASE=http://127.0.0.1:8766
-ExecStart=/root/.nvm/versions/node/v22.22.1/bin/node dist/boot.js
+ExecStart=/usr/local/bin/node dist/boot.js
 Restart=always
 RestartSec=5
 

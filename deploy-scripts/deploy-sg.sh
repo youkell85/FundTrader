@@ -1,25 +1,34 @@
 #!/bin/bash
-# FundTrader 一键部署脚本 - 新加坡服务器
-# 用法: bash deploy-scripts/deploy-sg.sh [--backend-only|--frontend-only]
+# FundTrader v2 一键部署脚本 - 新加坡服务器
+# 用法: bash deploy-scripts/deploy-sg.sh [--backend-only|--frontend-only|--full]
 set -e
 
 SG_HOST="43.160.226.62"
-BACKEND_DIR="/opt/fundtrader/backend"
-V2_DIR="/opt/fundtrader-v2/v2/frontend"
+PROJECT_DIR="/opt/fundtrader"
+BACKEND_DIR="${PROJECT_DIR}/v2/backend"
+FRONTEND_DIR="${PROJECT_DIR}/v2/frontend"
 
 DEPLOY_BACKEND=true
 DEPLOY_FRONTEND=true
+DEPLOY_NGINX=false
+DEPLOY_ENV=false
 
-if [ "$1" = "--backend-only" ]; then
-  DEPLOY_FRONTEND=false
-elif [ "$1" = "--frontend-only" ]; then
-  DEPLOY_BACKEND=false
-fi
+# 参数解析
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --backend-only)  DEPLOY_FRONTEND=false; DEPLOY_NGINX=false; shift ;;
+    --frontend-only) DEPLOY_BACKEND=false; DEPLOY_NGINX=false; shift ;;
+    --nginx-only)    DEPLOY_BACKEND=false; DEPLOY_FRONTEND=false; DEPLOY_NGINX=true; shift ;;
+    --full)          DEPLOY_NGINX=true; DEPLOY_ENV=true; shift ;;
+    --env)           DEPLOY_ENV=true; shift ;;
+    *)               echo "未知参数: $1"; shift ;;
+  esac
+done
 
-echo "=== FundTrader 部署到新加坡服务器 ==="
+echo "=== FundTrader v2 部署到新加坡服务器 ==="
 
-# 1. 本地 git commit & push
-echo "[1/5] 提交代码到 Git..."
+# ── 1. 本地 git commit & push ──
+echo "[1/6] 提交代码到 Git..."
 cd "$(git rev-parse --show-toplevel)"
 git add -A
 if git diff --cached --quiet; then
@@ -30,36 +39,62 @@ else
   echo "  代码已推送"
 fi
 
-# 2. 服务器拉取最新代码
-echo "[2/5] 服务器拉取最新代码..."
-ssh root@${SG_HOST} "cd /opt/fundtrader && git pull origin master && cd /opt/fundtrader-v2 && git pull origin master"
+# ── 2. 服务器拉取最新代码 ──
+echo "[2/6] 服务器拉取最新代码..."
+ssh root@${SG_HOST} "cd ${PROJECT_DIR} && git pull origin master"
 
-# 3. 部署后端
+# ── 3. 同步 .env 文件（仅 --env 或 --full） ──
+if [ "$DEPLOY_ENV" = true ]; then
+  echo "[3/6] 同步环境配置..."
+  scp backend/.env root@${SG_HOST}:${BACKEND_DIR}/.env
+  echo "  .env 已同步"
+else
+  echo "[3/6] 跳过环境配置同步"
+fi
+
+# ── 4. 部署后端 ──
 if [ "$DEPLOY_BACKEND" = true ]; then
-  echo "[3/5] 部署后端 (FastAPI)..."
+  echo "[4/6] 部署后端 (FastAPI)..."
   ssh root@${SG_HOST} "cd ${BACKEND_DIR} && pip3 install -r requirements.txt -q && systemctl restart fundtrader"
   echo "  后端已重启"
 else
-  echo "[3/5] 跳过后端部署"
+  echo "[4/6] 跳过后端部署"
 fi
 
-# 4. 部署前端
+# ── 5. 部署前端 ──
 if [ "$DEPLOY_FRONTEND" = true ]; then
-  echo "[4/5] 部署前端 (Hono BFF)..."
-  ssh root@${SG_HOST} "cd ${V2_DIR} && npm install --production=false && npm run build && systemctl restart fundtrader-v2"
+  echo "[5/6] 部署前端 (Hono BFF)..."
+  ssh root@${SG_HOST} "cd ${FRONTEND_DIR} && npm ci && npm run build && systemctl restart fundtrader-v2"
   echo "  前端已重启"
 else
-  echo "[4/5] 跳过前端部署"
+  echo "[5/6] 跳过前端部署"
 fi
 
-# 5. 验证
-echo "[5/5] 验证服务..."
-sleep 3
-BACKEND_OK=$(ssh root@${SG_HOST} "curl -s -o /dev/null -w '%{http_code}' http://localhost:8766/health")
-FRONTEND_OK=$(ssh root@${SG_HOST} "curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/fund/")
+# ── 6. 更新 Nginx（仅 --full 或 --nginx-only） ──
+if [ "$DEPLOY_NGINX" = true ]; then
+  echo "[6/6] 更新 Nginx 配置..."
+  scp deploy/nginx_fund.conf root@${SG_HOST}:/etc/nginx/conf.d/fundtrader.conf
+  scp deploy/fundtrader.service root@${SG_HOST}:/etc/systemd/system/fundtrader.service
+  scp v2/frontend/fundtrader-v2.service root@${SG_HOST}:/etc/systemd/system/fundtrader-v2.service
+  ssh root@${SG_HOST} "systemctl daemon-reload && nginx -t && systemctl reload nginx"
+  echo "  Nginx & Systemd 配置已更新"
+else
+  echo "[6/6] 跳过 Nginx 配置更新"
+fi
 
+# ── 验证 ──
 echo ""
-echo "=== 部署结果 ==="
-echo "  后端 (8766): ${BACKEND_OK}"
-echo "  前端 (3000): ${FRONTEND_OK}"
+echo "=== 验证服务 ==="
+sleep 3
+
+BACKEND_OK=$(ssh root@${SG_HOST} "curl -s -o /dev/null -w '%{http_code}' http://localhost:8766/health" || echo "ERR")
+FRONTEND_OK=$(ssh root@${SG_HOST} "curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/fund/" || echo "ERR")
+NGINX_OK=$(ssh root@${SG_HOST} "curl -s -o /dev/null -w '%{http_code}' http://localhost/fund/" || echo "ERR")
+
+echo "  后端 (8766):     ${BACKEND_OK}"
+echo "  前端 (3000):     ${FRONTEND_OK}"
+echo "  Nginx 代理 (80): ${NGINX_OK}"
+echo ""
+echo "=== 部署完成 ==="
 echo "  访问地址: http://${SG_HOST}/fund/"
+echo "  API文档:  http://${SG_HOST}/fund/api/docs"

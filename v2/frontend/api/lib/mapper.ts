@@ -311,6 +311,11 @@ export function mapBacktestResult(result: any): any {
   const combined = result.combined || {};
   const first = individual[0] || combined || {};
 
+  // 当策略为 compare 时，individual 中的元素结构为 { fund_code, strategies: { fixed, ma } }
+  // 需从 strategies 中提取实际指标数据
+  const strategyData: any = first.strategies?.fixed || first.strategies?.ma || null;
+  const metricsSource: any = strategyData ?? first;
+
   // 提取时序数据（从 nav_curve 或 strategies.fixed.nav_curve）
   let monthlyData: any[] = [];
   if (first.nav_curve && Array.isArray(first.nav_curve)) {
@@ -319,8 +324,8 @@ export function mapBacktestResult(result: any): any {
       invested: p.invested != null ? String(p.invested) : "0",
       value: p.value != null ? String(p.value) : "0",
     }));
-  } else if (first.strategies && first.strategies.fixed && first.strategies.fixed.nav_curve) {
-    monthlyData = first.strategies.fixed.nav_curve.map((p: any) => ({
+  } else if (strategyData?.nav_curve && Array.isArray(strategyData.nav_curve)) {
+    monthlyData = strategyData.nav_curve.map((p: any) => ({
       date: p.date || "",
       invested: p.invested != null ? String(p.invested) : "0",
       value: p.value != null ? String(p.value) : "0",
@@ -338,14 +343,14 @@ export function mapBacktestResult(result: any): any {
     endDate: result.endDate || result.end_date || "",
     investAmount: result.investAmount || result.amount || "1000",
     investFrequency: result.investFrequency || result.frequency || "monthly",
-    totalInvested: first.total_invested != null ? String(first.total_invested) : "0",
-    finalValue: first.total_value != null ? String(first.total_value) : "0",
-    totalReturn: first.total_profit_rate != null ? String(first.total_profit_rate) : "0",
-    annualizedReturn: first.annual_return != null ? String(first.annual_return) : "0",
-    maxDrawdown: first.max_drawdown != null ? String(first.max_drawdown) : "0",
-    sharpeRatio: first.sharpe_ratio != null ? String(first.sharpe_ratio) : "0",
-    benchmarkReturn: first.benchmark_return != null ? String(first.benchmark_return) : "0",
-    excessReturn: first.excess_return != null ? String(first.excess_return) : "0",
+    totalInvested: metricsSource.total_invested != null ? String(metricsSource.total_invested) : "0",
+    finalValue: metricsSource.total_value != null ? String(metricsSource.total_value) : "0",
+    totalReturn: metricsSource.total_profit_rate != null ? String(metricsSource.total_profit_rate) : "0",
+    annualizedReturn: metricsSource.annual_return != null ? String(metricsSource.annual_return) : "0",
+    maxDrawdown: metricsSource.max_drawdown != null ? String(metricsSource.max_drawdown) : "0",
+    sharpeRatio: metricsSource.sharpe_ratio != null ? String(metricsSource.sharpe_ratio) : "0",
+    benchmarkReturn: metricsSource.benchmark_return != null ? String(metricsSource.benchmark_return) : "0",
+    excessReturn: metricsSource.excess_return != null ? String(metricsSource.excess_return) : "0",
     monthlyData,
   };
 }
