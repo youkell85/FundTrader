@@ -210,9 +210,12 @@ export const fundRouter = createRouter({
   filterOptions: publicQuery.query(async () => {
     try {
       const ftCats = await ftGetCategories();
+      const categories = Array.isArray(ftCats?.categories)
+        ? ftCats.categories
+        : Object.values(ftCats?.categories || {}).flat();
       return {
         types: ["equity", "hybrid", "bond", "index", "qdii", "money", "fof"],
-        categories: ftCats?.categories || [],
+        categories,
         companies: [],
         riskLevels: ["low", "low_medium", "medium", "medium_high", "high"],
       };
