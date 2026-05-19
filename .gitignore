@@ -44,5 +44,9 @@ fundtrader_deploy.tar.gz
 # Codebuddy
 .codebuddy/
 
+# Secrets
+.env
+backend/.env
+
 # Cache
 /tmp/
