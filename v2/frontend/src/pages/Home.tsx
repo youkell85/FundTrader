@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useCallback } from "react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { Search, TrendingUp, TrendingDown, Star, PieChart, Activity, Shield, Camera, X, Loader2 } from "lucide-react";
 import { trpc } from "@/providers/trpc";
 
@@ -20,6 +20,7 @@ interface ImageSearchResult {
 }
 
 export default function Home() {
+  const navigate = useNavigate();
   const { data: listData, isLoading: listLoading } = trpc.fund.list.useQuery({ pageSize: 1000 });
   const { data: filterOptsData } = trpc.fund.filterOptions.useQuery();
   const { data: overviewData } = trpc.fund.marketOverview.useQuery();
@@ -79,6 +80,21 @@ export default function Home() {
   }, [filteredFunds, page]);
 
   const totalPages = Math.ceil(filteredFunds.length / pageSize);
+
+  const handleSearchSubmit = useCallback((e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const query = search.trim();
+    if (!query) return;
+
+    if (/^\d{6}$/.test(query)) {
+      navigate(`/fund/${query}`);
+      return;
+    }
+
+    if (filteredFunds.length === 1) {
+      navigate(`/fund/${filteredFunds[0].id}`);
+    }
+  }, [filteredFunds, navigate, search]);
 
   // Compress image before upload to reduce base64 size
   const compressImage = useCallback((file: File, maxWidth = 1200, quality = 0.7): Promise<string> => {
@@ -194,8 +210,14 @@ export default function Home() {
         </div>
 
         <div className="mt-8 flex flex-col md:flex-row gap-3">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30" />
+          <form className="relative flex-1" onSubmit={handleSearchSubmit}>
+            <button
+              type="submit"
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60 transition-colors"
+              title="搜索基金"
+            >
+              <Search className="w-4 h-4" />
+            </button>
             <input
               type="text"
               value={search}
@@ -203,7 +225,7 @@ export default function Home() {
               placeholder="输入基金代码 / 名称 / 基金经理..."
               className="w-full h-11 pl-10 pr-4 rounded-xl bg-white/[0.03] border border-white/[0.06] text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-[#3B6CFF]/50 focus:bg-white/[0.05] transition-all"
             />
-          </div>
+          </form>
           <button
             onClick={() => fileInputRef.current?.click()}
             className="h-11 px-4 rounded-xl bg-white/[0.03] border border-white/[0.06] text-white/60 text-sm hover:bg-white/[0.06] hover:text-white transition-all flex items-center gap-2 shrink-0"
@@ -233,7 +255,7 @@ export default function Home() {
             <select value={category} onChange={(e) => { setCategory(e.target.value); setPage(1); }}
               className="h-11 px-3 rounded-xl bg-[#0B1021] border border-white/[0.08] text-white text-sm focus:outline-none focus:border-[#3B6CFF]/50">
               <option value="" className="bg-[#0B1021] text-white">全部分类</option>
-              {filterOpts.categories?.map((c) => (<option key={c} value={c} className="bg-[#0B1021] text-white">{c}</option>))}
+              {filterOpts.categories?.map((c: string) => (<option key={c} value={c} className="bg-[#0B1021] text-white">{c}</option>))}
             </select>
             <button onClick={() => { setIsMarketingOnly(!isMarketingOnly); setPage(1); }}
               className={`h-11 px-4 rounded-xl text-sm font-medium transition-all ${isMarketingOnly ? "bg-[#3B6CFF]/20 text-[#00F0FF] border border-[#3B6CFF]/30" : "bg-white/[0.03] text-white/50 border border-white/[0.06] hover:bg-white/[0.06]"}`}>

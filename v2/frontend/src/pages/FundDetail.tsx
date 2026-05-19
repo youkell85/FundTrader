@@ -15,8 +15,13 @@ const riskLabels: Record<string, string> = {
 
 export default function FundDetail() {
   const { id } = useParams<{ id: string }>();
-  const fundId = parseInt(id || "0");
-  const { data: fund, isLoading } = trpc.fund.detail.useQuery({ id: fundId }, { enabled: fundId > 0 });
+  const routeParam = id || "";
+  const isFundCode = /^\d{6}$/.test(routeParam);
+  const fundId = isFundCode ? 0 : parseInt(routeParam || "0");
+  const detailById = trpc.fund.detail.useQuery({ id: fundId }, { enabled: !isFundCode && fundId > 0 });
+  const detailByCode = trpc.fund.detailByCode.useQuery({ code: routeParam }, { enabled: isFundCode });
+  const fund = isFundCode ? detailByCode.data : detailById.data;
+  const isLoading = isFundCode ? detailByCode.isLoading : detailById.isLoading;
 
   const radarData = useMemo(() => {
     if (!fund?.performance) return [];

@@ -142,6 +142,18 @@ export const fundRouter = createRouter({
       }
     }),
 
+  // 按基金代码获取详情。用于主页直接输入 6 位基金代码跳转。
+  detailByCode: publicQuery
+    .input(z.object({ code: z.string().regex(/^\d{6}$/) }))
+    .query(async ({ input }) => {
+      try {
+        const analysis = await getFundAnalysis(input.code);
+        return mapFundDetail(analysis);
+      } catch (err) {
+        wrapError(err, "按基金代码获取详情失败");
+      }
+    }),
+
   // 基金经理详情
   managerDetail: publicQuery
     .input(z.object({ id: z.number() }))
