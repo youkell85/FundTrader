@@ -6,16 +6,26 @@ from ..utils import console_error
 
 
 def get_fund_nav_history(code: str, start_date: str = "", end_date: str = "") -> List[Dict[str, Any]]:
-    """获取基金历史净值数据"""
+    """获取基金历史净值数据（efinance 新版使用 get_quote_history）"""
     try:
-        df = ef.fund.get_fund_net_value(code)
+        # 新版 efinance API：get_quote_history(基金代码)
+        # 所有基金都可用该接口获取“成立以来”全量净值历史
+        df = None
+        if hasattr(ef.fund, "get_quote_history"):
+            df = ef.fund.get_quote_history(code)
+        elif hasattr(ef.fund, "get_fund_net_value"):
+            df = ef.fund.get_fund_net_value(code)
         if df is None or df.empty:
             return []
-        df = df.rename(columns={
-            "基金代码": "code", "净值日期": "date",
+        # 兼容不同版本列名
+        rename_map = {
+            "基金代码": "code", "净值日期": "date", "日期": "date",
             "单位净值": "nav", "累计净值": "acc_nav",
-            "日增长率": "day_growth",
-        })
+            "日增长率": "day_growth", "增长率": "day_growth",
+        }
+        df = df.rename(columns={k: v for k, v in rename_map.items() if k in df.columns})
+        if "date" not in df.columns or "nav" not in df.columns:
+            return []
         if start_date:
             df = df[df["date"] >= start_date]
         if end_date:
