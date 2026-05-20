@@ -2,6 +2,7 @@
 from fastapi import APIRouter
 from typing import List, Dict, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import math
 from ..services.analysis_service import analyze_fund
 from ..services.llm_service import analyze_manager_style, analyze_fund_comprehensive, analyze_dca_strategy
 from ..data.cache_manager import cache
@@ -39,6 +40,49 @@ def cached_analyze_fund(code: str) -> Dict[str, Any]:
         result = _fill_missing_fees(code, result)
         cache.set(cache_key, result)
     return result
+
+
+def _to_float(value) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        number = float(str(value).replace("%", ""))
+        return number if math.isfinite(number) else None
+    except Exception:
+        return None
+
+
+def _calc_nav_risk_metrics(nav_data: List[Dict[str, Any]]) -> Dict[str, float | None]:
+    points = []
+    for item in nav_data or []:
+        nav = _to_float(item.get("accum_nav") if item.get("accum_nav") not in (None, "", 0) else item.get("nav"))
+        if nav is not None and nav > 0:
+            points.append(nav)
+    if len(points) < 2:
+        return {"sharpeRatio": None, "maxDrawdown": None}
+
+    daily_returns = []
+    peak = points[0]
+    max_drawdown = 0.0
+    for index, nav in enumerate(points):
+        if index > 0 and points[index - 1] > 0:
+            daily_returns.append((nav - points[index - 1]) / points[index - 1])
+        peak = max(peak, nav)
+        if peak > 0:
+            max_drawdown = min(max_drawdown, (nav - peak) / peak * 100)
+
+    sharpe_ratio = None
+    if len(daily_returns) > 1:
+        mean = sum(daily_returns) / len(daily_returns)
+        variance = sum((item - mean) ** 2 for item in daily_returns) / (len(daily_returns) - 1)
+        volatility = math.sqrt(variance) * math.sqrt(252)
+        if volatility > 0:
+            sharpe_ratio = round((mean * 252) / volatility, 2)
+
+    return {
+        "sharpeRatio": sharpe_ratio,
+        "maxDrawdown": round(max_drawdown, 2),
+    }
 
 
 @router.get("/{code}")
@@ -89,18 +133,19 @@ async def manager_style_analysis(code: str):
 @router.get("/{code}/llm_review")
 async def fund_llm_review(code: str):
     """LLM 全面点评基金业绩与经理（含多个维度）。带后端文件缓存。"""
-    cache_key = f"llm_review_{code}"
+    cache_key = f"llm_review_v2_{code}"
     cached = cache.get(cache_key, CACHE_TTL_INFO * 6)  # 12小时缓存 LLM 评价
     if cached:
         return cached
     fund_data = cached_analyze_fund(code)
+    nav_metrics = _calc_nav_risk_metrics(fund_data.get("nav_data") or [])
     perf = {
         "return1y": fund_data.get("return1y"),
         "return3y": fund_data.get("return3y"),
         "return5y": fund_data.get("return5y"),
         "annualizedReturn": fund_data.get("annualized_return"),
-        "sharpeRatio": (fund_data.get("radar_scores", {}) or {}).get("stock_picking"),
-        "maxDrawdown": (fund_data.get("radar_scores", {}) or {}).get("risk_control"),
+        "sharpeRatio": nav_metrics.get("sharpeRatio"),
+        "maxDrawdown": nav_metrics.get("maxDrawdown"),
     }
     review = analyze_fund_comprehensive(
         fund_code=code,

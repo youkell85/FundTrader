@@ -669,7 +669,7 @@ export const fundRouter = createRouter({
     .input(z.object({ code: z.string().regex(/^\d{6}$/) }))
     .query(async ({ input }) => {
       try {
-        const cacheKey = `llm_review_${input.code}`;
+        const cacheKey = `llm_review_v2_${input.code}`;
         const cached = getCached<any>(cacheKey);
         if (cached) return cached;
         const data = await getFundLLMReview(input.code);
