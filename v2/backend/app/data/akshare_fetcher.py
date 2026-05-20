@@ -1,6 +1,7 @@
 """AkShare 数据获取层"""
 import akshare as ak
 import pandas as pd
+import efinance as ef
 from typing import Optional, List, Dict, Any
 from ..utils import console_error
 
@@ -154,8 +155,12 @@ def _normalize_stock_code(code: str) -> str:
             return f"sz{symbol}"
         if market.startswith("bj"):
             return f"bj{symbol}"
+        if market.startswith("hk"):
+            return f"hk{symbol.zfill(5)}"
     if raw.startswith(("sh", "sz", "bj")):
         return raw
+    if raw.startswith("hk"):
+        return f"hk{raw[2:].zfill(5)}"
     if raw.startswith(("6", "5", "9")):
         return f"sh{raw}"
     if raw.startswith(("0", "2", "3")):
@@ -163,6 +168,34 @@ def _normalize_stock_code(code: str) -> str:
     if raw.startswith(("4", "8")):
         return f"bj{raw}"
     return raw
+
+
+def _to_quote_code(code: str) -> str:
+    raw = str(code or "").strip()
+    if not raw:
+        return ""
+    if "." in raw:
+        symbol, market = raw.split(".", 1)
+        if market.lower().startswith("hk"):
+            return symbol.zfill(5)
+        return symbol
+    if raw.lower().startswith("hk"):
+        return raw[2:].zfill(5)
+    return raw
+
+
+def _normalize_quote_row(code: str, market_type: str = "") -> str:
+    symbol = str(code or "").strip()
+    market = str(market_type or "")
+    if "港股" in market:
+        return f"hk{symbol.zfill(5)}"
+    if "沪" in market:
+        return f"sh{symbol.zfill(6)}"
+    if "深" in market:
+        return f"sz{symbol.zfill(6)}"
+    if "北" in market:
+        return f"bj{symbol.zfill(6)}"
+    return _normalize_stock_code(symbol)
 
 
 def get_stock_daily_changes(codes: List[str]) -> Dict[str, float]:
@@ -173,23 +206,39 @@ def get_stock_daily_changes(codes: List[str]) -> Dict[str, float]:
 
     try:
         from .cache_manager import cache
-        cached = cache.get("stock_daily_changes", 600)
+        cached = cache.get("stock_daily_changes_v2", 600)
         if isinstance(cached, dict) and cached:
             by_normalized = cached
         else:
-            df = ak.stock_zh_a_spot()
             by_normalized = {}
+            quote_codes = sorted({_to_quote_code(code) for code in requested if _to_quote_code(code)})
+            try:
+                df = ef.stock.get_latest_quote(quote_codes)
+            except Exception:
+                df = None
             if df is not None and not df.empty:
                 for _, row in df.iterrows():
-                    normalized = _normalize_stock_code(row.get("代码", ""))
+                    normalized = _normalize_quote_row(row.get("代码", ""), row.get("市场类型", ""))
                     if not normalized:
                         continue
                     try:
                         by_normalized[normalized] = round(float(row.get("涨跌幅")), 2)
                     except (ValueError, TypeError):
                         continue
+
+            if not by_normalized:
+                df = ak.stock_zh_a_spot()
+                if df is not None and not df.empty:
+                    for _, row in df.iterrows():
+                        normalized = _normalize_stock_code(row.get("代码", ""))
+                        if not normalized:
+                            continue
+                        try:
+                            by_normalized[normalized] = round(float(row.get("涨跌幅")), 2)
+                        except (ValueError, TypeError):
+                            continue
             if by_normalized:
-                cache.set("stock_daily_changes", by_normalized)
+                cache.set("stock_daily_changes_v2", by_normalized)
 
         result = {}
         for code in requested:
