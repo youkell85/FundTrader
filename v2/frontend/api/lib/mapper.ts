@@ -210,8 +210,10 @@ export function mapFundItem(item: any): any {
       returnThisYear: perf.ytd != null ? String(perf.ytd) : item.ytd != null ? String(item.ytd) : navPerformance.returnThisYear || "0",
       annualizedReturn: perf.annualizedReturn || item.annualizedReturn || navPerformance.annualizedReturn || "0",
       annualizedVolatility: perf.annualizedVolatility || navPerformance.annualizedVolatility || "0",
-      sharpeRatio: perf.sharpeRatio || item.sharpe_ratio || navPerformance.sharpeRatio || "0",
-      maxDrawdown: perf.maxDrawdown || item.max_drawdown || navPerformance.maxDrawdown || "0",
+      // 夏普/回撤需净值历史计算，轻量摘要模式下无此数据 → 展示 "—"
+      // 后台预热完成后再次查询即可获得真实值
+      sharpeRatio: perf.sharpeRatio || item.sharpe_ratio || navPerformance.sharpeRatio || "—",
+      maxDrawdown: perf.maxDrawdown || item.max_drawdown || navPerformance.maxDrawdown || "—",
       calmarRatio: perf.calmarRatio || navPerformance.calmarRatio || "0",
       sortinoRatio: perf.sortinoRatio || navPerformance.sortinoRatio || "0",
       informationRatio: perf.informationRatio || navPerformance.informationRatio || "0",

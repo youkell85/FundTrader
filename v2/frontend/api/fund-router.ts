@@ -106,12 +106,14 @@ async function fetchAllFundList(params: Record<string, any>) {
   return allFunds;
 }
 
-async function fetchHomeFunds() {
-  const cached = getCached<any[]>("homeFunds");
-  if (cached) return cached;
-
-  // 防并发：冷启动时 list 和 marketOverview 可能同时调用
-  return dedupe("homeFunds", async () => {
+/**
+ * 轻量首页摘要：仅拉取基金列表+排名业绩+实时报价，不调用 /analysis/batch。
+ * 避免首屏同时背上 100+ 只基金的深度分析（净值历史/持仓/经理/Sharpe）。
+ * 首页表格需要的 净值/日涨跌/近1年 均已在排名数据中 → 首屏秒开。
+ * 缺失的 夏普比/最大回撤 展示为 "—"，由后台预热后刷新。
+ */
+async function fetchHomeFundSummaries() {
+  return dedupe("homeFundSummaries", async () => {
     const fundsByCode = new Map<string, any>();
     const watchlistCodes = new Set<string>();
 
@@ -130,9 +132,38 @@ async function fetchHomeFunds() {
       }
     }
 
-    // 使用批量接口获取所有基金的分析数据（1次HTTP请求替代N次）
     const funds = Array.from(fundsByCode.values());
-    const codes = funds.map((f) => f.code).filter(Boolean);
+    // 补充基金名称（对仍然缺少名称的基金用实时报价补全）
+    const enriched = await Promise.all(funds.map(enrichFundSummary));
+
+    // 短 TTL：15min（净值日频，排名数据下一个交易日才更新）
+    setCache("homeFundSummaries", enriched, QUOTE_TTL);
+    return enriched;
+  });
+}
+
+/**
+ * 完整首页数据：含深度分析（Sharpe/最大回撤/持仓/经理）。
+ * 用于 marketOverview 统计聚合与后台预热，不阻塞首屏渲染。
+ */
+async function fetchHomeFunds() {
+  const cached = getCached<any[]>("homeFunds");
+  if (cached) return cached;
+
+  return dedupe("homeFunds", async () => {
+    // 从轻量摘要获取基金列表
+    const summary = await fetchHomeFundSummaries();
+    const fundsByCode = new Map<string, any>();
+    const watchlistCodes = new Set<string>();
+    for (const fund of summary) {
+      if (fund?.code) {
+        fundsByCode.set(fund.code, fund);
+        if (fund._source === "watchlist") watchlistCodes.add(fund.code);
+      }
+    }
+
+    // 使用批量接口获取所有基金的分析数据（1次HTTP请求替代N次）
+    const codes = Array.from(fundsByCode.keys());
     let analysisMap = new Map<string, any>();
     if (codes.length > 0) {
       try {
@@ -158,7 +189,7 @@ async function fetchHomeFunds() {
     }
 
     // 合并分析数据到基金对象
-    const withAnalysis = funds.map((fund) => {
+    const withAnalysis = Array.from(fundsByCode.values()).map((fund) => {
       const analysis = analysisMap.get(fund.code);
       if (!analysis || analysis.error) return fund;
       return {
@@ -170,15 +201,14 @@ async function fetchHomeFunds() {
         nav_data: analysis.nav_data || [],
         manager_info: analysis.manager || fund.manager_info,
         holdings: analysis.holdings || fund.holdings,
+        radar_scores: analysis.radar_scores,
+        total_scale: analysis.total_scale,
       };
     });
 
-    // 补充基金名称（对仍然缺少名称的基金）
-    const enriched = await Promise.all(withAnalysis.map(enrichFundSummary));
-
     // L0+L1 快照：1小时 TTL（净值日频，分析准静态）
-    setCache("homeFunds", enriched, SNAPSHOT_TTL);
-    return enriched;
+    setCache("homeFunds", withAnalysis, SNAPSHOT_TTL);
+    return withAnalysis;
   });
 }
 
@@ -247,8 +277,12 @@ export const fundRouter = createRouter({
         const sortBy = opts.sortBy ?? "dailyChange";
         const sortOrder = opts.sortOrder ?? "desc";
 
-        const rawFunds = await fetchHomeFunds();
+        // 首页轻量版：只用排名数据+报价，不跑 /analysis/batch（Sharpe/回撤为"—"）
+        const rawFunds = await fetchHomeFundSummaries();
         let result = rawFunds.map(mapFundItem).filter(Boolean);
+
+        // 后台预热完整分析数据（不阻塞首屏）
+        setTimeout(() => fetchHomeFunds().catch(() => {}), 100);
 
         // 本地筛选
         if (opts.fundType) result = result.filter((f: any) => f.fundType === opts.fundType);

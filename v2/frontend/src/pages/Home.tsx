@@ -88,12 +88,20 @@ export default function Home() {
     result.sort((a: any, b: any) => {
       const aPerf = a.performance || {};
       const bPerf = b.performance || {};
+      const parseSortVal = (val: string | undefined) => {
+        if (val === "—" || val === undefined) return NaN;  // 无数据排末尾
+        return parseFloat(val);
+      };
       const aVal = sortKey.startsWith("return") || sortKey === "annualizedReturn" || sortKey === "sharpeRatio" || sortKey === "maxDrawdown"
-        ? parseFloat(aPerf[sortKey] || "0")
-        : parseFloat(a[sortKey] || "0");
+        ? parseSortVal(aPerf[sortKey])
+        : parseSortVal(a[sortKey]);
       const bVal = sortKey.startsWith("return") || sortKey === "annualizedReturn" || sortKey === "sharpeRatio" || sortKey === "maxDrawdown"
-        ? parseFloat(bPerf[sortKey] || "0")
-        : parseFloat(b[sortKey] || "0");
+        ? parseSortVal(bPerf[sortKey])
+        : parseSortVal(b[sortKey]);
+      // NaN 排到末尾
+      if (isNaN(aVal) && isNaN(bVal)) return 0;
+      if (isNaN(aVal)) return 1;
+      if (isNaN(bVal)) return -1;
       return sortDir === "desc" ? bVal - aVal : aVal - bVal;
     });
     return result;
@@ -411,8 +419,8 @@ export default function Home() {
               const perf = fund.performance;
               const dailyChange = parseFloat(fund.dailyChange || "0");
               const return1y = parseFloat(perf?.return1y || "0");
-              const maxDD = parseFloat(perf?.maxDrawdown || "0");
-              const sharpe = parseFloat(perf?.sharpeRatio || "0");
+              const maxDD = perf?.maxDrawdown === "—" ? null : parseFloat(perf?.maxDrawdown || "0");
+              const sharpe = perf?.sharpeRatio === "—" ? null : parseFloat(perf?.sharpeRatio || "0");
               const isWatchlistFund = fund.source === "watchlist";
               const dailyClass = getChangeTextClass(dailyChange);
               const return1yClass = getChangeTextClass(return1y);
@@ -443,8 +451,8 @@ export default function Home() {
                     <div className={`col-span-1 text-right data-number ${return1yClass} relative z-10`}>
                       {return1y >= 0 ? "+" : ""}{perf?.return1y}%
                     </div>
-                    <div className="col-span-1 text-right data-number relative z-10" style={{ color: POSITIVE_METRIC_COLOR }}>{sharpe.toFixed(2)}</div>
-                    <div className="col-span-1 text-right data-number relative z-10" style={{ color: RISK_COLOR }}>{maxDD.toFixed(2)}%</div>
+                    <div className="col-span-1 text-right data-number relative z-10" style={{ color: POSITIVE_METRIC_COLOR }}>{sharpe !== null ? sharpe.toFixed(2) : "—"}</div>
+                    <div className="col-span-1 text-right data-number relative z-10" style={{ color: RISK_COLOR }}>{maxDD !== null ? maxDD.toFixed(2) + "%" : "—"}</div>
                     <div className="col-span-1 flex justify-center relative z-10">
                       <div className="flex gap-0.5">
                         {Array.from({ length: 5 }).map((_, i) => (
@@ -490,11 +498,11 @@ export default function Home() {
                       </div>
                       <div>
                         <div className="text-white/30">夏普比</div>
-                        <div className="data-number font-medium" style={{ color: POSITIVE_METRIC_COLOR }}>{sharpe.toFixed(2)}</div>
+                        <div className="data-number font-medium" style={{ color: POSITIVE_METRIC_COLOR }}>{sharpe !== null ? sharpe.toFixed(2) : "—"}</div>
                       </div>
                       <div>
                         <div className="text-white/30">最大回撤</div>
-                        <div className="data-number font-medium" style={{ color: RISK_COLOR }}>{maxDD.toFixed(2)}%</div>
+                        <div className="data-number font-medium" style={{ color: RISK_COLOR }}>{maxDD !== null ? maxDD.toFixed(2) + "%" : "—"}</div>
                       </div>
                     </div>
                   </Link>
