@@ -492,6 +492,7 @@ export default function FundDetail() {
                 <div className="space-y-2">
                   {fund.holdings.map((h: any, i: number) => {
                     const ratio = parseFloat(h.ratio || "0") * 100;
+                    const dailyChange = h.dailyChange == null ? null : parseFloat(h.dailyChange);
                     return (
                       <div key={i} className="flex items-center gap-2 md:gap-3 py-2 border-b border-white/[0.03]">
                         <span className="data-number text-white/30 text-xs w-4">{i + 1}</span>
@@ -502,7 +503,12 @@ export default function FundDetail() {
                         <div className="hidden md:block w-24 h-1.5 rounded-full bg-white/[0.05] overflow-hidden">
                           <div className="h-full rounded-full" style={{ width: `${Math.min(ratio * 3, 100)}%`, background: `linear-gradient(90deg, ${ACCENT_PRIMARY}, ${ACCENT_INFO})` }} />
                         </div>
-                        <div className="data-number text-white/70 text-sm w-14 md:w-16 text-right">{ratio.toFixed(2)}%</div>
+                        <div className="text-right w-20 md:w-24 shrink-0">
+                          <div className="data-number text-white/70 text-sm">{ratio.toFixed(2)}%</div>
+                          <div className={`data-number text-[10px] ${dailyChange == null || Number.isNaN(dailyChange) ? "text-white/30" : getChangeTextClass(dailyChange)}`}>
+                            {dailyChange == null || Number.isNaN(dailyChange) ? "—" : `${dailyChange >= 0 ? "+" : ""}${dailyChange.toFixed(2)}%`}
+                          </div>
+                        </div>
                       </div>
                     );
                   })}

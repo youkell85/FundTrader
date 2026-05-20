@@ -28,16 +28,40 @@ def _fill_missing_fees(code: str, data: Dict[str, Any]) -> Dict[str, Any]:
     return data
 
 
+def _fill_missing_holding_changes(data: Dict[str, Any]) -> Dict[str, Any]:
+    holdings = data.get("holdings") if data else None
+    if not holdings or not isinstance(holdings, list):
+        return data
+    if all(item.get("daily_change") is not None for item in holdings if isinstance(item, dict)):
+        return data
+    try:
+        from ..data.akshare_fetcher import get_stock_daily_changes
+        codes = [item.get("code", "") for item in holdings if isinstance(item, dict)]
+        changes = get_stock_daily_changes(codes)
+        if changes:
+            data = dict(data)
+            data["holdings"] = [
+                {**item, "daily_change": changes.get(item.get("code", ""), item.get("daily_change"))}
+                if isinstance(item, dict) else item
+                for item in holdings
+            ]
+    except Exception:
+        pass
+    return data
+
+
 def cached_analyze_fund(code: str) -> Dict[str, Any]:
     cache_key = f"analysis_full_{code}"
     cached = cache.get(cache_key, CACHE_TTL_INFO)
     if cached:
         cached = _fill_missing_fees(code, cached)
+        cached = _fill_missing_holding_changes(cached)
         cache.set(cache_key, cached)
         return cached
     result = analyze_fund(code)
     if result and not result.get("error"):
         result = _fill_missing_fees(code, result)
+        result = _fill_missing_holding_changes(result)
         cache.set(cache_key, result)
     return result
 

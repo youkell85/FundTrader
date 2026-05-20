@@ -142,6 +142,66 @@ def get_fund_portfolio(code: str) -> Optional[Dict[str, Any]]:
     return {"stock_holdings": holdings}
 
 
+def _normalize_stock_code(code: str) -> str:
+    raw = str(code or "").strip().lower()
+    if not raw:
+        return ""
+    if "." in raw:
+        symbol, market = raw.split(".", 1)
+        if market.startswith("sh"):
+            return f"sh{symbol}"
+        if market.startswith("sz"):
+            return f"sz{symbol}"
+        if market.startswith("bj"):
+            return f"bj{symbol}"
+    if raw.startswith(("sh", "sz", "bj")):
+        return raw
+    if raw.startswith(("6", "5", "9")):
+        return f"sh{raw}"
+    if raw.startswith(("0", "2", "3")):
+        return f"sz{raw}"
+    if raw.startswith(("4", "8")):
+        return f"bj{raw}"
+    return raw
+
+
+def get_stock_daily_changes(codes: List[str]) -> Dict[str, float]:
+    """批量获取股票最近一交易日涨跌幅，返回原始代码到涨跌幅百分比的映射。"""
+    requested = [str(code or "").strip() for code in codes if str(code or "").strip()]
+    if not requested:
+        return {}
+
+    try:
+        from .cache_manager import cache
+        cached = cache.get("stock_daily_changes", 600)
+        if isinstance(cached, dict) and cached:
+            by_normalized = cached
+        else:
+            df = ak.stock_zh_a_spot()
+            by_normalized = {}
+            if df is not None and not df.empty:
+                for _, row in df.iterrows():
+                    normalized = _normalize_stock_code(row.get("代码", ""))
+                    if not normalized:
+                        continue
+                    try:
+                        by_normalized[normalized] = round(float(row.get("涨跌幅")), 2)
+                    except (ValueError, TypeError):
+                        continue
+            if by_normalized:
+                cache.set("stock_daily_changes", by_normalized)
+
+        result = {}
+        for code in requested:
+            normalized = _normalize_stock_code(code)
+            if normalized in by_normalized:
+                result[code] = by_normalized[normalized]
+        return result
+    except Exception as e:
+        console_error(f"stock daily changes error: {e}")
+        return {}
+
+
 def get_fund_industry_board() -> List[Dict[str, Any]]:
     """获取行业板块数据"""
     try:

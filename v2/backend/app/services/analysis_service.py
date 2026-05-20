@@ -8,6 +8,26 @@ from ..data.cache_manager import cache
 from ..config import CACHE_TTL_NAV, CACHE_TTL_INFO
 
 
+def _enrich_holdings_with_daily_change(holdings: List[Dict]) -> List[Dict]:
+    if not holdings:
+        return holdings
+    try:
+        from ..data.akshare_fetcher import get_stock_daily_changes
+        changes = get_stock_daily_changes([item.get("code", "") for item in holdings])
+        if not changes:
+            return holdings
+        enriched = []
+        for item in holdings:
+            next_item = dict(item)
+            code = next_item.get("code", "")
+            if code in changes:
+                next_item["daily_change"] = changes[code]
+            enriched.append(next_item)
+        return enriched
+    except Exception:
+        return holdings
+
+
 def _calc_period_returns(nav_data: List[Dict]) -> Dict[str, Any]:
     """基于 nav_data 计算 1y/3y/5y 区间收益率与年化收益。
     nav_data 已按日期升序排列，每项含 date / nav / accum_nav。
@@ -134,6 +154,7 @@ def analyze_fund(code: str) -> Dict[str, Any]:
             {"name": h.name, "code": h.code, "ratio": h.ratio}
             for h in (detail.holdings or [])
         ]
+        holdings = _enrich_holdings_with_daily_change(holdings)
         manager = detail.manager_info or {}
         if not manager and detail.basic and detail.basic.manager:
             manager = {"name": detail.basic.manager, "tenure_days": 0}
@@ -311,7 +332,7 @@ def _analyze_fund_legacy(code: str) -> Dict[str, Any]:
         "score": score,
         "reasons": reasons,
         "manager": {**manager, "best_return": best_return, "worst_return": worst_return},
-        "holdings": portfolio.get("stock_holdings", []) if portfolio else [],
+        "holdings": _enrich_holdings_with_daily_change(portfolio.get("stock_holdings", []) if portfolio else []),
         "nav_data": nav_data if nav_data else [],
         "radar_scores": radar,
         "source": "legacy",
