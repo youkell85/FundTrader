@@ -169,7 +169,8 @@ def _get_guoyuan_funds_with_performance() -> List[Dict[str, Any]]:
 
 
 def _fetch_fund_performance(code: str) -> Optional[Dict[str, Any]]:
-    """获取单只基金业绩数据"""
+    """获取单只基金业绩数据和规模"""
+    result = {}
     try:
         import akshare as ak
         df = ak.fund_open_fund_rank_em(symbol="全部")
@@ -177,7 +178,7 @@ def _fetch_fund_performance(code: str) -> Optional[Dict[str, Any]]:
             row = df[df["基金代码"] == code]
             if not row.empty:
                 r = row.iloc[0]
-                return {
+                result = {
                     "nav": float(r.get("单位净值", 0) or 0),
                     "day_growth": float(r.get("日增长率", 0) or 0),
                     "near_1m": float(r.get("近1月", 0) or 0),
@@ -189,4 +190,20 @@ def _fetch_fund_performance(code: str) -> Optional[Dict[str, Any]]:
                 }
     except Exception as e:
         console_error(f"Performance fetch error for {code}: {e}")
-    return None
+
+    # 获取基金规模（从雪球接口）
+    try:
+        info = get_fund_info(code)
+        if info and "最新规模" in info:
+            scale_str = info["最新规模"]
+            # 解析 "27.30亿" 格式
+            if scale_str and "亿" in scale_str:
+                scale_val = scale_str.replace("亿", "").strip()
+                try:
+                    result["total_scale"] = float(scale_val)
+                except ValueError:
+                    pass
+    except Exception as e:
+        console_error(f"Scale fetch error for {code}: {e}")
+
+    return result if result else None
