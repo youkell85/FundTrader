@@ -66,30 +66,6 @@ class FundRisk:
 
 
 @dataclass
-class FundDetail:
-    """基金详情聚合数据"""
-    code: str
-    name: str = ""
-    type: str = ""
-    nav: Optional[float] = None
-    nav_date: str = ""
-    day_growth: Optional[float] = None
-    basic: Optional[FundBasic] = None
-    performance: Optional[FundPerformance] = None
-    risk: Optional[FundRisk] = None
-    holdings: List[FundHolding] = field(default_factory=list)
-    nav_history: List[FundNav] = field(default_factory=list)
-    manager_info: Dict[str, Any] = field(default_factory=dict)
-    industry_dist: Dict[str, float] = field(default_factory=dict)
-    rating: Optional[int] = None  # 基金评级（晨星等，1-5星）
-    source: str = ""  # 数据来源标识
-    dividends: List[FundDividend] = field(default_factory=list)  # 分红记录
-    scale: Optional[FundScale] = None  # 基金规模（Tushare 提供）
-    adj_factors: List[AdjFactor] = field(default_factory=list)  # 复权因子
-    company: Optional[FundCompany] = None  # 基金公司（Tushare 提供）
-
-
-@dataclass
 class FundDividend:
     """基金分红记录"""
     ex_date: str = ""          # 除息日
@@ -123,6 +99,30 @@ class AdjFactor:
     """复权因子"""
     date: str = ""
     adj_factor: float = 1.0
+
+
+@dataclass
+class FundDetail:
+    """基金详情聚合数据"""
+    code: str
+    name: str = ""
+    type: str = ""
+    nav: Optional[float] = None
+    nav_date: str = ""
+    day_growth: Optional[float] = None
+    basic: Optional[FundBasic] = None
+    performance: Optional[FundPerformance] = None
+    risk: Optional[FundRisk] = None
+    holdings: List[FundHolding] = field(default_factory=list)
+    nav_history: List[FundNav] = field(default_factory=list)
+    manager_info: Dict[str, Any] = field(default_factory=dict)
+    industry_dist: Dict[str, float] = field(default_factory=dict)
+    rating: Optional[int] = None  # 基金评级（晨星等，1-5星）
+    source: str = ""  # 数据来源标识
+    dividends: List[FundDividend] = field(default_factory=list)  # 分红记录
+    scale: Optional[FundScale] = None  # 基金规模（Tushare 提供）
+    adj_factors: List[AdjFactor] = field(default_factory=list)  # 复权因子
+    company: Optional[FundCompany] = None  # 基金公司（Tushare 提供）
 
 
 @dataclass
