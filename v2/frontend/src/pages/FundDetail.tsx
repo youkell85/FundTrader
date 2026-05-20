@@ -263,32 +263,6 @@ export default function FundDetail() {
               </div>
             </div>
 
-            {fund.holdings && fund.holdings.length > 0 && (
-              <div className="liquid-glass p-4 md:p-6">
-                <h2 className="text-base md:text-lg font-medium text-white mb-4 flex items-center gap-2">
-                  <Layers className="w-5 h-5" style={{ color: ACCENT_INFO }} />重仓持股
-                </h2>
-                <div className="space-y-2">
-                  {fund.holdings.map((h: any, i: number) => {
-                    const ratio = parseFloat(h.ratio || "0") * 100;
-                    return (
-                      <div key={i} className="flex items-center gap-2 md:gap-3 py-2 border-b border-white/[0.03]">
-                        <span className="data-number text-white/30 text-xs w-4">{i + 1}</span>
-                        <div className="flex-1 min-w-0">
-                          <div className="text-white text-sm truncate">{h.stockName}</div>
-                          <div className="text-white/30 text-xs data-number truncate">{h.stockCode} · {h.industry}</div>
-                        </div>
-                        <div className="hidden md:block w-24 h-1.5 rounded-full bg-white/[0.05] overflow-hidden">
-                          <div className="h-full rounded-full" style={{ width: `${Math.min(ratio * 3, 100)}%`, background: `linear-gradient(90deg, ${ACCENT_PRIMARY}, ${ACCENT_INFO})` }} />
-                        </div>
-                        <div className="data-number text-white/70 text-sm w-14 md:w-16 text-right">{ratio.toFixed(2)}%</div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
             {/* AI 综合分析 LLM 卡片 */}
             <div className="liquid-glass p-4 md:p-6">
               <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
@@ -480,6 +454,32 @@ export default function FundDetail() {
                 <div className="flex justify-between"><span className="text-white/40">累计净值</span><span className="data-number text-white/70">{fund.accumNav}</span></div>
               </div>
             </div>
+
+            {fund.holdings && fund.holdings.length > 0 && (
+              <div className="liquid-glass p-4 md:p-6">
+                <h2 className="text-base md:text-lg font-medium text-white mb-4 flex items-center gap-2">
+                  <Layers className="w-5 h-5" style={{ color: ACCENT_INFO }} />重仓持股
+                </h2>
+                <div className="space-y-2">
+                  {fund.holdings.map((h: any, i: number) => {
+                    const ratio = parseFloat(h.ratio || "0") * 100;
+                    return (
+                      <div key={i} className="flex items-center gap-2 md:gap-3 py-2 border-b border-white/[0.03]">
+                        <span className="data-number text-white/30 text-xs w-4">{i + 1}</span>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-white text-sm truncate">{h.stockName}</div>
+                          <div className="text-white/30 text-xs data-number truncate">{h.stockCode} · {h.industry}</div>
+                        </div>
+                        <div className="hidden md:block w-24 h-1.5 rounded-full bg-white/[0.05] overflow-hidden">
+                          <div className="h-full rounded-full" style={{ width: `${Math.min(ratio * 3, 100)}%`, background: `linear-gradient(90deg, ${ACCENT_PRIMARY}, ${ACCENT_INFO})` }} />
+                        </div>
+                        <div className="data-number text-white/70 text-sm w-14 md:w-16 text-right">{ratio.toFixed(2)}%</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
