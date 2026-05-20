@@ -73,6 +73,28 @@ function invalidateCache(prefix: string): void {
   }
 }
 
+function hasRiskMetrics(fund: any): boolean {
+  const perf = fund?.performance || {};
+  const hasMetric = (value: unknown) => (
+    value !== undefined &&
+    value !== null &&
+    value !== "" &&
+    value !== "—" &&
+    value !== "鈥?"
+  );
+  return (
+    hasMetric(perf.sharpeRatio) ||
+    hasMetric(perf.maxDrawdown) ||
+    hasMetric(fund?.sharpe_ratio) ||
+    hasMetric(fund?.max_drawdown) ||
+    (Array.isArray(fund?.nav_data) && fund.nav_data.length > 1)
+  );
+}
+
+function hasAnyRiskMetrics(funds: any[]): boolean {
+  return funds.some(hasRiskMetrics);
+}
+
 // ========== 防并发锁（冷启动时 list + marketOverview 竞态问题） ==========
 const inflightRequests = new Map<string, Promise<any>>();
 
@@ -278,7 +300,10 @@ export const fundRouter = createRouter({
         const sortOrder = opts.sortOrder ?? "desc";
 
         // 首页轻量版：只用排名数据+报价，不跑 /analysis/batch（Sharpe/回撤为"—"）
-        const rawFunds = await fetchHomeFundSummaries();
+        let rawFunds = getCached<any[]>("homeFunds");
+        if (!rawFunds || !hasAnyRiskMetrics(rawFunds)) {
+          rawFunds = await fetchHomeFundSummaries();
+        }
         let result = rawFunds.map(mapFundItem).filter(Boolean);
 
         // 后台预热完整分析数据（不阻塞首屏）
@@ -303,12 +328,20 @@ export const fundRouter = createRouter({
         result.sort((a: any, b: any) => {
           const aPerf = a.performance || {};
           const bPerf = b.performance || {};
+          const parseSortVal = (value: unknown) => {
+            if (value === undefined || value === null || value === "" || value === "—" || value === "鈥?") return Number.NaN;
+            const num = parseFloat(String(value).replace("%", ""));
+            return Number.isFinite(num) ? num : Number.NaN;
+          };
           const aVal = sortKey.startsWith("return") || sortKey === "annualizedReturn" || sortKey === "sharpeRatio" || sortKey === "maxDrawdown"
-            ? parseFloat(aPerf[sortKey] || "0")
-            : parseFloat(a[sortKey] || "0");
+            ? parseSortVal(aPerf[sortKey])
+            : parseSortVal(a[sortKey]);
           const bVal = sortKey.startsWith("return") || sortKey === "annualizedReturn" || sortKey === "sharpeRatio" || sortKey === "maxDrawdown"
-            ? parseFloat(bPerf[sortKey] || "0")
-            : parseFloat(b[sortKey] || "0");
+            ? parseSortVal(bPerf[sortKey])
+            : parseSortVal(b[sortKey]);
+          if (Number.isNaN(aVal) && Number.isNaN(bVal)) return 0;
+          if (Number.isNaN(aVal)) return 1;
+          if (Number.isNaN(bVal)) return -1;
           return sortDir === "desc" ? bVal - aVal : aVal - bVal;
         });
 
@@ -326,7 +359,7 @@ export const fundRouter = createRouter({
     .input(z.object({ id: z.number() }))
     .query(async ({ input }) => {
       try {
-        const rawFunds = await fetchHomeFunds();
+        const rawFunds = getCached<any[]>("homeFunds") || await fetchHomeFundSummaries();
         const fund = rawFunds.find((f: any) => {
           const mapped = mapFundItem(f);
           return mapped?.id === input.id;
@@ -337,6 +370,11 @@ export const fundRouter = createRouter({
         const cacheKey = `analysis_${fund.code}`;
         const cached = getCached<any>(cacheKey);
         if (cached) return mapFundDetail(cached);
+
+        if (hasRiskMetrics(fund) && Array.isArray(fund.nav_data)) {
+          setCache(cacheKey, fund, ANALYSIS_TTL);
+          return mapFundDetail(fund);
+        }
 
         const analysis = await getFundAnalysis(fund.code);
         const enriched = await enrichFundAnalysis(analysis, fund.code);
@@ -355,6 +393,13 @@ export const fundRouter = createRouter({
         const cacheKey = `analysis_${input.code}`;
         const cachedAnalysis = getCached<any>(cacheKey);
         if (cachedAnalysis) return mapFundDetail(cachedAnalysis);
+
+        const cachedHomeFunds = getCached<any[]>("homeFunds");
+        const cachedHomeFund = cachedHomeFunds?.find((fund: any) => fund?.code === input.code);
+        if (cachedHomeFund && hasRiskMetrics(cachedHomeFund) && Array.isArray(cachedHomeFund.nav_data)) {
+          setCache(cacheKey, cachedHomeFund, ANALYSIS_TTL);
+          return mapFundDetail(cachedHomeFund);
+        }
 
         const analysis = await getFundAnalysis(input.code);
         const enriched = await enrichFundAnalysis(analysis, input.code);

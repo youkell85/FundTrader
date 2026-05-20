@@ -10,6 +10,17 @@ from ..config import CACHE_TTL_INFO
 router = APIRouter(prefix="/analysis", tags=["深度产品分析"])
 
 
+def cached_analyze_fund(code: str) -> Dict[str, Any]:
+    cache_key = f"analysis_full_{code}"
+    cached = cache.get(cache_key, CACHE_TTL_INFO)
+    if cached:
+        return cached
+    result = analyze_fund(code)
+    if result and not result.get("error"):
+        cache.set(cache_key, result)
+    return result
+
+
 @router.get("/{code}")
 async def fund_analysis(code: str):
     """获取基金深度分析"""
@@ -24,7 +35,7 @@ async def fund_analysis_batch(codes: List[str]) -> Dict[str, Any]:
     # 使用线程池并行处理（analyze_fund 主要是IO密集型：网络请求+文件缓存）
     with ThreadPoolExecutor(max_workers=8) as executor:
         future_to_code = {
-            executor.submit(analyze_fund, code): code
+            executor.submit(cached_analyze_fund, code): code
             for code in set(codes)  # 去重
         }
         for future in as_completed(future_to_code):
@@ -39,7 +50,7 @@ async def fund_analysis_batch(codes: List[str]) -> Dict[str, Any]:
 @router.get("/{code}/style")
 async def manager_style_analysis(code: str):
     """LLM分析基金经理投资风格"""
-    fund_data = analyze_fund(code)
+    fund_data = cached_analyze_fund(code)
     manager = fund_data.get("manager")
     if not manager:
         return {"error": "未找到基金经理信息"}
@@ -62,7 +73,7 @@ async def fund_llm_review(code: str):
     cached = cache.get(cache_key, CACHE_TTL_INFO * 6)  # 12小时缓存 LLM 评价
     if cached:
         return cached
-    fund_data = analyze_fund(code)
+    fund_data = cached_analyze_fund(code)
     perf = {
         "return1y": fund_data.get("return1y"),
         "return3y": fund_data.get("return3y"),

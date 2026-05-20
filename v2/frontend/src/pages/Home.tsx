@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef, useCallback } from "react";
+import { useState, useMemo, useRef, useCallback, useEffect } from "react";
 import { Link, useNavigate } from "react-router";
 import { Search, TrendingUp, TrendingDown, Star, PieChart, Activity, Shield, Camera, X, Loader2, Trash2 } from "lucide-react";
 import { trpc } from "@/providers/trpc";
@@ -23,7 +23,7 @@ interface ImageSearchResult {
 export default function Home() {
   const navigate = useNavigate();
   const utils = trpc.useUtils();
-  const { data: listData, isLoading: listLoading } = trpc.fund.list.useQuery(
+  const { data: listData, isLoading: listLoading, refetch: refetchList } = trpc.fund.list.useQuery(
     { pageSize: 1000 },
     { staleTime: 5 * 60 * 1000, refetchOnWindowFocus: false }
   );
@@ -70,6 +70,26 @@ export default function Home() {
   const [imageResult, setImageResult] = useState<ImageSearchResult | null>(null);
   const [imageError, setImageError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const hasMetric = (value: unknown) => (
+      value !== undefined &&
+      value !== null &&
+      value !== "" &&
+      value !== "—" &&
+      value !== "鈥?"
+    );
+    const hasRiskMetrics = allFunds.some((fund: any) => {
+      const perf = fund.performance || {};
+      return hasMetric(perf.sharpeRatio) && hasMetric(perf.maxDrawdown);
+    });
+    if (listLoading || allFunds.length === 0 || hasRiskMetrics) return;
+
+    const timers = [6000, 14000, 30000].map((delay) => window.setTimeout(() => {
+      refetchList();
+    }, delay));
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
+  }, [allFunds, listLoading, refetchList]);
 
   const filteredFunds = useMemo(() => {
     let result = [...allFunds];
