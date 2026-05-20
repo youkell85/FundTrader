@@ -43,7 +43,7 @@
 ## 简介
 本项目为"AI分析服务"，围绕公募基金提供深度产品分析、基金经理风格识别、智能推荐与定投回测等能力。系统以FastAPI为核心，结合多数据源融合层、缓存与LLM服务，形成"量化指标+自然语言分析"的双轨分析体系。AI分析服务通过LLM对基金经理风格进行多维度解读，并与传统量化分析（如夏普比率、最大回撤、波动率等）互补，提升投资决策的综合质量。
 
-**更新** 新增LLM综合分析功能和AI分析服务增强，包括全面的基金经理分析、智能定投策略建议、增强的缓存策略，以及新增的1年、3年、5年区间回报计算和年化回报功能。**新增** 批量分析接口(getFundAnalysisBatch)，支持POST /analysis/batch端点，用于首页列表一次性加载，减少HTTP往返。
+**更新** 新增LLM综合分析功能和AI分析服务增强，包括全面的基金经理分析、智能定投策略建议、增强的缓存策略，以及新增的1年、3年、5年区间回报计算和年化回报功能。**新增** 批量分析接口(getFundAnalysisBatch)，支持POST /analysis/batch端点，用于首页列表一次性加载，减少HTTP往返。**新增** 并发线程池处理，支持最多8个并发线程，大幅提升批量操作性能。
 
 ## 项目结构
 后端采用模块化分层设计：
@@ -104,8 +104,8 @@ SVC_LV2 --> CFG
 **图表来源**
 - [backend/app/main.py:1-42](file://backend/app/main.py#L1-L42)
 - [backend/app/config.py:1-42](file://backend/app/config.py#L1-L42)
-- [backend/app/api/analysis.py:1-33](file://backend/app/api/analysis.py#L1-L33)
-- [v2/backend/app/api/analysis.py:1-78](file://v2/backend/app/api/analysis.py#L1-L78)
+- [backend/app/api/analysis.py:1-34](file://backend/app/api/analysis.py#L1-L34)
+- [v2/backend/app/api/analysis.py:1-86](file://v2/backend/app/api/analysis.py#L1-L86)
 - [backend/app/api/dca.py:1-26](file://backend/app/api/dca.py#L1-L26)
 - [v2/backend/app/api/dca.py:1-49](file://v2/backend/app/api/dca.py#L1-L49)
 - [backend/app/services/analysis_service.py:1-323](file://backend/app/services/analysis_service.py#L1-L323)
@@ -131,8 +131,9 @@ SVC_LV2 --> CFG
 - 融合层：统一数据模型，按优先级聚合多个数据源，补全缺失字段
 - 缓存：文件缓存，带TTL，加速热点数据读取
 - **新增** 批量分析服务：支持批量获取基金深度分析，减少HTTP往返，提高页面加载性能
+- **新增** 并发线程池处理：使用ThreadPoolExecutor(max_workers=8)实现8路并发，显著提升批量分析性能
 
-**更新** 新增LLM综合分析功能，支持多维度基金经理分析和智能定投策略建议，以及1年、3年、5年区间回报计算和年化回报功能。**新增** 批量分析接口(getFundAnalysisBatch)，用于首页列表一次性加载，减少HTTP往返。
+**更新** 新增LLM综合分析功能，支持多维度基金经理分析和智能定投策略建议，以及1年、3年、5年区间回报计算和年化回报功能。**新增** 批量分析接口(getFundAnalysisBatch)，用于首页列表一次性加载，减少HTTP往返。**新增** 并发线程池处理，支持最多8个并发线程，大幅提升批量操作性能。
 
 **章节来源**
 - [backend/app/services/analysis_service.py:1-323](file://backend/app/services/analysis_service.py#L1-L323)
@@ -150,6 +151,7 @@ SVC_LV2 --> CFG
 sequenceDiagram
 participant C as "客户端"
 participant API as "分析API v2"
+participant TP as "线程池<br/>max_workers=8"
 participant SVC as "分析服务 v2"
 participant FUS as "融合层"
 participant LLM as "LLM服务 v2"
@@ -170,18 +172,20 @@ LLM->>LLM : 使用宽松JSON解析处理响应
 LLM-->>API : 定投策略建议JSON
 API-->>C : JSON响应
 C->>API : POST /analysis/batch
-API->>SVC : fund_analysis_batch(codes)
-loop 对每个基金代码
+API->>TP : 创建线程池(8并发)
+TP->>SVC : 并行调用analyze_fund(code)
+loop 对每个基金代码(最多8个并发)
 SVC->>SVC : analyze_fund(code)
 SVC->>FUS : get_fund_detail(code)
 FUS-->>SVC : FundDetail
-SVC-->>API : 单只基金分析结果
+SVC-->>TP : 单只基金分析结果
 end
+TP-->>API : 收集所有结果
 API-->>C : {"results" : {...}}
 ```
 
 **图表来源**
-- [v2/backend/app/api/analysis.py:37-78](file://v2/backend/app/api/analysis.py#L37-L78)
+- [v2/backend/app/api/analysis.py:20-36](file://v2/backend/app/api/analysis.py#L20-L36)
 - [v2/backend/app/api/dca.py:31-49](file://v2/backend/app/api/dca.py#L31-L49)
 - [v2/backend/app/services/llm_service.py:82-136](file://v2/backend/app/services/llm_service.py#L82-L136)
 - [v2/backend/app/services/llm_service.py:138-184](file://v2/backend/app/services/llm_service.py#L138-L184)
@@ -247,29 +251,85 @@ Annual --> Output["输出结果<br/>return1y/return3y/return5y/annualized_return
 **新增功能**：实现批量分析接口，支持POST /analysis/batch端点
 
 - **功能描述**：批量获取多个基金的深度分析结果，用于首页列表一次性加载
-- **实现方式**：遍历基金代码列表，逐个调用analyze_fund函数，收集结果
+- **实现方式**：使用ThreadPoolExecutor(max_workers=8)创建线程池，对每个基金代码创建独立线程并行处理
+- **并发控制**：最多8个并发线程同时执行，避免过度占用系统资源
+- **去重处理**：对输入的基金代码进行去重，避免重复分析相同代码
 - **错误处理**：单个基金分析失败时，返回包含错误信息的对象，不影响其他基金的处理
-- **性能优化**：将原本N次HTTP请求减少为1次请求，显著降低网络开销
+- **性能优化**：将原本N次HTTP请求减少为1次请求，显著降低网络开销和总处理时间
 - **输出格式**：返回{"results": {code: analysis_result}}结构，便于前端处理
 
 ```mermaid
 flowchart TD
-Input["输入基金代码数组"] --> Loop["遍历每个基金代码"]
-Loop --> Try["尝试分析单只基金"]
-Try --> Success{"分析成功？"}
+Input["输入基金代码数组"] --> Dedup["去重处理"]
+Dedup --> Pool["创建线程池<br/>max_workers=8"]
+Pool --> Submit["提交任务<br/>executor.submit(analyze_fund, code)"]
+Submit --> Wait["等待完成<br/>as_completed"]
+Wait --> Collect["收集结果"]
+Collect --> Success{"分析成功？"}
 Success --> |是| AddOK["添加到结果字典"]
 Success --> |否| AddErr["添加错误对象到结果字典"]
 AddOK --> Next["处理下一个代码"]
 AddErr --> Next
-Next --> Loop
-Loop --> Done["返回{'results': {...}}"]
+Next --> Wait
+Wait --> Done["返回{'results': {...}}"]
 ```
 
 **图表来源**
-- [v2/backend/app/api/analysis.py:19-28](file://v2/backend/app/api/analysis.py#L19-L28)
+- [v2/backend/app/api/analysis.py:20-36](file://v2/backend/app/api/analysis.py#L20-L36)
 
 **章节来源**
-- [v2/backend/app/api/analysis.py:19-28](file://v2/backend/app/api/analysis.py#L19-L28)
+- [v2/backend/app/api/analysis.py:20-36](file://v2/backend/app/api/analysis.py#L20-L36)
+
+### 并发线程池处理机制
+**新增功能**：实现8路并发的线程池处理机制，显著提升批量分析性能
+
+- **线程池配置**：使用ThreadPoolExecutor(max_workers=8)创建固定大小的线程池
+- **并发策略**：analyze_fund函数主要是IO密集型操作（网络请求+文件缓存），非常适合并发处理
+- **任务管理**：使用executor.submit()提交任务，future_to_code字典跟踪每个线程的任务映射
+- **完成监控**：使用as_completed()按完成顺序收集结果，避免等待最慢任务完成
+- **资源控制**：通过max_workers参数严格控制并发数量，防止系统资源耗尽
+- **异常隔离**：单个线程异常不会影响其他线程的执行
+- **性能提升**：理论最大性能提升可达8倍，实际提升取决于网络延迟和数据源响应时间
+
+```mermaid
+sequenceDiagram
+participant API as "分析API v2"
+participant TP as "ThreadPoolExecutor"
+participant T1 as "线程1"
+participant T2 as "线程2"
+participant T3 as "线程3"
+participant T4 as "线程4"
+participant T5 as "线程5"
+participant T6 as "线程6"
+participant T7 as "线程7"
+participant T8 as "线程8"
+API->>TP : 创建线程池(max_workers=8)
+API->>TP : 提交8个任务
+TP->>T1 : analyze_fund(code1)
+TP->>T2 : analyze_fund(code2)
+TP->>T3 : analyze_fund(code3)
+TP->>T4 : analyze_fund(code4)
+TP->>T5 : analyze_fund(code5)
+TP->>T6 : analyze_fund(code6)
+TP->>T7 : analyze_fund(code7)
+TP->>T8 : analyze_fund(code8)
+T1-->>TP : 返回结果1
+T2-->>TP : 返回结果2
+T3-->>TP : 返回结果3
+T4-->>TP : 返回结果4
+T5-->>TP : 返回结果5
+T6-->>TP : 返回结果6
+T7-->>TP : 返回结果7
+T8-->>TP : 返回结果8
+TP-->>API : 收集所有结果
+API-->>API : 组装最终结果
+```
+
+**图表来源**
+- [v2/backend/app/api/analysis.py:24-36](file://v2/backend/app/api/analysis.py#L24-L36)
+
+**章节来源**
+- [v2/backend/app/api/analysis.py:24-36](file://v2/backend/app/api/analysis.py#L24-L36)
 
 ### LLM服务（基金经理风格分析与推荐分析）
 - 风格分析：构造多维度Prompt，调用外部LLM，返回风格、行业偏好、持仓特征、风险偏好、适合市场环境、配置建议等
@@ -464,6 +524,7 @@ DataFusion --> FundDetail : "聚合输出"
 - v2版本API新增了LLM综合分析和定投策略分析端点，以及区间回报计算功能
 - **新增** 批量分析接口：POST /analysis/batch端点，用于批量获取基金分析结果
 - **新增** LLM服务依赖宽松JSON解析功能，提高响应处理的鲁棒性
+- **新增** 并发线程池：ThreadPoolExecutor(max_workers=8)提供高性能批量处理能力
 
 ```mermaid
 graph LR
@@ -482,11 +543,12 @@ SVC_L["LLM服务"] --> CFG["配置中心"]
 SVC_LV2["LLM服务 v2"] --> CFG
 SVC_LV2 --> LENIENT["宽松JSON解析"]
 API_AV2 -.-> BATCH["批量分析端点"]
+API_AV2 -.-> THREAD_POOL["线程池并发<br/>max_workers=8"]
 ```
 
 **图表来源**
-- [backend/app/api/analysis.py:1-33](file://backend/app/api/analysis.py#L1-L33)
-- [v2/backend/app/api/analysis.py:1-78](file://v2/backend/app/api/analysis.py#L1-L78)
+- [backend/app/api/analysis.py:1-34](file://backend/app/api/analysis.py#L1-L34)
+- [v2/backend/app/api/analysis.py:1-86](file://v2/backend/app/api/analysis.py#L1-L86)
 - [backend/app/api/recommend.py:1-47](file://backend/app/api/recommend.py#L1-L47)
 - [backend/app/api/dca.py:1-26](file://backend/app/api/dca.py#L1-L26)
 - [v2/backend/app/api/dca.py:1-49](file://v2/backend/app/api/dca.py#L1-L49)
@@ -508,10 +570,13 @@ API_AV2 -.-> BATCH["批量分析端点"]
 - **新增** 区间回报计算优化：使用高效的日期解析和数值计算，避免重复遍历
 - **新增** 宽松JSON解析：减少LLM响应处理失败导致的重试开销
 - **新增** 批量分析优化：将N次HTTP请求减少为1次请求，显著降低网络开销和延迟
+- **新增** 并发线程池优化：ThreadPoolExecutor(max_workers=8)提供8路并发处理，理论性能提升可达8倍
+- **新增** I/O密集型优化：analyze_fund函数主要是网络请求和文件缓存，非常适合并发处理
+- **新增** 资源控制：通过max_workers参数严格控制并发数量，防止系统资源耗尽
 - 异常降级：LLM不可用时返回提示，保证核心功能可用
 - v2版本增强：新增LLM综合分析和定投策略分析的缓存机制，支持更长TTL
 
-**更新** 新增了区间回报计算、宽松JSON解析和批量分析的性能优化考虑。
+**更新** 新增了区间回报计算、宽松JSON解析、批量分析和并发线程池的性能优化考虑。
 
 ## 故障排查指南
 - LLM未配置：若返回"AI分析服务未配置"，检查配置中心的LLM相关环境变量
@@ -522,9 +587,11 @@ API_AV2 -.-> BATCH["批量分析端点"]
 - **新增** 区间回报计算异常：检查净值数据格式，确认日期解析正常，验证累计净值数据完整性
 - **新增** 宽松JSON解析失败：检查LLM响应格式，确认是否包含Markdown包装，验证JSON结构有效性
 - **新增** 批量分析异常：检查输入的基金代码数组格式，确认每个代码的有效性，查看单个基金分析的错误信息
+- **新增** 并发线程池问题：检查max_workers配置，确认线程池资源充足，监控并发任务的异常情况
+- **新增** 线程池阻塞：如果出现长时间等待，检查是否有线程卡死或网络请求超时
 - v2版本新增：LLM综合分析和定投策略分析的缓存失效问题，检查缓存键生成逻辑
 
-**更新** 新增了区间回报计算、宽松JSON解析和批量分析功能的故障排查指南。
+**更新** 新增了区间回报计算、宽松JSON解析、批量分析和并发线程池功能的故障排查指南。
 
 **章节来源**
 - [backend/app/services/llm_service.py:17-18](file://backend/app/services/llm_service.py#L17-L18)
@@ -537,9 +604,9 @@ API_AV2 -.-> BATCH["批量分析端点"]
 - [v2/backend/app/services/analysis_service.py:11-76](file://v2/backend/app/services/analysis_service.py#L11-L76)
 
 ## 结论
-本AI分析服务通过"量化指标+LLM自然语言分析"的双轨模式，为用户提供从风格识别到智能推荐再到定投回测的完整分析链路。融合层提升了数据可靠性与覆盖率，缓存与回退机制保障了性能与稳定性。v2版本新增的LLM综合分析功能、定投策略分析功能、1年、3年、5年区间回报计算功能，以及宽松JSON解析能力，显著增强了AI分析服务的实用性和智能化水平。**新增** 批量分析接口(getFundAnalysisBatch)进一步优化了用户体验，通过减少HTTP往返次数，显著提升了页面加载性能。新增的区间回报计算提供了更全面的历史表现指标，宽松JSON解析提高了系统对LLM响应格式的适应性，批量分析接口为大规模数据展示场景提供了高效解决方案。建议在生产环境中完善监控与告警，持续优化LLM Prompt与回测策略参数，以进一步提升用户体验与决策质量。
+本AI分析服务通过"量化指标+LLM自然语言分析"的双轨模式，为用户提供从风格识别到智能推荐再到定投回测的完整分析链路。融合层提升了数据可靠性与覆盖率，缓存与回退机制保障了性能与稳定性。v2版本新增的LLM综合分析功能、定投策略分析功能、1年、3年、5年区间回报计算功能，以及宽松JSON解析能力，显著增强了AI分析服务的实用性和智能化水平。**新增** 批量分析接口(getFundAnalysisBatch)和**新增** 并发线程池处理机制进一步优化了用户体验，通过减少HTTP往返次数和提供8路并发处理，显著提升了页面加载性能和批量操作效率。新增的区间回报计算提供了更全面的历史表现指标，宽松JSON解析提高了系统对LLM响应格式的适应性，批量分析接口和线程池为大规模数据展示场景提供了高效解决方案。建议在生产环境中完善监控与告警，持续优化LLM Prompt与回测策略参数，以进一步提升用户体验与决策质量。
 
-**更新** v2版本通过新增LLM综合分析、定投策略分析、区间回报计算、宽松JSON解析和批量分析接口，显著提升了AI分析服务的实用性和智能化水平。
+**更新** v2版本通过新增LLM综合分析、定投策略分析、区间回报计算、宽松JSON解析、批量分析接口和并发线程池处理，显著提升了AI分析服务的实用性和智能化水平。
 
 ## 附录
 
@@ -572,6 +639,7 @@ API_AV2 -.-> BATCH["批量分析端点"]
   - 路径：/analysis/batch
   - 输入：基金代码数组（JSON数组）
   - 输出：包含批量分析结果的对象，格式为{"results": {"code": analysis_result}}
+  - **新增** 并发特性：支持最多8个并发线程，显著提升批量处理性能
 
 - 智能推荐
   - 方法：POST
@@ -601,12 +669,12 @@ API_AV2 -.-> BATCH["批量分析端点"]
   - 请求体：包含基金代码、名称、定投策略指标和基准策略指标的JSON对象
   - 输出：包含策略对比评价、专业分析和优化建议的JSON对象
 
-**更新** 新增了LLM综合分析、批量分析接口和定投策略LLM分析三个重要API端点，以及深度产品分析中新增的区间回报计算功能。
+**更新** 新增了LLM综合分析、批量分析接口（含并发特性）和定投策略LLM分析三个重要API端点，以及深度产品分析中新增的区间回报计算功能。
 
 **章节来源**
 - [backend/app/main.py:33-35](file://backend/app/main.py#L33-L35)
-- [backend/app/api/analysis.py:9-33](file://backend/app/api/analysis.py#L9-L33)
-- [v2/backend/app/api/analysis.py:11-78](file://v2/backend/app/api/analysis.py#L11-L78)
+- [backend/app/api/analysis.py:9-34](file://backend/app/api/analysis.py#L9-L34)
+- [v2/backend/app/api/analysis.py:13-86](file://v2/backend/app/api/analysis.py#L13-L86)
 - [backend/app/api/recommend.py:10-46](file://backend/app/api/recommend.py#L10-L46)
 - [backend/app/api/dca.py:9-25](file://backend/app/api/dca.py#L9-L25)
 - [v2/backend/app/api/dca.py:12-49](file://v2/backend/app/api/dca.py#L12-L49)
@@ -620,8 +688,9 @@ API_AV2 -.-> BATCH["批量分析端点"]
 - **新增** ComprehensiveAnalysis：LLM综合分析结果，包含多维度基金经理分析的JSON结构
 - **新增** 区间回报字段：return1y、return3y、return5y、annualized_return，用于存储1年、3年、5年区间回报和年化回报
 - **新增** 批量分析结果：包含单只基金分析结果和错误信息的对象结构
+- **新增** 并发处理结果：包含线程池执行状态和性能统计的对象结构
 
-**更新** 新增了LLM综合分析的数据模型说明、区间回报字段说明和批量分析结果的数据模型说明。
+**更新** 新增了LLM综合分析的数据模型说明、区间回报字段说明、批量分析结果的数据模型说明和并发处理结果的数据模型说明。
 
 **章节来源**
 - [backend/app/models/analysis.py:6-92](file://backend/app/models/analysis.py#L6-L92)
@@ -633,9 +702,10 @@ API_AV2 -.-> BATCH["批量分析端点"]
 - **新增** 综合分析：LLM不仅分析基金经理风格，还能提供多维度的基金经理和基金分析，包括业绩、持仓、风险和投资建议
 - **新增** 区间回报分析：提供1年、3年、5年等多个时间维度的历史表现指标，帮助用户全面评估基金长期表现
 - **新增** 批量分析：支持大规模数据的高效获取，优化用户体验和系统性能
-- 协同作用：量化指标提供稳健的客观依据，LLM风格分析提供更贴近实战的主观洞察，区间回报分析提供历史表现参考，批量分析提供高效的数据获取，四者结合提升决策质量
+- **新增** 并发处理：通过线程池并发处理多个分析请求，显著提升批量操作效率
+- 协同作用：量化指标提供稳健的客观依据，LLM风格分析提供更贴近实战的主观洞察，区间回报分析提供历史表现参考，批量分析提供高效的数据获取，线程池并发提供高性能的批量处理，四者结合提升决策质量
 
-**更新** 新增了LLM综合分析、区间回报分析和批量分析在AI分析体系中的重要作用。
+**更新** 新增了LLM综合分析、区间回报分析、批量分析和并发处理在AI分析体系中的重要作用。
 
 ### v2版本新增功能详解
 
@@ -665,10 +735,21 @@ API_AV2 -.-> BATCH["批量分析端点"]
 
 #### 批量分析接口功能
 - **功能描述**：`fund_analysis_batch`函数支持批量获取多个基金的深度分析
-- **实现原理**：遍历基金代码数组，逐个调用analyze_fund函数，收集结果
+- **实现原理**：使用ThreadPoolExecutor(max_workers=8)创建线程池，遍历基金代码数组，逐个调用analyze_fund函数，收集结果
+- **并发特性**：最多8个并发线程同时执行，显著提升批量处理性能
+- **去重处理**：对输入的基金代码进行去重，避免重复分析相同代码
 - **错误处理**：单个基金分析失败时返回错误对象，不影响其他基金处理
-- **性能优化**：将N次HTTP请求减少为1次请求，显著降低网络开销
+- **性能优化**：将N次HTTP请求减少为1次请求，显著降低网络开销和总处理时间
 - **应用场景**：首页列表一次性加载，提升用户体验
+
+#### 并发线程池处理机制
+- **功能描述**：ThreadPoolExecutor(max_workers=8)提供高性能的批量处理能力
+- **线程池配置**：max_workers=8，控制并发数量，防止系统资源耗尽
+- **并发策略**：analyze_fund函数主要是IO密集型操作（网络请求+文件缓存），非常适合并发处理
+- **任务管理**：使用executor.submit()提交任务，future_to_code字典跟踪每个线程的任务映射
+- **完成监控**：使用as_completed()按完成顺序收集结果，避免等待最慢任务完成
+- **异常隔离**：单个线程异常不会影响其他线程的执行
+- **性能提升**：理论最大性能提升可达8倍，实际提升取决于网络延迟和数据源响应时间
 
 #### 增强缓存策略
 - **缓存范围**：新增LLM综合分析和定投策略分析的缓存机制
@@ -680,8 +761,8 @@ API_AV2 -.-> BATCH["批量分析端点"]
 - [v2/backend/app/services/analysis_service.py:11-76](file://v2/backend/app/services/analysis_service.py#L11-L76)
 - [v2/backend/app/services/llm_service.py:10-27](file://v2/backend/app/services/llm_service.py#L10-L27)
 - [v2/backend/app/services/llm_service.py:82-184](file://v2/backend/app/services/llm_service.py#L82-L184)
-- [v2/backend/app/api/analysis.py:19-28](file://v2/backend/app/api/analysis.py#L19-L28)
-- [v2/backend/app/api/analysis.py:37-78](file://v2/backend/app/api/analysis.py#L37-L78)
+- [v2/backend/app/api/analysis.py:20-36](file://v2/backend/app/api/analysis.py#L20-L36)
+- [v2/backend/app/api/analysis.py:58-84](file://v2/backend/app/api/analysis.py#L58-L84)
 - [v2/backend/app/api/dca.py:31-49](file://v2/backend/app/api/dca.py#L31-L49)
 - [v2/backend/app/data/cache_manager.py:1-53](file://v2/backend/app/data/cache_manager.py#L1-L53)
 
@@ -692,20 +773,26 @@ API_AV2 -.-> BATCH["批量分析端点"]
 - **BFF层集成**：在v2/frontend/api/fund-router.ts中集成批量分析逻辑
 - **错误回退机制**：批量请求失败时自动回退到单个请求模式
 - **性能优化**：首页一次性获取所有基金的分析数据，提升加载速度
+- **并发处理**：后端线程池并发处理多个分析请求，显著提升响应速度
 
 ```mermaid
 sequenceDiagram
 participant FE as "前端组件"
 participant BFF as "BFF层"
 participant API as "分析API v2"
+participant TP as "线程池<br/>max_workers=8"
 participant SVC as "分析服务 v2"
 FE->>BFF : getFundAnalysisBatch(codes)
 BFF->>API : POST /analysis/batch
-API->>SVC : fund_analysis_batch(codes)
-loop 对每个基金代码
+API->>TP : 创建线程池(8并发)
+TP->>SVC : 并行调用analyze_fund(code)
+loop 对每个基金代码(最多8个并发)
 SVC->>SVC : analyze_fund(code)
-SVC-->>API : 单只基金分析结果
+SVC->>SVC : 融合层获取数据
+SVC->>SVC : 计算区间回报
+SVC-->>TP : 单只基金分析结果
 end
+TP-->>API : 收集所有结果
 API-->>BFF : {"results" : {...}}
 BFF->>BFF : 合并分析数据到基金对象
 BFF-->>FE : 完整的基金列表数据

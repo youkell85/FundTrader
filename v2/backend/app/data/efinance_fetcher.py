@@ -5,6 +5,21 @@ from typing import Optional, List, Dict, Any
 from ..utils import console_error
 
 
+def get_fund_scale(code: str) -> Optional[float]:
+    """获取基金规模（亿元）"""
+    try:
+        df = ef.fund.get_types_percentage(code)
+        if df is not None and not df.empty:
+            scale_col = "总规模(亿元)" if "总规模(亿元)" in df.columns else df.columns[4] if len(df.columns) > 4 else None
+            if scale_col:
+                scale = df.iloc[0].get(scale_col)
+                if scale is not None:
+                    return float(scale)
+    except Exception as e:
+        console_error(f"efinance scale error for {code}: {e}")
+    return None
+
+
 def get_fund_nav_history(code: str, start_date: str = "", end_date: str = "") -> List[Dict[str, Any]]:
     """获取基金历史净值数据（efinance 新版使用 get_quote_history）"""
     try:

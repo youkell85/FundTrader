@@ -163,10 +163,13 @@ def analyze_fund(code: str) -> Dict[str, Any]:
         # 计算区间收益率
         period = _calc_period_returns(nav_data or [])
 
-        # 计算基金规模（亿）= 份额规模(万份) * 单位净值 / 10000
+        # 获取基金规模（从 efinance 快速获取）
         total_scale = None
-        if detail.basic and detail.basic.fund_share and detail.nav:
-            total_scale = round(detail.basic.fund_share * detail.nav / 10000, 2)
+        try:
+            from ..data.efinance_fetcher import get_fund_scale
+            total_scale = get_fund_scale(code)
+        except Exception:
+            pass
 
         return {
             "code": code,
