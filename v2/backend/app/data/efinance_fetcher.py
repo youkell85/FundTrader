@@ -1,4 +1,7 @@
 """efinance 数据获取层 - 基金净值与定投回测"""
+import html
+import re
+import urllib.request
 import efinance as ef
 import pandas as pd
 from typing import Optional, List, Dict, Any
@@ -45,6 +48,7 @@ def get_fund_manager_basic(code: str) -> Optional[Dict[str, Any]]:
 
 def get_fund_fees(code: str) -> Optional[Dict[str, Any]]:
     """从 efinance 获取基金管理费率和托管费率"""
+    result = {}
     try:
         if hasattr(ef.fund, "get_base_info"):
             series = ef.fund.get_base_info(code)
@@ -53,12 +57,11 @@ def get_fund_fees(code: str) -> Optional[Dict[str, Any]]:
                 # 管理费率和托管费率，东方财富字段名
                 mgmt_fee = info.get("管理费率", info.get("management_fee"))
                 custody_fee = info.get("托管费率", info.get("custody_fee"))
-                result = {}
                 if mgmt_fee is not None:
                     result["feeManage"] = _parse_fee(mgmt_fee)
                 if custody_fee is not None:
                     result["feeCustody"] = _parse_fee(custody_fee)
-                if result:
+                if result.get("feeManage") is not None and result.get("feeCustody") is not None:
                     return result
         # 备用：get_fund_base_info
         if hasattr(ef.fund, "get_fund_base_info"):
@@ -66,16 +69,59 @@ def get_fund_fees(code: str) -> Optional[Dict[str, Any]]:
             if df is not None and not df.empty:
                 mgmt_fee = df.iloc[0].get("管理费率", df.iloc[0].get("management_fee"))
                 custody_fee = df.iloc[0].get("托管费率", df.iloc[0].get("custody_fee"))
-                result = {}
                 if mgmt_fee is not None:
                     result["feeManage"] = _parse_fee(mgmt_fee)
                 if custody_fee is not None:
                     result["feeCustody"] = _parse_fee(custody_fee)
-                if result:
+                if result.get("feeManage") is not None and result.get("feeCustody") is not None:
                     return result
     except Exception as e:
         console_error(f"efinance fees error for {code}: {e}")
-    return None
+
+    try:
+        eastmoney_fees = _get_fund_fees_from_eastmoney(code)
+        if eastmoney_fees:
+            result.update({k: v for k, v in eastmoney_fees.items() if v is not None})
+    except Exception as e:
+        console_error(f"eastmoney fees error for {code}: {e}")
+
+    return result or None
+
+
+def _get_fund_fees_from_eastmoney(code: str) -> Optional[Dict[str, Any]]:
+    """从东方财富 F10 基本概况页兜底解析费率。"""
+    url = f"https://fundf10.eastmoney.com/jbgk_{code}.html"
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        raw = resp.read()
+
+    text = ""
+    for encoding in ("utf-8", "gb18030"):
+        try:
+            text = raw.decode(encoding)
+            if "管理费率" in text:
+                break
+        except UnicodeDecodeError:
+            continue
+    if not text:
+        return None
+
+    result = {}
+    mgmt_fee = _extract_fee_cell(text, "管理费率")
+    custody_fee = _extract_fee_cell(text, "托管费率")
+    if mgmt_fee is not None:
+        result["feeManage"] = mgmt_fee
+    if custody_fee is not None:
+        result["feeCustody"] = custody_fee
+    return result or None
+
+
+def _extract_fee_cell(text: str, label: str) -> Optional[float]:
+    match = re.search(rf"<th[^>]*>\s*{re.escape(label)}\s*</th>\s*<td[^>]*>(.*?)</td>", text, re.S)
+    if not match:
+        return None
+    value = html.unescape(re.sub(r"<[^>]+>", "", match.group(1))).strip()
+    return _parse_fee(value)
 
 
 def _parse_fee(value) -> Optional[float]:

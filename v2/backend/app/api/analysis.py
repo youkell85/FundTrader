@@ -10,13 +10,33 @@ from ..config import CACHE_TTL_INFO
 router = APIRouter(prefix="/analysis", tags=["深度产品分析"])
 
 
+def _fill_missing_fees(code: str, data: Dict[str, Any]) -> Dict[str, Any]:
+    if not data or (data.get("feeManage") is not None and data.get("feeCustody") is not None):
+        return data
+    try:
+        from ..data.efinance_fetcher import get_fund_fees
+        fees = get_fund_fees(code)
+        if fees:
+            data = dict(data)
+            if data.get("feeManage") is None:
+                data["feeManage"] = fees.get("feeManage")
+            if data.get("feeCustody") is None:
+                data["feeCustody"] = fees.get("feeCustody")
+    except Exception:
+        pass
+    return data
+
+
 def cached_analyze_fund(code: str) -> Dict[str, Any]:
     cache_key = f"analysis_full_{code}"
     cached = cache.get(cache_key, CACHE_TTL_INFO)
     if cached:
+        cached = _fill_missing_fees(code, cached)
+        cache.set(cache_key, cached)
         return cached
     result = analyze_fund(code)
     if result and not result.get("error"):
+        result = _fill_missing_fees(code, result)
         cache.set(cache_key, result)
     return result
 
