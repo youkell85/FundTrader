@@ -5,6 +5,7 @@ import {
   getFundList,
   getCategories as ftGetCategories,
   getFundAnalysis,
+  getFundAnalysisBatch,
   runDcaBacktest,
   getRecommendations,
   getWatchlist,
@@ -42,7 +43,7 @@ function wrapError(err: unknown, message: string): never {
 
 // ========== BFF 层内存缓存 ==========
 const bffCache = new Map<string, { expiresAt: number; data: any }>();
-const BFF_CACHE_TTL = 5 * 60 * 1000; // 5分钟
+const BFF_CACHE_TTL = 30 * 60 * 1000; // 30分钟（首页数据变化不频繁）
 
 function getCached<T>(key: string): T | null {
   const entry = bffCache.get(key);
@@ -105,8 +106,54 @@ async function fetchHomeFunds() {
     }
   }
 
-  const enriched = await Promise.all(Array.from(fundsByCode.values()).map(enrichFundSummary));
-  setCache("homeFunds", enriched);
+  // 使用批量接口获取所有基金的分析数据（1次HTTP请求替代N次）
+  const funds = Array.from(fundsByCode.values());
+  const codes = funds.map((f) => f.code).filter(Boolean);
+  let analysisMap = new Map<string, any>();
+  if (codes.length > 0) {
+    try {
+      const batchResult = await getFundAnalysisBatch(codes);
+      if (batchResult?.results) {
+        for (const [code, analysis] of Object.entries(batchResult.results)) {
+          analysisMap.set(code, analysis);
+        }
+      }
+    } catch (e) {
+      console.error("[fetchHomeFunds] 批量获取分析数据失败，回退到单个请求:", e);
+      // 回退：逐个获取
+      await Promise.all(
+        codes.map(async (code) => {
+          try {
+            const analysis = await getFundAnalysis(code);
+            if (analysis) analysisMap.set(code, analysis);
+          } catch (err) {
+            console.error(`[fetchHomeFunds] 获取 ${code} 分析数据失败:`, err);
+          }
+        })
+      );
+    }
+  }
+
+  // 合并分析数据到基金对象
+  const withAnalysis = funds.map((fund) => {
+    const analysis = analysisMap.get(fund.code);
+    if (!analysis || analysis.error) return fund;
+    return {
+      ...fund,
+      name: analysis.name || fund.name,
+      nav: analysis.nav ?? fund.nav,
+      nav_date: analysis.nav_date || fund.nav_date,
+      day_growth: analysis.day_growth ?? fund.day_growth,
+      nav_data: analysis.nav_data || [],
+      manager_info: analysis.manager || fund.manager_info,
+      holdings: analysis.holdings || fund.holdings,
+    };
+  });
+
+  // 补充基金名称（对仍然缺少名称的基金）
+  const enriched = await Promise.all(withAnalysis.map(enrichFundSummary));
+
+  setCache("homeFunds", enriched, BFF_CACHE_TTL);
   return enriched;
 }
 
@@ -477,20 +524,26 @@ export const fundRouter = createRouter({
   // 市场概览
   marketOverview: publicQuery.query(async () => {
     try {
-      const ftResult = await getFundList({ guoyuan_only: true, page_size: 100 });
-      const rawFunds = Array.isArray(ftResult?.funds) ? ftResult.funds : [];
-      const funds = rawFunds.map(mapFundItem).filter(Boolean);
-      const totalFunds = funds.length;
+      const cacheKey = "marketOverview";
+      const cached = getCached<any>(cacheKey);
+      if (cached) return cached;
+
+      // 使用 fetchHomeFunds 获取完整数据（含夏普/最大回撤）
+      const funds = await fetchHomeFunds();
+      const mapped = funds.map(mapFundItem).filter(Boolean);
+      const totalFunds = mapped.length;
       const avgReturn = totalFunds > 0
-        ? (funds.reduce((s: number, f: any) => s + parseFloat(f.performance?.return1y || "0"), 0) / totalFunds).toFixed(2)
+        ? (mapped.reduce((s: number, f: any) => s + parseFloat(f.performance?.return1y || "0"), 0) / totalFunds).toFixed(2)
         : "0";
       const avgSharpe = totalFunds > 0
-        ? (funds.reduce((s: number, f: any) => s + parseFloat(f.performance?.sharpeRatio || "0"), 0) / totalFunds).toFixed(2)
+        ? (mapped.reduce((s: number, f: any) => s + parseFloat(f.performance?.sharpeRatio || "0"), 0) / totalFunds).toFixed(2)
         : "0";
       const avgMaxDD = totalFunds > 0
-        ? (funds.reduce((s: number, f: any) => s + parseFloat(f.performance?.maxDrawdown || "0"), 0) / totalFunds).toFixed(2)
+        ? (mapped.reduce((s: number, f: any) => s + parseFloat(f.performance?.maxDrawdown || "0"), 0) / totalFunds).toFixed(2)
         : "0";
-      return { totalFunds, avgReturn, avgSharpe, avgMaxDD, marketingCount: totalFunds };
+      const result = { totalFunds, avgReturn, avgSharpe, avgMaxDD, marketingCount: totalFunds };
+      setCache(cacheKey, result, BFF_CACHE_TTL);
+      return result;
     } catch {
       return mapMarketOverview({});
     }

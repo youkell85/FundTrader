@@ -54,6 +54,14 @@ export async function getFundAnalysis(code: string) {
   return ftFetch<any>(`/analysis/${code}`);
 }
 
+// 批量基金分析（减少HTTP往返）
+export async function getFundAnalysisBatch(codes: string[]) {
+  return ftFetch<any>("/analysis/batch", {
+    method: "POST",
+    body: JSON.stringify(codes),
+  });
+}
+
 // 市场概览
 export async function getMarketIndex() {
   return ftFetch<any>("/recommend/market");

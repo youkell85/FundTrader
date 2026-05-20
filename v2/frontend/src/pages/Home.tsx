@@ -23,9 +23,18 @@ interface ImageSearchResult {
 export default function Home() {
   const navigate = useNavigate();
   const utils = trpc.useUtils();
-  const { data: listData, isLoading: listLoading } = trpc.fund.list.useQuery({ pageSize: 1000 });
-  const { data: filterOptsData } = trpc.fund.filterOptions.useQuery();
-  const { data: overviewData } = trpc.fund.marketOverview.useQuery();
+  const { data: listData, isLoading: listLoading } = trpc.fund.list.useQuery(
+    { pageSize: 1000 },
+    { staleTime: 5 * 60 * 1000, refetchOnWindowFocus: false }
+  );
+  const { data: filterOptsData } = trpc.fund.filterOptions.useQuery(
+    undefined,
+    { staleTime: 30 * 60 * 1000, refetchOnWindowFocus: false }
+  );
+  const { data: overviewData } = trpc.fund.marketOverview.useQuery(
+    undefined,
+    { staleTime: 5 * 60 * 1000, refetchOnWindowFocus: false }
+  );
   const addFundByCode = trpc.fund.addByCode.useMutation({
     onSuccess: () => {
       utils.fund.list.invalidate();

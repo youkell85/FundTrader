@@ -1,5 +1,6 @@
 """深度产品分析API"""
 from fastapi import APIRouter
+from typing import List, Dict, Any
 from ..services.analysis_service import analyze_fund
 from ..services.llm_service import analyze_manager_style, analyze_fund_comprehensive, analyze_dca_strategy
 from ..data.cache_manager import cache
@@ -13,6 +14,18 @@ async def fund_analysis(code: str):
     """获取基金深度分析"""
     result = analyze_fund(code)
     return result
+
+
+@router.post("/batch")
+async def fund_analysis_batch(codes: List[str]) -> Dict[str, Any]:
+    """批量获取基金深度分析（用于首页列表一次性加载，减少HTTP往返）"""
+    results = {}
+    for code in codes:
+        try:
+            results[code] = analyze_fund(code)
+        except Exception as e:
+            results[code] = {"code": code, "error": str(e)}
+    return {"results": results}
 
 
 @router.get("/{code}/style")
