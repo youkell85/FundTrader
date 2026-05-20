@@ -20,6 +20,29 @@ def get_fund_scale(code: str) -> Optional[float]:
     return None
 
 
+def get_fund_manager_basic(code: str) -> Optional[Dict[str, Any]]:
+    """从 efinance 获取基金经理基本信息（姓名、任职天数等，作为 fusal/akshare 失败时的备用）"""
+    try:
+        if hasattr(ef.fund, "get_base_info"):
+            series = ef.fund.get_base_info(code)
+            if series is not None and not (hasattr(series, 'empty') and series.empty):
+                # Series or dict
+                info = series.to_dict() if hasattr(series, 'to_dict') else dict(series) if isinstance(series, dict) else {}
+                name = info.get("基金经理", info.get("manager", ""))
+                if name:
+                    return {"name": name}
+        # 备用方式：通过 get_fund_base_info
+        if hasattr(ef.fund, "get_fund_base_info"):
+            df = ef.fund.get_fund_base_info(code)
+            if df is not None and not df.empty:
+                name = df.iloc[0].get("基金经理", df.iloc[0].get("manager", ""))
+                if name:
+                    return {"name": name}
+    except Exception as e:
+        console_error(f"efinance manager basic error for {code}: {e}")
+    return None
+
+
 def get_fund_nav_history(code: str, start_date: str = "", end_date: str = "") -> List[Dict[str, Any]]:
     """获取基金历史净值数据（efinance 新版使用 get_quote_history）"""
     try:

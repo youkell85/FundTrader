@@ -500,7 +500,22 @@ def _calc_radar_scores_fusion(detail) -> Dict[str, float]:
 
 
 def _enrich_manager_from_akshare(code: str, manager: Dict) -> Dict:
-    """用 akshare 补充基金经理详细信息"""
+    """用 akshare + efinance 补充基金经理详细信息"""
+    if not isinstance(manager, dict):
+        manager = {}
+
+    # 如果 manager 完全为空，先尝试从 efinance 获取基本信息（经理姓名等）
+    if not manager or not manager.get("name"):
+        try:
+            from ..data.efinance_fetcher import get_fund_manager_basic
+            basic = get_fund_manager_basic(code)
+            if basic and isinstance(basic, dict):
+                manager = dict(manager)
+                manager.update({k: v for k, v in basic.items() if v})
+        except Exception:
+            pass
+
+    # 再用 akshare 补充详细信息
     try:
         from ..data.akshare_fetcher import get_fund_manager_info
         extra = get_fund_manager_info(code)
