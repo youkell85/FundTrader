@@ -42,8 +42,19 @@ function wrapError(err: unknown, message: string): never {
 }
 
 // ========== BFF 层内存缓存 ==========
+// 缓存分层设计（基于基金数据低频更新特性）
+// L0 快照: 代码/名称/费率/经理 — 24h TTL，每日15:30后刷新
+// L1 准静态: 持仓/行业/回撤/Sharpe — 1h TTL，季报级别6h
+// L2 日频: 净值/日涨跌 — 15min TTL，交易时段实时
+
 const bffCache = new Map<string, { expiresAt: number; data: any }>();
-const BFF_CACHE_TTL = 30 * 60 * 1000; // 30分钟（首页数据变化不频繁）
+
+/** 默认缓存TTL按数据层级分级 */
+const BFF_CACHE_TTL = 30 * 60 * 1000;                     // 默认 30分钟
+const SNAPSHOT_TTL = 60 * 60 * 1000;                       // L0+L1快照 1小时
+const ANALYSIS_TTL = 60 * 60 * 1000;                       // 准静态分析 1小时
+const HOLDINGS_TTL = 6 * 60 * 60 * 1000;                   // 持仓/行业 6小时（季报级别）
+const QUOTE_TTL = 15 * 60 * 1000;                          // 日频净值 15分钟
 
 function getCached<T>(key: string): T | null {
   const entry = bffCache.get(key);
@@ -60,6 +71,17 @@ function invalidateCache(prefix: string): void {
   for (const key of bffCache.keys()) {
     if (key.startsWith(prefix)) bffCache.delete(key);
   }
+}
+
+// ========== 防并发锁（冷启动时 list + marketOverview 竞态问题） ==========
+const inflightRequests = new Map<string, Promise<any>>();
+
+function dedupe<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const existing = inflightRequests.get(key);
+  if (existing) return existing as Promise<T>;
+  const promise = fn().finally(() => inflightRequests.delete(key));
+  inflightRequests.set(key, promise);
+  return promise;
 }
 
 async function fetchAllFundList(params: Record<string, any>) {
@@ -88,73 +110,76 @@ async function fetchHomeFunds() {
   const cached = getCached<any[]>("homeFunds");
   if (cached) return cached;
 
-  const fundsByCode = new Map<string, any>();
-  const watchlistCodes = new Set<string>();
+  // 防并发：冷启动时 list 和 marketOverview 可能同时调用
+  return dedupe("homeFunds", async () => {
+    const fundsByCode = new Map<string, any>();
+    const watchlistCodes = new Set<string>();
 
-  for (const fund of await fetchAllFundList({ guoyuan_only: true })) {
-    if (fund?.code) fundsByCode.set(fund.code, { ...fund, _source: "guoyuan" });
-  }
-
-  const watchlist = await getWatchlist().catch(() => null);
-  const watchlistFunds = Array.isArray(watchlist?.funds) ? watchlist.funds : [];
-  if (watchlistFunds.length > 0) {
-    for (const fund of await fetchAllFundList({ use_watchlist: true })) {
-      if (fund?.code) {
-        watchlistCodes.add(fund.code);
-        fundsByCode.set(fund.code, { ...fund, _source: "watchlist" });
-      }
+    for (const fund of await fetchAllFundList({ guoyuan_only: true })) {
+      if (fund?.code) fundsByCode.set(fund.code, { ...fund, _source: "guoyuan" });
     }
-  }
 
-  // 使用批量接口获取所有基金的分析数据（1次HTTP请求替代N次）
-  const funds = Array.from(fundsByCode.values());
-  const codes = funds.map((f) => f.code).filter(Boolean);
-  let analysisMap = new Map<string, any>();
-  if (codes.length > 0) {
-    try {
-      const batchResult = await getFundAnalysisBatch(codes);
-      if (batchResult?.results) {
-        for (const [code, analysis] of Object.entries(batchResult.results)) {
-          analysisMap.set(code, analysis);
+    const watchlist = await getWatchlist().catch(() => null);
+    const watchlistFunds = Array.isArray(watchlist?.funds) ? watchlist.funds : [];
+    if (watchlistFunds.length > 0) {
+      for (const fund of await fetchAllFundList({ use_watchlist: true })) {
+        if (fund?.code) {
+          watchlistCodes.add(fund.code);
+          fundsByCode.set(fund.code, { ...fund, _source: "watchlist" });
         }
       }
-    } catch (e) {
-      console.error("[fetchHomeFunds] 批量获取分析数据失败，回退到单个请求:", e);
-      // 回退：逐个获取
-      await Promise.all(
-        codes.map(async (code) => {
-          try {
-            const analysis = await getFundAnalysis(code);
-            if (analysis) analysisMap.set(code, analysis);
-          } catch (err) {
-            console.error(`[fetchHomeFunds] 获取 ${code} 分析数据失败:`, err);
-          }
-        })
-      );
     }
-  }
 
-  // 合并分析数据到基金对象
-  const withAnalysis = funds.map((fund) => {
-    const analysis = analysisMap.get(fund.code);
-    if (!analysis || analysis.error) return fund;
-    return {
-      ...fund,
-      name: analysis.name || fund.name,
-      nav: analysis.nav ?? fund.nav,
-      nav_date: analysis.nav_date || fund.nav_date,
-      day_growth: analysis.day_growth ?? fund.day_growth,
-      nav_data: analysis.nav_data || [],
-      manager_info: analysis.manager || fund.manager_info,
-      holdings: analysis.holdings || fund.holdings,
-    };
+    // 使用批量接口获取所有基金的分析数据（1次HTTP请求替代N次）
+    const funds = Array.from(fundsByCode.values());
+    const codes = funds.map((f) => f.code).filter(Boolean);
+    let analysisMap = new Map<string, any>();
+    if (codes.length > 0) {
+      try {
+        const batchResult = await getFundAnalysisBatch(codes);
+        if (batchResult?.results) {
+          for (const [code, analysis] of Object.entries(batchResult.results)) {
+            analysisMap.set(code, analysis);
+          }
+        }
+      } catch (e) {
+        console.error("[fetchHomeFunds] 批量获取分析数据失败，回退到单个请求:", e);
+        await Promise.all(
+          codes.map(async (code) => {
+            try {
+              const analysis = await getFundAnalysis(code);
+              if (analysis) analysisMap.set(code, analysis);
+            } catch (err) {
+              console.error(`[fetchHomeFunds] 获取 ${code} 分析数据失败:`, err);
+            }
+          })
+        );
+      }
+    }
+
+    // 合并分析数据到基金对象
+    const withAnalysis = funds.map((fund) => {
+      const analysis = analysisMap.get(fund.code);
+      if (!analysis || analysis.error) return fund;
+      return {
+        ...fund,
+        name: analysis.name || fund.name,
+        nav: analysis.nav ?? fund.nav,
+        nav_date: analysis.nav_date || fund.nav_date,
+        day_growth: analysis.day_growth ?? fund.day_growth,
+        nav_data: analysis.nav_data || [],
+        manager_info: analysis.manager || fund.manager_info,
+        holdings: analysis.holdings || fund.holdings,
+      };
+    });
+
+    // 补充基金名称（对仍然缺少名称的基金）
+    const enriched = await Promise.all(withAnalysis.map(enrichFundSummary));
+
+    // L0+L1 快照：1小时 TTL（净值日频，分析准静态）
+    setCache("homeFunds", enriched, SNAPSHOT_TTL);
+    return enriched;
   });
-
-  // 补充基金名称（对仍然缺少名称的基金）
-  const enriched = await Promise.all(withAnalysis.map(enrichFundSummary));
-
-  setCache("homeFunds", enriched, BFF_CACHE_TTL);
-  return enriched;
 }
 
 function needsFundName(fund: any, code: string) {
@@ -274,9 +299,14 @@ export const fundRouter = createRouter({
         });
         if (!fund) return null;
 
+        // L1 准静态缓存命中：经理/持仓/回撤/Sharpe 1h 不变
+        const cacheKey = `analysis_${fund.code}`;
+        const cached = getCached<any>(cacheKey);
+        if (cached) return mapFundDetail(cached);
+
         const analysis = await getFundAnalysis(fund.code);
         const enriched = await enrichFundAnalysis(analysis, fund.code);
-        setCache(`analysis_${fund.code}`, enriched, 5 * 60 * 1000);
+        setCache(cacheKey, enriched, ANALYSIS_TTL);
         return mapFundDetail(enriched);
       } catch (err) {
         wrapError(err, "获取基金详情失败");
@@ -294,7 +324,7 @@ export const fundRouter = createRouter({
 
         const analysis = await getFundAnalysis(input.code);
         const enriched = await enrichFundAnalysis(analysis, input.code);
-        setCache(cacheKey, enriched, 5 * 60 * 1000);
+        setCache(cacheKey, enriched, ANALYSIS_TTL);
         return mapFundDetail(enriched);
       } catch (err) {
         wrapError(err, "按基金代码获取详情失败");
@@ -475,33 +505,37 @@ export const fundRouter = createRouter({
     }),
 
   // 行业分布统计（基于基金持仓聚合，抽样前30只基金）
+  // 持仓数据季报级别更新（3/6/9/12月），缓存 6 小时
   industryStats: publicQuery.query(async () => {
     try {
+      const cacheKey = "industryStats";
+      const cached = getCached<any[]>(cacheKey);
+      if (cached) return cached;
+
       const ftResult = await getFundList({ guoyuan_only: true, page_size: 100 });
       const rawFunds = Array.isArray(ftResult?.funds) ? ftResult.funds : [];
-      // 抽样前30只基金获取持仓
       const sample = rawFunds.slice(0, 30);
       const industryMap = new Map<string, number>();
       let totalRatio = 0;
 
-      await Promise.all(
-        sample.map(async (f: any) => {
-          try {
-            const analysis = await getFundAnalysis(f.code);
-            const holdings = Array.isArray(analysis?.holdings) ? analysis.holdings : [];
-            holdings.forEach((h: any) => {
-              const ind = h.industry || "其他";
-              const ratio = parseFloat(h.ratio || "0");
-              if (ratio > 0) {
-                industryMap.set(ind, (industryMap.get(ind) || 0) + ratio);
-                totalRatio += ratio;
-              }
-            });
-          } catch {
-            // 单只基金分析失败不影响整体统计
+      // 使用批量接口替代 N 次单独调用（30→1 次HTTP请求）
+      const codes = sample.map((f: any) => f.code).filter(Boolean);
+      const batchResult = await getFundAnalysisBatch(codes);
+      const results = batchResult?.results || {};
+
+      for (const code of codes) {
+        const analysis = results[code];
+        if (!analysis || analysis.error) continue;
+        const holdings = Array.isArray(analysis.holdings) ? analysis.holdings : [];
+        holdings.forEach((h: any) => {
+          const ind = h.industry || "其他";
+          const ratio = parseFloat(h.ratio || "0");
+          if (ratio > 0) {
+            industryMap.set(ind, (industryMap.get(ind) || 0) + ratio);
+            totalRatio += ratio;
           }
-        })
-      );
+        });
+      }
 
       if (industryMap.size === 0) {
         return [{ industry: "暂无数据", totalRatio: "100.00" }];
@@ -515,7 +549,9 @@ export const fundRouter = createRouter({
         }))
         .sort((a, b) => parseFloat(b.totalRatio) - parseFloat(a.totalRatio));
 
-      return sorted.slice(0, 10);
+      const result = sorted.slice(0, 10);
+      setCache(cacheKey, result, HOLDINGS_TTL);
+      return result;
     } catch (err) {
       wrapError(err, "获取行业统计失败");
     }
@@ -542,7 +578,7 @@ export const fundRouter = createRouter({
         ? (mapped.reduce((s: number, f: any) => s + parseFloat(f.performance?.maxDrawdown || "0"), 0) / totalFunds).toFixed(2)
         : "0";
       const result = { totalFunds, avgReturn, avgSharpe, avgMaxDD, marketingCount: totalFunds };
-      setCache(cacheKey, result, BFF_CACHE_TTL);
+      setCache(cacheKey, result, SNAPSHOT_TTL);
       return result;
     } catch {
       return mapMarketOverview({});

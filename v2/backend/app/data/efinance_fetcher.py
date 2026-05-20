@@ -43,6 +43,57 @@ def get_fund_manager_basic(code: str) -> Optional[Dict[str, Any]]:
     return None
 
 
+def get_fund_fees(code: str) -> Optional[Dict[str, Any]]:
+    """从 efinance 获取基金管理费率和托管费率"""
+    try:
+        if hasattr(ef.fund, "get_base_info"):
+            series = ef.fund.get_base_info(code)
+            if series is not None and not (hasattr(series, 'empty') and series.empty):
+                info = series.to_dict() if hasattr(series, 'to_dict') else dict(series) if isinstance(series, dict) else {}
+                # 管理费率和托管费率，东方财富字段名
+                mgmt_fee = info.get("管理费率", info.get("management_fee"))
+                custody_fee = info.get("托管费率", info.get("custody_fee"))
+                result = {}
+                if mgmt_fee is not None:
+                    result["feeManage"] = _parse_fee(mgmt_fee)
+                if custody_fee is not None:
+                    result["feeCustody"] = _parse_fee(custody_fee)
+                if result:
+                    return result
+        # 备用：get_fund_base_info
+        if hasattr(ef.fund, "get_fund_base_info"):
+            df = ef.fund.get_fund_base_info(code)
+            if df is not None and not df.empty:
+                mgmt_fee = df.iloc[0].get("管理费率", df.iloc[0].get("management_fee"))
+                custody_fee = df.iloc[0].get("托管费率", df.iloc[0].get("custody_fee"))
+                result = {}
+                if mgmt_fee is not None:
+                    result["feeManage"] = _parse_fee(mgmt_fee)
+                if custody_fee is not None:
+                    result["feeCustody"] = _parse_fee(custody_fee)
+                if result:
+                    return result
+    except Exception as e:
+        console_error(f"efinance fees error for {code}: {e}")
+    return None
+
+
+def _parse_fee(value) -> Optional[float]:
+    """解析费率值，可能带%符号，如 '1.50%' -> 0.015"""
+    if value is None:
+        return None
+    try:
+        s = str(value).strip()
+        is_pct = "%" in s
+        s = s.replace("%", "")
+        val = float(s)
+        if is_pct:
+            val = val / 100
+        return val
+    except (ValueError, TypeError):
+        return None
+
+
 def get_fund_nav_history(code: str, start_date: str = "", end_date: str = "") -> List[Dict[str, Any]]:
     """获取基金历史净值数据（efinance 新版使用 get_quote_history）"""
     try:

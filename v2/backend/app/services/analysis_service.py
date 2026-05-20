@@ -169,11 +169,26 @@ def analyze_fund(code: str) -> Dict[str, Any]:
         # 从净值历史计算最佳/最差年度收益（用于经理面板）
         best_return, worst_return = _calc_best_worst_annual(nav_data or [])
 
-        # 获取基金规模（从 efinance 快速获取）
+        # 获取基金规模（优先 Tushare fund_share × unit_nav 精确计算）
         total_scale = None
+        if detail.scale and detail.scale.total_nav is not None:
+            total_scale = detail.scale.total_nav
+        else:
+            try:
+                from ..data.efinance_fetcher import get_fund_scale
+                total_scale = get_fund_scale(code)
+            except Exception:
+                pass
+
+        # 获取基金费率（efinance — Tushare 不提供费率字段）
+        fee_manage = None
+        fee_custody = None
         try:
-            from ..data.efinance_fetcher import get_fund_scale
-            total_scale = get_fund_scale(code)
+            from ..data.efinance_fetcher import get_fund_fees
+            fees = get_fund_fees(code)
+            if fees:
+                fee_manage = fees.get("feeManage")
+                fee_custody = fees.get("feeCustody")
         except Exception:
             pass
 
@@ -198,7 +213,9 @@ def analyze_fund(code: str) -> Dict[str, Any]:
             "return3y": period["return3y"],
             "return5y": period["return5y"],
             "annualized_return": period["annualized_return"],
-            "total_scale": total_scale,  # 基金规模（亿元）
+            "total_scale": total_scale,
+            "feeManage": fee_manage,
+            "feeCustody": fee_custody,
         }
 
     # 融合层失败，回退到旧的数据源
@@ -253,6 +270,36 @@ def _analyze_fund_legacy(code: str) -> Dict[str, Any]:
     # 从净值历史计算最佳/最差年度收益
     best_return, worst_return = _calc_best_worst_annual(nav_data or [])
 
+    # 获取基金规模（优先 Tushare，回退 efinance）
+    total_scale = None
+    try:
+        from ..data.providers.tushare_provider import TushareProvider
+        tp = TushareProvider()
+        if tp.is_available():
+            scale_obj = tp.get_fund_scale(code)
+            if scale_obj and scale_obj.total_nav is not None:
+                total_scale = scale_obj.total_nav
+    except Exception:
+        pass
+    if total_scale is None:
+        try:
+            from ..data.efinance_fetcher import get_fund_scale
+            total_scale = get_fund_scale(code)
+        except Exception:
+            pass
+
+    # 获取基金费率（efinance — Tushare 不提供费率字段）
+    fee_manage = None
+    fee_custody = None
+    try:
+        from ..data.efinance_fetcher import get_fund_fees
+        fees = get_fund_fees(code)
+        if fees:
+            fee_manage = fees.get("feeManage")
+            fee_custody = fees.get("feeCustody")
+    except Exception:
+        pass
+
     return {
         "code": code,
         "name": fund_name,
@@ -273,6 +320,9 @@ def _analyze_fund_legacy(code: str) -> Dict[str, Any]:
         "return3y": period["return3y"],
         "return5y": period["return5y"],
         "annualized_return": period["annualized_return"],
+        "total_scale": total_scale,
+        "feeManage": fee_manage,
+        "feeCustody": fee_custody,
     }
 
 

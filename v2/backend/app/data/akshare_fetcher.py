@@ -155,7 +155,35 @@ def get_fund_industry_board() -> List[Dict[str, Any]]:
 
 
 def get_market_index() -> List[Dict[str, Any]]:
-    """获取主要市场指数"""
+    """获取主要市场指数（优先 Tushare index_daily，回退 akshare）"""
+    try:
+        from .providers.tushare_provider import TushareProvider
+        tp = TushareProvider()
+        if tp.is_available():
+            index_map = {
+                "000001.SH": "上证指数",
+                "399001.SZ": "深证成指",
+                "399006.SZ": "创业板指",
+            }
+            result = []
+            for ts_code, name in index_map.items():
+                daily = tp.get_index_daily(ts_code=ts_code)
+                if daily and len(daily) >= 2:
+                    latest = daily[-1]
+                    prev = daily[-2]
+                    if latest.close and prev.close and prev.close > 0:
+                        change = (latest.close - prev.close) / prev.close * 100
+                        result.append({
+                            "code": ts_code, "name": name,
+                            "close": float(latest.close),
+                            "change": round(float(change), 2),
+                        })
+            if result:
+                return result
+    except Exception:
+        pass
+
+    # 回退：akshare 指数日线
     try:
         indices = {"sh000001": "上证指数", "sz399001": "深证成指", "sz399006": "创业板指"}
         result = []
@@ -172,5 +200,5 @@ def get_market_index() -> List[Dict[str, Any]]:
                 })
         return result
     except Exception as e:
-        console_error(f"AkShare market index error: {e}")
+        console_error(f"Market index error: {e}")
         return []

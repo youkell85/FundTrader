@@ -2,7 +2,11 @@
 import os
 import time
 from typing import Optional, List, Dict, Any
-from .base import DataProvider, FundBasic, FundNav, FundHolding, FundDetail, FundPerformance, FundRisk
+from .base import (
+    DataProvider, FundBasic, FundNav, FundHolding, FundDetail,
+    FundPerformance, FundRisk, FundDividend, FundScale, AdjFactor,
+    FundCompany, TradeCal, IndexDaily,
+)
 from ...utils import console_error
 
 
@@ -118,6 +122,12 @@ class TushareProvider(DataProvider):
             if rating is not None:
                 rating = int(rating)
 
+        # Tushare 增强：分红/规模/复权/公司（付费账户高频可用）
+        dividends = self.get_fund_dividend(code)
+        scale = self.get_fund_scale(code)
+        adj_factors = self.get_fund_adj(code)
+        company = self.get_fund_company(code)
+
         return FundDetail(
             code=code,
             name=basic.name if basic else code,
@@ -131,6 +141,10 @@ class TushareProvider(DataProvider):
             manager_info=manager_info,
             rating=rating,
             source=self.name,
+            dividends=dividends,
+            scale=scale,
+            adj_factors=adj_factors[-120:],
+            company=company,
         )
 
     def get_fund_nav(self, code: str, start_date: str = "", end_date: str = "") -> List[FundNav]:
@@ -273,3 +287,140 @@ class TushareProvider(DataProvider):
             "end_date": str(row.get("end_date", "")),
             "reward": self._safe_float(row.get("reward")),
         }
+
+    # ========== Tushare 增强接口（付费账户高频可用） ==========
+
+    def get_fund_dividend(self, code: str) -> List[FundDividend]:
+        """获取基金分红记录（替代 efinance 缺失的分红数据）"""
+        pro = self._get_pro()
+        if pro is None:
+            return []
+        df = self._safe_call(pro.fund_div, ts_code=f"{code}.OF")
+        if df is None or df.empty:
+            return []
+        result = []
+        for _, row in df.head(20).iterrows():
+            result.append(FundDividend(
+                ex_date=self._parse_date(str(row.get("ex_date", ""))),
+                div_cash=self._safe_float(row.get("div_cash")) or 0,
+                pay_date=self._parse_date(str(row.get("pay_date", ""))),
+                record_date=self._parse_date(str(row.get("record_date", ""))),
+                ann_date=self._parse_date(str(row.get("ann_date", ""))),
+                imp_anndate=self._parse_date(str(row.get("imp_anndate", ""))),
+                base_date=self._parse_date(str(row.get("base_date", ""))),
+            ))
+        return result
+
+    def get_fund_scale(self, code: str) -> Optional[FundScale]:
+        """获取基金最新规模 — fund_share × unit_nav 精确计算（替代 efinance 不可靠接口）"""
+        pro = self._get_pro()
+        if pro is None:
+            return None
+        ts_code = f"{code}.OF"
+        share_df = self._safe_call(pro.fund_share, ts_code=ts_code)
+        if share_df is None or share_df.empty:
+            return None
+        share_df = share_df.sort_values(by="trade_date", ascending=False)
+        row = share_df.iloc[0]
+        fd_share = self._safe_float(row.get("fd_share"))
+        total_nav = None
+        nav_df = self._safe_call(pro.fund_nav, ts_code=ts_code, end_date=str(row.get("trade_date", "")))
+        if nav_df is not None and not nav_df.empty:
+            nav_df = nav_df.sort_values(by="nav_date", ascending=False)
+            latest_nav = self._safe_float(nav_df.iloc[0].get("unit_nav"))
+            if latest_nav and fd_share:
+                total_nav = round(latest_nav * fd_share / 100000, 4)  # 万份×净值/100000=亿元
+        return FundScale(
+            end_date=self._parse_date(str(row.get("trade_date", ""))),
+            total_nav=total_nav,
+            fd_share=fd_share,
+        )
+
+    def get_fund_adj(self, code: str) -> List[AdjFactor]:
+        """获取基金复权因子（用于精确收益计算）"""
+        pro = self._get_pro()
+        if pro is None:
+            return []
+        df = self._safe_call(pro.fund_adj, ts_code=f"{code}.OF")
+        if df is None or df.empty:
+            return []
+        result = []
+        for _, row in df.iterrows():
+            result.append(AdjFactor(
+                date=self._parse_date(str(row.get("trade_date", row.get("end_date", "")))),
+                adj_factor=self._safe_float(row.get("adj_factor")) or 1.0,
+            ))
+        return result
+
+    def get_fund_company(self, code: str) -> Optional[FundCompany]:
+        """获取基金公司信息（经理人数/基金数/管理总规模）"""
+        pro = self._get_pro()
+        if pro is None:
+            return None
+        basic_df = self._safe_call(pro.fund_basic, ts_code=f"{code}.OF")
+        if basic_df is None or basic_df.empty:
+            return None
+        mgmt = basic_df.iloc[0].get("management", "")
+        if not mgmt:
+            return None
+        company_df = self._safe_call(pro.fund_company, name=mgmt)
+        if company_df is None or company_df.empty:
+            return FundCompany(name=mgmt)
+        row = company_df.iloc[0]
+        return FundCompany(
+            name=row.get("name", mgmt),
+            manager_count=self._safe_float(row.get("manager_count")),
+            fund_count=self._safe_float(row.get("fund_count")),
+            total_scale=self._safe_float(row.get("total_scale")),
+        )
+
+    def get_trade_cal(self, exchange: str = "SSE", start_date: str = "", end_date: str = "") -> List[TradeCal]:
+        """获取交易日历"""
+        pro = self._get_pro()
+        if pro is None:
+            return []
+        kwargs = {"exchange": exchange}
+        if start_date:
+            kwargs["start_date"] = start_date.replace("-", "")
+        if end_date:
+            kwargs["end_date"] = end_date.replace("-", "")
+        df = self._safe_call(pro.trade_cal, **kwargs)
+        if df is None or df.empty:
+            return []
+        result = []
+        for _, row in df.iterrows():
+            result.append(TradeCal(
+                cal_date=self._parse_date(str(row.get("cal_date", ""))),
+                is_open=str(row.get("is_open", "")),
+            ))
+        return result
+
+    def get_index_daily(self, ts_code: str = "000001.SH", start_date: str = "", end_date: str = "") -> List[IndexDaily]:
+        """获取指数日线行情（替代 akshare 市场指数接口）"""
+        pro = self._get_pro()
+        if pro is None:
+            return []
+        kwargs = {"ts_code": ts_code}
+        if start_date:
+            kwargs["start_date"] = start_date.replace("-", "")
+        if end_date:
+            kwargs["end_date"] = end_date.replace("-", "")
+        df = self._safe_call(pro.index_daily, **kwargs)
+        if df is None or df.empty:
+            return []
+        df = df.sort_values(by="trade_date", ascending=True)
+        result = []
+        for _, row in df.iterrows():
+            result.append(IndexDaily(
+                date=self._parse_date(str(row.get("trade_date", ""))),
+                close=self._safe_float(row.get("close")),
+                open=self._safe_float(row.get("open")),
+                high=self._safe_float(row.get("high")),
+                low=self._safe_float(row.get("low")),
+                pre_close=self._safe_float(row.get("pre_close")),
+                change=self._safe_float(row.get("change")),
+                pct_chg=self._safe_float(row.get("pct_chg")),
+                vol=self._safe_float(row.get("vol")),
+                amount=self._safe_float(row.get("amount")),
+            ))
+        return result

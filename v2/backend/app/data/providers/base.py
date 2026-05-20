@@ -83,6 +83,68 @@ class FundDetail:
     industry_dist: Dict[str, float] = field(default_factory=dict)
     rating: Optional[int] = None  # 基金评级（晨星等，1-5星）
     source: str = ""  # 数据来源标识
+    dividends: List[FundDividend] = field(default_factory=list)  # 分红记录
+    scale: Optional[FundScale] = None  # 基金规模（Tushare 提供）
+    adj_factors: List[AdjFactor] = field(default_factory=list)  # 复权因子
+    company: Optional[FundCompany] = None  # 基金公司（Tushare 提供）
+
+
+@dataclass
+class FundDividend:
+    """基金分红记录"""
+    ex_date: str = ""          # 除息日
+    div_cash: float = 0.0      # 每份分红(元)
+    pay_date: str = ""         # 派息日
+    record_date: str = ""      # 权益登记日
+    ann_date: str = ""         # 公告日
+    imp_anndate: str = ""      # 实施公告日
+    base_date: str = ""        # 分配收益基准日
+
+
+@dataclass
+class FundScale:
+    """基金规模（Tushare fund_share + fund_nav 计算）"""
+    end_date: str = ""
+    total_nav: Optional[float] = None   # 资产净值(亿元)
+    fd_share: Optional[float] = None    # 最新份额(万份)
+
+
+@dataclass
+class FundCompany:
+    """基金公司信息"""
+    name: str = ""
+    manager_count: Optional[int] = None   # 基金经理人数
+    fund_count: Optional[int] = None      # 基金数量
+    total_scale: Optional[float] = None   # 管理规模(亿元)
+
+
+@dataclass
+class AdjFactor:
+    """复权因子"""
+    date: str = ""
+    adj_factor: float = 1.0
+
+
+@dataclass
+class TradeCal:
+    """交易日历"""
+    cal_date: str = ""
+    is_open: str = ""          # S=交易日, H=休息日
+
+
+@dataclass
+class IndexDaily:
+    """指数日线行情"""
+    date: str = ""
+    close: Optional[float] = None
+    open: Optional[float] = None
+    high: Optional[float] = None
+    low: Optional[float] = None
+    pre_close: Optional[float] = None
+    change: Optional[float] = None
+    pct_chg: Optional[float] = None
+    vol: Optional[float] = None
+    amount: Optional[float] = None
 
 
 class DataProvider(ABC):

@@ -13,8 +13,8 @@ class DataFusion:
 
     def __init__(self):
         self.providers: List[DataProvider] = [
-            iFinDProvider(),      # 优先级5 - 专业数据
-            TushareProvider(),    # 优先级4 - 结构化数据
+            TushareProvider(),    # 优先级5 - 付费高频，第一数据源
+            iFinDProvider(),      # 优先级4 - 专业数据（额度限制，降级）
             TickflowProvider(),   # 优先级3 - 行情数据
             TencentProvider(),    # 优先级2 - 实时行情
         ]
@@ -86,6 +86,15 @@ class DataFusion:
                 if primary.basic and detail.basic:
                     if not primary.basic.fund_share and detail.basic.fund_share:
                         primary.basic.fund_share = detail.basic.fund_share
+                # Tushare 增强字段：从其他数据源补充（优先已由 Tushare 提供）
+                if not primary.dividends and detail.dividends:
+                    primary.dividends = detail.dividends
+                if not primary.scale and detail.scale:
+                    primary.scale = detail.scale
+                if not primary.adj_factors and detail.adj_factors:
+                    primary.adj_factors = detail.adj_factors
+                if not primary.company and detail.company:
+                    primary.company = detail.company
             except Exception as e:
                 console_error(f"Provider {provider.name} merge error: {e}")
 

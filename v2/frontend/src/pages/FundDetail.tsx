@@ -474,8 +474,8 @@ export default function FundDetail() {
             <div className="liquid-glass p-4 md:p-6">
               <h2 className="text-sm font-medium text-white/50 mb-3">基金信息</h2>
               <div className="space-y-2 text-xs">
-                <div className="flex justify-between"><span className="text-white/40">管理费率</span><span className="data-number text-white/70">{(parseFloat(fund.feeManage || "0") * 100).toFixed(2)}%</span></div>
-                <div className="flex justify-between"><span className="text-white/40">托管费率</span><span className="data-number text-white/70">{(parseFloat(fund.feeCustody || "0") * 100).toFixed(2)}%</span></div>
+                <div className="flex justify-between"><span className="text-white/40">管理费率</span><span className="data-number text-white/70">{fund.feeManage != null && !isNaN(parseFloat(fund.feeManage)) ? (parseFloat(fund.feeManage) * 100).toFixed(2) + "%" : "—"}</span></div>
+                <div className="flex justify-between"><span className="text-white/40">托管费率</span><span className="data-number text-white/70">{fund.feeCustody != null && !isNaN(parseFloat(fund.feeCustody)) ? (parseFloat(fund.feeCustody) * 100).toFixed(2) + "%" : "—"}</span></div>
                 <div className="flex justify-between"><span className="text-white/40">基金规模</span><span className="data-number text-white/70">{fund.totalScale}亿元</span></div>
                 <div className="flex justify-between"><span className="text-white/40">累计净值</span><span className="data-number text-white/70">{fund.accumNav}</span></div>
               </div>

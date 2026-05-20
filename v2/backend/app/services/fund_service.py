@@ -1,4 +1,13 @@
-"""基金排名筛选服务"""
+"""基金排名筛选服务
+
+数据源策略：
+- 全市场排名 → akshare fund_open_fund_rank_em（Tushare 不提供聚合排名）
+- 回退排名 → eastmoney 东方财富 API
+- 基金详情 → Tushare（Fusion 优先级5，付费高频）→ iFinD → Tickflow → Tencent
+- 基金规模 → Tushare fund_share × unit_nav → efinance fallback
+- 基金费率 → efinance（Tushare 不提供费率字段）
+- 持仓/经理 → Tushare fund_portfolio / fund_manager → akshare 补充学历信息
+"""
 from typing import List, Dict, Any, Optional
 from ..utils import console_error
 from ..data.akshare_fetcher import get_fund_ranking, get_fund_info
@@ -127,16 +136,12 @@ def get_fund_list_from_watchlist(
 
 
 def _get_watchlist_with_performance(watchlist: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """为自选基金获取业绩数据"""
+    """为自选基金获取业绩数据（批量模式）"""
+    all_perf = _fetch_all_fund_performance()
     result = []
     for fund in watchlist:
         fund_data = dict(fund)
-        perf_cache_key = f"fund_perf_{fund['code']}"
-        perf = cache.get(perf_cache_key, CACHE_TTL_RANKING)
-        if perf is None:
-            perf = _fetch_fund_performance(fund["code"])
-            if perf:
-                cache.set(perf_cache_key, perf)
+        perf = all_perf.get(fund["code"])
         if perf:
             fund_data.update(perf)
         result.append(fund_data)
@@ -144,22 +149,19 @@ def _get_watchlist_with_performance(watchlist: List[Dict[str, Any]]) -> List[Dic
 
 
 def _get_guoyuan_funds_with_performance() -> List[Dict[str, Any]]:
-    """获取国元证券基金名单及业绩数据"""
+    """获取国元证券基金名单及业绩数据（批量模式）"""
     cache_key = "guoyuan_funds_performance"
     result = cache.get(cache_key, CACHE_TTL_RANKING)
     if result is not None:
         return result
 
+    # 一次akshare调用获取全市场业绩，然后按需匹配
+    all_perf = _fetch_all_fund_performance()
+
     result = []
     for fund in GUOYUAN_FUND_LIST:
         fund_data = dict(fund)
-        # 尝试从缓存获取业绩
-        perf_cache_key = f"fund_perf_{fund['code']}"
-        perf = cache.get(perf_cache_key, CACHE_TTL_RANKING)
-        if perf is None:
-            perf = _fetch_fund_performance(fund["code"])
-            if perf:
-                cache.set(perf_cache_key, perf)
+        perf = all_perf.get(fund["code"])
         if perf:
             fund_data.update(perf)
         result.append(fund_data)
@@ -168,25 +170,37 @@ def _get_guoyuan_funds_with_performance() -> List[Dict[str, Any]]:
     return result
 
 
-def _fetch_fund_performance(code: str) -> Optional[Dict[str, Any]]:
-    """获取单只基金业绩数据（不含规模，规模在详情页面单独获取）"""
+def _fetch_all_fund_performance() -> Dict[str, Dict[str, Any]]:
+    """批量获取全市场基金业绩数据（一次akshare调用，避免N次重复请求）
+    
+    基金业绩数据日频更新，单个交易日收盘后统一公布。
+    缓存TTL由调用方控制，默认与CACHE_TTL_RANKING一致（30分钟）。
+    """
+    cache_key = "bulk_fund_performance"
+    cached = cache.get(cache_key, CACHE_TTL_RANKING)
+    if cached is not None:
+        return cached
+
+    perf_map: Dict[str, Dict[str, Any]] = {}
     try:
         import akshare as ak
         df = ak.fund_open_fund_rank_em(symbol="全部")
         if df is not None and not df.empty:
-            row = df[df["基金代码"] == code]
-            if not row.empty:
-                r = row.iloc[0]
-                return {
-                    "nav": float(r.get("单位净值", 0) or 0),
-                    "day_growth": float(r.get("日增长率", 0) or 0),
-                    "near_1m": float(r.get("近1月", 0) or 0),
-                    "near_3m": float(r.get("近3月", 0) or 0),
-                    "near_6m": float(r.get("近6月", 0) or 0),
-                    "near_1y": float(r.get("近1年", 0) or 0),
-                    "near_3y": float(r.get("近3年", 0) or 0),
-                    "ytd": float(r.get("今年来", 0) or 0),
+            for _, row in df.iterrows():
+                code = str(row.get("基金代码", "")).strip()
+                if not code:
+                    continue
+                perf_map[code] = {
+                    "nav": float(row.get("单位净值", 0) or 0),
+                    "day_growth": float(row.get("日增长率", 0) or 0),
+                    "near_1m": float(row.get("近1月", 0) or 0),
+                    "near_3m": float(row.get("近3月", 0) or 0),
+                    "near_6m": float(row.get("近6月", 0) or 0),
+                    "near_1y": float(row.get("近1年", 0) or 0),
+                    "near_3y": float(row.get("近3年", 0) or 0),
+                    "ytd": float(row.get("今年来", 0) or 0),
                 }
+        cache.set(cache_key, perf_map)
     except Exception as e:
-        console_error(f"Performance fetch error for {code}: {e}")
-    return None
+        console_error(f"Bulk performance fetch error: {e}")
+    return perf_map
