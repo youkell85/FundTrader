@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { AlertCircle, ArrowLeft, User, BarChart3, PieChart, Layers, Target, Award, Zap, Loader2, Sparkles } from "lucide-react";
 import { XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from "recharts";
 import { trpc } from "@/providers/trpc";
+import { Tooltip as UiTooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   UP_COLOR,
   DOWN_COLOR,
@@ -21,6 +22,20 @@ const typeLabels: Record<string, string> = {
 const riskLabels: Record<string, string> = {
   low: "低风险", low_medium: "中低风险", medium: "中风险",
   medium_high: "中高风险", high: "高风险",
+};
+
+const riskMetricDescriptions: Record<string, string> = {
+  年化收益率: "按当前净值历史折算到一年的收益水平，用于比较不同持有周期的收益表现。",
+  年化波动率: "收益波动幅度的年化估计，数值越高代表净值起伏越大。",
+  夏普比率: "每承担一单位波动风险获得的超额收益，通常越高越好。",
+  最大回撤: "从历史高点下跌到低点的最大跌幅，用于衡量极端亏损风险。",
+  卡玛比率: "年化收益与最大回撤的比值，衡量收益对回撤的补偿是否充分。",
+  索提诺比率: "只关注下行波动的风险调整收益，越高说明下跌风险下的收益质量越好。",
+  信息比率: "相对基准或波动风险获得超额收益的能力，越高代表主动收益更稳定。",
+  Alpha: "剔除市场整体影响后的超额收益能力，正值代表相对市场有附加贡献。",
+  Beta: "基金相对市场的敏感度，大于1通常波动更激进，小于1通常更防守。",
+  日胜率: "历史交易日中上涨天数占比，反映短期上涨频率。",
+  回撤修复: "从回撤低点恢复到前高大致经历的交易日数，越短说明修复效率越高。",
 };
 
 export default function FundDetail() {
@@ -255,10 +270,24 @@ export default function FundDetail() {
                   { label: "日胜率", value: perf?.winRate, suffix: "%", color: POSITIVE_METRIC_COLOR },
                   { label: "回撤修复", value: perf?.recoveryPeriod, suffix: "天", color: RISK_COLOR },
                 ].map((m) => (
-                  <div key={m.label} className="liquid-glass-sm p-2 md:p-3 text-center group hover:bg-white/[0.06] transition-all">
-                    <div className="text-white/30 text-[10px] md:text-xs mb-1">{m.label}</div>
-                    <div className="data-number text-base md:text-lg font-medium" style={{ color: m.color }}>{m.value}{m.suffix}</div>
-                  </div>
+                  <UiTooltip key={m.label}>
+                    <TooltipTrigger asChild>
+                      <div
+                        tabIndex={0}
+                        aria-label={`${m.label}：${riskMetricDescriptions[m.label]}`}
+                        className="liquid-glass-sm p-2 md:p-3 text-center group hover:bg-white/[0.06] focus-visible:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/20 transition-all cursor-help"
+                      >
+                        <div className="text-white/30 text-[10px] md:text-xs mb-1">{m.label}</div>
+                        <div className="data-number text-base md:text-lg font-medium" style={{ color: m.color }}>{m.value}{m.suffix}</div>
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent
+                      side="top"
+                      className="max-w-64 border border-white/[0.08] bg-[#05081A]/95 px-3 py-2 text-xs leading-relaxed text-white/80 shadow-xl"
+                    >
+                      {riskMetricDescriptions[m.label]}
+                    </TooltipContent>
+                  </UiTooltip>
                 ))}
               </div>
             </div>
