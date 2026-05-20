@@ -163,6 +163,11 @@ def analyze_fund(code: str) -> Dict[str, Any]:
         # 计算区间收益率
         period = _calc_period_returns(nav_data or [])
 
+        # 计算基金规模（亿）= 份额规模(万份) * 单位净值 / 10000
+        total_scale = None
+        if detail.basic and detail.basic.fund_share and detail.nav:
+            total_scale = round(detail.basic.fund_share * detail.nav / 10000, 2)
+
         return {
             "code": code,
             "name": detail.name or code,
@@ -184,6 +189,7 @@ def analyze_fund(code: str) -> Dict[str, Any]:
             "return3y": period["return3y"],
             "return5y": period["return5y"],
             "annualized_return": period["annualized_return"],
+            "total_scale": total_scale,  # 基金规模（亿元）
         }
 
     # 融合层失败，回退到旧的数据源
