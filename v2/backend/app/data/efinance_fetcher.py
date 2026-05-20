@@ -131,8 +131,10 @@ def _parse_fee(value) -> Optional[float]:
     try:
         s = str(value).strip()
         is_pct = "%" in s
-        s = s.replace("%", "")
-        val = float(s)
+        match = re.search(r"-?\d+(?:\.\d+)?", s.replace(",", ""))
+        if not match:
+            return None
+        val = float(match.group(0))
         if is_pct:
             val = val / 100
         return val
