@@ -293,7 +293,7 @@ export default function FundDetail() {
             <div className="liquid-glass p-4 md:p-6">
               <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
                 <h2 className="text-base md:text-lg font-medium text-white flex items-center gap-2">
-                  <Sparkles className="w-5 h-5" style={{ color: ACCENT_INFO }} />AI 业绩 · 经理·持仓 综合分析
+                  <Sparkles className="w-5 h-5" style={{ color: ACCENT_INFO }} />AI综合分析
                 </h2>
                 <button onClick={() => { setLlmEnabled(true); llmQuery.refetch(); }}
                   disabled={llmQuery.isLoading || llmQuery.isFetching}
