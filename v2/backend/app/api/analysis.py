@@ -24,7 +24,7 @@ def cached_analyze_fund(code: str) -> Dict[str, Any]:
 @router.get("/{code}")
 async def fund_analysis(code: str):
     """获取基金深度分析"""
-    result = analyze_fund(code)
+    result = cached_analyze_fund(code)
     return result
 
 
