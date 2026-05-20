@@ -427,8 +427,12 @@ export default function FundDetail() {
                   </div>
                   <div>
                     <div className="text-white font-medium">{fund.manager.name ?? "未知"}</div>
-                    <div className="text-white/40 text-xs">{fund.manager.company} · {fund.manager.education}</div>
-                    <div className="text-white/40 text-xs">从业{fund.manager.manageYears}年 · 管理{fund.manager.fundCount}只基金</div>
+                    {(fund.manager.company !== "—" || fund.manager.education) && (
+                      <div className="text-white/40 text-xs">{fund.manager.company !== "—" ? fund.manager.company : ""}{fund.manager.education ? ` · ${fund.manager.education}` : ""}</div>
+                    )}
+                    {fund.manager.manageYears !== "5.00" && (
+                      <div className="text-white/40 text-xs">从业{fund.manager.manageYears}年 · 管理{fund.manager.fundCount}只基金</div>
+                    )}
                   </div>
                 </div>
 
@@ -443,11 +447,15 @@ export default function FundDetail() {
 
                 <div className="grid grid-cols-2 gap-2">
                   <div className="liquid-glass-sm p-2 text-center">
-                    <div className="data-number text-sm font-medium" style={{ color: UP_COLOR }}>+{fund.manager.bestReturn}%</div>
+                    <div className="data-number text-sm font-medium" style={{ color: fund.manager.bestReturn !== "—" ? UP_COLOR : "rgba(255,255,255,0.3)" }}>
+                      {fund.manager.bestReturn !== "—" ? `+${fund.manager.bestReturn}%` : "—"}
+                    </div>
                     <div className="text-white/30 text-[10px]">最佳年度</div>
                   </div>
                   <div className="liquid-glass-sm p-2 text-center">
-                    <div className="data-number text-sm font-medium" style={{ color: DOWN_COLOR }}>{fund.manager.worstReturn}%</div>
+                    <div className="data-number text-sm font-medium" style={{ color: fund.manager.worstReturn !== "—" ? DOWN_COLOR : "rgba(255,255,255,0.3)" }}>
+                      {fund.manager.worstReturn !== "—" ? `${fund.manager.worstReturn}%` : "—"}
+                    </div>
                     <div className="text-white/30 text-[10px]">最差年度</div>
                   </div>
                 </div>

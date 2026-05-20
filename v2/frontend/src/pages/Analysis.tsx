@@ -210,11 +210,15 @@ export default function Analysis() {
                   </div>
                   <div className="liquid-glass-sm p-2 text-center">
                     <div className="text-white/30 text-[10px]">最佳年度</div>
-                    <div className="data-number text-sm" style={{ color: UP_COLOR }}>+{managerDetail.bestReturn}%</div>
+                    <div className="data-number text-sm" style={{ color: managerDetail.bestReturn !== "—" ? UP_COLOR : "rgba(255,255,255,0.3)" }}>
+                      {managerDetail.bestReturn !== "—" ? `+${managerDetail.bestReturn}%` : "—"}
+                    </div>
                   </div>
                   <div className="liquid-glass-sm p-2 text-center">
                     <div className="text-white/30 text-[10px]">最差年度</div>
-                    <div className="data-number text-sm" style={{ color: DOWN_COLOR }}>{managerDetail.worstReturn}%</div>
+                    <div className="data-number text-sm" style={{ color: managerDetail.worstReturn !== "—" ? DOWN_COLOR : "rgba(255,255,255,0.3)" }}>
+                      {managerDetail.worstReturn !== "—" ? `${managerDetail.worstReturn}%` : "—"}
+                    </div>
                   </div>
                 </div>
                 {managerDetail.styleDescription && (

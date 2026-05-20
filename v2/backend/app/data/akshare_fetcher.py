@@ -43,7 +43,7 @@ def get_fund_info(code: str) -> Optional[Dict[str, Any]]:
 
 
 def get_fund_manager_info(code: str) -> Optional[Dict[str, Any]]:
-    """获取基金经理信息"""
+    """获取基金经理信息 - 包含任职回报、年化回报、学历等"""
     try:
         df = ak.fund_manager_em()
         if df is None or df.empty:
@@ -56,11 +56,55 @@ def get_fund_manager_info(code: str) -> Optional[Dict[str, Any]]:
         if managers.empty:
             return None
         row = managers.iloc[0]
-        # 尝试多种可能的列名
+        # 提取所有可用字段
         name = row.get("姓名", row.get("基金经理", row.get("manager_name", "")))
-        tenure = row.get("任职时间", row.get("任职天数", row.get("tenure", 0)))
-        best = row.get("代表基金", row.get("best_fund", ""))
-        return {"name": name, "tenure_days": tenure, "best_fund": best}
+        tenure_days = row.get("任职时间", row.get("任职天数", row.get("tenure", 0)))
+
+        # 任职回报（可能带%符号）
+        return_since = row.get("任职回报", row.get("return_since_tenure"))
+        if return_since is not None:
+            try:
+                return_since = float(str(return_since).replace("%", "").strip())
+            except (ValueError, TypeError):
+                return_since = None
+
+        # 年化回报
+        annual_return = row.get("年化回报", row.get("annualized_return"))
+        if annual_return is not None:
+            try:
+                annual_return = float(str(annual_return).replace("%", "").strip())
+            except (ValueError, TypeError):
+                annual_return = None
+
+        # 管理基金数量
+        fund_count = row.get("管理基金数", row.get("在任基金数", row.get("fund_count")))
+        if fund_count is not None:
+            try:
+                fund_count = int(fund_count)
+            except (ValueError, TypeError):
+                fund_count = 1
+
+        # 学历
+        education = row.get("学历", row.get("education"))
+
+        # 基金管理规模
+        total_scale = row.get("基金管理规模(亿)", row.get("管理规模", row.get("total_scale")))
+
+        result = {
+            "name": name,
+            "tenure_days": tenure_days,
+            "return_since_tenure": return_since,
+            "annualized_return": annual_return,
+            "fund_count": fund_count,
+            "education": education,
+            "total_scale": total_scale,
+        }
+
+        # 过滤掉值为 None/NaN 的字段
+        result = {k: v for k, v in result.items()
+                  if v is not None and not (isinstance(v, float) and pd.isna(v))}
+
+        return result
     except Exception as e:
         console_error(f"AkShare fund manager error for {code}: {e}")
         return None
