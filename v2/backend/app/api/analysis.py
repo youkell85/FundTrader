@@ -1,6 +1,7 @@
 """深度产品分析API"""
 from fastapi import APIRouter
 from typing import List, Dict, Any
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from ..services.analysis_service import analyze_fund
 from ..services.llm_service import analyze_manager_style, analyze_fund_comprehensive, analyze_dca_strategy
 from ..data.cache_manager import cache
@@ -18,13 +19,20 @@ async def fund_analysis(code: str):
 
 @router.post("/batch")
 async def fund_analysis_batch(codes: List[str]) -> Dict[str, Any]:
-    """批量获取基金深度分析（用于首页列表一次性加载，减少HTTP往返）"""
+    """批量获取基金深度分析（并行处理，用于首页列表一次性加载）"""
     results = {}
-    for code in codes:
-        try:
-            results[code] = analyze_fund(code)
-        except Exception as e:
-            results[code] = {"code": code, "error": str(e)}
+    # 使用线程池并行处理（analyze_fund 主要是IO密集型：网络请求+文件缓存）
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        future_to_code = {
+            executor.submit(analyze_fund, code): code
+            for code in set(codes)  # 去重
+        }
+        for future in as_completed(future_to_code):
+            code = future_to_code[future]
+            try:
+                results[code] = future.result()
+            except Exception as e:
+                results[code] = {"code": code, "error": str(e)}
     return {"results": results}
 
 

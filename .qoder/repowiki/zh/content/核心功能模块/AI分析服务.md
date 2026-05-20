@@ -22,6 +22,8 @@
 - [backend/app/data/cache_manager.py](file://backend/app/data/cache_manager.py)
 - [v2/backend/app/data/cache_manager.py](file://v2/backend/app/data/cache_manager.py)
 - [backend/app/utils/common_utils.py](file://backend/app/utils/common_utils.py)
+- [v2/frontend/api/lib/fundtrader-client.ts](file://v2/frontend/api/lib/fundtrader-client.ts)
+- [v2/frontend/api/fund-router.ts](file://v2/frontend/api/fund-router.ts)
 - [README.md](file://README.md)
 - [v2/frontend/db/schema.ts](file://v2/frontend/db/schema.ts)
 </cite>
@@ -41,7 +43,7 @@
 ## 简介
 本项目为"AI分析服务"，围绕公募基金提供深度产品分析、基金经理风格识别、智能推荐与定投回测等能力。系统以FastAPI为核心，结合多数据源融合层、缓存与LLM服务，形成"量化指标+自然语言分析"的双轨分析体系。AI分析服务通过LLM对基金经理风格进行多维度解读，并与传统量化分析（如夏普比率、最大回撤、波动率等）互补，提升投资决策的综合质量。
 
-**更新** 新增LLM综合分析功能和AI分析服务增强，包括全面的基金经理分析、智能定投策略建议、增强的缓存策略，以及新增的1年、3年、5年区间回报计算和年化回报功能。
+**更新** 新增LLM综合分析功能和AI分析服务增强，包括全面的基金经理分析、智能定投策略建议、增强的缓存策略，以及新增的1年、3年、5年区间回报计算和年化回报功能。**新增** 批量分析接口(getFundAnalysisBatch)，支持POST /analysis/batch端点，用于首页列表一次性加载，减少HTTP往返。
 
 ## 项目结构
 后端采用模块化分层设计：
@@ -102,8 +104,8 @@ SVC_LV2 --> CFG
 **图表来源**
 - [backend/app/main.py:1-42](file://backend/app/main.py#L1-L42)
 - [backend/app/config.py:1-42](file://backend/app/config.py#L1-L42)
-- [backend/app/api/analysis.py:1-34](file://backend/app/api/analysis.py#L1-L34)
-- [v2/backend/app/api/analysis.py:1-65](file://v2/backend/app/api/analysis.py#L1-L65)
+- [backend/app/api/analysis.py:1-33](file://backend/app/api/analysis.py#L1-L33)
+- [v2/backend/app/api/analysis.py:1-78](file://v2/backend/app/api/analysis.py#L1-L78)
 - [backend/app/api/dca.py:1-26](file://backend/app/api/dca.py#L1-L26)
 - [v2/backend/app/api/dca.py:1-49](file://v2/backend/app/api/dca.py#L1-L49)
 - [backend/app/services/analysis_service.py:1-323](file://backend/app/services/analysis_service.py#L1-L323)
@@ -128,8 +130,9 @@ SVC_LV2 --> CFG
 - 定投服务：回测固定金额与均线偏离策略，提供定投建议
 - 融合层：统一数据模型，按优先级聚合多个数据源，补全缺失字段
 - 缓存：文件缓存，带TTL，加速热点数据读取
+- **新增** 批量分析服务：支持批量获取基金深度分析，减少HTTP往返，提高页面加载性能
 
-**更新** 新增LLM综合分析功能，支持多维度基金经理分析和智能定投策略建议，以及1年、3年、5年区间回报计算和年化回报功能。
+**更新** 新增LLM综合分析功能，支持多维度基金经理分析和智能定投策略建议，以及1年、3年、5年区间回报计算和年化回报功能。**新增** 批量分析接口(getFundAnalysisBatch)，用于首页列表一次性加载，减少HTTP往返。
 
 **章节来源**
 - [backend/app/services/analysis_service.py:1-323](file://backend/app/services/analysis_service.py#L1-L323)
@@ -166,10 +169,19 @@ API->>LLM : analyze_dca_strategy(...)
 LLM->>LLM : 使用宽松JSON解析处理响应
 LLM-->>API : 定投策略建议JSON
 API-->>C : JSON响应
+C->>API : POST /analysis/batch
+API->>SVC : fund_analysis_batch(codes)
+loop 对每个基金代码
+SVC->>SVC : analyze_fund(code)
+SVC->>FUS : get_fund_detail(code)
+FUS-->>SVC : FundDetail
+SVC-->>API : 单只基金分析结果
+end
+API-->>C : {"results" : {...}}
 ```
 
 **图表来源**
-- [v2/backend/app/api/analysis.py:37-65](file://v2/backend/app/api/analysis.py#L37-L65)
+- [v2/backend/app/api/analysis.py:37-78](file://v2/backend/app/api/analysis.py#L37-L78)
 - [v2/backend/app/api/dca.py:31-49](file://v2/backend/app/api/dca.py#L31-L49)
 - [v2/backend/app/services/llm_service.py:82-136](file://v2/backend/app/services/llm_service.py#L82-L136)
 - [v2/backend/app/services/llm_service.py:138-184](file://v2/backend/app/services/llm_service.py#L138-L184)
@@ -230,6 +242,34 @@ Annual --> Output["输出结果<br/>return1y/return3y/return5y/annualized_return
 
 **章节来源**
 - [v2/backend/app/services/analysis_service.py:11-76](file://v2/backend/app/services/analysis_service.py#L11-L76)
+
+### 批量分析服务（批量获取基金深度分析）
+**新增功能**：实现批量分析接口，支持POST /analysis/batch端点
+
+- **功能描述**：批量获取多个基金的深度分析结果，用于首页列表一次性加载
+- **实现方式**：遍历基金代码列表，逐个调用analyze_fund函数，收集结果
+- **错误处理**：单个基金分析失败时，返回包含错误信息的对象，不影响其他基金的处理
+- **性能优化**：将原本N次HTTP请求减少为1次请求，显著降低网络开销
+- **输出格式**：返回{"results": {code: analysis_result}}结构，便于前端处理
+
+```mermaid
+flowchart TD
+Input["输入基金代码数组"] --> Loop["遍历每个基金代码"]
+Loop --> Try["尝试分析单只基金"]
+Try --> Success{"分析成功？"}
+Success --> |是| AddOK["添加到结果字典"]
+Success --> |否| AddErr["添加错误对象到结果字典"]
+AddOK --> Next["处理下一个代码"]
+AddErr --> Next
+Next --> Loop
+Loop --> Done["返回{'results': {...}}"]
+```
+
+**图表来源**
+- [v2/backend/app/api/analysis.py:19-28](file://v2/backend/app/api/analysis.py#L19-L28)
+
+**章节来源**
+- [v2/backend/app/api/analysis.py:19-28](file://v2/backend/app/api/analysis.py#L19-L28)
 
 ### LLM服务（基金经理风格分析与推荐分析）
 - 风格分析：构造多维度Prompt，调用外部LLM，返回风格、行业偏好、持仓特征、风险偏好、适合市场环境、配置建议等
@@ -422,6 +462,7 @@ DataFusion --> FundDetail : "聚合输出"
 - 融合层向上提供统一数据契约，向下兼容多数据源差异
 - 推荐与定投服务共享缓存与市场概览数据
 - v2版本API新增了LLM综合分析和定投策略分析端点，以及区间回报计算功能
+- **新增** 批量分析接口：POST /analysis/batch端点，用于批量获取基金分析结果
 - **新增** LLM服务依赖宽松JSON解析功能，提高响应处理的鲁棒性
 
 ```mermaid
@@ -440,11 +481,12 @@ SVC_AV2 --> CACHE
 SVC_L["LLM服务"] --> CFG["配置中心"]
 SVC_LV2["LLM服务 v2"] --> CFG
 SVC_LV2 --> LENIENT["宽松JSON解析"]
+API_AV2 -.-> BATCH["批量分析端点"]
 ```
 
 **图表来源**
-- [backend/app/api/analysis.py:1-34](file://backend/app/api/analysis.py#L1-L34)
-- [v2/backend/app/api/analysis.py:1-65](file://v2/backend/app/api/analysis.py#L1-L65)
+- [backend/app/api/analysis.py:1-33](file://backend/app/api/analysis.py#L1-L33)
+- [v2/backend/app/api/analysis.py:1-78](file://v2/backend/app/api/analysis.py#L1-L78)
 - [backend/app/api/recommend.py:1-47](file://backend/app/api/recommend.py#L1-L47)
 - [backend/app/api/dca.py:1-26](file://backend/app/api/dca.py#L1-L26)
 - [v2/backend/app/api/dca.py:1-49](file://v2/backend/app/api/dca.py#L1-L49)
@@ -465,10 +507,11 @@ SVC_LV2 --> LENIENT["宽松JSON解析"]
 - LLM调用：限制max_tokens与温度参数，控制响应长度与稳定性
 - **新增** 区间回报计算优化：使用高效的日期解析和数值计算，避免重复遍历
 - **新增** 宽松JSON解析：减少LLM响应处理失败导致的重试开销
+- **新增** 批量分析优化：将N次HTTP请求减少为1次请求，显著降低网络开销和延迟
 - 异常降级：LLM不可用时返回提示，保证核心功能可用
 - v2版本增强：新增LLM综合分析和定投策略分析的缓存机制，支持更长TTL
 
-**更新** 新增了区间回报计算和宽松JSON解析的性能优化考虑。
+**更新** 新增了区间回报计算、宽松JSON解析和批量分析的性能优化考虑。
 
 ## 故障排查指南
 - LLM未配置：若返回"AI分析服务未配置"，检查配置中心的LLM相关环境变量
@@ -478,9 +521,10 @@ SVC_LV2 --> LENIENT["宽松JSON解析"]
 - 回测数据为空：确认基金代码正确、时间范围合理，检查回退逻辑是否生效
 - **新增** 区间回报计算异常：检查净值数据格式，确认日期解析正常，验证累计净值数据完整性
 - **新增** 宽松JSON解析失败：检查LLM响应格式，确认是否包含Markdown包装，验证JSON结构有效性
+- **新增** 批量分析异常：检查输入的基金代码数组格式，确认每个代码的有效性，查看单个基金分析的错误信息
 - v2版本新增：LLM综合分析和定投策略分析的缓存失效问题，检查缓存键生成逻辑
 
-**更新** 新增了区间回报计算和宽松JSON解析功能的故障排查指南。
+**更新** 新增了区间回报计算、宽松JSON解析和批量分析功能的故障排查指南。
 
 **章节来源**
 - [backend/app/services/llm_service.py:17-18](file://backend/app/services/llm_service.py#L17-L18)
@@ -493,9 +537,9 @@ SVC_LV2 --> LENIENT["宽松JSON解析"]
 - [v2/backend/app/services/analysis_service.py:11-76](file://v2/backend/app/services/analysis_service.py#L11-L76)
 
 ## 结论
-本AI分析服务通过"量化指标+LLM自然语言分析"的双轨模式，为用户提供从风格识别到智能推荐再到定投回测的完整分析链路。融合层提升了数据可靠性与覆盖率，缓存与回退机制保障了性能与稳定性。v2版本新增的LLM综合分析功能、定投策略分析功能、1年、3年、5年区间回报计算功能，以及宽松JSON解析能力，显著增强了AI分析服务的实用性和智能化水平。新增的区间回报计算提供了更全面的历史表现指标，宽松JSON解析提高了系统对LLM响应格式的适应性，为用户提供更稳定可靠的投资决策支持。建议在生产环境中完善监控与告警，持续优化LLM Prompt与回测策略参数，以进一步提升用户体验与决策质量。
+本AI分析服务通过"量化指标+LLM自然语言分析"的双轨模式，为用户提供从风格识别到智能推荐再到定投回测的完整分析链路。融合层提升了数据可靠性与覆盖率，缓存与回退机制保障了性能与稳定性。v2版本新增的LLM综合分析功能、定投策略分析功能、1年、3年、5年区间回报计算功能，以及宽松JSON解析能力，显著增强了AI分析服务的实用性和智能化水平。**新增** 批量分析接口(getFundAnalysisBatch)进一步优化了用户体验，通过减少HTTP往返次数，显著提升了页面加载性能。新增的区间回报计算提供了更全面的历史表现指标，宽松JSON解析提高了系统对LLM响应格式的适应性，批量分析接口为大规模数据展示场景提供了高效解决方案。建议在生产环境中完善监控与告警，持续优化LLM Prompt与回测策略参数，以进一步提升用户体验与决策质量。
 
-**更新** v2版本通过新增LLM综合分析、定投策略分析、区间回报计算和宽松JSON解析功能，显著提升了AI分析服务的实用性和智能化水平。
+**更新** v2版本通过新增LLM综合分析、定投策略分析、区间回报计算、宽松JSON解析和批量分析接口，显著提升了AI分析服务的实用性和智能化水平。
 
 ## 附录
 
@@ -522,6 +566,12 @@ SVC_LV2 --> LENIENT["宽松JSON解析"]
   - 路径：/analysis/{code}/llm_review
   - 输入：code（基金代码）
   - 输出：包含业绩点评、经理点评、持仓点评、投资建议、风险警告和优势分析的JSON对象
+
+- **新增** 批量分析接口
+  - 方法：POST
+  - 路径：/analysis/batch
+  - 输入：基金代码数组（JSON数组）
+  - 输出：包含批量分析结果的对象，格式为{"results": {"code": analysis_result}}
 
 - 智能推荐
   - 方法：POST
@@ -551,12 +601,12 @@ SVC_LV2 --> LENIENT["宽松JSON解析"]
   - 请求体：包含基金代码、名称、定投策略指标和基准策略指标的JSON对象
   - 输出：包含策略对比评价、专业分析和优化建议的JSON对象
 
-**更新** 新增了LLM综合分析和定投策略LLM分析两个重要API端点，以及深度产品分析中新增的区间回报计算功能。
+**更新** 新增了LLM综合分析、批量分析接口和定投策略LLM分析三个重要API端点，以及深度产品分析中新增的区间回报计算功能。
 
 **章节来源**
 - [backend/app/main.py:33-35](file://backend/app/main.py#L33-L35)
 - [backend/app/api/analysis.py:9-33](file://backend/app/api/analysis.py#L9-L33)
-- [v2/backend/app/api/analysis.py:11-65](file://v2/backend/app/api/analysis.py#L11-L65)
+- [v2/backend/app/api/analysis.py:11-78](file://v2/backend/app/api/analysis.py#L11-L78)
 - [backend/app/api/recommend.py:10-46](file://backend/app/api/recommend.py#L10-L46)
 - [backend/app/api/dca.py:9-25](file://backend/app/api/dca.py#L9-L25)
 - [v2/backend/app/api/dca.py:12-49](file://v2/backend/app/api/dca.py#L12-L49)
@@ -569,8 +619,9 @@ SVC_LV2 --> LENIENT["宽松JSON解析"]
 - ProfessionalAnalysis：专业分析结果，包含夏普比率、最大回撤、波动率、Calmar/Sortino比率、风格九宫格等
 - **新增** ComprehensiveAnalysis：LLM综合分析结果，包含多维度基金经理分析的JSON结构
 - **新增** 区间回报字段：return1y、return3y、return5y、annualized_return，用于存储1年、3年、5年区间回报和年化回报
+- **新增** 批量分析结果：包含单只基金分析结果和错误信息的对象结构
 
-**更新** 新增了LLM综合分析的数据模型说明和区间回报字段说明。
+**更新** 新增了LLM综合分析的数据模型说明、区间回报字段说明和批量分析结果的数据模型说明。
 
 **章节来源**
 - [backend/app/models/analysis.py:6-92](file://backend/app/models/analysis.py#L6-L92)
@@ -581,9 +632,10 @@ SVC_LV2 --> LENIENT["宽松JSON解析"]
 - AI分析：通过LLM对基金经理风格、行业偏好、持仓特征等进行自然语言层面的解读，补充"软信息"与"经验性"判断
 - **新增** 综合分析：LLM不仅分析基金经理风格，还能提供多维度的基金经理和基金分析，包括业绩、持仓、风险和投资建议
 - **新增** 区间回报分析：提供1年、3年、5年等多个时间维度的历史表现指标，帮助用户全面评估基金长期表现
-- 协同作用：量化指标提供稳健的客观依据，LLM风格分析提供更贴近实战的主观洞察，区间回报分析提供历史表现参考，三者结合提升决策质量
+- **新增** 批量分析：支持大规模数据的高效获取，优化用户体验和系统性能
+- 协同作用：量化指标提供稳健的客观依据，LLM风格分析提供更贴近实战的主观洞察，区间回报分析提供历史表现参考，批量分析提供高效的数据获取，四者结合提升决策质量
 
-**更新** 新增了LLM综合分析和区间回报分析在AI分析体系中的重要作用。
+**更新** 新增了LLM综合分析、区间回报分析和批量分析在AI分析体系中的重要作用。
 
 ### v2版本新增功能详解
 
@@ -611,6 +663,13 @@ SVC_LV2 --> LENIENT["宽松JSON解析"]
 - **分析角度**：夏普比率、最大回撤、心理负担等多维度对比
 - **输出内容**：策略优劣判断、专业分析和优化建议列表
 
+#### 批量分析接口功能
+- **功能描述**：`fund_analysis_batch`函数支持批量获取多个基金的深度分析
+- **实现原理**：遍历基金代码数组，逐个调用analyze_fund函数，收集结果
+- **错误处理**：单个基金分析失败时返回错误对象，不影响其他基金处理
+- **性能优化**：将N次HTTP请求减少为1次请求，显著降低网络开销
+- **应用场景**：首页列表一次性加载，提升用户体验
+
 #### 增强缓存策略
 - **缓存范围**：新增LLM综合分析和定投策略分析的缓存机制
 - **TTL设置**：支持更长的缓存时间（12小时），提高性能
@@ -621,6 +680,41 @@ SVC_LV2 --> LENIENT["宽松JSON解析"]
 - [v2/backend/app/services/analysis_service.py:11-76](file://v2/backend/app/services/analysis_service.py#L11-L76)
 - [v2/backend/app/services/llm_service.py:10-27](file://v2/backend/app/services/llm_service.py#L10-L27)
 - [v2/backend/app/services/llm_service.py:82-184](file://v2/backend/app/services/llm_service.py#L82-L184)
-- [v2/backend/app/api/analysis.py:37-65](file://v2/backend/app/api/analysis.py#L37-L65)
+- [v2/backend/app/api/analysis.py:19-28](file://v2/backend/app/api/analysis.py#L19-L28)
+- [v2/backend/app/api/analysis.py:37-78](file://v2/backend/app/api/analysis.py#L37-L78)
 - [v2/backend/app/api/dca.py:31-49](file://v2/backend/app/api/dca.py#L31-L49)
 - [v2/backend/app/data/cache_manager.py:1-53](file://v2/backend/app/data/cache_manager.py#L1-L53)
+
+### 前端集成与使用示例
+
+#### 批量分析接口的前端使用
+- **客户端实现**：在v2/frontend/api/lib/fundtrader-client.ts中提供getFundAnalysisBatch函数
+- **BFF层集成**：在v2/frontend/api/fund-router.ts中集成批量分析逻辑
+- **错误回退机制**：批量请求失败时自动回退到单个请求模式
+- **性能优化**：首页一次性获取所有基金的分析数据，提升加载速度
+
+```mermaid
+sequenceDiagram
+participant FE as "前端组件"
+participant BFF as "BFF层"
+participant API as "分析API v2"
+participant SVC as "分析服务 v2"
+FE->>BFF : getFundAnalysisBatch(codes)
+BFF->>API : POST /analysis/batch
+API->>SVC : fund_analysis_batch(codes)
+loop 对每个基金代码
+SVC->>SVC : analyze_fund(code)
+SVC-->>API : 单只基金分析结果
+end
+API-->>BFF : {"results" : {...}}
+BFF->>BFF : 合并分析数据到基金对象
+BFF-->>FE : 完整的基金列表数据
+```
+
+**图表来源**
+- [v2/frontend/api/lib/fundtrader-client.ts:57-63](file://v2/frontend/api/lib/fundtrader-client.ts#L57-L63)
+- [v2/frontend/api/fund-router.ts:114-135](file://v2/frontend/api/fund-router.ts#L114-L135)
+
+**章节来源**
+- [v2/frontend/api/lib/fundtrader-client.ts:57-63](file://v2/frontend/api/lib/fundtrader-client.ts#L57-L63)
+- [v2/frontend/api/fund-router.ts:114-135](file://v2/frontend/api/fund-router.ts#L114-L135)

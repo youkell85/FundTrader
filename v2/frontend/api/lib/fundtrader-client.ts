@@ -8,7 +8,7 @@ const API_BASE = process.env.FUNDTRADER_API_BASE || "http://localhost:8766";
 export async function ftFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const url = `${API_BASE}${path}`;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 60000);
+  const timer = setTimeout(() => controller.abort(), 120000);
   try {
     const res = await fetch(url, {
       ...options,
