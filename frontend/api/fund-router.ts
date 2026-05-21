@@ -153,7 +153,7 @@ async function fetchHomeFundSummaries() {
     const watchlistCodes = new Set<string>();
 
     for (const fund of await fetchAllFundList({ guoyuan_only: true })) {
-      if (fund?.code) fundsByCode.set(fund.code, { ...fund, _source: "guoyuan" });
+      if (fund?.code) fundsByCode.set(fund.code, { ...fund, _source: "xinjihui", is_xinjihui: true });
     }
 
     const watchlist = await getWatchlist().catch(() => null);
@@ -501,14 +501,14 @@ export const fundRouter = createRouter({
     }
   }),
 
-  // 持续营销名单
+  // 鑫基荟名单
   continuousMarketing: publicQuery.query(async () => {
     try {
       const ftResult = await getFundList({ guoyuan_only: true, page_size: 100 });
       const rawFunds = Array.isArray(ftResult?.funds) ? ftResult.funds : [];
-      return rawFunds.map(mapFundItem).filter((f: any) => f?.isContinuousMarketing === 1);
+      return rawFunds.map((fund: any) => mapFundItem({ ...fund, _source: "xinjihui", is_xinjihui: true })).filter((f: any) => f?.isXinjihui);
     } catch (err) {
-      wrapError(err, "获取持续营销名单失败");
+      wrapError(err, "获取鑫基荟名单失败");
     }
   }),
 

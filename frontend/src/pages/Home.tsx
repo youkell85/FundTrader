@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from "react";
-import { Link, useNavigate } from "react-router";
+import { Link } from "react-router";
 import { Search, TrendingUp, TrendingDown, Star, PieChart, Activity, Shield, Camera, X, Loader2, Trash2 } from "lucide-react";
 import { trpc } from "@/providers/trpc";
 import { UP_COLOR, DOWN_COLOR, ACCENT_PRIMARY, RISK_COLOR, POSITIVE_METRIC_COLOR, getChangeTextClass } from "@/lib/colors";
@@ -21,7 +21,6 @@ interface ImageSearchResult {
 }
 
 export default function Home() {
-  const navigate = useNavigate();
   const utils = trpc.useUtils();
   const { data: listData, isLoading: listLoading, refetch: refetchList } = trpc.fund.list.useQuery(
     { pageSize: 1000 },
@@ -56,7 +55,7 @@ export default function Home() {
   const [fundType, setFundType] = useState("");
   const [category, setCategory] = useState("");
   const [riskLevel, setRiskLevel] = useState("");
-  const [isMarketingOnly, setIsMarketingOnly] = useState(false);
+  const [showXinjihui, setShowXinjihui] = useState(true);
   const [sortBy, setSortBy] = useState("dailyChange");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [page, setPage] = useState(1);
@@ -97,7 +96,9 @@ export default function Home() {
     if (fundType) result = result.filter((f: any) => f.fundType === fundType);
     if (category) result = result.filter((f: any) => f.category?.includes(category));
     if (riskLevel) result = result.filter((f: any) => f.riskLevel === riskLevel);
-    if (isMarketingOnly) result = result.filter((f: any) => f.isContinuousMarketing === 1);
+    result = showXinjihui
+      ? result.filter((f: any) => f.isXinjihui || f.source === "xinjihui")
+      : result.filter((f: any) => f.source === "watchlist");
     if (search) {
       const s = search.toLowerCase();
       result = result.filter((f: any) =>
@@ -126,7 +127,7 @@ export default function Home() {
       return sortDir === "desc" ? bVal - aVal : aVal - bVal;
     });
     return result;
-  }, [allFunds, fundType, category, riskLevel, isMarketingOnly, search, sortBy, sortOrder]);
+  }, [allFunds, fundType, category, riskLevel, showXinjihui, search, sortBy, sortOrder]);
 
   const paginatedFunds = useMemo(() => {
     return filteredFunds.slice((page - 1) * pageSize, page * pageSize);
@@ -141,29 +142,43 @@ export default function Home() {
     if (addFundByCode.isPending) return;
     if (!query) return;
 
-    // 6位基金代码：跳转详情页并加入自选列表
-    if (/^\d{6}$/.test(query)) {
+    const addWatchlistFund = (code: string) => {
       addFundByCode.mutate(
-        { code: query },
+        { code },
         {
           onSuccess: () => {
-            navigate(`/${query}`);
+            setShowXinjihui(false);
+            setSearch("");
+            setPage(1);
           },
           onError: (err) => {
             setSearchError(`添加基金失败: ${err.message}`);
-            // 即使添加失败也跳转到详情页（可能已在列表中）
-            navigate(`/${query}`);
           },
         }
       );
+    };
+
+    // 6位基金代码：加入自选列表
+    if (/^\d{6}$/.test(query)) {
+      addWatchlistFund(query);
       return;
     }
 
-    // 名称/经理搜索：如果匹配唯一基金则跳转
-    if (filteredFunds.length === 1) {
-      navigate(`/${filteredFunds[0].id}`);
+    // 名称搜索：唯一匹配时加入自选列表
+    const normalizedQuery = query.toLowerCase();
+    const matches = allFunds.filter((fund: any) => (
+      fund.fundCode === query ||
+      fund.fundName?.toLowerCase().includes(normalizedQuery) ||
+      fund.fundAbbr?.toLowerCase().includes(normalizedQuery)
+    ));
+    const uniqueCodes = Array.from(new Set(matches.map((fund: any) => fund.fundCode).filter(Boolean)));
+    if (uniqueCodes.length === 1) {
+      addWatchlistFund(uniqueCodes[0]);
+      return;
     }
-  }, [addFundByCode, filteredFunds, navigate, search, utils]);
+
+    setSearchError(uniqueCodes.length > 1 ? "匹配到多只产品，请输入更完整的产品名称或基金代码" : "未找到匹配产品，请输入6位基金代码或产品名称");
+  }, [addFundByCode, allFunds, search]);
 
   // Compress image before upload to reduce base64 size
   const compressImage = useCallback((file: File, maxWidth = 1200, quality = 0.7): Promise<string> => {
@@ -254,14 +269,14 @@ export default function Home() {
             洞察趋势，甄选长跑冠军
           </h1>
           <p className="mt-3 text-white/40 text-base max-w-2xl">
-            基于国元证券公募基金持续营销名单，AI驱动的产品筛选与智能配置平台
+            基于“鑫基荟”优选池，AI驱动的产品筛选与智能配置平台
           </p>
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3 mt-6 md:mt-8">
           {[
             { label: "在售基金", value: overview.totalFunds, suffix: "只", icon: PieChart, color: ACCENT_PRIMARY },
-            { label: "持续营销", value: overview.marketingCount, suffix: "只", icon: Activity, color: ACCENT_PRIMARY },
+            { label: "鑫基荟", value: overview.marketingCount, suffix: "只", icon: Activity, color: ACCENT_PRIMARY },
             { label: "平均年化收益", value: overview.avgReturn, suffix: "%", icon: TrendingUp, color: parseFloat(overview.avgReturn) >= 0 ? UP_COLOR : DOWN_COLOR },
             { label: "平均夏普比率", value: overview.avgSharpe, suffix: "", icon: Shield, color: POSITIVE_METRIC_COLOR },
           ].map((card) => (
@@ -328,9 +343,9 @@ export default function Home() {
               <option value="" className="bg-[#0B1021] text-white">全部分类</option>
               {filterOpts.categories?.map((c: string) => (<option key={c} value={c} className="bg-[#0B1021] text-white">{c}</option>))}
             </select>
-            <button onClick={() => { setIsMarketingOnly(!isMarketingOnly); setPage(1); }}
-              className={`h-11 px-4 rounded-xl text-sm font-medium transition-all ${isMarketingOnly ? "bg-[#3B6CFF]/20 text-[#00F0FF] border border-[#3B6CFF]/30" : "bg-white/[0.03] text-white/50 border border-white/[0.06] hover:bg-white/[0.06]"}`}>
-              持续营销
+            <button onClick={() => { setShowXinjihui(!showXinjihui); setPage(1); }}
+              className={`h-11 px-4 rounded-xl text-sm font-medium transition-all ${showXinjihui ? "bg-[#3B6CFF]/20 text-[#00F0FF] border border-[#3B6CFF]/30" : "bg-white/[0.03] text-white/50 border border-white/[0.06] hover:bg-white/[0.06]"}`}>
+              鑫基荟
             </button>
           </div>
         </div>
@@ -434,7 +449,7 @@ export default function Home() {
               <Loader2 className="w-4 h-4 animate-spin" />加载中...
             </div>
           ) : paginatedFunds.length === 0 ? (
-            <div className="p-8 text-center text-white/30">暂无数据</div>
+            <div className="p-8 text-center text-white/30">{showXinjihui ? "暂无鑫基荟产品" : "暂无自选基金"}</div>
           ) : (
             paginatedFunds.map((fund: any) => {
               const perf = fund.performance;

@@ -176,6 +176,13 @@ export function mapFundItem(item: any): any {
   const mgr = typeof mgrRaw === "string" ? { name: mgrRaw } : (mgrRaw || {});
   const id = codeToId(code);
   const source = item._source || "guoyuan";
+  const tags = item.tags || generateTags(name, type);
+  const isXinjihui =
+    item.is_xinjihui === true ||
+    item.isXinjihui === true ||
+    tags.includes("鑫基荟") ||
+    source === "xinjihui" ||
+    source === "guoyuan";
 
   return {
     id,
@@ -186,7 +193,8 @@ export function mapFundItem(item: any): any {
     category: type || "其他",
     company: item.company || item.management || "—",
     riskLevel: riskMap[item.risk_level || item.riskLevel] || "medium",
-    isContinuousMarketing: item.isContinuousMarketing ?? 0,
+    isContinuousMarketing: isXinjihui ? 1 : item.isContinuousMarketing ?? 0,
+    isXinjihui,
     nav: item.nav != null ? String(item.nav) : "—",
     accumNav: item.accum_nav != null ? String(item.accum_nav) : item.nav != null ? String(item.nav) : "—",
     dailyChange: item.day_growth != null ? String(item.day_growth) : "0",
@@ -196,9 +204,9 @@ export function mapFundItem(item: any): any {
     feeCustody: item.feeCustody ?? "—",
     stars: item.stars || (item.rating ? Math.min(5, Math.max(1, item.rating)) : 4),
     managerId: mgr.name ? codeToId(mgr.name) : null,
-    tags: item.tags || generateTags(name, type),
+    tags,
     trackingIndex: item.trackingIndex || null,
-    source, // guoyuan / watchlist 标记
+    source, // xinjihui / watchlist 标记
     performance: {
       return1m: perf.near_1m != null ? String(perf.near_1m) : item.near_1m != null ? String(item.near_1m) : navPerformance.return1m || "0",
       return3m: perf.near_3m != null ? String(perf.near_3m) : item.near_3m != null ? String(item.near_3m) : navPerformance.return3m || "0",

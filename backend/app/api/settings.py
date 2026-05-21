@@ -78,13 +78,13 @@ async def upload_fund_file(file: UploadFile = File(...)):
 
 @router.get("/guoyuan-funds")
 async def get_guoyuan_funds():
-    """获取国元证券默认基金名单"""
+    """获取鑫基荟默认基金名单（保留旧路由兼容）"""
     from ..constants.guoyuan_funds import GUOYUAN_FUND_LIST
     return {"funds": GUOYUAN_FUND_LIST}
 
 
 @router.post("/import-guoyuan")
 async def import_guoyuan_funds():
-    """将国元证券默认名单导入自选"""
+    """将鑫基荟默认名单导入自选（保留旧路由兼容）"""
     from ..constants.guoyuan_funds import GUOYUAN_FUND_LIST
     return add_funds_batch(GUOYUAN_FUND_LIST)

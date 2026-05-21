@@ -109,8 +109,14 @@ def get_fund_list_from_watchlist(
     watchlist = get_watchlist()
 
     if not watchlist:
-        # 自选为空时回退到国元名单
-        return get_fund_list(category, tag, keyword, sort_by, sort_order, page, page_size, guoyuan_only=True)
+        return {
+            "total": 0,
+            "page": page,
+            "page_size": page_size,
+            "funds": [],
+            "categories": FUND_CATEGORIES,
+            "types": FUND_TYPES,
+        }
 
     # 为自选基金获取业绩数据
     funds = _get_watchlist_with_performance(watchlist)
