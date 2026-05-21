@@ -7,7 +7,6 @@ import {
   getFundAnalysis,
   getFundAnalysisBatch,
   runDcaBacktest,
-  getRecommendations,
   getWatchlist,
   addToWatchlist,
   removeFromWatchlist as ftRemoveFromWatchlist,
@@ -18,7 +17,6 @@ import {
 import {
   mapFundItem,
   mapFundDetail,
-  mapRecommendation,
   mapBacktestResult,
   mapMarketOverview,
 } from "./lib/mapper";
@@ -26,10 +24,10 @@ import { fetchFundQuote } from "./lib/fund-quote";
 
 const strategyMap: Record<string, string> = {
   fixed_amount: "fixed",
-  fixed_ratio: "fixed",
+  fixed_ratio: "ratio",
   value_averaging: "ma",
-  smart_beta: "compare",
-  martingale: "compare",
+  smart_beta: "ma",
+  martingale: "martingale",
 };
 
 function wrapError(err: unknown, message: string): never {
@@ -431,12 +429,18 @@ export const fundRouter = createRouter({
       try {
         invalidateCache("homeFunds");
         invalidateCache("analysis_");
-        const quote = await fetchFundQuote(input.code);
-        const name = quote?.name || "";
+        const [quote, xinjihuiFunds] = await Promise.all([
+          fetchFundQuote(input.code),
+          fetchAllFundList({ guoyuan_only: true }).catch(() => [] as any[]),
+        ]);
+        const knownFund = xinjihuiFunds.find((fund: any) => fund?.code === input.code);
+        const name = quote?.name || knownFund?.name || "";
         await addToWatchlist(input.code, name);
         return mapFundItem({
           code: input.code,
           name: name || input.code,
+          type: knownFund?.type,
+          tags: knownFund?.tags,
           nav: quote?.nav,
           accum_nav: quote?.accumNav,
           nav_date: quote?.navDate,
@@ -511,28 +515,71 @@ export const fundRouter = createRouter({
 
   // 推荐配置列表
   recommendations: publicQuery
-    .input(z.object({ riskProfile: z.string().optional() }).optional())
+    .input(z.object({
+      riskProfile: z.string().optional(),
+      horizon: z.string().optional(),
+      preferredTypes: z.array(z.string()).optional(),
+      maxDrawdown: z.number().optional(),
+      amount: z.number().optional(),
+    }).optional())
     .query(async ({ input }) => {
       try {
-        const ftResult = await getRecommendations({
-          risk_level: input?.riskProfile === "conservative" ? "保守" :
-                      input?.riskProfile === "balanced" ? "稳健" :
-                      input?.riskProfile === "aggressive" ? "激进" : "稳健",
-          amount: 100000,
-        });
-        if (!ftResult || typeof ftResult !== "object") {
-          throw new Error("Invalid recommendation response");
+        const opts = input || {};
+        const rawFunds = await fetchHomeFundSummaries();
+        let funds = rawFunds.map(mapFundItem).filter(Boolean);
+        if (opts.preferredTypes?.length) {
+          funds = funds.filter((fund: any) => opts.preferredTypes?.includes(fund.fundType));
         }
-
-        const ftList = await getFundList({ guoyuan_only: true, page_size: 100 });
-        const rawFunds = Array.isArray(ftList?.funds) ? ftList.funds : [];
-        const fundsMap = new Map<string, any>(rawFunds.map((f: any) => [f.code, mapFundItem(f)]));
-
-        const rec = mapRecommendation(ftResult, fundsMap);
-        if (input?.riskProfile) {
-          return [rec].filter((r) => r.riskProfile === input.riskProfile);
-        }
-        return [rec];
+        const parseMetric = (value: unknown) => {
+          const num = parseFloat(String(value ?? "").replace("%", ""));
+          return Number.isFinite(num) ? num : 0;
+        };
+        const riskProfile = opts.riskProfile || "balanced";
+        const maxDdLimit = opts.maxDrawdown ?? (riskProfile === "conservative" ? 12 : riskProfile === "aggressive" ? 35 : 22);
+        const templates: Record<string, Array<{ type: string; weight: number }>> = {
+          conservative: [{ type: "bond", weight: 55 }, { type: "money", weight: 15 }, { type: "hybrid", weight: 20 }, { type: "index", weight: 10 }],
+          balanced: [{ type: "bond", weight: 25 }, { type: "hybrid", weight: 35 }, { type: "index", weight: 25 }, { type: "equity", weight: 15 }],
+          aggressive: [{ type: "equity", weight: 35 }, { type: "index", weight: 35 }, { type: "hybrid", weight: 20 }, { type: "qdii", weight: 10 }],
+          moderate: [{ type: "bond", weight: 35 }, { type: "hybrid", weight: 35 }, { type: "index", weight: 20 }, { type: "equity", weight: 10 }],
+        };
+        const template = templates[riskProfile] || templates.balanced;
+        const usedCodes = new Set<string>();
+        const allocations = template.map((slot) => {
+          const candidates = funds
+            .filter((fund: any) => fund.fundType === slot.type && !usedCodes.has(fund.fundCode))
+            .filter((fund: any) => Math.abs(parseMetric(fund.performance?.maxDrawdown)) <= maxDdLimit || parseMetric(fund.performance?.maxDrawdown) === 0)
+            .sort((a: any, b: any) => {
+              const scoreA = parseMetric(a.performance?.return1y) + parseMetric(a.performance?.sharpeRatio) * 5 - Math.abs(parseMetric(a.performance?.maxDrawdown)) * 0.25;
+              const scoreB = parseMetric(b.performance?.return1y) + parseMetric(b.performance?.sharpeRatio) * 5 - Math.abs(parseMetric(b.performance?.maxDrawdown)) * 0.25;
+              return scoreB - scoreA;
+            });
+          const fund = candidates[0] || funds.find((item: any) => !usedCodes.has(item.fundCode));
+          if (fund) usedCodes.add(fund.fundCode);
+          return fund ? {
+            fundId: fund.id,
+            weight: slot.weight,
+            reason: `${fund.category}配置，近1年${fund.performance?.return1y ?? "0"}%，回撤${fund.performance?.maxDrawdown ?? "—"}%`,
+            fund,
+          } : null;
+        }).filter(Boolean);
+        const expectedReturn = allocations.length
+          ? (allocations.reduce((sum: number, item: any) => sum + parseMetric(item.fund.performance?.return1y) * item.weight, 0) / 100).toFixed(2)
+          : "0";
+        const expectedRisk = allocations.length
+          ? (allocations.reduce((sum: number, item: any) => sum + Math.abs(parseMetric(item.fund.performance?.maxDrawdown)) * item.weight, 0) / 100).toFixed(2)
+          : "0";
+        return [{
+          id: 1,
+          name: `${riskProfile === "conservative" ? "稳健防守" : riskProfile === "aggressive" ? "进取成长" : "均衡配置"}组合`,
+          description: `按${opts.horizon || "中期"}周期、最大回撤约束${maxDdLimit}%从鑫基荟池内快速生成`,
+          riskProfile,
+          marketCondition: opts.horizon || "中期",
+          expectedReturn,
+          expectedRisk,
+          rationale: `优先使用同类中近1年收益、夏普与最大回撤综合得分较好的产品；配置权重按风险承受能力分配，可通过周期、类型和回撤约束重新调整。`,
+          tags: ["鑫基荟", "可调参数", "快速生成"],
+          fundAllocations: allocations,
+        }];
       } catch (err) {
         wrapError(err, "获取推荐配置失败");
       }
@@ -580,13 +627,10 @@ export const fundRouter = createRouter({
           throw new Error(`Unsupported strategy: ${input.strategy}`);
         }
 
-        // biweekly 后端不支持，映射为 monthly
-        const backendFrequency = input.investFrequency === "biweekly" ? "monthly" : input.investFrequency;
-
         const ftResult = await runDcaBacktest({
           codes,
           amount: input.investAmount,
-          frequency: backendFrequency,
+          frequency: input.investFrequency,
           strategy: backendStrategy,
           start_date: input.startDate,
           end_date: input.endDate,

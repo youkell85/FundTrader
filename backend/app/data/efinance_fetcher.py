@@ -1,7 +1,9 @@
 """efinance 数据获取层 - 基金净值与定投回测"""
 import html
+import math
 import re
 import urllib.request
+from datetime import datetime
 import efinance as ef
 import pandas as pd
 from typing import Optional, List, Dict, Any
@@ -231,35 +233,113 @@ def _calc_fixed_dca(
     nav_data: List[Dict], amount: float, frequency: str
 ) -> Dict[str, Any]:
     """固定金额定投回测"""
+    return _calc_rule_dca(nav_data, amount, frequency, lambda *_: amount, "固定金额定投")
+
+
+def _calc_ratio_dca(
+    nav_data: List[Dict], amount: float, frequency: str
+) -> Dict[str, Any]:
+    """固定比例定投：按基准金额随市场位置轻微调整投入。"""
+    def amount_rule(i: int, nav: float, navs: List[float], _last_nav: float) -> float:
+        window = navs[max(0, i - 60): i + 1]
+        if not window:
+            return amount
+        low, high = min(window), max(window)
+        if high <= low:
+            return amount
+        position = (nav - low) / (high - low)
+        multiplier = 1.25 - position * 0.5
+        return amount * max(0.7, min(1.3, multiplier))
+
+    return _calc_rule_dca(nav_data, amount, frequency, amount_rule, "固定比例定投")
+
+
+def _calc_martingale_dca(
+    nav_data: List[Dict], amount: float, frequency: str
+) -> Dict[str, Any]:
+    """下跌加倍投入：相对上次扣款净值下跌越多，投入越高。"""
+    def amount_rule(_i: int, nav: float, _navs: List[float], last_trade_nav: float) -> float:
+        if last_trade_nav <= 0:
+            return amount
+        drawdown = (nav - last_trade_nav) / last_trade_nav
+        if drawdown <= -0.15:
+            return amount * 2.0
+        if drawdown <= -0.08:
+            return amount * 1.5
+        if drawdown <= -0.03:
+            return amount * 1.2
+        if drawdown >= 0.08:
+            return amount * 0.7
+        return amount
+
+    return _calc_rule_dca(nav_data, amount, frequency, amount_rule, "马丁格尔定投")
+
+
+def _get_invest_dates(nav_data: List[Dict], frequency: str) -> set:
+    """Pick the first available trading day for each week/bi-week/month."""
+    invest_dates = set()
+    seen_periods = set()
+    for i, point in enumerate(nav_data):
+        date = str(point.get("date", ""))
+        if not date:
+            continue
+        try:
+            dt = datetime.strptime(date[:10], "%Y-%m-%d")
+        except Exception:
+            if frequency == "weekly" and i % 5 == 0:
+                invest_dates.add(date)
+            elif frequency == "biweekly" and i % 10 == 0:
+                invest_dates.add(date)
+            elif frequency == "monthly" and date[:7] not in seen_periods:
+                seen_periods.add(date[:7])
+                invest_dates.add(date)
+            continue
+
+        if frequency == "weekly":
+            key = (dt.isocalendar().year, dt.isocalendar().week)
+        elif frequency == "biweekly":
+            key = (dt.isocalendar().year, dt.isocalendar().week // 2)
+        else:
+            key = (dt.year, dt.month)
+        if key not in seen_periods:
+            seen_periods.add(key)
+            invest_dates.add(date)
+    return invest_dates
+
+
+def _calc_rule_dca(
+    nav_data: List[Dict],
+    amount: float,
+    frequency: str,
+    amount_rule,
+    strategy_name: str,
+) -> Dict[str, Any]:
+    """Shared DCA engine with cash-flow annualized return and risk metrics."""
     total_invested = 0.0
     total_shares = 0.0
     trade_count = 0
     curve = []
-    invest_dates = set()
+    cash_flows = []
+    navs = [float(p.get("nav") or 0) for p in nav_data]
+    invest_dates = _get_invest_dates(nav_data, frequency)
+    last_trade_nav = 0.0
 
-    # 确定定投日期
     for i, point in enumerate(nav_data):
-        date = point["date"]
-        if frequency == "weekly":
-            if i % 5 == 0:
-                invest_dates.add(date)
-        else:  # monthly
-            day = date.split("-")[2] if "-" in date else date[6:8]
-            if day in ("01", "02", "03", "04", "05"):
-                if date[:7] not in [d[:7] for d in invest_dates]:
-                    invest_dates.add(date)
-
-    for point in nav_data:
-        nav = point.get("nav", 0)
+        nav = float(point.get("nav", 0) or 0)
         if nav <= 0:
             continue
         date = point["date"]
 
         if date in invest_dates:
-            shares = amount / nav
+            invest_amount = float(amount_rule(i, nav, navs, last_trade_nav))
+            if invest_amount <= 0:
+                invest_amount = amount
+            shares = invest_amount / nav
             total_shares += shares
-            total_invested += amount
+            total_invested += invest_amount
             trade_count += 1
+            last_trade_nav = nav
+            cash_flows.append((date, -invest_amount))
 
         current_value = total_shares * nav
         curve.append({
@@ -269,24 +349,18 @@ def _calc_fixed_dca(
             "profit_rate": round((current_value - total_invested) / total_invested * 100, 2) if total_invested > 0 else 0,
         })
 
-    # 计算统计
     final_value = total_shares * nav_data[-1]["nav"] if nav_data and total_shares > 0 else 0
     total_profit = final_value - total_invested
     profit_rate = (total_profit / total_invested * 100) if total_invested > 0 else 0
-
-    # 计算最大回撤
     max_drawdown = _calc_max_drawdown(curve)
-
-    # 年化收益
-    if len(nav_data) >= 2:
-        years = _calc_years(nav_data[0]["date"], nav_data[-1]["date"])
-        annual_return = ((final_value / total_invested) ** (1 / years) - 1) * 100 if years > 0 and total_invested > 0 else 0
-    else:
-        years = 0
-        annual_return = 0
+    years = _calc_years(nav_data[0]["date"], nav_data[-1]["date"]) if len(nav_data) >= 2 else 0
+    if final_value > 0 and cash_flows:
+        cash_flows.append((nav_data[-1]["date"], final_value))
+    annual_return = _calc_xirr(cash_flows) * 100 if cash_flows else 0
+    sharpe_ratio = _calc_curve_sharpe(curve)
 
     return {
-        "strategy": "固定金额定投",
+        "strategy": strategy_name,
         "start_date": nav_data[0]["date"] if nav_data else None,
         "end_date": nav_data[-1]["date"] if nav_data else None,
         "years": round(years, 2),
@@ -296,6 +370,7 @@ def _calc_fixed_dca(
         "total_profit_rate": round(profit_rate, 2),
         "annual_return": round(annual_return, 2),
         "max_drawdown": round(max_drawdown, 2),
+        "sharpe_ratio": round(sharpe_ratio, 2),
         "trade_count": trade_count,
         "nav_curve": curve,  # 全量数据，供图表展示完整回测历史
     }
@@ -317,86 +392,22 @@ def _calc_ma_dca(
         else:
             ma_values.append(sum(navs[i-ma_window:i]) / ma_window)
 
-    total_invested = 0.0
-    total_shares = 0.0
-    trade_count = 0
-    skip_count = 0
-    curve = []
-    invest_dates = set()
+    def amount_rule(i: int, nav: float, _navs: List[float], _last_nav: float) -> float:
+        ma = ma_values[i]
+        deviation = (nav - ma) / ma if ma > 0 else 0
+        if deviation < -0.1:
+            return amount * 1.5
+        if deviation < -0.05:
+            return amount * 1.2
+        if deviation > 0.1:
+            return amount * 0.5
+        if deviation > 0.05:
+            return amount * 0.8
+        return amount
 
-    for i, point in enumerate(nav_data):
-        date = point["date"]
-        if frequency == "monthly":
-            day = date.split("-")[2] if "-" in date else date[6:8]
-            if day in ("01", "02", "03", "04", "05"):
-                if date[:7] not in [d[:7] for d in invest_dates]:
-                    invest_dates.add(date)
-        else:
-            if i % 5 == 0:
-                invest_dates.add(date)
-
-    for i, point in enumerate(nav_data):
-        nav = point.get("nav", 0)
-        if nav <= 0:
-            continue
-        date = point["date"]
-
-        if date in invest_dates:
-            ma = ma_values[i]
-            deviation = (nav - ma) / ma if ma > 0 else 0
-
-            # 偏离策略：低于均线多投，高于均线少投
-            if deviation < -0.1:
-                invest_amount = amount * 1.5
-            elif deviation < -0.05:
-                invest_amount = amount * 1.2
-            elif deviation > 0.1:
-                invest_amount = amount * 0.5
-            elif deviation > 0.05:
-                invest_amount = amount * 0.8
-            else:
-                invest_amount = amount
-
-            shares = invest_amount / nav
-            total_shares += shares
-            total_invested += invest_amount
-            trade_count += 1
-
-        current_value = total_shares * nav
-        curve.append({
-            "date": date,
-            "invested": round(total_invested, 2),
-            "value": round(current_value, 2),
-            "profit_rate": round((current_value - total_invested) / total_invested * 100, 2) if total_invested > 0 else 0,
-        })
-
-    final_value = total_shares * nav_data[-1]["nav"] if nav_data and total_shares > 0 else 0
-    total_profit = final_value - total_invested
-    profit_rate = (total_profit / total_invested * 100) if total_invested > 0 else 0
-    max_drawdown = _calc_max_drawdown(curve)
-
-    if len(nav_data) >= 2:
-        years = _calc_years(nav_data[0]["date"], nav_data[-1]["date"])
-        annual_return = ((final_value / total_invested) ** (1 / years) - 1) * 100 if years > 0 and total_invested > 0 else 0
-    else:
-        years = 0
-        annual_return = 0
-
-    return {
-        "strategy": "均线偏离定投",
-        "start_date": nav_data[0]["date"] if nav_data else None,
-        "end_date": nav_data[-1]["date"] if nav_data else None,
-        "years": round(years, 2),
-        "total_invested": round(total_invested, 2),
-        "total_value": round(final_value, 2),
-        "total_profit": round(total_profit, 2),
-        "total_profit_rate": round(profit_rate, 2),
-        "annual_return": round(annual_return, 2),
-        "max_drawdown": round(max_drawdown, 2),
-        "trade_count": trade_count,
-        "skip_count": skip_count,
-        "nav_curve": curve[-60:],
-    }
+    result = _calc_rule_dca(nav_data, amount, frequency, amount_rule, "均线偏离定投")
+    result["skip_count"] = 0
+    return result
 
 
 def _calc_max_drawdown(curve: List[Dict]) -> float:
@@ -414,6 +425,51 @@ def _calc_max_drawdown(curve: List[Dict]) -> float:
             if dd > max_dd:
                 max_dd = dd
     return max_dd
+
+
+def _calc_curve_sharpe(curve: List[Dict]) -> float:
+    values = [float(p.get("value") or 0) for p in curve if float(p.get("value") or 0) > 0]
+    if len(values) < 3:
+        return 0.0
+    returns = []
+    for prev, cur in zip(values, values[1:]):
+        if prev > 0:
+            returns.append((cur - prev) / prev)
+    if len(returns) < 2:
+        return 0.0
+    mean = sum(returns) / len(returns)
+    variance = sum((r - mean) ** 2 for r in returns) / max(1, len(returns) - 1)
+    volatility = math.sqrt(variance)
+    if volatility <= 0:
+        return 0.0
+    return (mean / volatility) * math.sqrt(252)
+
+
+def _calc_xirr(cash_flows: List[tuple]) -> float:
+    if len(cash_flows) < 2:
+        return 0.0
+    try:
+        dated = [(datetime.strptime(str(d)[:10], "%Y-%m-%d"), float(v)) for d, v in cash_flows]
+    except Exception:
+        return 0.0
+    if not any(v < 0 for _, v in dated) or not any(v > 0 for _, v in dated):
+        return 0.0
+    start = dated[0][0]
+
+    def npv(rate: float) -> float:
+        return sum(v / ((1 + rate) ** ((d - start).days / 365.25)) for d, v in dated)
+
+    low, high = -0.95, 5.0
+    for _ in range(100):
+        mid = (low + high) / 2
+        val = npv(mid)
+        if abs(val) < 1e-6:
+            return mid
+        if val > 0:
+            low = mid
+        else:
+            high = mid
+    return (low + high) / 2
 
 
 def _calc_years(start_date: str, end_date: str) -> float:

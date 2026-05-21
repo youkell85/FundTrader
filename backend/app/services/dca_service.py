@@ -1,6 +1,15 @@
 """定投回测服务"""
 from typing import Dict, Any, List
-from ..data.efinance_fetcher import _calc_fixed_dca, _calc_ma_dca, get_fund_names
+from ..data.efinance_fetcher import (
+    _calc_fixed_dca,
+    _calc_ma_dca,
+    _calc_martingale_dca,
+    _calc_ratio_dca,
+    _calc_max_drawdown,
+    _calc_curve_sharpe,
+    _calc_xirr,
+    get_fund_names,
+)
 from ..data.cache_manager import cache
 from ..config import CACHE_TTL_NAV
 
@@ -39,6 +48,7 @@ def _calc_buy_and_hold_curve(nav_data: List[Dict], total_amount: float) -> Dict[
         return {"curve": [], "final_value": 0, "profit_rate": 0}
     shares = total_amount / first_nav
     curve = []
+    cash_flows = []
     for p in nav_data:
         nav = p.get("nav", 0) or 0
         if nav <= 0:
@@ -50,10 +60,19 @@ def _calc_buy_and_hold_curve(nav_data: List[Dict], total_amount: float) -> Dict[
             "profit_rate": round((value - total_amount) / total_amount * 100, 2),
         })
     final_value = curve[-1]["value"] if curve else 0
+    if curve and total_amount > 0:
+        cash_flows = [(curve[0]["date"], -total_amount), (curve[-1]["date"], final_value)]
+    annual_return = _calc_xirr(cash_flows) * 100 if cash_flows else 0
+    max_drawdown = _calc_max_drawdown(curve)
+    sharpe_ratio = _calc_curve_sharpe(curve)
     return {
         "curve": curve,
         "final_value": round(final_value, 2),
         "profit_rate": round((final_value - total_amount) / total_amount * 100, 2) if total_amount > 0 else 0,
+        "total_return": round((final_value - total_amount) / total_amount * 100, 2) if total_amount > 0 else 0,
+        "annual_return": round(annual_return, 2),
+        "max_drawdown": round(max_drawdown, 2),
+        "sharpe_ratio": round(sharpe_ratio, 2),
         "total_invested": total_amount,
     }
 
@@ -77,8 +96,12 @@ def _calculate_dca_backtest(
     results = {}
     if strategy in ("fixed", "compare"):
         results["fixed"] = _calc_fixed_dca(nav_data, amount, frequency)
+    if strategy in ("ratio", "compare"):
+        results["ratio"] = _calc_ratio_dca(nav_data, amount, frequency)
     if strategy in ("ma", "compare"):
         results["ma"] = _calc_ma_dca(nav_data, amount, frequency, ma_window)
+    if strategy in ("martingale", "compare"):
+        results["martingale"] = _calc_martingale_dca(nav_data, amount, frequency)
 
     # 计算买入持有基准曲线（以定投总投入为一次性投入金额）
     primary = results.get("fixed") or results.get("ma") or {}

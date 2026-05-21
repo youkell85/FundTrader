@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Calculator, Play, RotateCcw, Loader2, AlertCircle, Sparkles } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Calculator, Play, RotateCcw, Loader2, AlertCircle, Sparkles, Search, Plus, X } from "lucide-react";
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import { trpc } from "@/providers/trpc";
 import {
@@ -45,6 +45,7 @@ export default function Backtest() {
   const [errorMsg, setErrorMsg] = useState("");
   const [llmReview, setLlmReview] = useState<any>(null);
   const [llmLoading, setLlmLoading] = useState(false);
+  const [fundSearch, setFundSearch] = useState("");
 
   const utils = trpc.useUtils();
   const llmMutation = trpc.fund.analyzeDcaLLM.useMutation();
@@ -118,6 +119,12 @@ export default function Backtest() {
         code,
         name,
         dca: {
+          total_invested: result.totalInvested,
+          final_value: result.finalValue,
+          total_return: result.totalReturn,
+          annualized_return: result.annualizedReturn,
+          max_drawdown: result.maxDrawdown,
+          sharpe_ratio: result.sharpeRatio,
           totalInvested: result.totalInvested,
           finalValue: result.finalValue,
           totalReturn: result.totalReturn,
@@ -139,6 +146,18 @@ export default function Backtest() {
   };
 
   const selectedFundDetails = selectedFunds.map((id) => allFunds.find((f: any) => f.id === id)).filter(Boolean);
+  const filteredFundOptions = useMemo(() => {
+    const keyword = fundSearch.trim().toLowerCase();
+    const source = keyword
+      ? allFunds.filter((f: any) =>
+          f.fundCode?.includes(keyword) ||
+          f.fundName?.toLowerCase().includes(keyword) ||
+          f.fundAbbr?.toLowerCase().includes(keyword) ||
+          f.category?.toLowerCase().includes(keyword)
+        )
+      : allFunds;
+    return source.filter((f: any) => !selectedFunds.includes(f.id)).slice(0, 24);
+  }, [allFunds, fundSearch, selectedFunds]);
   const totalReturnNum = parseFloat(result?.totalReturn || "0");
   const benchmarkReturnNum = parseFloat(result?.benchmark?.totalReturn || result?.benchmarkReturn || "0");
   const excessNum = totalReturnNum - benchmarkReturnNum;
@@ -160,23 +179,49 @@ export default function Backtest() {
 
               <div className="mb-4">
                 <label className="text-xs text-white/40 mb-2 block">选择基金</label>
-                <select className="w-full h-10 px-3 rounded-lg bg-white/[0.03] border border-white/[0.06] text-white/70 text-sm focus:outline-none focus:border-[#3B6CFF]/50"
-                  onChange={(e) => { if (e.target.value) { handleAddFund(parseInt(e.target.value)); e.target.value = ""; } }} value="">
-                  <option value="">+ 添加基金</option>
-                  {allFunds.map((f: any) => (<option key={f.id} value={f.id}>{f.fundAbbr || f.fundName} ({f.fundCode})</option>))}
-                </select>
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/25" />
+                  <input
+                    value={fundSearch}
+                    onChange={(e) => setFundSearch(e.target.value)}
+                    placeholder="输入代码、名称或类型筛选产品"
+                    className="w-full h-10 pl-9 pr-3 rounded-lg bg-[#0B1021] border border-white/[0.08] text-white text-sm placeholder:text-white/25 focus:outline-none focus:border-[#3B6CFF]/50"
+                  />
+                </div>
+                <div className="mt-2 max-h-56 overflow-y-auto rounded-lg border border-white/[0.06] bg-[#070B18]/80">
+                  {filteredFundOptions.map((f: any) => (
+                    <button
+                      key={f.id}
+                      type="button"
+                      onClick={() => { handleAddFund(f.id); setFundSearch(""); }}
+                      className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-white/[0.06] border-b border-white/[0.03] last:border-b-0 transition-colors"
+                    >
+                      <Plus className="w-3.5 h-3.5 text-[#5AA9FF] shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-white/85 text-sm truncate">{f.fundAbbr || f.fundName}</div>
+                        <div className="text-white/35 text-xs data-number">{f.fundCode} · {f.category}</div>
+                      </div>
+                      <span className="text-[10px] text-white/35 px-1.5 py-0.5 rounded bg-white/[0.04]">{f.fundType}</span>
+                    </button>
+                  ))}
+                  {filteredFundOptions.length === 0 && (
+                    <div className="px-3 py-4 text-center text-white/35 text-sm">没有匹配产品</div>
+                  )}
+                </div>
 
                 {selectedFundDetails.length > 0 && (
                   <div className="mt-2 space-y-2">
                     {selectedFundDetails.map((f: any, i: number) => (
-                      <div key={f.id} className="flex items-center gap-2 liquid-glass-sm px-3 py-2">
+                      <div key={f.id} className="flex items-center gap-2 rounded-lg bg-white/[0.04] border border-white/[0.06] px-3 py-2">
                         <span className="text-white text-sm flex-1 truncate">{f.fundAbbr}</span>
                         {selectedFunds.length > 1 && (
                           <input type="number" value={weights[i] || 0}
                             onChange={(e) => { const newW = [...weights]; newW[i] = parseInt(e.target.value) || 0; setWeights(newW); }}
-                            className="w-14 h-7 rounded bg-white/[0.05] border border-white/[0.06] text-white/60 text-xs data-number text-center" />
+                            className="w-14 h-7 rounded bg-[#0B1021] border border-white/[0.08] text-white text-xs data-number text-center" />
                         )}
-                        <button onClick={() => handleRemoveFund(i)} className="text-white/30 hover:text-[#F5384B] text-xs px-1">×</button>
+                        <button onClick={() => handleRemoveFund(i)} className="text-white/35 hover:text-[#F5384B] p-1" title="移除">
+                          <X className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     ))}
                   </div>
@@ -207,8 +252,8 @@ export default function Backtest() {
                 <div>
                   <label className="text-xs text-white/40 mb-1 block">定投频率</label>
                   <select value={frequency} onChange={(e) => setFrequency(e.target.value)}
-                    className="w-full h-10 px-3 rounded-lg bg-white/[0.03] border border-white/[0.06] text-white/70 text-sm focus:outline-none focus:border-[#3B6CFF]/50">
-                    {frequencies.map((f) => (<option key={f.value} value={f.value}>{f.label}</option>))}
+                    className="w-full h-10 px-3 rounded-lg bg-[#0B1021] border border-white/[0.08] text-white text-sm focus:outline-none focus:border-[#3B6CFF]/50">
+                    {frequencies.map((f) => (<option key={f.value} value={f.value} className="bg-[#0B1021] text-white">{f.label}</option>))}
                   </select>
                 </div>
               </div>
@@ -306,9 +351,18 @@ export default function Backtest() {
                           tickLine={false}
                           width={60}
                           domain={[
-                            (dataMin: number) => Math.floor(Math.min(0, dataMin) * 0.95),
-                            (dataMax: number) => Math.ceil(dataMax * 1.08),
+                            (dataMin: number) => {
+                              const min = Number.isFinite(dataMin) ? dataMin : 0;
+                              const padding = Math.max(Math.abs(min) * 0.08, 500);
+                              return Math.floor(Math.min(0, min - padding));
+                            },
+                            (dataMax: number) => {
+                              const max = Number.isFinite(dataMax) ? dataMax : 0;
+                              const padding = Math.max(Math.abs(max) * 0.14, 1000);
+                              return Math.ceil(max + padding);
+                            },
                           ]}
+                          allowDataOverflow={false}
                           tickFormatter={(v) => `¥${(v / 10000).toFixed(1)}万`}
                         />
                         <Tooltip contentStyle={{ background: "rgba(5, 8, 26, 0.95)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "8px", fontSize: "12px" }}
@@ -354,6 +408,20 @@ export default function Backtest() {
                       ? `本时段为单边上行市，一次性买入持有领先定投 ${Math.abs(excessNum).toFixed(2)}%，建议在震荡或下跌市场中再考虑定投。`
                       : `定投与买入持有表现接近，差异 ${Math.abs(excessNum).toFixed(2)}%，可结合风险偏好选择。`}
                   </p>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mt-4">
+                    <div className="rounded-lg bg-white/[0.03] border border-white/[0.05] p-3">
+                      <div className="text-white/35 text-xs mb-1">回测口径</div>
+                      <div className="text-white/65 text-xs leading-relaxed">按实际可用净值日买入，周/双周/月频率取周期内首个交易日。</div>
+                    </div>
+                    <div className="rounded-lg bg-white/[0.03] border border-white/[0.05] p-3">
+                      <div className="text-white/35 text-xs mb-1">年化口径</div>
+                      <div className="text-white/65 text-xs leading-relaxed">定投使用现金流年化收益，买入持有使用期初一次性投入比较。</div>
+                    </div>
+                    <div className="rounded-lg bg-white/[0.03] border border-white/[0.05] p-3">
+                      <div className="text-white/35 text-xs mb-1">风险指标</div>
+                      <div className="text-white/65 text-xs leading-relaxed">最大回撤基于组合市值曲线，夏普由日度曲线收益估算。</div>
+                    </div>
+                  </div>
                 </div>
 
                 <div className="liquid-glass p-4 md:p-6">
@@ -394,6 +462,18 @@ export default function Backtest() {
                           <div className="text-xs mb-2" style={{ color: ACCENT_HIGHLIGHT }}>优化建议</div>
                           <ul className="space-y-1.5">
                             {llmReview.suggestions.map((s: string, i: number) => (
+                              <li key={i} className="text-white/70 text-sm flex gap-2">
+                                <span className="text-white/30">{i + 1}.</span><span>{s}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      {Array.isArray(llmReview.risk_notes) && llmReview.risk_notes.length > 0 && (
+                        <div className="liquid-glass-sm p-3">
+                          <div className="text-xs mb-2" style={{ color: RISK_COLOR }}>风险提示</div>
+                          <ul className="space-y-1.5">
+                            {llmReview.risk_notes.map((s: string, i: number) => (
                               <li key={i} className="text-white/70 text-sm flex gap-2">
                                 <span className="text-white/30">{i + 1}.</span><span>{s}</span>
                               </li>
