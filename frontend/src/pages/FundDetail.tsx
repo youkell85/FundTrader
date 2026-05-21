@@ -44,6 +44,7 @@ export default function FundDetail() {
   const isFundCode = /^\d{6}$/.test(routeParam);
   const fundId = isFundCode ? 0 : parseInt(routeParam || "0");
   const [navPeriod, setNavPeriod] = useState<string>("1y");
+  const [selectedRiskMetric, setSelectedRiskMetric] = useState<string | null>(null);
   const detailById = trpc.fund.detail.useQuery({ id: fundId }, { enabled: !isFundCode && fundId > 0 });
   const detailByCode = trpc.fund.detailByCode.useQuery({ code: routeParam }, { enabled: isFundCode });
   const fund = isFundCode ? detailByCode.data : detailById.data;
@@ -132,6 +133,9 @@ export default function FundDetail() {
   if (!fund) return <div className="min-h-screen pt-20 text-center text-white/30">基金不存在</div>;
 
   const perf = fund.performance;
+  const feeFallback = fund.fundType === "index" || /ETF|LOF/i.test(String(fund.fundName || fund.fundAbbr || ""))
+    ? "场内交易费率以券商为准"
+    : "待披露";
   const dailyChange = parseFloat(fund.dailyChange || "0");
 
   return (
@@ -274,6 +278,7 @@ export default function FundDetail() {
                     <TooltipTrigger asChild>
                       <div
                         tabIndex={0}
+                        onClick={() => setSelectedRiskMetric(selectedRiskMetric === m.label ? null : m.label)}
                         aria-label={`${m.label}：${riskMetricDescriptions[m.label]}`}
                         className="liquid-glass-sm p-2 md:p-3 text-center group hover:bg-white/[0.06] focus-visible:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/20 transition-all cursor-help"
                       >
@@ -290,6 +295,12 @@ export default function FundDetail() {
                   </UiTooltip>
                 ))}
               </div>
+              {selectedRiskMetric && (
+                <div className="md:hidden mt-3 rounded-lg border border-white/[0.08] bg-white/[0.04] p-3">
+                  <div className="text-white/80 text-xs font-medium mb-1">{selectedRiskMetric}</div>
+                  <div className="text-white/60 text-xs leading-relaxed">{riskMetricDescriptions[selectedRiskMetric]}</div>
+                </div>
+              )}
             </div>
 
             {/* AI 综合分析 LLM 卡片 */}
@@ -302,11 +313,11 @@ export default function FundDetail() {
                   disabled={llmQuery.isLoading || llmQuery.isFetching}
                   className="h-9 px-4 rounded-lg text-xs font-medium transition-all disabled:opacity-40"
                   style={{ background: `${ACCENT_INFO}1A`, color: ACCENT_INFO, border: `1px solid ${ACCENT_INFO}40` }}>
-                  {(llmQuery.isLoading || llmQuery.isFetching) ? "AI 分析中..." : (llmQuery.data ? "刷新分析" : "调用 DeepSeek 生成专业报告")}
+                  {(llmQuery.isLoading || llmQuery.isFetching) ? "AI 分析中..." : (llmQuery.data ? "刷新分析" : "调用 DeepSeek v4 flash 生成专业报告")}
                 </button>
               </div>
               {!llmEnabled && (
-                <p className="text-white/40 text-sm">点击上方按钮调用 DeepSeek-V4 LLM，对本基金业绩、基金经理、重仓持股进行专业评价。</p>
+                <p className="text-white/40 text-sm">点击上方按钮调用 DeepSeek v4 flash，对本基金业绩、基金经理、重仓持股进行专业评价。</p>
               )}
               {llmEnabled && (llmQuery.isLoading || llmQuery.isFetching) && (
                 <div className="flex items-center gap-2 text-white/40 text-sm py-6">
@@ -483,8 +494,8 @@ export default function FundDetail() {
             <div className="liquid-glass p-4 md:p-6">
               <h2 className="text-sm font-medium text-white/50 mb-3">基金信息</h2>
               <div className="space-y-2 text-xs">
-                <div className="flex justify-between"><span className="text-white/40">管理费率</span><span className="data-number text-white/70">{fund.feeManage != null && !isNaN(parseFloat(fund.feeManage)) ? (parseFloat(fund.feeManage) * 100).toFixed(2) + "%" : "—"}</span></div>
-                <div className="flex justify-between"><span className="text-white/40">托管费率</span><span className="data-number text-white/70">{fund.feeCustody != null && !isNaN(parseFloat(fund.feeCustody)) ? (parseFloat(fund.feeCustody) * 100).toFixed(2) + "%" : "—"}</span></div>
+                <div className="flex justify-between gap-3"><span className="text-white/40">管理费率</span><span className="data-number text-white/70 text-right">{fund.feeManage != null && !isNaN(parseFloat(fund.feeManage)) ? (parseFloat(fund.feeManage) * 100).toFixed(2) + "%" : feeFallback}</span></div>
+                <div className="flex justify-between gap-3"><span className="text-white/40">托管费率</span><span className="data-number text-white/70 text-right">{fund.feeCustody != null && !isNaN(parseFloat(fund.feeCustody)) ? (parseFloat(fund.feeCustody) * 100).toFixed(2) + "%" : feeFallback}</span></div>
                 <div className="flex justify-between"><span className="text-white/40">基金规模</span><span className="data-number text-white/70">{fund.totalScale}亿元</span></div>
                 <div className="flex justify-between"><span className="text-white/40">累计净值</span><span className="data-number text-white/70">{fund.accumNav}</span></div>
               </div>
@@ -495,6 +506,9 @@ export default function FundDetail() {
                 <h2 className="text-base md:text-lg font-medium text-white mb-4 flex items-center gap-2">
                   <Layers className="w-5 h-5" style={{ color: ACCENT_INFO }} />重仓持股
                 </h2>
+                <div className="mb-3 rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-2 text-xs text-white/50 leading-relaxed">
+                  重仓持股来自公开季报/F10/数据源聚合，属于季度披露数据，不是实时仓位；日涨跌只反映成分股当日价格变化。
+                </div>
                 <div className="space-y-2">
                   {fund.holdings.map((h: any, i: number) => {
                     const ratio = parseFloat(h.ratio || "0") * 100;

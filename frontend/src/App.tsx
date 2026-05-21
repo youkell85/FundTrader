@@ -25,7 +25,7 @@ export default function App() {
   return (
     <div className="relative min-h-screen">
       <LuminousBackground />
-      <div className="relative z-10">
+      <div className="relative z-10 pb-16 md:pb-0">
         <Navbar />
         <Suspense fallback={<PageLoader />}>
           <Routes>

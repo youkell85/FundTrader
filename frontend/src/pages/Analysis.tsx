@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router";
 import { TrendingUp, Search, BrainCircuit, User, ArrowRight, Loader2, PieChart, Activity, Shield } from "lucide-react";
-import { RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, ResponsiveContainer, PieChart as RePie, Pie, Cell } from "recharts";
+import { RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, ResponsiveContainer, PieChart as RePie, Pie, Cell, Tooltip as ReTooltip } from "recharts";
 import { trpc } from "@/providers/trpc";
 import {
   UP_COLOR,
@@ -94,7 +94,12 @@ export default function Analysis() {
   };
 
   const distribution = useMemo(() => {
-    if (Array.isArray(industryStatsData) && industryStatsData.length > 0) return industryStatsData;
+    if (Array.isArray(industryStatsData) && industryStatsData.length > 0) {
+      return industryStatsData.map((item: any) => ({
+        ...item,
+        totalRatio: Number(item.totalRatio) || 0,
+      }));
+    }
     const groups = new Map<string, number>();
     allFunds.forEach((fund: any) => {
       const label = fund.category || fund.fundType || "其他";
@@ -194,6 +199,10 @@ export default function Analysis() {
                         <Pie data={distribution} cx="50%" cy="50%" innerRadius={48} outerRadius={82} paddingAngle={2} dataKey="totalRatio">
                           {distribution.map((_: any, i: number) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
                         </Pie>
+                        <ReTooltip
+                          contentStyle={{ background: "rgba(5, 8, 26, 0.96)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "8px", fontSize: "12px" }}
+                          formatter={(value: any) => [`${Number(value).toFixed(2)}%`, "占比"]}
+                        />
                       </RePie>
                     </ResponsiveContainer>
                   </div>
@@ -271,6 +280,15 @@ export default function Analysis() {
                         <div className="data-number text-sm" style={{ color: item.color }}>{item.value}</div>
                       </div>
                     ))}
+                  </div>
+
+                  <div className="mb-4 rounded-lg border border-white/[0.06] bg-white/[0.03] p-3">
+                    <div className="text-xs text-white/30 mb-2">履历与风格</div>
+                    <div className="space-y-1.5 text-xs text-white/58 leading-relaxed">
+                      <div>任职起点：<span className="data-number text-white/75">{managerDetail.careerStart || "—"}</span></div>
+                      <div>投资风格：{managerDetail.investmentStyle || "暂无明确风格标签"}</div>
+                      <div>投资理念：{managerDetail.philosophy || "暂无公开履历摘要，可结合在管基金表现继续观察。"}</div>
+                    </div>
                   </div>
 
                   <div className="h-48">
