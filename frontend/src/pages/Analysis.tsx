@@ -151,7 +151,7 @@ export default function Analysis() {
                   <h3 className="text-sm mb-2" style={{ color: ACCENT_INFO }}>市场趋势研判</h3>
                   <p className="text-white/50 text-sm leading-relaxed">
                     {overview.totalFunds > 0
-                      ? `当前基金池共 ${overview.totalFunds} 只产品，持续营销基金 ${overview.marketingCount} 只。市场平均年化收益 ${overview.avgReturn}%，平均夏普比率 ${overview.avgSharpe}。建议关注近1年收益率排名前20%的基金，结合行业配置分散风险。`
+                      ? `当前基金池共 ${overview.totalFunds} 只产品，鑫基荟产品 ${overview.marketingCount} 只。市场平均年化收益 ${overview.avgReturn}%，平均夏普比率 ${overview.avgSharpe}。建议关注近1年收益率排名前20%的基金，结合行业配置分散风险。`
                       : "数据加载中，请稍候..."}
                   </p>
                 </div>
@@ -268,7 +268,7 @@ export default function Analysis() {
               <div className="space-y-3">
                 {[
                   { label: "基金总数", value: overview.totalFunds, color: ACCENT_PRIMARY },
-                  { label: "持续营销", value: overview.marketingCount, color: ACCENT_INFO },
+                  { label: "鑫基荟", value: overview.marketingCount, color: ACCENT_INFO },
                   { label: "平均年化", value: `${overview.avgReturn}%`, color: parseFloat(overview.avgReturn) >= 0 ? UP_COLOR : DOWN_COLOR },
                   { label: "平均夏普", value: overview.avgSharpe, color: POSITIVE_METRIC_COLOR },
                 ].map((s) => (

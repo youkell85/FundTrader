@@ -152,7 +152,7 @@ export default function FundDetail() {
                 <h1 className="text-xl md:text-2xl font-semibold text-white">{fund.fundAbbr || fund.fundName}</h1>
                 <span className="data-number text-white/40 text-sm">{fund.fundCode}</span>
                 {fund.isContinuousMarketing === 1 && (
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-medium border" style={{ background: `${ACCENT_PRIMARY}26`, color: ACCENT_INFO, borderColor: `${ACCENT_PRIMARY}55` }}>持续营销</span>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-medium border" style={{ background: `${ACCENT_PRIMARY}26`, color: ACCENT_INFO, borderColor: `${ACCENT_PRIMARY}55` }}>鑫基荟</span>
                 )}
               </div>
               <div className="flex items-center gap-3 md:gap-4 mt-2 text-xs text-white/40 flex-wrap">
