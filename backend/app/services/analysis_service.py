@@ -425,7 +425,7 @@ def _calc_strategy_signal(
                 reasons.append(f"近20日涨跌{recent_return:+.1f}%，走势平稳")
 
     # 持仓集中度
-    if portfolio:
+    if portfolio and isinstance(portfolio, dict):
         holdings = portfolio.get("stock_holdings", [])
         if holdings:
             top_ratio = sum(h.get("ratio", 0) for h in holdings[:3])

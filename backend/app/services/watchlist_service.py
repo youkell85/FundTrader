@@ -1,10 +1,14 @@
 """自选基金管理服务"""
 import json
 import os
+import re
 from typing import List, Dict, Any, Optional
 from ..utils import console_error
 
 WATCHLIST_FILE = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data", "watchlist.json")
+
+# 基金代码格式校验
+FUND_CODE_PATTERN = re.compile(r'^\d{6}$')
 
 
 def _ensure_file():
@@ -29,6 +33,10 @@ def get_watchlist() -> List[Dict[str, Any]]:
 
 def add_fund(code: str, name: str = "", type_: str = "", tags: List[str] = []) -> Dict[str, Any]:
     """添加自选基金"""
+    # 校验基金代码格式
+    if not FUND_CODE_PATTERN.match(code):
+        return {"status": "error", "message": "无效的基金代码格式，应为6位数字"}
+
     watchlist = get_watchlist()
     # 检查是否已存在
     for f in watchlist:
@@ -63,10 +71,15 @@ def add_funds_batch(funds: List[Dict[str, Any]]) -> Dict[str, Any]:
     existing_codes = {f["code"] for f in watchlist}
     added = []
     skipped = []
+    invalid = []
 
     for fund in funds:
         code = fund.get("code", "")
         if not code:
+            continue
+        # 校验基金代码格式
+        if not FUND_CODE_PATTERN.match(code):
+            invalid.append(code)
             continue
         if code in existing_codes:
             skipped.append(code)
@@ -94,7 +107,7 @@ def add_funds_batch(funds: List[Dict[str, Any]]) -> Dict[str, Any]:
         existing_codes.add(code)
 
     _save_watchlist(watchlist)
-    return {"added": added, "skipped": skipped, "total": len(watchlist)}
+    return {"added": added, "skipped": skipped, "invalid": invalid, "total": len(watchlist)}
 
 
 def remove_fund(code: str) -> Dict[str, Any]:

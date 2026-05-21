@@ -146,7 +146,11 @@ async function fetchHomeFundSummaries() {
     const watchlist = await getWatchlist().catch(() => null);
     const watchlistFunds = Array.isArray(watchlist?.funds) ? watchlist.funds : [];
     if (watchlistFunds.length > 0) {
-      for (const fund of await fetchAllFundList({ use_watchlist: true })) {
+      const watchlistResult = await fetchAllFundList({ use_watchlist: true }).catch((err) => {
+        console.error("[fetchHomeFundSummaries] 获取自选基金失败，跳过自选合并:", err);
+        return [] as any[];
+      });
+      for (const fund of watchlistResult) {
         if (fund?.code) {
           watchlistCodes.add(fund.code);
           fundsByCode.set(fund.code, { ...fund, _source: "watchlist" });
@@ -305,9 +309,6 @@ export const fundRouter = createRouter({
           rawFunds = await fetchHomeFundSummaries();
         }
         let result = rawFunds.map(mapFundItem).filter(Boolean);
-
-        // 后台预热完整分析数据（不阻塞首屏）
-        setTimeout(() => fetchHomeFunds().catch(() => {}), 100);
 
         // 本地筛选
         if (opts.fundType) result = result.filter((f: any) => f.fundType === opts.fundType);
@@ -643,18 +644,24 @@ export const fundRouter = createRouter({
       const cached = getCached<any>(cacheKey);
       if (cached) return cached;
 
-      // 使用 fetchHomeFunds 获取完整数据（含夏普/最大回撤）
-      const funds = await fetchHomeFunds();
+      // 首页概览只需要轻量摘要，避免首屏为深度分析阻塞。
+      const funds = await fetchHomeFundSummaries();
       const mapped = funds.map(mapFundItem).filter(Boolean);
       const totalFunds = mapped.length;
+      const finiteAverage = (values: number[]) => {
+        const valid = values.filter(Number.isFinite);
+        return valid.length > 0
+          ? (valid.reduce((sum, value) => sum + value, 0) / valid.length).toFixed(2)
+          : "0";
+      };
       const avgReturn = totalFunds > 0
-        ? (mapped.reduce((s: number, f: any) => s + parseFloat(f.performance?.return1y || "0"), 0) / totalFunds).toFixed(2)
+        ? finiteAverage(mapped.map((f: any) => parseFloat(f.performance?.return1y || "0")))
         : "0";
       const avgSharpe = totalFunds > 0
-        ? (mapped.reduce((s: number, f: any) => s + parseFloat(f.performance?.sharpeRatio || "0"), 0) / totalFunds).toFixed(2)
+        ? finiteAverage(mapped.map((f: any) => parseFloat(f.performance?.sharpeRatio || "0")))
         : "0";
       const avgMaxDD = totalFunds > 0
-        ? (mapped.reduce((s: number, f: any) => s + parseFloat(f.performance?.maxDrawdown || "0"), 0) / totalFunds).toFixed(2)
+        ? finiteAverage(mapped.map((f: any) => parseFloat(f.performance?.maxDrawdown || "0")))
         : "0";
       const result = { totalFunds, avgReturn, avgSharpe, avgMaxDD, marketingCount: totalFunds };
       setCache(cacheKey, result, SNAPSHOT_TTL);

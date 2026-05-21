@@ -92,6 +92,12 @@ sleep 3
 BACKEND_OK=$(ssh -p ${SSH_PORT} root@${SG_HOST} "curl -s -o /dev/null -w '%{http_code}' http://localhost:8766/health" || echo "ERR")
 FRONTEND_OK=$(ssh -p ${SSH_PORT} root@${SG_HOST} "curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/fund/" || echo "ERR")
 NGINX_OK=$(ssh -p ${SSH_PORT} root@${SG_HOST} "curl -s -o /dev/null -w '%{http_code}' http://localhost/fund/" || echo "ERR")
+ASSET_OK=$(ssh -p ${SSH_PORT} root@${SG_HOST} "asset=\$(curl -fsS http://localhost/fund/ | grep -o '/fund/assets/[^\"'\"' ]*' | head -n 1); if [ -n \"\$asset\" ]; then curl -s -o /dev/null -w '%{http_code}' \"http://localhost\$asset\"; else echo MISSING; fi" || echo "ERR")
+if [ "${NGINX_OK}" != "200" ] || [ "${ASSET_OK}" != "200" ]; then
+  echo "  Static asset:       ${ASSET_OK}"
+  echo "  Frontend verification failed: page or entry asset is not reachable"
+  exit 1
+fi
 
 echo "  后端 (8766):     ${BACKEND_OK}"
 echo "  前端 (3000):     ${FRONTEND_OK}"

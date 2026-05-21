@@ -61,6 +61,13 @@ async def upload_fund_file(file: UploadFile = File(...)):
     if not file.filename:
         return {"funds": [], "errors": ["未提供文件名"]}
 
+    # 校验文件扩展名白名单
+    allowed_extensions = {".xlsx", ".xls", ".csv", ".txt", ".png", ".jpg", ".jpeg", ".webp", ".json"}
+    ext = file.filename.lower()
+    ext = ext[ext.rfind("."):] if "." in ext else ""
+    if ext not in allowed_extensions:
+        return {"funds": [], "errors": [f"不支持的文件类型: {ext}"]}
+
     content = await file.read()
     if len(content) > 10 * 1024 * 1024:  # 10MB限制
         return {"funds": [], "errors": ["文件大小超过10MB限制"]}

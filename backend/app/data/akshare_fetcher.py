@@ -264,7 +264,7 @@ def get_fund_industry_board() -> List[Dict[str, Any]]:
 
 
 def get_market_index() -> List[Dict[str, Any]]:
-    """获取主要市场指数（优先 Tushare index_daily，回退 akshare）"""
+    """获取主要市场指数（优先 Tushare index_daily，回退 AkShare 最新2日数据）"""
     try:
         from .providers.tushare_provider import TushareProvider
         tp = TushareProvider()
@@ -297,16 +297,30 @@ def get_market_index() -> List[Dict[str, Any]]:
         indices = {"sh000001": "上证指数", "sz399001": "深证成指", "sz399006": "创业板指"}
         result = []
         for code, name in indices.items():
-            df = ak.stock_zh_index_daily(symbol=code)
-            if df is not None and not df.empty:
-                latest = df.iloc[-1]
-                prev = df.iloc[-2] if len(df) > 1 else latest
-                change = (latest["close"] - prev["close"]) / prev["close"] * 100
-                result.append({
-                    "code": code, "name": name,
-                    "close": float(latest["close"]),
-                    "change": round(float(change), 2),
-                })
+            try:
+                # 限制获取最近30个交易日数据，减少网络开销
+                df = ak.stock_zh_index_daily(symbol=code)
+                if df is not None and not df.empty:
+                    # 取最新两行计算涨跌幅
+                    df_tail = df.tail(2)
+                    if len(df_tail) >= 2:
+                        latest = df_tail.iloc[-1]
+                        prev = df_tail.iloc[-2]
+                        prev_close = float(prev["close"])
+                        curr_close = float(latest["close"])
+                        change = (curr_close - prev_close) / prev_close * 100 if prev_close > 0 else 0
+                    elif len(df_tail) == 1:
+                        latest = df_tail.iloc[-1]
+                        change = 0
+                    else:
+                        continue
+                    result.append({
+                        "code": code, "name": name,
+                        "close": float(latest["close"]),
+                        "change": round(float(change), 2),
+                    })
+            except Exception as e:
+                console_error(f"AkShare market index error for {code}: {e}")
         return result
     except Exception as e:
         console_error(f"Market index error: {e}")

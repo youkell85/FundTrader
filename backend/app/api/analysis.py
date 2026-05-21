@@ -1,5 +1,6 @@
 """深度产品分析API"""
-from fastapi import APIRouter
+import re
+from fastapi import APIRouter, HTTPException
 from typing import List, Dict, Any
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import math
@@ -9,6 +10,15 @@ from ..data.cache_manager import cache
 from ..config import CACHE_TTL_INFO
 
 router = APIRouter(prefix="/analysis", tags=["深度产品分析"])
+
+# 基金代码格式：6位数字（公募基金标准格式）
+FUND_CODE_PATTERN = re.compile(r'^\d{6}$')
+
+
+def _validate_fund_code(code: str) -> None:
+    """校验基金代码格式，防止注入和路径遍历"""
+    if not FUND_CODE_PATTERN.match(code):
+        raise HTTPException(status_code=400, detail="无效的基金代码格式，应为6位数字")
 
 
 def _fill_missing_fees(code: str, data: Dict[str, Any]) -> Dict[str, Any]:
@@ -112,6 +122,7 @@ def _calc_nav_risk_metrics(nav_data: List[Dict[str, Any]]) -> Dict[str, float | 
 @router.get("/{code}")
 async def fund_analysis(code: str):
     """获取基金深度分析"""
+    _validate_fund_code(code)
     result = cached_analyze_fund(code)
     return result
 
@@ -119,6 +130,8 @@ async def fund_analysis(code: str):
 @router.post("/batch")
 async def fund_analysis_batch(codes: List[str]) -> Dict[str, Any]:
     """批量获取基金深度分析（并行处理，用于首页列表一次性加载）"""
+    for code in codes:
+        _validate_fund_code(code)
     results = {}
     # 使用线程池并行处理（analyze_fund 主要是IO密集型：网络请求+文件缓存）
     with ThreadPoolExecutor(max_workers=8) as executor:
@@ -138,6 +151,7 @@ async def fund_analysis_batch(codes: List[str]) -> Dict[str, Any]:
 @router.get("/{code}/style")
 async def manager_style_analysis(code: str):
     """LLM分析基金经理投资风格"""
+    _validate_fund_code(code)
     fund_data = cached_analyze_fund(code)
     manager = fund_data.get("manager")
     if not manager:

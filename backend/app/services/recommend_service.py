@@ -4,6 +4,7 @@ from ..data.akshare_fetcher import get_market_index, get_fund_industry_board
 from ..data.cache_manager import cache
 from ..constants.guoyuan_funds import GUOYUAN_FUND_LIST
 from ..config import CACHE_TTL_RANKING
+from ..utils import console_error
 
 
 def generate_recommendation(
@@ -13,17 +14,29 @@ def generate_recommendation(
     preferences: List[str] = [],
 ) -> Dict[str, Any]:
     """生成智能推荐方案"""
-    # 获取市场行情
-    market = cache.get("market_index", 1800)
-    if market is None:
-        market = get_market_index()
-        cache.set("market_index", market)
+    # 获取市场行情（带异常保护）
+    market = None
+    try:
+        market = cache.get("market_index", 1800)
+        if market is None:
+            market = get_market_index()
+            if market is not None:
+                cache.set("market_index", market)
+    except Exception as e:
+        console_error(f"Market index fetch error: {e}")
+        market = []
 
-    # 获取行业热度
-    industries = cache.get("industry_board", 1800)
-    if industries is None:
-        industries = get_fund_industry_board()
-        cache.set("industry_board", industries)
+    # 获取行业热度（带异常保护）
+    industries = None
+    try:
+        industries = cache.get("industry_board", 1800)
+        if industries is None:
+            industries = get_fund_industry_board()
+            if industries is not None:
+                cache.set("industry_board", industries)
+    except Exception as e:
+        console_error(f"Industry board fetch error: {e}")
+        industries = []
 
     # 根据风险偏好配置方案
     allocation = _get_risk_allocation(risk_level, amount, preferences)
@@ -39,8 +52,8 @@ def generate_recommendation(
         "funds": allocation,
         "expected_return": expected_return,
         "expected_risk": expected_risk,
-        "market_overview": market,
-        "analysis_summary": _generate_summary(risk_level, allocation, market),
+        "market_overview": market or [],
+        "analysis_summary": _generate_summary(risk_level, allocation, market or []),
     }
 
 
@@ -111,7 +124,9 @@ def _generate_summary(
 ) -> str:
     """生成推荐摘要"""
     fund_names = "、".join([f["name"] for f in allocation[:3]])
-    market_status = "震荡" if not market else (
-        "偏强" if sum(1 for m in market if m.get("change", 0) > 0) > len(market) / 2 else "偏弱"
-    )
+    if not market:
+        market_status = "震荡"
+    else:
+        up_count = sum(1 for m in market if isinstance(m, dict) and m.get("change", 0) > 0)
+        market_status = "偏强" if up_count > len(market) / 2 else "偏弱"
     return f"基于{risk_level}风险偏好，当前市场{market_status}，建议配置{fund_names}等基金，通过分散投资降低风险，追求稳健收益。"
