@@ -33,6 +33,17 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
     return num if math.isfinite(num) else default
 
 
+def _json_safe(value: Any) -> Any:
+    """Recursively remove non-finite floats before FastAPI JSON serialization."""
+    if isinstance(value, float):
+        return value if math.isfinite(value) else 0.0
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    return value
+
+
 def _apply_filters_and_sort(
     funds: List[Dict[str, Any]],
     category: str,
@@ -99,7 +110,7 @@ def get_fund_list(
         "total": total,
         "page": page,
         "page_size": page_size,
-        "funds": page_funds,
+        "funds": _json_safe(page_funds),
         "categories": FUND_CATEGORIES,
         "types": FUND_TYPES,
     }
@@ -144,7 +155,7 @@ def get_fund_list_from_watchlist(
         "total": total,
         "page": page,
         "page_size": page_size,
-        "funds": page_funds,
+        "funds": _json_safe(page_funds),
         "categories": FUND_CATEGORIES,
         "types": FUND_TYPES,
     }
