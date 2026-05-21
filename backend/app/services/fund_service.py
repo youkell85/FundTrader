@@ -8,6 +8,7 @@
 - 基金费率 → efinance（Tushare 不提供费率字段）
 - 持仓/经理 → Tushare fund_portfolio / fund_manager → akshare 补充学历信息
 """
+import math
 from typing import List, Dict, Any, Optional
 from ..utils import console_error
 from ..data.akshare_fetcher import get_fund_ranking, get_fund_info
@@ -21,6 +22,15 @@ SORT_FIELD_MAP: Dict[str, str] = {
     "近1月": "near_1m", "近3月": "near_3m", "近6月": "near_6m",
     "近1年": "near_1y", "近3年": "near_3y", "今年来": "ytd",
 }
+
+
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    """Return a JSON-safe finite float."""
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        return default
+    return num if math.isfinite(num) else default
 
 
 def _apply_filters_and_sort(
@@ -196,14 +206,14 @@ def _fetch_all_fund_performance() -> Dict[str, Dict[str, Any]]:
                 if not code:
                     continue
                 perf_map[code] = {
-                    "nav": float(row.get("单位净值", 0) or 0),
-                    "day_growth": float(row.get("日增长率", 0) or 0),
-                    "near_1m": float(row.get("近1月", 0) or 0),
-                    "near_3m": float(row.get("近3月", 0) or 0),
-                    "near_6m": float(row.get("近6月", 0) or 0),
-                    "near_1y": float(row.get("近1年", 0) or 0),
-                    "near_3y": float(row.get("近3年", 0) or 0),
-                    "ytd": float(row.get("今年来", 0) or 0),
+                    "nav": _safe_float(row.get("单位净值")),
+                    "day_growth": _safe_float(row.get("日增长率")),
+                    "near_1m": _safe_float(row.get("近1月")),
+                    "near_3m": _safe_float(row.get("近3月")),
+                    "near_6m": _safe_float(row.get("近6月")),
+                    "near_1y": _safe_float(row.get("近1年")),
+                    "near_3y": _safe_float(row.get("近3年")),
+                    "ytd": _safe_float(row.get("今年来")),
                 }
         cache.set(cache_key, perf_map)
     except Exception as e:
