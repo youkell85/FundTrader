@@ -97,6 +97,7 @@ function hasAnyRiskMetrics(funds: any[]): boolean {
 
 // ========== 防并发锁（冷启动时 list + marketOverview 竞态问题） ==========
 const inflightRequests = new Map<string, Promise<any>>();
+let homeFundsPrewarmStartedAt = 0;
 
 function dedupe<T>(key: string, fn: () => Promise<T>): Promise<T> {
   const existing = inflightRequests.get(key);
@@ -104,6 +105,18 @@ function dedupe<T>(key: string, fn: () => Promise<T>): Promise<T> {
   const promise = fn().finally(() => inflightRequests.delete(key));
   inflightRequests.set(key, promise);
   return promise;
+}
+
+function scheduleHomeFundsPrewarm() {
+  const now = Date.now();
+  if (getCached<any[]>("homeFunds")) return;
+  if (now - homeFundsPrewarmStartedAt < 60 * 1000) return;
+  homeFundsPrewarmStartedAt = now;
+  setTimeout(() => {
+    fetchHomeFunds().catch((err) => {
+      console.error("[fundRouter] 预热首页风险指标失败:", err);
+    });
+  }, 100);
 }
 
 async function fetchAllFundList(params: Record<string, any>) {
@@ -307,6 +320,7 @@ export const fundRouter = createRouter({
         let rawFunds = getCached<any[]>("homeFunds");
         if (!rawFunds || !hasAnyRiskMetrics(rawFunds)) {
           rawFunds = await fetchHomeFundSummaries();
+          scheduleHomeFundsPrewarm();
         }
         let result = rawFunds.map(mapFundItem).filter(Boolean);
 

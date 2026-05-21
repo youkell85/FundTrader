@@ -1,6 +1,6 @@
 [Unit]
-Description=FundTrader Hono BFF Service
-After=network.target
+Description=FundTrader Frontend BFF Service
+After=network.target fundtrader.service
 
 [Service]
 Type=simple
