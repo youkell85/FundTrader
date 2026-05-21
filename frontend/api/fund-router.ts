@@ -316,14 +316,11 @@ export const fundRouter = createRouter({
         const sortBy = opts.sortBy ?? "dailyChange";
         const sortOrder = opts.sortOrder ?? "desc";
 
-        // 首页优先返回含夏普/回撤的完整缓存；失败时降级为轻量列表。
+        // 首页优先返回已预热的完整缓存；冷启动时先返回轻量列表，后台继续预热风险指标。
         let rawFunds = getCached<any[]>("homeFunds");
         if (!rawFunds || !hasAnyRiskMetrics(rawFunds)) {
-          rawFunds = await fetchHomeFunds().catch(async (err) => {
-            console.error("[fundRouter] 获取首页风险指标失败，降级为轻量列表:", err);
-            scheduleHomeFundsPrewarm();
-            return fetchHomeFundSummaries();
-          });
+          rawFunds = await fetchHomeFundSummaries();
+          scheduleHomeFundsPrewarm();
         }
         let result = rawFunds.map(mapFundItem).filter(Boolean);
 
