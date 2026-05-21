@@ -37,7 +37,7 @@
 ├── deploy/           # 部署配置
 │   ├── nginx_fund.conf
 │   ├── fundtrader.service
-│   ├── fundtrader-v2.service
+│   ├── fundtrader-frontend.service
 │   └── deploy.sh
 ├── docs/             # 文档
 └── scripts/          # 工具脚本

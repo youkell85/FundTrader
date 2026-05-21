@@ -66,7 +66,7 @@ fi
 # ── 5. 部署前端 ──
 if [ "$DEPLOY_FRONTEND" = true ]; then
   echo "[5/6] 部署前端 (Hono BFF)..."
-  ssh -p ${SSH_PORT} root@${SG_HOST} "cd ${FRONTEND_DIR} && npm ci && npm run build && systemctl restart fundtrader-v2"
+  ssh -p ${SSH_PORT} root@${SG_HOST} "cd ${FRONTEND_DIR} && npm ci && npm run build && systemctl restart fundtrader-frontend"
   echo "  前端已重启"
 else
   echo "[5/6] 跳过前端部署"
@@ -77,7 +77,7 @@ if [ "$DEPLOY_NGINX" = true ]; then
   echo "[6/6] 更新 Nginx 配置..."
   scp -P ${SSH_PORT} deploy/nginx_fund.conf root@${SG_HOST}:/etc/nginx/conf.d/fundtrader.conf
   scp -P ${SSH_PORT} deploy/fundtrader.service root@${SG_HOST}:/etc/systemd/system/fundtrader.service
-  scp -P ${SSH_PORT} deploy/fundtrader-v2.service root@${SG_HOST}:/etc/systemd/system/fundtrader-v2.service
+  scp -P ${SSH_PORT} deploy/fundtrader-frontend.service root@${SG_HOST}:/etc/systemd/system/fundtrader-frontend.service
   ssh -p ${SSH_PORT} root@${SG_HOST} "systemctl daemon-reload && nginx -t && systemctl reload nginx"
   echo "  Nginx & Systemd 配置已更新"
 else

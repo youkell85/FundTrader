@@ -28,14 +28,14 @@ nginx -t && systemctl reload nginx
 
 echo "5. 配置 Systemd 服务..."
 cp $DEPLOY_DIR/fundtrader.service /etc/systemd/system/
-cp $DEPLOY_DIR/fundtrader-v2.service /etc/systemd/system/
+cp $DEPLOY_DIR/fundtrader-frontend.service /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable fundtrader
-systemctl enable fundtrader-v2
+systemctl enable fundtrader-frontend
 
 echo "6. 重启服务..."
 systemctl restart fundtrader
-systemctl restart fundtrader-v2
+systemctl restart fundtrader-frontend
 
 echo "7. 验证..."
 sleep 3

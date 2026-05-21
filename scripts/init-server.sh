@@ -44,9 +44,9 @@ npm run build
 # ── 6. 配置 Systemd 服务 ──
 echo "[6/7] 配置 Systemd 服务..."
 cp ${PROJECT_DIR}/deploy/fundtrader.service /etc/systemd/system/
-cp ${PROJECT_DIR}/deploy/fundtrader-v2.service /etc/systemd/system/
+cp ${PROJECT_DIR}/deploy/fundtrader-frontend.service /etc/systemd/system/
 systemctl daemon-reload
-systemctl enable fundtrader fundtrader-v2
+systemctl enable fundtrader fundtrader-frontend
 
 # ── 7. 配置 Nginx ──
 echo "[7/7] 配置 Nginx..."
@@ -59,7 +59,7 @@ nginx -t && systemctl enable nginx && systemctl restart nginx
 echo ""
 echo "=== 启动服务 ==="
 systemctl start fundtrader
-systemctl start fundtrader-v2
+systemctl start fundtrader-frontend
 
 sleep 3
 

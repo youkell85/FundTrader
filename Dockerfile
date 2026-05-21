@@ -12,7 +12,7 @@ FROM node:22-alpine
 
 WORKDIR /app
 COPY --from=builder /app/dist ./dist
-COPY frontend/fundtrader-v2.service ./
+COPY frontend/fundtrader-frontend.service ./
 
 ENV NODE_ENV=production
 ENV PORT=3000
