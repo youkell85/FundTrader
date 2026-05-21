@@ -25,17 +25,17 @@ CACHE_TTL_RANKING = int(os.getenv("CACHE_TTL_RANKING", "1800"))  # 30分钟
 CACHE_TTL_NAV = int(os.getenv("CACHE_TTL_NAV", "3600"))  # 1小时
 CACHE_TTL_INFO = int(os.getenv("CACHE_TTL_INFO", "7200"))  # 2小时
 
+# 数据源配置
+TUSHARE_TOKEN = os.getenv("TUSHARE_TOKEN", "")
+TICKFLOW_API_KEY = os.getenv("TICKFLOW_API_KEY", "")
+TICKFLOW_API_LEVEL = os.getenv("TICKFLOW_API_LEVEL", "free")
+IFIND_TOKEN = os.getenv("IFIND_TOKEN", "")
+IFIND_USE_MCP = os.getenv("IFIND_USE_MCP", "true")
+
 # LLM配置
 LLM_API_URL = os.getenv("LLM_API_URL", "https://api.deepseek.com/v1/chat/completions")
 LLM_API_KEY = os.getenv("LLM_API_KEY", "")
 LLM_MODEL = os.getenv("LLM_MODEL", "deepseek-v4-flash")
-
-# 数据源配置
-TUSHARE_TOKEN = os.getenv("TUSHARE_TOKEN", "")
-TICKFLOW_API_KEY = os.getenv("TICKFLOW_API_KEY", "")
-TICKFLOW_API_LEVEL = os.getenv("TICKFLOW_API_LEVEL", "free")  # free/starter/pro/expert
-IFIND_TOKEN = os.getenv("IFIND_TOKEN", "")
-IFIND_USE_MCP = os.getenv("IFIND_USE_MCP", "true")  # true=使用MCP Server, false=使用REST API
 
 # CORS
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*")

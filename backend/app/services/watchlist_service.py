@@ -23,8 +23,7 @@ def get_watchlist() -> List[Dict[str, Any]]:
             data = json.load(f)
         return data.get("funds", [])
     except Exception as e:
-        from ..utils.common_utils import handle_error_and_log
-        handle_error_and_log(e, "Watchlist read error")
+        console_error(f"Watchlist read error: {e}")
         return []
 
 
@@ -121,5 +120,4 @@ def _save_watchlist(watchlist: List[Dict[str, Any]]):
         with open(WATCHLIST_FILE, "w", encoding="utf-8") as f:
             json.dump({"funds": watchlist}, f, ensure_ascii=False)
     except Exception as e:
-        from ..utils.common_utils import handle_error_and_log
-        handle_error_and_log(e, "Watchlist save error")
+        console_error(f"Watchlist save error: {e}")

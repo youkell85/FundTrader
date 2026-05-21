@@ -1,0 +1,17 @@
+[Unit]
+Description=FundTrader Hono BFF Service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/fundtrader/frontend
+Environment=NODE_ENV=production
+Environment=PORT=3000
+Environment=FUNDTRADER_API_BASE=http://127.0.0.1:8766
+ExecStart=/usr/bin/node dist/boot.js
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

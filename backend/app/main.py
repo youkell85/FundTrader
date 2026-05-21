@@ -1,5 +1,4 @@
 """FundTrader FastAPI 主入口"""
-# 注意：dotenv 加载已移至 config.py，确保在所有 os.getenv 之前执行
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from .config import API_PREFIX, CORS_ORIGINS

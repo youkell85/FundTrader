@@ -1,18 +1,16 @@
 """定投回测服务"""
 from typing import Dict, Any, List
+from ..data.efinance_fetcher import _calc_fixed_dca, _calc_ma_dca, get_fund_names
 from ..data.cache_manager import cache
 from ..config import CACHE_TTL_NAV
 
 
 def _get_nav_history(code: str, start_date: str = "", end_date: str = "") -> List[Dict[str, Any]]:
     """优先使用融合层获取净值历史，失败回退到efinance"""
-    from ..data.common import get_nav_history_with_fallback
-    from ..data.providers.fusion import get_fusion
-    from ..data.efinance_fetcher import get_fund_nav_history
-    
-    def primary_func(c):
+    try:
+        from ..data.providers.fusion import get_fusion
         fusion = get_fusion()
-        nav_list = fusion.get_fund_nav(c)
+        nav_list = fusion.get_fund_nav(code)
         if nav_list:
             result = [
                 {"date": n.date, "nav": n.nav, "acc_nav": n.accum_nav, "day_growth": n.day_growth}
@@ -24,17 +22,40 @@ def _get_nav_history(code: str, start_date: str = "", end_date: str = "") -> Lis
                 result = [r for r in result if r["date"] <= end_date]
             if result:
                 return result
-        return None
-    
-    def fallback_func(c):
-        return get_fund_nav_history(c, start_date, end_date)
-    
-    return get_nav_history_with_fallback(
-        code, 
-        primary_func, 
-        fallback_func, 
-        error_msg_prefix="Fusion nav history fallback"
-    )
+    except Exception as e:
+        from ..utils import console_error
+        console_error(f"Fusion nav history fallback for {code}: {e}")
+    from ..data.efinance_fetcher import get_fund_nav_history
+    return get_fund_nav_history(code, start_date, end_date)
+
+
+def _calc_buy_and_hold_curve(nav_data: List[Dict], total_amount: float) -> Dict[str, Any]:
+    """计算一次性买入并持有（buy-and-hold）基准曲线。
+    完全在起始日一次性投入 total_amount，及后不再追加。返回逐点市值。"""
+    if not nav_data:
+        return {"curve": [], "final_value": 0, "profit_rate": 0}
+    first_nav = next((p.get("nav") for p in nav_data if p.get("nav", 0) > 0), 0)
+    if not first_nav or first_nav <= 0:
+        return {"curve": [], "final_value": 0, "profit_rate": 0}
+    shares = total_amount / first_nav
+    curve = []
+    for p in nav_data:
+        nav = p.get("nav", 0) or 0
+        if nav <= 0:
+            continue
+        value = shares * nav
+        curve.append({
+            "date": p["date"],
+            "value": round(value, 2),
+            "profit_rate": round((value - total_amount) / total_amount * 100, 2),
+        })
+    final_value = curve[-1]["value"] if curve else 0
+    return {
+        "curve": curve,
+        "final_value": round(final_value, 2),
+        "profit_rate": round((final_value - total_amount) / total_amount * 100, 2) if total_amount > 0 else 0,
+        "total_invested": total_amount,
+    }
 
 
 def _calculate_dca_backtest(
@@ -47,8 +68,6 @@ def _calculate_dca_backtest(
     ma_window: int = 200,
 ) -> Dict[str, Any]:
     """基于融合层数据的定投回测计算"""
-    from ..data.efinance_fetcher import _calc_fixed_dca, _calc_ma_dca
-
     nav_data = _get_nav_history(code, start_date, end_date)
     if not nav_data:
         return {"error": f"无法获取基金 {code} 的净值数据"}
@@ -60,10 +79,22 @@ def _calculate_dca_backtest(
         results["fixed"] = _calc_fixed_dca(nav_data, amount, frequency)
     if strategy in ("ma", "compare"):
         results["ma"] = _calc_ma_dca(nav_data, amount, frequency, ma_window)
-    if strategy == "compare":
-        return {"fund_code": code, "strategies": results}
 
-    return results.get(strategy, {})
+    # 计算买入持有基准曲线（以定投总投入为一次性投入金额）
+    primary = results.get("fixed") or results.get("ma") or {}
+    total_invested = primary.get("total_invested", amount * 12)
+    benchmark = _calc_buy_and_hold_curve(nav_data, total_invested)
+
+    if strategy == "compare":
+        return {
+            "fund_code": code,
+            "strategies": results,
+            "benchmark": benchmark,
+        }
+
+    out = results.get(strategy, {})
+    out["benchmark"] = benchmark
+    return out
 
 
 def run_dca_backtest(

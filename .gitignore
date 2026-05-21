@@ -1,55 +1,27 @@
-# Dependencies
+# 依赖
 node_modules/
+dist/
+*.egg-info/
 __pycache__/
-*.pyc
-*.pyo
+.pytest_cache/
+
+# 环境
+.env
+.env.local
 .venv/
 venv/
 
-# Build output
-frontend/dist/
+# 构建产物
+*.log
+.DS_Store
+*.swp
+*.swo
 
 # IDE
 .vscode/
 .idea/
+*.iml
 
-# OS
-.DS_Store
-Thumbs.db
-
-# Temp files
-chunk_*.txt
-chunk_b64_*.txt
-part_*.json
-*.tar.gz
-*.b64
-backend_b64.txt
-backend_files.json
-pack_backend.py
-split_json.py
-_db64_*.txt
-_dsb64_*.txt
-_fb64_*.txt
-_deploy_*.txt
-_dist_*.txt
-_frontend_*.txt
-_tar_*.txt
-_gen_*.py
-_pack_*.py
-_write_*.py
-_server_deploy.py
-_upload_*.txt
-fundtrader_deploy.tar.gz
-
-# Codebuddy
-.codebuddy/
-
-# Secrets
-.env
-backend/.env
-
-# Cache
-/tmp/
-
-# Qoder AI
-.qoder/
+# 缓存
+tmp/
+temp/

@@ -1,11 +1,6 @@
 """多数据源融合层 - 按优先级聚合多个数据源的数据"""
-# 确保 dotenv 在任何 os.getenv 之前加载
-from ...config import IFIND_TOKEN as _  # noqa: F401 - 触发 dotenv 加载
 from typing import Optional, List, Dict, Any
-from .base import (
-    DataProvider, FundDetail, FundNav, FundHolding, FundPerformance, FundRisk,
-    FundDividend, FundScale, AdjFactor, FundCompany, TradeCal, IndexDaily,
-)
+from .base import DataProvider, FundDetail, FundNav, FundHolding, FundPerformance, FundRisk
 from .tushare_provider import TushareProvider
 from .tickflow_provider import TickflowProvider
 from .tencent_provider import TencentProvider
@@ -18,8 +13,8 @@ class DataFusion:
 
     def __init__(self):
         self.providers: List[DataProvider] = [
-            iFinDProvider(),      # 优先级5 - 专业数据
-            TushareProvider(),    # 优先级4 - 结构化数据
+            TushareProvider(),    # 优先级5 - 付费高频，第一数据源
+            iFinDProvider(),      # 优先级4 - 专业数据（额度限制，降级）
             TickflowProvider(),   # 优先级3 - 行情数据
             TencentProvider(),    # 优先级2 - 实时行情
         ]
@@ -44,58 +39,79 @@ class DataFusion:
         """融合多个数据源的基金详情
         策略：按优先级逐个获取，合并非空字段
         """
-        from ...data.common import get_fund_detail_with_fallback
-        
         available = self._get_available()
         if not available:
             return None
 
-        def detail_extractor(provider, code):
-            return provider.get_fund_detail(code)
+        # 主数据源：取优先级最高的完整数据
+        primary = None
+        for provider in available:
+            try:
+                detail = provider.get_fund_detail(code)
+                if detail:
+                    primary = detail
+                    break
+            except Exception as e:
+                console_error(f"Provider {provider.name} detail error: {e}")
 
-        def merger(primary, detail):
-            # 合并字段：其他数据源的非空字段覆盖主数据源的空字段
-            if not primary.nav and detail.nav:
-                primary.nav = detail.nav
-            if not primary.nav_date and detail.nav_date:
-                primary.nav_date = detail.nav_date
-            if primary.day_growth is None and detail.day_growth is not None:
-                primary.day_growth = detail.day_growth
-            if not primary.name and detail.name:
-                primary.name = detail.name
-            if primary.rating is None and detail.rating is not None:
-                primary.rating = detail.rating
-            # 补充净值历史
-            if not primary.nav_history and detail.nav_history:
-                primary.nav_history = detail.nav_history
-            # 补充基金经理信息
-            if not primary.manager_info and detail.manager_info:
-                primary.manager_info = detail.manager_info
-            # 补充basic信息（如份额规模）
-            if primary.basic and detail.basic:
-                if not primary.basic.fund_share and detail.basic.fund_share:
-                    primary.basic.fund_share = detail.basic.fund_share
-            # 补充分红记录
-            if not primary.dividends and detail.dividends:
-                primary.dividends = detail.dividends
-            # 补充规模
-            if not primary.scale and detail.scale:
-                primary.scale = detail.scale
-            # 补充复权因子
-            if not primary.adj_factors and detail.adj_factors:
-                primary.adj_factors = detail.adj_factors
-            # 补充基金公司
-            if not primary.company and detail.company:
-                primary.company = detail.company
-            # 补充风险指标
-            if not primary.risk and detail.risk:
-                primary.risk = detail.risk
-            # 补充业绩指标
-            if not primary.performance and detail.performance:
-                primary.performance = detail.performance
-            return primary
+        if primary is None:
+            return None
 
-        return get_fund_detail_with_fallback(code, available, detail_extractor, merger)
+        # 补充数据源：合并其他数据源的非空字段
+        for provider in available:
+            if provider.name == primary.source:
+                continue
+            try:
+                detail = provider.get_fund_detail(code)
+                if not detail:
+                    continue
+                # 合并字段：其他数据源的非空字段覆盖主数据源的空字段
+                if not primary.nav and detail.nav:
+                    primary.nav = detail.nav
+                if not primary.nav_date and detail.nav_date:
+                    primary.nav_date = detail.nav_date
+                if primary.day_growth is None and detail.day_growth is not None:
+                    primary.day_growth = detail.day_growth
+                if not primary.name and detail.name:
+                    primary.name = detail.name
+                if primary.rating is None and detail.rating is not None:
+                    primary.rating = detail.rating
+                # 补充净值历史
+                if not primary.nav_history and detail.nav_history:
+                    primary.nav_history = detail.nav_history
+                # 补充基金经理信息
+                if not primary.manager_info and detail.manager_info:
+                    primary.manager_info = detail.manager_info
+                # 补充basic信息（如份额规模）
+                if primary.basic and detail.basic:
+                    if not primary.basic.fund_share and detail.basic.fund_share:
+                        primary.basic.fund_share = detail.basic.fund_share
+                # Tushare 增强字段：从其他数据源补充（优先已由 Tushare 提供）
+                if not primary.dividends and detail.dividends:
+                    primary.dividends = detail.dividends
+                if not primary.scale and detail.scale:
+                    primary.scale = detail.scale
+                if not primary.adj_factors and detail.adj_factors:
+                    primary.adj_factors = detail.adj_factors
+                if not primary.company and detail.company:
+                    primary.company = detail.company
+            except Exception as e:
+                console_error(f"Provider {provider.name} merge error: {e}")
+
+        # 获取持仓（所有数据源中最好的）
+        primary.holdings = self._merge_holdings(code, available)
+
+        # 获取净值历史（所有数据源合并）
+        if not primary.nav_history:
+            primary.nav_history = self._merge_nav_history(code, available)
+
+        # 补充最新净值信息
+        if primary.nav_history and not primary.nav:
+            latest = primary.nav_history[-1]
+            primary.nav = latest.nav
+            primary.nav_date = latest.date
+
+        return primary
 
     def _merge_holdings(self, code: str, providers: List[DataProvider]) -> List[FundHolding]:
         """合并多个数据源的持仓数据"""
@@ -156,102 +172,6 @@ class DataFusion:
             except Exception:
                 continue
         return None
-
-    # ========== 新增融合接口 ==========
-
-    def get_fund_dividends(self, code: str) -> List[FundDividend]:
-        """获取融合后的分红记录"""
-        available = self._get_available()
-        for provider in available:
-            if hasattr(provider, "get_fund_dividend"):
-                try:
-                    dividends = provider.get_fund_dividend(code)
-                    if dividends:
-                        return dividends
-                except Exception as e:
-                    console_error(f"Provider {provider.name} dividends error: {e}")
-        # 从detail中提取
-        detail = self.get_fund_detail(code)
-        if detail and detail.dividends:
-            return detail.dividends
-        return []
-
-    def get_fund_scale(self, code: str) -> Optional[FundScale]:
-        """获取融合后的基金规模"""
-        available = self._get_available()
-        for provider in available:
-            if hasattr(provider, "get_fund_scale"):
-                try:
-                    scale = provider.get_fund_scale(code)
-                    if scale:
-                        return scale
-                except Exception as e:
-                    console_error(f"Provider {provider.name} scale error: {e}")
-        # 从detail中提取
-        detail = self.get_fund_detail(code)
-        if detail and detail.scale:
-            return detail.scale
-        return None
-
-    def get_fund_adj_factors(self, code: str) -> List[AdjFactor]:
-        """获取融合后的复权因子"""
-        available = self._get_available()
-        for provider in available:
-            if hasattr(provider, "get_fund_adj"):
-                try:
-                    factors = provider.get_fund_adj(code)
-                    if factors:
-                        return factors
-                except Exception as e:
-                    console_error(f"Provider {provider.name} adj_factors error: {e}")
-        # 从detail中提取
-        detail = self.get_fund_detail(code)
-        if detail and detail.adj_factors:
-            return detail.adj_factors
-        return []
-
-    def get_fund_company(self, code: str) -> Optional[FundCompany]:
-        """获取融合后的基金公司信息"""
-        available = self._get_available()
-        for provider in available:
-            if hasattr(provider, "get_fund_company"):
-                try:
-                    company = provider.get_fund_company(code)
-                    if company:
-                        return company
-                except Exception as e:
-                    console_error(f"Provider {provider.name} company error: {e}")
-        # 从detail中提取
-        detail = self.get_fund_detail(code)
-        if detail and detail.company:
-            return detail.company
-        return None
-
-    def get_trade_cal(self, exchange: str = "SSE", start_date: str = "", end_date: str = "") -> List[TradeCal]:
-        """获取交易日历（仅Tushare提供）"""
-        available = self._get_available()
-        for provider in available:
-            if hasattr(provider, "get_trade_cal"):
-                try:
-                    cal = provider.get_trade_cal(exchange, start_date, end_date)
-                    if cal:
-                        return cal
-                except Exception as e:
-                    console_error(f"Provider {provider.name} trade_cal error: {e}")
-        return []
-
-    def get_index_daily(self, ts_code: str = "000001.SH", start_date: str = "", end_date: str = "") -> List[IndexDaily]:
-        """获取指数日线行情（仅Tushare提供）"""
-        available = self._get_available()
-        for provider in available:
-            if hasattr(provider, "get_index_daily"):
-                try:
-                    data = provider.get_index_daily(ts_code, start_date, end_date)
-                    if data:
-                        return data
-                except Exception as e:
-                    console_error(f"Provider {provider.name} index_daily error: {e}")
-        return []
 
     def get_providers_status(self) -> List[Dict[str, Any]]:
         """获取所有数据源的状态"""

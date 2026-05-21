@@ -1,9 +1,139 @@
 """深度产品分析服务 - 多数据源融合版"""
 from typing import Dict, Any, Optional, List
+from datetime import datetime, timedelta
 from ..data.akshare_fetcher import get_fund_info, get_fund_manager_info, get_fund_portfolio
+from ..data.efinance_fetcher import get_fund_nav_history
 from ..data.providers.fusion import get_fusion
 from ..data.cache_manager import cache
 from ..config import CACHE_TTL_NAV, CACHE_TTL_INFO
+
+
+def _enrich_holdings_with_daily_change(holdings: List[Dict]) -> List[Dict]:
+    if not holdings:
+        return holdings
+    try:
+        from ..data.akshare_fetcher import get_stock_daily_changes
+        changes = get_stock_daily_changes([item.get("code", "") for item in holdings])
+        if not changes:
+            return holdings
+        enriched = []
+        for item in holdings:
+            next_item = dict(item)
+            code = next_item.get("code", "")
+            if code in changes:
+                next_item["daily_change"] = changes[code]
+            enriched.append(next_item)
+        return enriched
+    except Exception:
+        return holdings
+
+
+def _calc_period_returns(nav_data: List[Dict]) -> Dict[str, Any]:
+    """基于 nav_data 计算 1y/3y/5y 区间收益率与年化收益。
+    nav_data 已按日期升序排列，每项含 date / nav / accum_nav。
+    优先使用 accum_nav（含分红再投资）。返回值为百分比数值（保留2位小数），无足够数据返回 None。
+    """
+    result = {"return1y": None, "return3y": None, "return5y": None, "annualized_return": None}
+    if not nav_data or len(nav_data) < 2:
+        return result
+    # 选择基准价：accum_nav 优先，否则 nav
+    def _val(p):
+        v = p.get("accum_nav") if p.get("accum_nav") not in (None, 0) else p.get("nav")
+        try:
+            return float(v) if v not in (None, "") else None
+        except Exception:
+            return None
+    # 过滤有效记录
+    pts = [p for p in nav_data if p.get("date") and _val(p) is not None]
+    if len(pts) < 2:
+        return result
+    # 解析日期
+    def _to_date(s):
+        s = str(s)
+        for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y%m%d"):
+            try:
+                return datetime.strptime(s[:10], fmt)
+            except Exception:
+                continue
+        return None
+    pts2 = [(p, _to_date(p["date"]), _val(p)) for p in pts]
+    pts2 = [t for t in pts2 if t[1] is not None]
+    if len(pts2) < 2:
+        return result
+    pts2.sort(key=lambda x: x[1])
+    last_date, last_val = pts2[-1][1], pts2[-1][2]
+    first_date, first_val = pts2[0][1], pts2[0][2]
+
+    def _return_at(years: int):
+        target = last_date - timedelta(days=int(365.25 * years))
+        if target < first_date:
+            return None
+        # 找 target 之前最近一条
+        chosen = None
+        for _, d, v in pts2:
+            if d <= target:
+                chosen = v
+            else:
+                break
+        if chosen is None or chosen <= 0:
+            return None
+        return round((last_val - chosen) / chosen * 100, 2)
+
+    result["return1y"] = _return_at(1)
+    result["return3y"] = _return_at(3)
+    result["return5y"] = _return_at(5)
+    # 年化（基于成立以来）
+    try:
+        days = (last_date - first_date).days
+        if days > 30 and first_val and first_val > 0:
+            years = days / 365.25
+            ratio = last_val / first_val
+            if ratio > 0:
+                annualized = (ratio ** (1.0 / years) - 1) * 100
+                result["annualized_return"] = round(annualized, 2)
+    except Exception:
+        pass
+    return result
+
+
+def _supplement_nav_with_efinance(code: str, current_navs: List[Dict]) -> List[Dict]:
+    """优先使用 efinance 抓取长周期全量净值历史（东财涵盖从成立以来）。
+    若当前数据不足 365 点或起始日期不够早，从 efinance 补充。并使用文件缓存避免重复拉取。"""
+    nav_cache_key = f"fund_nav_full_{code}"
+    cached = cache.get(nav_cache_key, CACHE_TTL_NAV * 6)  # 6小时缓存
+    if cached and isinstance(cached, list) and len(cached) > 200:
+        return cached
+    try:
+        ef_nav = get_fund_nav_history(code)
+    except Exception:
+        ef_nav = []
+    if not ef_nav:
+        return current_navs
+    # 按日期去重合并
+    by_date: Dict[str, Dict] = {}
+    for n in current_navs:
+        d = n.get("date")
+        if d:
+            by_date[str(d)] = n
+    for n in ef_nav:
+        try:
+            d = n.get("date")
+            if not d:
+                continue
+            d = str(d)
+            if d not in by_date:
+                by_date[d] = {
+                    "date": d,
+                    "nav": float(n.get("nav")) if n.get("nav") not in (None, "") else None,
+                    "accum_nav": float(n.get("acc_nav")) if n.get("acc_nav") not in (None, "") else None,
+                    "day_growth": float(str(n.get("day_growth", "0")).replace("%", "")) if n.get("day_growth") not in (None, "") else None,
+                }
+        except Exception:
+            continue
+    merged = [by_date[d] for d in sorted(by_date.keys())]
+    if len(merged) > 200:
+        cache.set(nav_cache_key, merged)
+    return merged
 
 
 def analyze_fund(code: str) -> Dict[str, Any]:
@@ -18,10 +148,13 @@ def analyze_fund(code: str) -> Dict[str, Any]:
             {"date": n.date, "nav": n.nav, "accum_nav": n.accum_nav, "day_growth": n.day_growth}
             for n in (detail.nav_history or [])
         ]
+        # 关键修复：使用 efinance 补充长周期净值历史（解决净值图只到 2025-12-10 问题）
+        nav_data = _supplement_nav_with_efinance(code, nav_data)
         holdings = [
             {"name": h.name, "code": h.code, "ratio": h.ratio}
             for h in (detail.holdings or [])
         ]
+        holdings = _enrich_holdings_with_daily_change(holdings)
         manager = detail.manager_info or {}
         if not manager and detail.basic and detail.basic.manager:
             manager = {"name": detail.basic.manager, "tenure_days": 0}
@@ -42,11 +175,43 @@ def analyze_fund(code: str) -> Dict[str, Any]:
             manager = dict(manager) if manager else {}
             manager["tenure_days"] = 0
 
+        # 用 akshare 补充基金经理详细信息（学历、任职回报、年化回报等）
+        manager = _enrich_manager_from_akshare(code, manager)
+
         # 计算策略信号
         score, signal, confidence, reasons = _calc_strategy_signal_fusion(detail)
 
         # 雷达图评分
         radar = _calc_radar_scores_fusion(detail)
+
+        # 计算区间收益率
+        period = _calc_period_returns(nav_data or [])
+
+        # 从净值历史计算最佳/最差年度收益（用于经理面板）
+        best_return, worst_return = _calc_best_worst_annual(nav_data or [])
+
+        # 获取基金规模（优先 Tushare fund_share × unit_nav 精确计算）
+        total_scale = None
+        if detail.scale and detail.scale.total_nav is not None:
+            total_scale = detail.scale.total_nav
+        else:
+            try:
+                from ..data.efinance_fetcher import get_fund_scale
+                total_scale = get_fund_scale(code)
+            except Exception:
+                pass
+
+        # 获取基金费率（efinance — Tushare 不提供费率字段）
+        fee_manage = None
+        fee_custody = None
+        try:
+            from ..data.efinance_fetcher import get_fund_fees
+            fees = get_fund_fees(code)
+            if fees:
+                fee_manage = fees.get("feeManage")
+                fee_custody = fees.get("feeCustody")
+        except Exception:
+            pass
 
         return {
             "code": code,
@@ -58,13 +223,20 @@ def analyze_fund(code: str) -> Dict[str, Any]:
             "confidence": confidence,
             "score": score,
             "reasons": reasons,
-            "manager": manager,
+            "manager": {**manager, "best_return": best_return, "worst_return": worst_return},
             "holdings": holdings,
             "nav_data": nav_data if nav_data else [],
             "radar_scores": radar,
             "source": detail.source,
             "style_analysis": None,
             "data_sources": fusion.get_providers_status(),
+            "return1y": period["return1y"],
+            "return3y": period["return3y"],
+            "return5y": period["return5y"],
+            "annualized_return": period["annualized_return"],
+            "total_scale": total_scale,
+            "feeManage": fee_manage,
+            "feeCustody": fee_custody,
         }
 
     # 融合层失败，回退到旧的数据源
@@ -85,13 +257,16 @@ def _analyze_fund_legacy(code: str) -> Dict[str, Any]:
     nav_cache_key = f"fund_nav_{code}"
     nav_data = cache.get(nav_cache_key, CACHE_TTL_NAV)
     if nav_data is None:
-        from ..data.efinance_fetcher import get_fund_nav_history
         nav_data = get_fund_nav_history(code)
         if nav_data:
             cache.set(nav_cache_key, nav_data)
 
     # 基金经理
-    manager = get_fund_manager_info(code)
+    manager = get_fund_manager_info(code) or {}
+
+    # 基金经理已经在 akshare_fetcher 中增强了字段（education, fund_count, return_since_tenure 等）
+    # 用 akshare 数据补充（如果融合层已有数据则融合层优先）
+    manager = _enrich_manager_from_akshare(code, manager)
 
     # 持仓
     portfolio = get_fund_portfolio(code)
@@ -110,6 +285,42 @@ def _analyze_fund_legacy(code: str) -> Dict[str, Any]:
     # 提取基金名称
     fund_name = _extract_fund_name(info, code)
 
+    # 计算区间收益率
+    period = _calc_period_returns(nav_data or [])
+
+    # 从净值历史计算最佳/最差年度收益
+    best_return, worst_return = _calc_best_worst_annual(nav_data or [])
+
+    # 获取基金规模（优先 Tushare，回退 efinance）
+    total_scale = None
+    try:
+        from ..data.providers.tushare_provider import TushareProvider
+        tp = TushareProvider()
+        if tp.is_available():
+            scale_obj = tp.get_fund_scale(code)
+            if scale_obj and scale_obj.total_nav is not None:
+                total_scale = scale_obj.total_nav
+    except Exception:
+        pass
+    if total_scale is None:
+        try:
+            from ..data.efinance_fetcher import get_fund_scale
+            total_scale = get_fund_scale(code)
+        except Exception:
+            pass
+
+    # 获取基金费率（efinance — Tushare 不提供费率字段）
+    fee_manage = None
+    fee_custody = None
+    try:
+        from ..data.efinance_fetcher import get_fund_fees
+        fees = get_fund_fees(code)
+        if fees:
+            fee_manage = fees.get("feeManage")
+            fee_custody = fees.get("feeCustody")
+    except Exception:
+        pass
+
     return {
         "code": code,
         "name": fund_name,
@@ -120,25 +331,62 @@ def _analyze_fund_legacy(code: str) -> Dict[str, Any]:
         "confidence": confidence,
         "score": score,
         "reasons": reasons,
-        "manager": manager,
-        "holdings": portfolio.get("stock_holdings", []) if portfolio else [],
+        "manager": {**manager, "best_return": best_return, "worst_return": worst_return},
+        "holdings": _enrich_holdings_with_daily_change(portfolio.get("stock_holdings", []) if portfolio else []),
         "nav_data": nav_data if nav_data else [],
         "radar_scores": radar,
         "source": "legacy",
         "style_analysis": None,
+        "return1y": period["return1y"],
+        "return3y": period["return3y"],
+        "return5y": period["return5y"],
+        "annualized_return": period["annualized_return"],
+        "total_scale": total_scale,
+        "feeManage": fee_manage,
+        "feeCustody": fee_custody,
     }
 
 
 def _extract_latest_nav(nav_data: Optional[List[Dict]]) -> Dict[str, Any]:
     """从净值历史中提取最新净值、日期和日涨跌幅"""
-    from ..utils.common_utils import extract_latest_nav
-    return extract_latest_nav(nav_data)
+    if not nav_data:
+        return {"nav": None, "nav_date": None, "day_growth": None}
+    # 按日期排序取最新
+    sorted_data = sorted(nav_data, key=lambda x: x.get("date", "") or x.get("净值日期", "") or "", reverse=True)
+    latest = sorted_data[0] if sorted_data else {}
+    nav = latest.get("nav") or latest.get("单位净值") or latest.get("nav_value")
+    nav_date = latest.get("date") or latest.get("净值日期") or latest.get("nav_date")
+    day_growth = latest.get("day_growth") or latest.get("日增长率") or latest.get("daily_change")
+    # 尝试从最新两条计算日涨跌幅
+    if day_growth is None and len(sorted_data) >= 2:
+        try:
+            prev = sorted_data[1]
+            prev_nav = float(prev.get("nav") or prev.get("单位净值") or 0)
+            curr_nav = float(nav or 0)
+            if prev_nav > 0:
+                day_growth = round((curr_nav - prev_nav) / prev_nav * 100, 2)
+        except (ValueError, TypeError):
+            pass
+    return {
+        "nav": nav,
+        "nav_date": nav_date,
+        "day_growth": day_growth,
+    }
 
 
 def _extract_fund_name(info: Optional[Dict], code: str) -> str:
     """从多种可能的数据源格式中提取基金名称"""
-    from ..utils.common_utils import extract_fund_name
-    return extract_fund_name(info, code)
+    if not info:
+        return code
+    # 尝试多种可能的键名
+    for key in ["基金简称", "name", "基金名称", "fund_name", "简称", "名称"]:
+        if key in info and info[key]:
+            return info[key]
+    # 如果info是item-value格式
+    for key, val in info.items():
+        if isinstance(val, str) and len(val) > 4 and "基金" in val:
+            return val
+    return code
 
 
 def _calc_strategy_signal(
@@ -320,3 +568,78 @@ def _calc_radar_scores_fusion(detail) -> Dict[str, float]:
             scores["risk_control"] = min(100, max(0, 100 - detail.risk.max_drawdown * 3))
 
     return scores
+
+
+def _enrich_manager_from_akshare(code: str, manager: Dict) -> Dict:
+    """用 akshare + efinance 补充基金经理详细信息"""
+    if not isinstance(manager, dict):
+        manager = {}
+
+    # 如果 manager 完全为空，先尝试从 efinance 获取基本信息（经理姓名等）
+    if not manager or not manager.get("name"):
+        try:
+            from ..data.efinance_fetcher import get_fund_manager_basic
+            basic = get_fund_manager_basic(code)
+            if basic and isinstance(basic, dict):
+                manager = dict(manager)
+                manager.update({k: v for k, v in basic.items() if v})
+        except Exception:
+            pass
+
+    # 再用 akshare 补充详细信息
+    try:
+        from ..data.akshare_fetcher import get_fund_manager_info
+        extra = get_fund_manager_info(code)
+        if extra and isinstance(extra, dict):
+            enriched = dict(manager)
+            # 用 akshare 详细数据覆盖/补充（保留已有字段优先）
+            for key, value in extra.items():
+                if key not in enriched or enriched.get(key) in (None, 0, ""):
+                    enriched[key] = value
+            return enriched
+    except Exception:
+        pass
+    return manager
+
+
+def _calc_best_worst_annual(nav_data: List[Dict]) -> tuple:
+    """从净值历史计算最佳年度和最差年度收益（%）"""
+    if not nav_data or len(nav_data) < 252:
+        return None, None
+
+    try:
+        from collections import defaultdict
+        from datetime import datetime
+
+        # 按年份分组，找每年首尾净值
+        yearly_navs = defaultdict(list)
+        for point in nav_data:
+            date_str = point.get("date", "")
+            nav = point.get("nav")
+            if not date_str or nav is None:
+                continue
+            try:
+                dt = datetime.strptime(date_str[:10], "%Y-%m-%d")
+                yearly_navs[dt.year].append((dt, nav))
+            except Exception:
+                continue
+
+        annual_returns = []
+        for year, data in sorted(yearly_navs.items()):
+            if len(data) < 2:
+                continue
+            data.sort(key=lambda x: x[0])
+            start_nav = data[0][1]
+            end_nav = data[-1][1]
+            if start_nav and start_nav > 0:
+                ret = (end_nav - start_nav) / start_nav * 100
+                annual_returns.append(ret)
+
+        if annual_returns:
+            best = round(max(annual_returns), 2)
+            worst = round(min(annual_returns), 2)
+            return best, worst
+    except Exception:
+        pass
+
+    return None, None

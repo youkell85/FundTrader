@@ -7,44 +7,40 @@ echo "=== FundTrader 部署脚本 ==="
 PROJECT_DIR="/opt/fundtrader"
 BACKEND_DIR="$PROJECT_DIR/backend"
 FRONTEND_DIR="$PROJECT_DIR/frontend"
+DEPLOY_DIR="$PROJECT_DIR/deploy"
 
-# 1. 创建目录
-mkdir -p $PROJECT_DIR
+echo "1. 更新代码..."
+cd $PROJECT_DIR
+git pull origin master || git pull gitee master
 
-# 2. 克隆代码（如果不存在）
-if [ ! -d "$PROJECT_DIR/.git" ]; then
-    echo "克隆代码..."
-    git clone <GITEE_REPO_URL> $PROJECT_DIR
-fi
-
-# 3. 安装后端依赖
-echo "安装后端依赖..."
+echo "2. 安装后端依赖..."
 cd $BACKEND_DIR
 pip3 install -r requirements.txt
 
-# 4. 构建前端
-echo "构建前端..."
+echo "3. 构建前端..."
 cd $FRONTEND_DIR
-npm install
+npm ci
 npm run build
 
-# 5. 配置Nginx
-echo "配置Nginx..."
-cp $PROJECT_DIR/deploy/nginx_fund.conf /etc/nginx/conf.d/fundtrader.conf
+echo "4. 配置 Nginx..."
+cp $DEPLOY_DIR/nginx_fund.conf /etc/nginx/conf.d/fundtrader.conf
 nginx -t && systemctl reload nginx
 
-# 6. 配置Systemd
-echo "配置Systemd服务..."
-cp $PROJECT_DIR/deploy/fundtrader.service /etc/systemd/system/
+echo "5. 配置 Systemd 服务..."
+cp $DEPLOY_DIR/fundtrader.service /etc/systemd/system/
+cp $DEPLOY_DIR/fundtrader-v2.service /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable fundtrader
-systemctl restart fundtrader
+systemctl enable fundtrader-v2
 
-# 7. 验证
-echo "验证服务..."
+echo "6. 重启服务..."
+systemctl restart fundtrader
+systemctl restart fundtrader-v2
+
+echo "7. 验证..."
 sleep 3
-curl -s http://localhost:8766/fund/api/health | python3 -m json.tool
-curl -s -o /dev/null -w "%{http_code}" http://localhost/fund/
+curl -s http://localhost:8766/health | python3 -m json.tool || true
+curl -s -o /dev/null -w "HTTP状态码: %{http_code}\n" http://localhost/fund/ || true
 
 echo "=== 部署完成 ==="
 echo "前端访问: http://<SERVER_IP>/fund/"

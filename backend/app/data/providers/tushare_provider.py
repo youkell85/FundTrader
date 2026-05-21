@@ -1,8 +1,4 @@
-"""Tushare Pro 数据适配器 - 增强版
-支持接口：fund_basic, fund_nav, fund_portfolio, fund_manager, fund_rating, fund_share,
-         fund_div, fund_scale, etf_basic, etf_daily, fund_adj, fund_company,
-         trade_cal, index_daily, daily_basic
-"""
+"""Tushare Pro 数据适配器"""
 import os
 import time
 from typing import Optional, List, Dict, Any
@@ -126,16 +122,10 @@ class TushareProvider(DataProvider):
             if rating is not None:
                 rating = int(rating)
 
-        # 分红记录
+        # Tushare 增强：分红/规模/复权/公司（付费账户高频可用）
         dividends = self.get_fund_dividend(code)
-
-        # 基金规模
         scale = self.get_fund_scale(code)
-
-        # 复权因子
         adj_factors = self.get_fund_adj(code)
-
-        # 基金公司
         company = self.get_fund_company(code)
 
         return FundDetail(
@@ -298,10 +288,10 @@ class TushareProvider(DataProvider):
             "reward": self._safe_float(row.get("reward")),
         }
 
-    # ========== 新增接口 ==========
+    # ========== Tushare 增强接口（付费账户高频可用） ==========
 
     def get_fund_dividend(self, code: str) -> List[FundDividend]:
-        """获取基金分红记录"""
+        """获取基金分红记录（替代 efinance 缺失的分红数据）"""
         pro = self._get_pro()
         if pro is None:
             return []
@@ -322,94 +312,32 @@ class TushareProvider(DataProvider):
         return result
 
     def get_fund_scale(self, code: str) -> Optional[FundScale]:
-        """获取基金最新规模（通过fund_share接口获取份额，fund_nav获取资产净值）"""
+        """获取基金最新规模 — fund_share × unit_nav 精确计算（替代 efinance 不可靠接口）"""
         pro = self._get_pro()
         if pro is None:
             return None
         ts_code = f"{code}.OF"
-        # 获取最新份额
         share_df = self._safe_call(pro.fund_share, ts_code=ts_code)
         if share_df is None or share_df.empty:
             return None
         share_df = share_df.sort_values(by="trade_date", ascending=False)
         row = share_df.iloc[0]
         fd_share = self._safe_float(row.get("fd_share"))
-        # 尝试从最新净值获取资产净值
         total_nav = None
         nav_df = self._safe_call(pro.fund_nav, ts_code=ts_code, end_date=str(row.get("trade_date", "")))
         if nav_df is not None and not nav_df.empty:
             nav_df = nav_df.sort_values(by="nav_date", ascending=False)
             latest_nav = self._safe_float(nav_df.iloc[0].get("unit_nav"))
             if latest_nav and fd_share:
-                total_nav = round(latest_nav * fd_share / 100000, 4)  # 万份*单位净值/100000=亿元
+                total_nav = round(latest_nav * fd_share / 100000, 4)  # 万份×净值/100000=亿元
         return FundScale(
             end_date=self._parse_date(str(row.get("trade_date", ""))),
             total_nav=total_nav,
             fd_share=fd_share,
         )
 
-    def get_etf_basic(self, code: str = "") -> List[FundBasic]:
-        """获取ETF基本信息"""
-        pro = self._get_pro()
-        if pro is None:
-            return []
-        kwargs = {}
-        if code:
-            kwargs["ts_code"] = f"{code}.SH" if code.startswith("5") or code.startswith("51") else f"{code}.SZ"
-        df = self._safe_call(pro.etf_basic, **kwargs) if kwargs else self._safe_call(pro.etf_basic)
-        if df is None or df.empty:
-            return []
-        result = []
-        for _, row in df.iterrows():
-            ts_code = str(row.get("ts_code", ""))
-            clean_code = ts_code.replace(".SH", "").replace(".SZ", "")
-            result.append(FundBasic(
-                code=clean_code,
-                name=row.get("name", ""),
-                type="ETF",
-                management=row.get("mgmt_comp", ""),
-                custodian=row.get("trustee_comp", ""),
-                found_date=self._parse_date(str(row.get("list_date", ""))),
-                benchmark=row.get("benchmark", ""),
-            ))
-        return result
-
-    def get_etf_daily(self, code: str, start_date: str = "", end_date: str = "") -> List[FundNav]:
-        """获取ETF日线行情（使用fund_daily接口）"""
-        pro = self._get_pro()
-        if pro is None:
-            return []
-        # 确定交易所后缀
-        suffix = ".SH" if code.startswith("5") or code.startswith("51") else ".SZ"
-        kwargs = {"ts_code": f"{code}{suffix}"}
-        if start_date:
-            kwargs["start_date"] = start_date.replace("-", "")
-        if end_date:
-            kwargs["end_date"] = end_date.replace("-", "")
-        df = self._safe_call(pro.fund_daily, **kwargs)
-        if df is None or df.empty:
-            return []
-        df = df.sort_values(by="trade_date", ascending=True)
-        result = []
-        prev_close = None
-        for _, row in df.iterrows():
-            close = self._safe_float(row.get("close"))
-            day_growth = None
-            if prev_close is not None and prev_close > 0 and close is not None:
-                day_growth = round((close - prev_close) / prev_close * 100, 4)
-            result.append(FundNav(
-                date=self._parse_date(str(row.get("trade_date", ""))),
-                nav=close,
-                accum_nav=None,
-                adj_nav=None,
-                day_growth=day_growth,
-            ))
-            if close is not None:
-                prev_close = close
-        return result
-
     def get_fund_adj(self, code: str) -> List[AdjFactor]:
-        """获取基金复权因子"""
+        """获取基金复权因子（用于精确收益计算）"""
         pro = self._get_pro()
         if pro is None:
             return []
@@ -425,18 +353,16 @@ class TushareProvider(DataProvider):
         return result
 
     def get_fund_company(self, code: str) -> Optional[FundCompany]:
-        """获取基金公司信息"""
+        """获取基金公司信息（经理人数/基金数/管理总规模）"""
         pro = self._get_pro()
         if pro is None:
             return None
-        # 先从fund_basic获取management字段
         basic_df = self._safe_call(pro.fund_basic, ts_code=f"{code}.OF")
         if basic_df is None or basic_df.empty:
             return None
         mgmt = basic_df.iloc[0].get("management", "")
         if not mgmt:
             return None
-        # 查询基金公司详情
         company_df = self._safe_call(pro.fund_company, name=mgmt)
         if company_df is None or company_df.empty:
             return FundCompany(name=mgmt)
@@ -470,7 +396,7 @@ class TushareProvider(DataProvider):
         return result
 
     def get_index_daily(self, ts_code: str = "000001.SH", start_date: str = "", end_date: str = "") -> List[IndexDaily]:
-        """获取指数日线行情"""
+        """获取指数日线行情（替代 akshare 市场指数接口）"""
         pro = self._get_pro()
         if pro is None:
             return []
@@ -498,26 +424,3 @@ class TushareProvider(DataProvider):
                 amount=self._safe_float(row.get("amount")),
             ))
         return result
-
-    def get_stock_daily_basic(self, ts_code: str, trade_date: str = "") -> Optional[Dict[str, Any]]:
-        """获取股票每日指标（PE/PB/市值等）"""
-        pro = self._get_pro()
-        if pro is None:
-            return None
-        kwargs = {"ts_code": ts_code}
-        if trade_date:
-            kwargs["trade_date"] = trade_date.replace("-", "")
-        df = self._safe_call(pro.daily_basic, **kwargs)
-        if df is None or df.empty:
-            return None
-        row = df.iloc[0]
-        return {
-            "pe": self._safe_float(row.get("pe")),
-            "pe_ttm": self._safe_float(row.get("pe_ttm")),
-            "pb": self._safe_float(row.get("pb")),
-            "ps": self._safe_float(row.get("ps")),
-            "ps_ttm": self._safe_float(row.get("ps_ttm")),
-            "total_mv": self._safe_float(row.get("total_mv")),
-            "circ_mv": self._safe_float(row.get("circ_mv")),
-            "turnover_rate": self._safe_float(row.get("turnover_rate")),
-        }

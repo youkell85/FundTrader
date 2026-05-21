@@ -79,10 +79,19 @@ class FundDividend:
 
 @dataclass
 class FundScale:
-    """基金规模"""
-    end_date: str = ""         # 截止日期
-    total_nav: Optional[float] = None    # 合计资产净值(亿元)
-    fd_share: Optional[float] = None    # 基金份额(万份)
+    """基金规模（Tushare fund_share + fund_nav 计算）"""
+    end_date: str = ""
+    total_nav: Optional[float] = None   # 资产净值(亿元)
+    fd_share: Optional[float] = None    # 最新份额(万份)
+
+
+@dataclass
+class FundCompany:
+    """基金公司信息"""
+    name: str = ""
+    manager_count: Optional[int] = None   # 基金经理人数
+    fund_count: Optional[int] = None      # 基金数量
+    total_scale: Optional[float] = None   # 管理规模(亿元)
 
 
 @dataclass
@@ -90,37 +99,6 @@ class AdjFactor:
     """复权因子"""
     date: str = ""
     adj_factor: float = 1.0
-
-
-@dataclass
-class FundCompany:
-    """基金公司信息"""
-    name: str = ""             # 公司名称
-    manager_count: Optional[int] = None   # 基金经理人数
-    fund_count: Optional[int] = None      # 基金数量
-    total_scale: Optional[float] = None   # 管理规模(亿元)
-
-
-@dataclass
-class TradeCal:
-    """交易日历"""
-    cal_date: str = ""         # 日期
-    is_open: str = ""          # 是否交易日 S交易 H休息
-
-
-@dataclass
-class IndexDaily:
-    """指数日线行情"""
-    date: str = ""
-    close: Optional[float] = None
-    open: Optional[float] = None
-    high: Optional[float] = None
-    low: Optional[float] = None
-    pre_close: Optional[float] = None
-    change: Optional[float] = None
-    pct_chg: Optional[float] = None
-    vol: Optional[float] = None
-    amount: Optional[float] = None
 
 
 @dataclass
@@ -142,9 +120,31 @@ class FundDetail:
     rating: Optional[int] = None  # 基金评级（晨星等，1-5星）
     source: str = ""  # 数据来源标识
     dividends: List[FundDividend] = field(default_factory=list)  # 分红记录
-    scale: Optional[FundScale] = None  # 基金规模
+    scale: Optional[FundScale] = None  # 基金规模（Tushare 提供）
     adj_factors: List[AdjFactor] = field(default_factory=list)  # 复权因子
-    company: Optional[FundCompany] = None  # 基金公司
+    company: Optional[FundCompany] = None  # 基金公司（Tushare 提供）
+
+
+@dataclass
+class TradeCal:
+    """交易日历"""
+    cal_date: str = ""
+    is_open: str = ""          # S=交易日, H=休息日
+
+
+@dataclass
+class IndexDaily:
+    """指数日线行情"""
+    date: str = ""
+    close: Optional[float] = None
+    open: Optional[float] = None
+    high: Optional[float] = None
+    low: Optional[float] = None
+    pre_close: Optional[float] = None
+    change: Optional[float] = None
+    pct_chg: Optional[float] = None
+    vol: Optional[float] = None
+    amount: Optional[float] = None
 
 
 class DataProvider(ABC):
