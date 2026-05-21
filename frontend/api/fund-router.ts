@@ -23,6 +23,7 @@ import {
 import { fetchFundQuote } from "./lib/fund-quote";
 
 const strategyMap: Record<string, string> = {
+  compare: "compare",
   fixed_amount: "fixed",
   fixed_ratio: "ratio",
   value_averaging: "ma",
@@ -536,34 +537,58 @@ export const fundRouter = createRouter({
         };
         const riskProfile = opts.riskProfile || "balanced";
         const maxDdLimit = opts.maxDrawdown ?? (riskProfile === "conservative" ? 12 : riskProfile === "aggressive" ? 35 : 22);
+        const horizon = opts.horizon || "1年";
+        const returnKey = horizon.includes("3个月") ? "return3m" : horizon.includes("6个月") ? "return6m" : horizon.includes("3年") ? "return3y" : "return1y";
         const templates: Record<string, Array<{ type: string; weight: number }>> = {
           conservative: [{ type: "bond", weight: 55 }, { type: "money", weight: 15 }, { type: "hybrid", weight: 20 }, { type: "index", weight: 10 }],
           balanced: [{ type: "bond", weight: 25 }, { type: "hybrid", weight: 35 }, { type: "index", weight: 25 }, { type: "equity", weight: 15 }],
           aggressive: [{ type: "equity", weight: 35 }, { type: "index", weight: 35 }, { type: "hybrid", weight: 20 }, { type: "qdii", weight: 10 }],
           moderate: [{ type: "bond", weight: 35 }, { type: "hybrid", weight: 35 }, { type: "index", weight: 20 }, { type: "equity", weight: 10 }],
         };
-        const template = templates[riskProfile] || templates.balanced;
+        let template = templates[riskProfile] || templates.balanced;
+        if (horizon.includes("3个月")) {
+          template = template.map((slot) => slot.type === "equity" || slot.type === "qdii" ? { ...slot, weight: Math.max(5, slot.weight - 10) } : slot.type === "bond" || slot.type === "money" ? { ...slot, weight: slot.weight + 8 } : slot);
+        } else if (horizon.includes("3年")) {
+          template = template.map((slot) => slot.type === "equity" || slot.type === "index" ? { ...slot, weight: slot.weight + 8 } : slot.type === "money" ? { ...slot, weight: Math.max(0, slot.weight - 10) } : slot);
+        }
+        const totalTemplateWeight = template.reduce((sum, slot) => sum + slot.weight, 0) || 100;
+        template = template.map((slot) => ({ ...slot, weight: Math.round(slot.weight / totalTemplateWeight * 100) }));
+        const drift = 100 - template.reduce((sum, slot) => sum + slot.weight, 0);
+        if (template[0]) template[0].weight += drift;
         const usedCodes = new Set<string>();
+        const scoreFund = (fund: any) => {
+          const perf = fund.performance || {};
+          const periodReturn = parseMetric(perf[returnKey]);
+          const sharpe = parseMetric(perf.sharpeRatio);
+          const maxDD = Math.abs(parseMetric(perf.maxDrawdown));
+          const hasRisk = maxDD > 0 || sharpe > 0;
+          const drawdownPenalty = maxDD > maxDdLimit ? (maxDD - maxDdLimit) * 2.5 : maxDD * 0.28;
+          const missingRiskPenalty = hasRisk ? 0 : 8;
+          const horizonBonus = horizon.includes("3年") ? parseMetric(perf.return3y) * 0.25 : 0;
+          return periodReturn + horizonBonus + sharpe * 6 - drawdownPenalty - missingRiskPenalty;
+        };
         const allocations = template.map((slot) => {
           const candidates = funds
             .filter((fund: any) => fund.fundType === slot.type && !usedCodes.has(fund.fundCode))
-            .filter((fund: any) => Math.abs(parseMetric(fund.performance?.maxDrawdown)) <= maxDdLimit || parseMetric(fund.performance?.maxDrawdown) === 0)
-            .sort((a: any, b: any) => {
-              const scoreA = parseMetric(a.performance?.return1y) + parseMetric(a.performance?.sharpeRatio) * 5 - Math.abs(parseMetric(a.performance?.maxDrawdown)) * 0.25;
-              const scoreB = parseMetric(b.performance?.return1y) + parseMetric(b.performance?.sharpeRatio) * 5 - Math.abs(parseMetric(b.performance?.maxDrawdown)) * 0.25;
-              return scoreB - scoreA;
-            });
-          const fund = candidates[0] || funds.find((item: any) => !usedCodes.has(item.fundCode));
+            .filter((fund: any) => {
+              const maxDD = Math.abs(parseMetric(fund.performance?.maxDrawdown));
+              return maxDD === 0 || maxDD <= maxDdLimit;
+            })
+            .sort((a: any, b: any) => scoreFund(b) - scoreFund(a));
+          const fallback = funds
+            .filter((item: any) => !usedCodes.has(item.fundCode))
+            .sort((a: any, b: any) => scoreFund(b) - scoreFund(a))[0];
+          const fund = candidates[0] || fallback;
           if (fund) usedCodes.add(fund.fundCode);
           return fund ? {
             fundId: fund.id,
             weight: slot.weight,
-            reason: `${fund.category}配置，近1年${fund.performance?.return1y ?? "0"}%，回撤${fund.performance?.maxDrawdown ?? "—"}%`,
+            reason: `${fund.category}配置；${horizon}观察指标${fund.performance?.[returnKey] ?? "0"}%，最大回撤${fund.performance?.maxDrawdown ?? "—"}%，夏普${fund.performance?.sharpeRatio ?? "—"}，符合${maxDdLimit}%回撤约束下的综合得分。`,
             fund,
           } : null;
         }).filter(Boolean);
         const expectedReturn = allocations.length
-          ? (allocations.reduce((sum: number, item: any) => sum + parseMetric(item.fund.performance?.return1y) * item.weight, 0) / 100).toFixed(2)
+          ? (allocations.reduce((sum: number, item: any) => sum + parseMetric(item.fund.performance?.[returnKey]) * item.weight, 0) / 100).toFixed(2)
           : "0";
         const expectedRisk = allocations.length
           ? (allocations.reduce((sum: number, item: any) => sum + Math.abs(parseMetric(item.fund.performance?.maxDrawdown)) * item.weight, 0) / 100).toFixed(2)
@@ -571,12 +596,12 @@ export const fundRouter = createRouter({
         return [{
           id: 1,
           name: `${riskProfile === "conservative" ? "稳健防守" : riskProfile === "aggressive" ? "进取成长" : "均衡配置"}组合`,
-          description: `按${opts.horizon || "中期"}周期、最大回撤约束${maxDdLimit}%从鑫基荟池内快速生成`,
+          description: `按${horizon}周期、最大回撤约束${maxDdLimit}%从鑫基荟池内生成`,
           riskProfile,
-          marketCondition: opts.horizon || "中期",
+          marketCondition: horizon,
           expectedReturn,
           expectedRisk,
-          rationale: `优先使用同类中近1年收益、夏普与最大回撤综合得分较好的产品；配置权重按风险承受能力分配，可通过周期、类型和回撤约束重新调整。`,
+          rationale: `组合按风险档位先确定大类权重，再按${horizon}对应收益指标、最大回撤、夏普比率和缺失数据惩罚进行排序。最大回撤约束会先过滤不合规产品，周期改变会切换收益观察窗口，因此调参会真实影响产品和权重。`,
           tags: ["鑫基荟", "可调参数", "快速生成"],
           fundAllocations: allocations,
         }];
@@ -599,7 +624,7 @@ export const fundRouter = createRouter({
       z.object({
         fundIds: z.array(z.number()),
         weights: z.array(z.number()).optional(),
-        strategy: z.enum(["fixed_amount", "fixed_ratio", "value_averaging", "smart_beta", "martingale"]),
+        strategy: z.enum(["compare", "fixed_amount", "fixed_ratio", "value_averaging", "smart_beta", "martingale"]),
         startDate: z.string(),
         endDate: z.string(),
         investAmount: z.number(),
@@ -706,21 +731,24 @@ export const fundRouter = createRouter({
       const funds = await fetchHomeFundSummaries();
       const mapped = funds.map(mapFundItem).filter(Boolean);
       const totalFunds = mapped.length;
-      const finiteAverage = (values: number[]) => {
-        const valid = values.filter(Number.isFinite);
+      const finiteAverage = (values: number[], options: { excludeZero?: boolean } = {}) => {
+        const valid = values.filter((value) => (
+          Number.isFinite(value) &&
+          (!options.excludeZero || Math.abs(value) > 1e-8)
+        ));
         return valid.length > 0
           ? (valid.reduce((sum, value) => sum + value, 0) / valid.length).toFixed(2)
-          : "0";
+          : "—";
       };
       const avgReturn = totalFunds > 0
         ? finiteAverage(mapped.map((f: any) => parseFloat(f.performance?.return1y || "0")))
         : "0";
       const avgSharpe = totalFunds > 0
-        ? finiteAverage(mapped.map((f: any) => parseFloat(f.performance?.sharpeRatio || "0")))
-        : "0";
+        ? finiteAverage(mapped.map((f: any) => parseFloat(f.performance?.sharpeRatio || "0")), { excludeZero: true })
+        : "—";
       const avgMaxDD = totalFunds > 0
-        ? finiteAverage(mapped.map((f: any) => parseFloat(f.performance?.maxDrawdown || "0")))
-        : "0";
+        ? finiteAverage(mapped.map((f: any) => parseFloat(f.performance?.maxDrawdown || "0")), { excludeZero: true })
+        : "—";
       const result = { totalFunds, avgReturn, avgSharpe, avgMaxDD, marketingCount: totalFunds };
       setCache(cacheKey, result, SNAPSHOT_TTL);
       return result;

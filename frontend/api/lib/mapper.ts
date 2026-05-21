@@ -327,7 +327,22 @@ export function mapBacktestResult(result: any): any {
 
   // 当策略为 compare 时，individual 中的元素结构为 { fund_code, strategies: { fixed, ma } }
   // 需从 strategies 中提取实际指标数据
-  const strategyData: any = first.strategies?.fixed || first.strategies?.ma || null;
+  const strategyEntries = first.strategies && typeof first.strategies === "object"
+    ? Object.entries(first.strategies as Record<string, any>)
+    : [];
+  const strategyResults = strategyEntries.map(([key, value]: [string, any]) => ({
+    key,
+    totalInvested: value?.total_invested != null ? String(value.total_invested) : "0",
+    finalValue: value?.total_value != null ? String(value.total_value) : "0",
+    totalReturn: value?.total_profit_rate != null ? String(value.total_profit_rate) : "0",
+    annualizedReturn: value?.annual_return != null ? String(value.annual_return) : "0",
+    maxDrawdown: value?.max_drawdown != null ? String(value.max_drawdown) : "0",
+    sharpeRatio: value?.sharpe_ratio != null ? String(value.sharpe_ratio) : "0",
+  }));
+  const bestStrategy = strategyEntries
+    .map(([, value]) => value)
+    .sort((a: any, b: any) => parseFloat(String(b?.annual_return ?? "-999")) - parseFloat(String(a?.annual_return ?? "-999")))[0];
+  const strategyData: any = bestStrategy || first.strategies?.fixed || first.strategies?.ma || null;
   const metricsSource: any = strategyData ?? first;
 
   // 提取时序数据（从 nav_curve 或 strategies.fixed.nav_curve）
@@ -388,6 +403,7 @@ export function mapBacktestResult(result: any): any {
     excessReturn: metricsSource.excess_return != null ? String(metricsSource.excess_return) : "0",
     monthlyData: merged,
     benchmarkCurve,
+    strategyResults,
     benchmark: {
       finalValue: benchSummary?.final_value != null ? String(benchSummary.final_value) : "0",
       totalReturn: benchSummary?.total_return != null ? String(benchSummary.total_return) : "0",

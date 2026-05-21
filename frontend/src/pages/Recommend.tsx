@@ -71,7 +71,7 @@ export default function Recommend() {
     <div className="min-h-screen pt-14 pb-12">
       <div className="max-w-7xl mx-auto px-4 md:px-6">
         <div className="pt-8 md:pt-12 pb-5 md:pb-7">
-          <h1 className="text-2xl md:text-4xl font-semibold text-white tracking-tight">智能配置推荐</h1>
+          <h1 className="text-2xl md:text-4xl font-semibold text-white tracking-tight">配置组合</h1>
           <p className="mt-2 text-white/45 text-sm md:text-base">按风险承受、投资周期、基金类型和回撤约束，从鑫基荟池内生成可调整组合。</p>
         </div>
 
@@ -230,6 +230,7 @@ export default function Recommend() {
                                   <div className="min-w-0 flex-1">
                                     <div className="text-white text-sm truncate group-hover:text-[#5AA9FF] transition-colors">{fund.fundAbbr || fund.fundName}</div>
                                     <div className="text-white/32 text-xs data-number">{fund.fundCode} · {fund.category}</div>
+                                    <div className="text-white/42 text-[11px] leading-relaxed mt-1">{fd.reason}</div>
                                   </div>
                                   <div className="text-right shrink-0">
                                     <div className="data-number text-white text-sm">{fd.weight}%</div>

@@ -120,9 +120,18 @@ def _get_fund_fees_from_eastmoney(code: str) -> Optional[Dict[str, Any]]:
 
 def _extract_fee_cell(text: str, label: str) -> Optional[float]:
     match = re.search(rf"<th[^>]*>\s*{re.escape(label)}\s*</th>\s*<td[^>]*>(.*?)</td>", text, re.S)
+    if match:
+        value = html.unescape(re.sub(r"<[^>]+>", "", match.group(1))).strip()
+        return _parse_fee(value)
+
+    plain = html.unescape(re.sub(r"<[^>]+>", " ", text))
+    plain = re.sub(r"\s+", " ", plain)
+    match = re.search(rf"{re.escape(label)}\s*[:：]?\s*([0-9]+(?:\.[0-9]+)?\s*%)", plain)
+    if not match:
+        match = re.search(rf"{re.escape(label)}(.{{0,80}}?)([0-9]+(?:\.[0-9]+)?\s*%)", plain)
     if not match:
         return None
-    value = html.unescape(re.sub(r"<[^>]+>", "", match.group(1))).strip()
+    value = match.group(match.lastindex or 1)
     return _parse_fee(value)
 
 

@@ -1,6 +1,6 @@
-import { useState, useMemo, useRef, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { Link } from "react-router";
-import { Search, TrendingUp, TrendingDown, Star, PieChart, Shield, Camera, X, Loader2, Trash2 } from "lucide-react";
+import { Search, TrendingUp, TrendingDown, Star, PieChart, Shield, Loader2, Trash2 } from "lucide-react";
 import { trpc } from "@/providers/trpc";
 import { UP_COLOR, DOWN_COLOR, ACCENT_PRIMARY, RISK_COLOR, POSITIVE_METRIC_COLOR, getChangeTextClass } from "@/lib/colors";
 
@@ -12,13 +12,6 @@ const riskLabels: Record<string, string> = {
   low: "低风险", low_medium: "中低风险", medium: "中风险",
   medium_high: "中高风险", high: "高风险",
 };
-
-interface ImageSearchResult {
-  summary: string;
-  recognizedCount: number;
-  matchedCount: number;
-  funds: any[];
-}
 
 export default function Home() {
   const utils = trpc.useUtils();
@@ -62,13 +55,6 @@ export default function Home() {
   const pageSize = 15;
   const [hoveredRow, setHoveredRow] = useState<number | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
-
-  // Image search states
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
-  const [isRecognizing, setIsRecognizing] = useState(false);
-  const [imageResult, setImageResult] = useState<ImageSearchResult | null>(null);
-  const [imageError, setImageError] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const hasMetric = (value: unknown) => (
@@ -204,33 +190,7 @@ export default function Home() {
     setSearchError(uniqueCodes.length > 1 ? "匹配到多只产品，请输入更完整的产品名称或基金代码" : "未找到匹配产品，请输入6位基金代码或产品名称");
   }, [addFundByCode, allFunds, search]);
 
-  // Compress image before upload to reduce base64 size
-  const compressImage = useCallback((file: File, maxWidth = 1200, quality = 0.7): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const img = new Image();
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        img.src = e.target?.result as string;
-        img.onload = () => {
-          const canvas = document.createElement("canvas");
-          let { width, height } = img;
-          if (width > maxWidth) {
-            height = (height * maxWidth) / width;
-            width = maxWidth;
-          }
-          canvas.width = width;
-          canvas.height = height;
-          const ctx = canvas.getContext("2d");
-          ctx?.drawImage(img, 0, 0, width, height);
-          resolve(canvas.toDataURL("image/jpeg", quality));
-        };
-        img.onerror = reject;
-      };
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
-  }, []);
-
+  /*
   const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -284,6 +244,7 @@ export default function Home() {
     setImageError(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
   }, []);
+  */
 
   return (
     <div className="min-h-screen pt-14 pb-12">
@@ -364,6 +325,7 @@ export default function Home() {
             />
             {searchError && <div className="absolute left-0 top-full mt-1 text-xs text-[#FF3366]">{searchError}</div>}
           </form>
+          {/*
           <button
             onClick={() => fileInputRef.current?.click()}
             className="h-11 px-4 rounded-xl bg-white/[0.03] border border-white/[0.06] text-white/60 text-sm hover:bg-white/[0.06] hover:text-white transition-all flex items-center gap-2 shrink-0"
@@ -379,6 +341,7 @@ export default function Home() {
             className="hidden"
             onChange={handleFileSelect}
           />
+          */}
           <div className="flex gap-2 flex-wrap">
             <select value={fundType} onChange={(e) => { setFundType(e.target.value); setPage(1); }}
               className="h-11 px-3 rounded-xl bg-[#0B1021] border border-white/[0.08] text-white text-sm focus:outline-none focus:border-[#3B6CFF]/50">
@@ -402,7 +365,8 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Image search result panel */}
+        {/*
+        Image search result panel
         {(imagePreview || isRecognizing || imageResult || imageError) && (
           <div className="mt-4 liquid-glass-sm p-4 relative">
             <button
@@ -462,6 +426,7 @@ export default function Home() {
             </div>
           </div>
         )}
+        */}
 
         <div className="mt-4 flex items-center gap-2 flex-wrap">
           <span className="text-white/30 text-xs">排序:</span>
@@ -531,7 +496,7 @@ export default function Home() {
                     <div className={`text-right data-number font-medium ${dailyClass} relative z-10`}>
                       <span className="inline-flex items-center gap-0.5">
                         {dailyChange >= 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-                        {dailyChange >= 0 ? "+" : ""}{fund.dailyChange}%
+                        {dailyChange >= 0 ? "+" : ""}{dailyChange.toFixed(2)}%
                       </span>
                     </div>
                     <div className={`text-right data-number ${return1yClass} relative z-10`}>
@@ -564,7 +529,7 @@ export default function Home() {
                       <div className="text-right shrink-0">
                         <div className="data-number text-white text-base font-semibold">{fund.nav}</div>
                         <div className={`data-number text-sm font-medium ${dailyClass}`}>
-                          {dailyChange >= 0 ? "+" : ""}{fund.dailyChange}%
+                          {dailyChange >= 0 ? "+" : ""}{dailyChange.toFixed(2)}%
                         </div>
                       </div>
                     </div>

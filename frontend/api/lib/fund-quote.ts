@@ -31,6 +31,44 @@ function parseEastmoneyJsonp(text: string): any | null {
   }
 }
 
+function cleanFundName(value: string) {
+  return value
+    .replace(/\s*-\s*天天基金网.*$/i, "")
+    .replace(/\s*基金档案.*$/i, "")
+    .replace(/\s*基金概况.*$/i, "")
+    .replace(/\s*\(\d{6}\).*$/, "")
+    .trim();
+}
+
+async function fetchFundNameFallback(code: string, signal: AbortSignal): Promise<string> {
+  const urls = [
+    `https://fundf10.eastmoney.com/jbgk_${code}.html`,
+    `https://fund.eastmoney.com/${code}.html`,
+  ];
+
+  for (const url of urls) {
+    try {
+      const res = await fetch(url, {
+        signal,
+        headers: {
+          "User-Agent": "Mozilla/5.0",
+          "Referer": "https://fund.eastmoney.com/",
+        },
+      });
+      if (!res.ok) continue;
+      const html = await res.text();
+      const title = html.match(/<title>(.*?)<\/title>/is)?.[1] || "";
+      const h1 = html.match(/<h1[^>]*>(.*?)<\/h1>/is)?.[1] || "";
+      const raw = (h1 || title).replace(/<[^>]*>/g, "");
+      const name = cleanFundName(raw);
+      if (name && name !== code && !/^\d{6}$/.test(name)) return name;
+    } catch {
+      continue;
+    }
+  }
+  return "";
+}
+
 export async function fetchFundQuote(code: string): Promise<FundQuote | null> {
   if (!/^\d{6}$/.test(code)) return null;
 
@@ -48,10 +86,14 @@ export async function fetchFundQuote(code: string): Promise<FundQuote | null> {
         "Referer": "http://fund.eastmoney.com/",
       },
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      const fallbackName = await fetchFundNameFallback(code, controller.signal);
+      return fallbackName ? { code, name: fallbackName } : null;
+    }
 
     const data = parseEastmoneyJsonp(await res.text());
-    const name = String(data?.name || "").trim();
+    let name = String(data?.name || "").trim();
+    if (!name || name === code) name = await fetchFundNameFallback(code, controller.signal);
     if (!name || name === code) return null;
 
     const quote: FundQuote = {
