@@ -1,14 +1,14 @@
 #!/bin/bash
-# FundTrader v2 一键部署脚本 - 新加坡服务器
-# 用法: bash deploy-scripts/deploy-sg.sh [--backend-only|--frontend-only|--full]
+# FundTrader 一键部署脚本 - 新加坡服务器
+# 用法: bash deploy/deploy.sh [--backend-only|--frontend-only|--full]
 set -e
 
 SG_HOST="43.160.226.62"
 SSH_PORT="${SSH_PORT:-22222}"
 GIT_REMOTE="${GIT_REMOTE:-gitee}"
 PROJECT_DIR="/opt/fundtrader"
-BACKEND_DIR="${PROJECT_DIR}/v2/backend"
-FRONTEND_DIR="${PROJECT_DIR}/v2/frontend"
+BACKEND_DIR="${PROJECT_DIR}/backend"
+FRONTEND_DIR="${PROJECT_DIR}/frontend"
 
 DEPLOY_BACKEND=true
 DEPLOY_FRONTEND=true
@@ -27,7 +27,7 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-echo "=== FundTrader v2 部署到新加坡服务器 ==="
+echo "=== FundTrader 部署到新加坡服务器 ==="
 
 # ── 1. 本地 git commit & push ──
 echo "[1/6] 提交代码到 Git..."
@@ -37,7 +37,7 @@ if git diff --cached --quiet; then
   echo "  没有新的变更需要提交"
 else
   git commit -m "deploy: $(date '+%Y-%m-%d %H:%M')"
-  git push origin master
+  git push ${GIT_REMOTE} master
   echo "  代码已推送"
 fi
 
@@ -77,7 +77,7 @@ if [ "$DEPLOY_NGINX" = true ]; then
   echo "[6/6] 更新 Nginx 配置..."
   scp -P ${SSH_PORT} deploy/nginx_fund.conf root@${SG_HOST}:/etc/nginx/conf.d/fundtrader.conf
   scp -P ${SSH_PORT} deploy/fundtrader.service root@${SG_HOST}:/etc/systemd/system/fundtrader.service
-  scp -P ${SSH_PORT} v2/frontend/fundtrader-v2.service root@${SG_HOST}:/etc/systemd/system/fundtrader-v2.service
+  scp -P ${SSH_PORT} deploy/fundtrader-v2.service root@${SG_HOST}:/etc/systemd/system/fundtrader-v2.service
   ssh -p ${SSH_PORT} root@${SG_HOST} "systemctl daemon-reload && nginx -t && systemctl reload nginx"
   echo "  Nginx & Systemd 配置已更新"
 else

@@ -1,13 +1,13 @@
 #!/bin/bash
-# FundTrader v2 服务器初始化脚本 - 首次部署时在服务器上执行
-# 用法: ssh root@43.160.226.62 "bash -s" < deploy-scripts/init-server.sh
+# FundTrader 服务器初始化脚本 - 首次部署时在服务器上执行
+# 用法: ssh root@43.160.226.62 "bash -s" < scripts/init-server.sh
 set -e
 
 PROJECT_DIR="/opt/fundtrader"
-BACKEND_DIR="${PROJECT_DIR}/v2/backend"
-FRONTEND_DIR="${PROJECT_DIR}/v2/frontend"
+BACKEND_DIR="${PROJECT_DIR}/backend"
+FRONTEND_DIR="${PROJECT_DIR}/frontend"
 
-echo "=== FundTrader v2 服务器初始化 ==="
+echo "=== FundTrader 服务器初始化 ==="
 
 # ── 1. 安装系统依赖 ──
 echo "[1/7] 安装系统依赖..."
@@ -26,9 +26,9 @@ echo "  npm:     $(npm -v)"
 # ── 3. 克隆代码 ──
 echo "[3/7] 克隆代码..."
 if [ ! -d "${PROJECT_DIR}/.git" ]; then
-  git clone https://gitee.com/<YOUR_GITEE_REPO> ${PROJECT_DIR}
+  git clone https://gitee.com/youkell/FundTrader ${PROJECT_DIR}
 else
-  cd ${PROJECT_DIR} && git pull origin master
+  cd ${PROJECT_DIR} && git pull gitee master
 fi
 
 # ── 4. 安装后端依赖 ──
@@ -44,7 +44,7 @@ npm run build
 # ── 6. 配置 Systemd 服务 ──
 echo "[6/7] 配置 Systemd 服务..."
 cp ${PROJECT_DIR}/deploy/fundtrader.service /etc/systemd/system/
-cp ${PROJECT_DIR}/v2/frontend/fundtrader-v2.service /etc/systemd/system/
+cp ${PROJECT_DIR}/deploy/fundtrader-v2.service /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable fundtrader fundtrader-v2
 
@@ -78,6 +78,6 @@ echo "  访问地址: http://$(hostname -I | awk '{print $1}')/fund/"
 echo "  API文档:  http://$(hostname -I | awk '{print $1}')/fund/api/docs"
 echo ""
 echo "⚠️  请手动完成以下步骤:"
-echo "  1. 创建 ${BACKEND_DIR}/.env (参考 backend/.env)"
-echo "  2. 更新 deploy-scripts/init-server.sh 中的 GITEE 仓库地址"
+echo "  1. 创建 ${BACKEND_DIR}/.env (参考 backend/.env.example)"
+echo "  2. 配置 Tushare Token、TickFlow API Key、LLM API Key"
 echo "  3. 如有 SSL 证书需求，配置 nginx HTTPS"
