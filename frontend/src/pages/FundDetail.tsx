@@ -323,6 +323,12 @@ export default function FundDetail() {
                         <div className="text-white/80 text-sm leading-relaxed whitespace-pre-wrap">{review.performance_review}</div>
                       </div>
                     )}
+                    {review.risk_review && (
+                      <div className="liquid-glass-sm p-3">
+                        <div className="text-xs mb-1" style={{ color: RISK_COLOR }}>风控指标分析</div>
+                        <div className="text-white/80 text-sm leading-relaxed whitespace-pre-wrap">{review.risk_review}</div>
+                      </div>
+                    )}
                     {review.manager_review && (
                       <div className="liquid-glass-sm p-3">
                         <div className="text-xs mb-1" style={{ color: ACCENT_HIGHLIGHT }}>基金经理分析</div>

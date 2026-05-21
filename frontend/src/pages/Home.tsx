@@ -1,6 +1,6 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from "react";
 import { Link } from "react-router";
-import { Search, TrendingUp, TrendingDown, Star, PieChart, Activity, Shield, Camera, X, Loader2, Trash2 } from "lucide-react";
+import { Search, TrendingUp, TrendingDown, Star, PieChart, Shield, Camera, X, Loader2, Trash2 } from "lucide-react";
 import { trpc } from "@/providers/trpc";
 import { UP_COLOR, DOWN_COLOR, ACCENT_PRIMARY, RISK_COLOR, POSITIVE_METRIC_COLOR, getChangeTextClass } from "@/lib/colors";
 
@@ -134,6 +134,30 @@ export default function Home() {
   }, [filteredFunds, page]);
 
   const totalPages = Math.ceil(filteredFunds.length / pageSize);
+  const categoryStats = useMemo(() => {
+    const parseMetric = (value: unknown) => {
+      const num = parseFloat(String(value ?? "").replace("%", ""));
+      return Number.isFinite(num) ? num : null;
+    };
+    const groups = new Map<string, any[]>();
+    for (const fund of filteredFunds) {
+      const key = typeLabels[fund.fundType] || fund.category || fund.fundType || "其他";
+      groups.set(key, [...(groups.get(key) || []), fund]);
+    }
+    return Array.from(groups.entries()).map(([label, funds]) => {
+      const avg = (values: Array<number | null>) => {
+        const valid = values.filter((v): v is number => v !== null);
+        return valid.length ? (valid.reduce((sum, v) => sum + v, 0) / valid.length).toFixed(2) : "—";
+      };
+      return {
+        label,
+        count: funds.length,
+        avgReturn: avg(funds.map((f) => parseMetric(f.performance?.annualizedReturn || f.performance?.return1y))),
+        avgMaxDrawdown: avg(funds.map((f) => parseMetric(f.performance?.maxDrawdown))),
+        avgSharpe: avg(funds.map((f) => parseMetric(f.performance?.sharpeRatio))),
+      };
+    }).sort((a, b) => b.count - a.count).slice(0, 6);
+  }, [filteredFunds]);
 
   const handleSearchSubmit = useCallback(async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -273,10 +297,9 @@ export default function Home() {
           </p>
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3 mt-6 md:mt-8">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 md:gap-3 mt-6 md:mt-8">
           {[
-            { label: "在售基金", value: overview.totalFunds, suffix: "只", icon: PieChart, color: ACCENT_PRIMARY },
-            { label: "鑫基荟", value: overview.marketingCount, suffix: "只", icon: Activity, color: ACCENT_PRIMARY },
+            { label: "当前列表", value: filteredFunds.length, suffix: "只", icon: PieChart, color: ACCENT_PRIMARY },
             { label: "平均年化收益", value: overview.avgReturn, suffix: "%", icon: TrendingUp, color: parseFloat(overview.avgReturn) >= 0 ? UP_COLOR : DOWN_COLOR },
             { label: "平均夏普比率", value: overview.avgSharpe, suffix: "", icon: Shield, color: POSITIVE_METRIC_COLOR },
           ].map((card) => (
@@ -290,6 +313,35 @@ export default function Home() {
                 <span className="text-xs md:text-sm text-white/40 ml-0.5">{card.suffix}</span>
               </div>
             </div>
+          ))}
+        </div>
+
+        <div className="mt-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+          {categoryStats.map((item) => (
+            <button
+              key={item.label}
+              onClick={() => { setFundType(""); setCategory(item.label); setPage(1); }}
+              className="rounded-lg border border-white/[0.06] bg-white/[0.025] px-3 py-3 text-left hover:bg-white/[0.05] transition-colors"
+            >
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <span className="text-white/80 text-sm font-medium">{item.label}</span>
+                <span className="data-number text-white/35 text-xs">{item.count}只</span>
+              </div>
+              <div className="grid grid-cols-3 gap-2 text-[11px]">
+                <div>
+                  <div className="text-white/28">平均年化</div>
+                  <div className={`data-number font-medium ${getChangeTextClass(parseFloat(item.avgReturn || "0"))}`}>{item.avgReturn}%</div>
+                </div>
+                <div>
+                  <div className="text-white/28">最大回撤</div>
+                  <div className="data-number font-medium" style={{ color: RISK_COLOR }}>{item.avgMaxDrawdown}%</div>
+                </div>
+                <div>
+                  <div className="text-white/28">夏普</div>
+                  <div className="data-number font-medium" style={{ color: POSITIVE_METRIC_COLOR }}>{item.avgSharpe}</div>
+                </div>
+              </div>
+            </button>
           ))}
         </div>
 
@@ -431,17 +483,15 @@ export default function Home() {
       <section className="px-4 md:px-6 max-w-7xl mx-auto">
         <div className="liquid-glass overflow-hidden">
           {/* 桌面端表头（仅 md+ 显示） */}
-          <div className="hidden md:grid grid-cols-12 gap-2 px-5 py-3 text-xs text-white/30 font-medium border-b border-white/[0.06] items-center"
+          <div className="hidden md:grid md:grid-cols-[minmax(260px,2fr)_repeat(5,minmax(92px,1fr))_minmax(150px,1fr)] gap-3 px-5 py-3 text-xs text-white/30 font-medium border-b border-white/[0.06] items-center"
             style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.04) 0%, transparent 100%)" }}>
-            <div className="col-span-3">基金名称</div>
-            <div className="col-span-1 text-right">净值</div>
-            <div className="col-span-1 text-right">日涨跌</div>
-            <div className="col-span-1 text-right">近1年</div>
-            <div className="col-span-1 text-right">夏普比</div>
-            <div className="col-span-1 text-right">最大回撤</div>
-            <div className="col-span-1 text-center">评级</div>
-            <div className="col-span-1 text-center">类型</div>
-            <div className="col-span-2 text-center">AI标签</div>
+            <div>基金产品</div>
+            <div className="text-right">净值</div>
+            <div className="text-right">日涨跌</div>
+            <div className="text-right">近1年</div>
+            <div className="text-right">夏普</div>
+            <div className="text-right">回撤</div>
+            <div>类型/标签</div>
           </div>
 
           {listLoading ? (
@@ -465,8 +515,8 @@ export default function Home() {
                   className="border-b border-white/[0.03] hover:bg-white/[0.04] transition-all group cursor-pointer relative"
                   onMouseEnter={() => setHoveredRow(fund.id)} onMouseLeave={() => setHoveredRow(null)}>
                   {/* 桌面端行布局 */}
-                  <Link to={`/${fund.fundCode}`} className="hidden md:grid grid-cols-12 gap-2 px-5 py-3 text-sm items-center">
-                    <div className="col-span-3 relative z-10">
+                  <Link to={`/${fund.fundCode}`} className="hidden md:grid md:grid-cols-[minmax(260px,2fr)_repeat(5,minmax(92px,1fr))_minmax(150px,1fr)] gap-3 px-5 py-3.5 text-sm items-center">
+                    <div className="relative z-10 min-w-0">
                       <div className="text-white font-medium text-sm flex items-center gap-1">
                         {fund.fundAbbr || fund.fundName}
                         {isWatchlistFund && <Star className="w-3 h-3 text-[#FFB800] fill-[#FFB800]" />}
@@ -477,29 +527,20 @@ export default function Home() {
                         <span>{fund.company}</span>
                       </div>
                     </div>
-                    <div className="col-span-1 text-right data-number text-white/80 relative z-10">{fund.nav}</div>
-                    <div className={`col-span-1 text-right data-number font-medium ${dailyClass} relative z-10`}>
+                    <div className="text-right data-number text-white/80 relative z-10">{fund.nav}</div>
+                    <div className={`text-right data-number font-medium ${dailyClass} relative z-10`}>
                       <span className="inline-flex items-center gap-0.5">
                         {dailyChange >= 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
                         {dailyChange >= 0 ? "+" : ""}{fund.dailyChange}%
                       </span>
                     </div>
-                    <div className={`col-span-1 text-right data-number ${return1yClass} relative z-10`}>
+                    <div className={`text-right data-number ${return1yClass} relative z-10`}>
                       {return1y >= 0 ? "+" : ""}{perf?.return1y}%
                     </div>
-                    <div className="col-span-1 text-right data-number relative z-10" style={{ color: POSITIVE_METRIC_COLOR }}>{sharpe !== null ? sharpe.toFixed(2) : "—"}</div>
-                    <div className="col-span-1 text-right data-number relative z-10" style={{ color: RISK_COLOR }}>{maxDD !== null ? maxDD.toFixed(2) + "%" : "—"}</div>
-                    <div className="col-span-1 flex justify-center relative z-10">
-                      <div className="flex gap-0.5">
-                        {Array.from({ length: 5 }).map((_, i) => (
-                          <Star key={i} className={`w-3 h-3 ${i < (fund.stars || 0) ? "text-[#FFB800] fill-[#FFB800]" : "text-white/10"}`} />
-                        ))}
-                      </div>
-                    </div>
-                    <div className="col-span-1 text-center relative z-10">
-                      <span className="px-2 py-0.5 rounded text-xs bg-white/[0.05] text-white/50">{typeLabels[fund.fundType] || fund.fundType}</span>
-                    </div>
-                    <div className="col-span-2 flex justify-center gap-1 flex-wrap relative z-10">
+                    <div className="text-right data-number relative z-10" style={{ color: POSITIVE_METRIC_COLOR }}>{sharpe !== null ? sharpe.toFixed(2) : "—"}</div>
+                    <div className="text-right data-number relative z-10" style={{ color: RISK_COLOR }}>{maxDD !== null ? maxDD.toFixed(2) + "%" : "—"}</div>
+                    <div className="flex items-center gap-1.5 flex-wrap relative z-10">
+                      <span className="px-2 py-0.5 rounded text-xs bg-white/[0.05] text-white/60">{typeLabels[fund.fundType] || fund.fundType}</span>
                       {(fund.tags || []).slice(0, 2).map((tag: string) => (
                         <span key={tag} className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-[#3B6CFF]/10 text-[#5AA9FF] border border-[#3B6CFF]/20">{tag}</span>
                       ))}

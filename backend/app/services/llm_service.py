@@ -102,7 +102,7 @@ def analyze_fund_comprehensive(
     mgr_name = manager_data.get("name", "")
     tenure_years = round((manager_data.get("tenure_days") or 0) / 365, 1)
 
-    prompt = f"""你是资深公募基金分析师，请对以下基金进行专业分析，仅输出JSON（不要markdown不要多余文本）：
+    prompt = f"""你是资深公募基金分析师，请对以下基金进行专业、具体的多周期风控分析，仅输出JSON（不要markdown不要多余文本）：
 
 基金：{fund_name}({fund_code})
 业绩：{', '.join(perf_summary)}
@@ -110,7 +110,7 @@ def analyze_fund_comprehensive(
 重仓股：{holdings_str or '暂无数据'}
 
 JSON格式：
-{{"performance_review":"业绩点评150字以内","manager_review":"经理点评150字以内","holdings_review":"持仓点评100字以内","investment_advice":"投资建议100字以内","risk_warnings":["风险点1","风险点2"],"strengths":["优势1","优势2","优势3"]}}"""
+{{"performance_review":"多周期业绩点评180字以内，必须比较近1年/近3年/今年来表现，指出趋势是否稳定","risk_review":"风控指标点评180字以内，必须覆盖最大回撤、夏普、波动收益匹配、回撤修复难度","manager_review":"经理点评150字以内，结合任职年限、管理规模、风格稳定性","holdings_review":"持仓点评120字以内，说明集中度、行业暴露和潜在相关性风险","investment_advice":"投资建议120字以内，给出适合的持有周期、仓位和观察触发条件","risk_warnings":["具体风险点1","具体风险点2","具体风险点3"],"strengths":["优势1","优势2","优势3"]}}"""
 
     try:
         payload = json.dumps({
@@ -144,22 +144,43 @@ def analyze_dca_strategy(
     """为定投回测生成专业评价，对比买入持有策略。"""
     if not LLM_API_KEY:
         return None
+    def pick(data: dict, *keys, default="数据缺失"):
+        for key in keys:
+            value = data.get(key)
+            if value not in (None, "", "—"):
+                return value
+        return default
+
+    dca_total_return = pick(dca_metrics, "total_return", "totalReturn")
+    bench_total_return = pick(benchmark_metrics, "total_return", "totalReturn", "profit_rate")
+    try:
+        excess_return = round(float(dca_total_return) - float(bench_total_return), 2)
+    except Exception:
+        excess_return = "数据缺失"
+
     prompt = f"""你是资深基金定投策略顾问。请对以下回测结果进行专业评价：
 
 基金：{fund_name}({fund_code})
 【定投策略】
-  - 总投入：{dca_metrics.get('total_invested')}元
-  - 最终市值：{dca_metrics.get('final_value')}元
-  - 总收益率：{dca_metrics.get('total_return')}%
-  - 年化：{dca_metrics.get('annualized_return')}%
-  - 最大回撤：{dca_metrics.get('max_drawdown')}%
+  - 策略/频率：{pick(dca_metrics, 'strategy')} / {pick(dca_metrics, 'frequency')}
+  - 总投入：{pick(dca_metrics, 'total_invested', 'totalInvested')}元
+  - 最终市值：{pick(dca_metrics, 'final_value', 'finalValue')}元
+  - 总收益率：{dca_total_return}%
+  - 现金流年化收益：{pick(dca_metrics, 'annualized_return', 'annualizedReturn')}%
+  - 最大回撤：{pick(dca_metrics, 'max_drawdown', 'maxDrawdown')}%
+  - 夏普比率：{pick(dca_metrics, 'sharpe_ratio', 'sharpeRatio')}
 【买入持有基准】
-  - 一次性投入：{benchmark_metrics.get('total_invested')}元
-  - 最终市值：{benchmark_metrics.get('final_value')}元
-  - 总收益率：{benchmark_metrics.get('profit_rate')}%
+  - 一次性投入：{pick(benchmark_metrics, 'total_invested', 'totalInvested')}元
+  - 最终市值：{pick(benchmark_metrics, 'final_value', 'finalValue')}元
+  - 总收益率：{bench_total_return}%
+  - 年化收益：{pick(benchmark_metrics, 'annual_return', 'annualReturn')}%
+  - 最大回撤：{pick(benchmark_metrics, 'max_drawdown', 'maxDrawdown')}%
+  - 夏普比率：{pick(benchmark_metrics, 'sharpe_ratio', 'sharpeRatio')}
+【相对表现】
+  - 定投相对买入持有超额收益：{excess_return}%
 
 请仅输出JSON（不要markdown）：
-{{"verdict":"定投还是一次性买入更优，30字内","analysis":"策略对比点评200字以内，包含夏普、回撤、心理负担三个角度","suggestions":["建葮1","建葮2","建葮3"]}}"""
+{{"verdict":"定投还是一次性买入更优，30字内","analysis":"策略对比点评260字以内，必须包含收益差、回撤、夏普、资金占用、心理负担五个角度","suggestions":["具体调参建议1","具体调参建议2","具体调参建议3"],"risk_notes":["风险提示1","风险提示2"]}}"""
     try:
         payload = json.dumps({
             "model": LLM_MODEL,
