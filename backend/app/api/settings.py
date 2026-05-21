@@ -81,3 +81,17 @@ async def import_guoyuan_funds():
     """将国元证券默认名单导入自选"""
     from ..constants.guoyuan_funds import GUOYUAN_FUND_LIST
     return add_funds_batch(GUOYUAN_FUND_LIST)
+
+
+@router.get("/xinjihui-pool")
+async def get_xinjihui_pool():
+    """获取鑫基荟优选池产品名单"""
+    from ..constants.xinjihui_pool import XINJIHUI_POOL
+    return {"funds": XINJIHUI_POOL, "updated": "2026-04-10", "total": len(XINJIHUI_POOL)}
+
+
+@router.post("/import-xinjihui")
+async def import_xinjihui_pool():
+    """将鑫基荟优选池名单导入自选"""
+    from ..constants.xinjihui_pool import XINJIHUI_POOL
+    return add_funds_batch(XINJIHUI_POOL)

@@ -3,6 +3,7 @@ from typing import Dict, Any, List
 from ..data.akshare_fetcher import get_market_index, get_fund_industry_board
 from ..data.cache_manager import cache
 from ..constants.guoyuan_funds import GUOYUAN_FUND_LIST
+from ..constants.xinjihui_pool import XINJIHUI_POOL
 from ..config import CACHE_TTL_RANKING
 
 
@@ -58,19 +59,22 @@ def _get_risk_allocation(
 
     template = templates.get(risk_level, templates["稳健"])
 
-    # 从国元名单中按类型匹配
+    # 优先从鑫基荟优选池中按类型匹配，回退到国元名单
     allocation = []
     used_codes = set()
 
     type_to_fund_type = {
-        "债券": "债券型", "货币": "货币", "混合": "混合型",
-        "股票": "股票型", "指数": "指数型", "QDII": "QDII",
+        "债券": ["债券型"], "货币": ["货币"], "混合": ["混合型", "股票型"],
+        "股票": ["股票型", "混合型"], "指数": ["指数型", "ETF"], "QDII": ["QDII"],
     }
 
+    # 合并优选池和国元名单，优选池优先
+    all_funds = XINJIHUI_POOL + [f for f in GUOYUAN_FUND_LIST if f["code"] not in {x["code"] for x in XINJIHUI_POOL}]
+
     for asset_type, ratio in template.items():
-        fund_type = type_to_fund_type.get(asset_type, "")
-        candidates = [f for f in GUOYUAN_FUND_LIST
-                      if f["type"] == fund_type and f["code"] not in used_codes]
+        fund_types = type_to_fund_type.get(asset_type, [])
+        candidates = [f for f in all_funds
+                      if f["type"] in fund_types and f["code"] not in used_codes]
 
         # 如果有偏好，优先匹配
         if preferences:
