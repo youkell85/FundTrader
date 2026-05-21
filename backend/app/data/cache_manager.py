@@ -2,15 +2,17 @@
 import json
 import os
 import time
+import threading
 from typing import Any, Optional
 from ..utils import console_error
 
 
 class CacheManager:
-    """简单的文件缓存管理器"""
+    """简单的文件缓存管理器（线程安全）"""
 
     def __init__(self, cache_dir: str = "/tmp/fundtrader_cache"):
         self.cache_dir = cache_dir
+        self._lock = threading.Lock()
         os.makedirs(cache_dir, exist_ok=True)
 
     def _key_to_path(self, key: str) -> str:
@@ -22,32 +24,45 @@ class CacheManager:
         if not os.path.exists(path):
             return None
         try:
-            with open(path, "r", encoding="utf-8") as f:
-                data = json.load(f)
+            with self._lock:
+                with open(path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
             if time.time() - data.get("timestamp", 0) > ttl:
-                os.remove(path)
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
                 return None
             return data.get("value")
-        except Exception:
+        except (json.JSONDecodeError, OSError):
             return None
 
     def set(self, key: str, value: Any) -> None:
         path = self._key_to_path(key)
         try:
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump({"timestamp": time.time(), "value": value}, f, ensure_ascii=False)
-        except Exception as e:
+            with self._lock:
+                with open(path, "w", encoding="utf-8") as f:
+                    json.dump({"timestamp": time.time(), "value": value}, f, ensure_ascii=False)
+        except OSError as e:
             console_error(f"Cache write error: {e}")
 
     def delete(self, key: str) -> None:
         path = self._key_to_path(key)
-        if os.path.exists(path):
+        try:
             os.remove(path)
+        except OSError:
+            pass
 
     def clear(self) -> None:
-        for f in os.listdir(self.cache_dir):
-            if f.endswith(".json"):
-                os.remove(os.path.join(self.cache_dir, f))
+        try:
+            for f in os.listdir(self.cache_dir):
+                if f.endswith(".json"):
+                    try:
+                        os.remove(os.path.join(self.cache_dir, f))
+                    except OSError:
+                        pass
+        except OSError:
+            pass
 
 
 cache = CacheManager()

@@ -76,7 +76,7 @@ def analyze_manager_style(
 
     except Exception as e:
         console_error(f"LLM analysis error: {e}")
-        return f"LLM分析暂不可用（{str(e)[:50]}），请稍后重试"
+        return f"LLM分析暂不可用，请稍后重试"
 
 
 def analyze_fund_comprehensive(

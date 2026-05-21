@@ -12,8 +12,15 @@ export function useFallbackQuery<T>(
     }
   }, [trpcQuery.isError]);
 
+  // 当数据恢复可用时重置降级状态
+  useEffect(() => {
+    if (trpcQuery.data !== undefined) {
+      setUseFallback(false);
+    }
+  }, [trpcQuery.data]);
+
   const isLoading = trpcQuery.isLoading && !useFallback;
-  const data = useFallback ? fallbackData : (trpcQuery.data || fallbackData);
+  const data = useFallback ? fallbackData : (trpcQuery.data ?? fallbackData);
 
   return { data, isLoading };
 }

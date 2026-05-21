@@ -140,7 +140,20 @@ def run_dca_backtest(
 
 def _calc_combined_backtest(results: List[Dict], fund_count: int) -> Dict[str, Any]:
     """计算组合回测结果"""
-    valid = [r for r in results if "error" not in r and "strategies" not in r]
+    # 展开 "compare" 策略结果中的 strategies 子结果
+    flat_results = []
+    for r in results:
+        if "error" in r:
+            continue
+        if "strategies" in r and isinstance(r["strategies"], dict):
+            # compare 模式，取各策略的平均
+            for strategy_name, strategy_result in r["strategies"].items():
+                if isinstance(strategy_result, dict) and "error" not in strategy_result:
+                    flat_results.append(strategy_result)
+        else:
+            flat_results.append(r)
+
+    valid = flat_results
     if not valid:
         return {"error": "无有效回测结果"}
 

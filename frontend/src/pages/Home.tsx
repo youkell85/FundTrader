@@ -83,13 +83,14 @@ export default function Home() {
       const perf = fund.performance || {};
       return hasMetric(perf.sharpeRatio) && hasMetric(perf.maxDrawdown);
     });
-    if (listLoading || allFunds.length === 0 || hasRiskMetrics) return;
+    if (allFunds.length === 0 || hasRiskMetrics) return;
 
-    const timers = [6000, 14000, 30000].map((delay) => window.setTimeout(() => {
+    // 分批延迟重试，仅当数据不完整时触发
+    const timers = [6000, 14000].map((delay) => window.setTimeout(() => {
       refetchList();
     }, delay));
     return () => timers.forEach((timer) => window.clearTimeout(timer));
-  }, [allFunds, listLoading, refetchList]);
+  }, [allFunds.length, refetchList]);
 
   const filteredFunds = useMemo(() => {
     let result = [...allFunds];

@@ -16,6 +16,41 @@ from ..data.cache_manager import cache
 from ..constants.guoyuan_funds import GUOYUAN_FUND_LIST, FUND_CATEGORIES, FUND_TYPES
 from ..config import CACHE_TTL_RANKING
 
+# 排序字段映射（提取为模块级常量，避免重复定义）
+SORT_FIELD_MAP: Dict[str, str] = {
+    "近1月": "near_1m", "近3月": "near_3m", "近6月": "near_6m",
+    "近1年": "near_1y", "近3年": "near_3y", "今年来": "ytd",
+}
+
+
+def _apply_filters_and_sort(
+    funds: List[Dict[str, Any]],
+    category: str,
+    tag: Optional[str],
+    keyword: Optional[str],
+    sort_by: str,
+    sort_order: str,
+) -> List[Dict[str, Any]]:
+    """通用筛选、排序逻辑（提取公共代码）"""
+    # 按标签筛选
+    if tag:
+        funds = [f for f in funds if tag in f.get("tags", []) or tag in f.get("name", "")]
+
+    # 按关键词筛选
+    if keyword:
+        funds = [f for f in funds if keyword in f.get("name", "") or keyword in f.get("code", "")]
+
+    # 按类型筛选
+    if category != "全部":
+        funds = [f for f in funds if f.get("type", "") == category or f.get("类型", "") == category]
+
+    # 排序
+    sort_field = SORT_FIELD_MAP.get(sort_by, "ytd")
+    reverse = sort_order == "desc"
+    funds.sort(key=lambda x: float(x.get(sort_field, 0) or 0), reverse=reverse)
+
+    return funds
+
 
 def get_fund_list(
     category: str = "全部",
@@ -41,26 +76,8 @@ def get_fund_list(
                 funds = get_fund_ranking_em(category)
             cache.set(cache_key, funds)
 
-    # 按标签筛选
-    if tag:
-        funds = [f for f in funds if tag in f.get("tags", []) or tag in f.get("name", "")]
-
-    # 按关键词筛选
-    if keyword:
-        funds = [f for f in funds if keyword in f.get("name", "") or keyword in f.get("code", "")]
-
-    # 按类型筛选
-    if category != "全部":
-        funds = [f for f in funds if f.get("type", "") == category or f.get("类型", "") == category]
-
-    # 排序
-    sort_field_map = {
-        "近1月": "near_1m", "近3月": "near_3m", "近6月": "near_6m",
-        "近1年": "near_1y", "近3年": "near_3y", "今年来": "ytd",
-    }
-    sort_field = sort_field_map.get(sort_by, "ytd")
-    reverse = sort_order == "desc"
-    funds.sort(key=lambda x: float(x.get(sort_field, 0) or 0), reverse=reverse)
+    # 筛选+排序
+    funds = _apply_filters_and_sort(funds, category, tag, keyword, sort_by, sort_order)
 
     # 分页
     total = len(funds)
@@ -98,26 +115,8 @@ def get_fund_list_from_watchlist(
     # 为自选基金获取业绩数据
     funds = _get_watchlist_with_performance(watchlist)
 
-    # 按标签筛选
-    if tag:
-        funds = [f for f in funds if tag in f.get("tags", []) or tag in f.get("name", "")]
-
-    # 按关键词筛选
-    if keyword:
-        funds = [f for f in funds if keyword in f.get("name", "") or keyword in f.get("code", "")]
-
-    # 按类型筛选
-    if category != "全部":
-        funds = [f for f in funds if f.get("type", "") == category]
-
-    # 排序
-    sort_field_map = {
-        "近1月": "near_1m", "近3月": "near_3m", "近6月": "near_6m",
-        "近1年": "near_1y", "近3年": "near_3y", "今年来": "ytd",
-    }
-    sort_field = sort_field_map.get(sort_by, "ytd")
-    reverse = sort_order == "desc"
-    funds.sort(key=lambda x: float(x.get(sort_field, 0) or 0), reverse=reverse)
+    # 筛选+排序
+    funds = _apply_filters_and_sort(funds, category, tag, keyword, sort_by, sort_order)
 
     # 分页
     total = len(funds)

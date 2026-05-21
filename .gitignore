@@ -25,3 +25,6 @@ venv/
 # 缓存
 tmp/
 temp/
+.qoder/
+backend/data/
+Qoder_Lighthouse_MCP_*.md

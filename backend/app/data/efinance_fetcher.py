@@ -174,14 +174,15 @@ def get_fund_nav_history(code: str, start_date: str = "", end_date: str = "") ->
 
 
 def get_fund_names(codes: List[str]) -> Dict[str, str]:
-    """批量获取基金名称"""
+    """批量获取基金名称（逐个请求，自带错误隔离）"""
     result = {}
     try:
         for code in codes:
             try:
                 df = ef.fund.get_fund_base_info(code)
                 if df is not None and not df.empty:
-                    result[code] = df.iloc[0].get("基金简称", code)
+                    name_val = df.iloc[0].get("基金简称", "")
+                    result[code] = name_val if name_val else code
                 else:
                     result[code] = code
             except Exception:

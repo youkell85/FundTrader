@@ -201,7 +201,7 @@ class TushareProvider(DataProvider):
             if symbol:
                 symbols.append(symbol)
 
-        # 批量查询股票名称
+        # 批量查询股票名称（带兜底：查询失败时保留symbol作为名称）
         name_map = {}
         if symbols:
             try:
@@ -212,6 +212,11 @@ class TushareProvider(DataProvider):
                         name_map[str(row.get("ts_code", ""))] = row.get("name", "")
             except Exception as e:
                 console_error(f"stock_basic batch query error: {e}")
+
+        # 兜底：查询失败时保留symbol作为显示名称
+        for symbol in symbols:
+            if symbol not in name_map:
+                name_map[symbol] = symbol
 
         result = []
         for symbol, ratio in holdings_raw:
