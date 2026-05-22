@@ -1,5 +1,6 @@
 """基金排名筛选API"""
 from fastapi import APIRouter, Query
+from starlette.concurrency import run_in_threadpool
 from typing import Optional
 from ..services.fund_service import get_fund_list, get_fund_list_from_watchlist
 
@@ -19,8 +20,27 @@ async def fund_list(
     use_watchlist: bool = Query(False, description="使用自选基金列表"),
 ):
     if use_watchlist:
-        return get_fund_list_from_watchlist(category, tag, keyword, sort_by, sort_order, page, page_size)
-    return get_fund_list(category, tag, keyword, sort_by, sort_order, page, page_size, guoyuan_only)
+        return await run_in_threadpool(
+            get_fund_list_from_watchlist,
+            category,
+            tag,
+            keyword,
+            sort_by,
+            sort_order,
+            page,
+            page_size,
+        )
+    return await run_in_threadpool(
+        get_fund_list,
+        category,
+        tag,
+        keyword,
+        sort_by,
+        sort_order,
+        page,
+        page_size,
+        guoyuan_only,
+    )
 
 
 @router.get("/categories")
