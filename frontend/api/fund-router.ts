@@ -590,6 +590,9 @@ export const fundRouter = createRouter({
         return {
           ...managerFund.manager,
           funds: managedFunds,
+          company: managerFund.manager.company !== "—"
+            ? managerFund.manager.company
+            : managedFunds.find((fund: any) => fund.company && fund.company !== "—")?.company || "基金公司待补充",
           fundCount: managedFunds.length,
           avgReturn1y: avgReturn1y == null ? "—" : avgReturn1y.toFixed(2),
           avgSharpe: avgSharpe == null ? "—" : avgSharpe.toFixed(2),
