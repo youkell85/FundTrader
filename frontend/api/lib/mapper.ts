@@ -64,6 +64,14 @@ function formatNumber(value: number | null | undefined, digits = 2): string {
   return value.toFixed(digits);
 }
 
+function pickMetric(...values: any[]): string | undefined {
+  for (const value of values) {
+    if (value === null || value === undefined || value === "" || value === "—") continue;
+    return String(value);
+  }
+  return undefined;
+}
+
 function uniqueNavPoints(navData: any[]) {
   const byDate = new Map<string, { date: string; nav: number; dayGrowth: number | null }>();
   for (const item of navData || []) {
@@ -216,12 +224,12 @@ export function mapFundItem(item: any): any {
       return3y: perf.near_3y != null ? String(perf.near_3y) : item.near_3y != null ? String(item.near_3y) : item.return3y != null ? String(item.return3y) : navPerformance.return3y || "0",
       return5y: perf.near_5y != null ? String(perf.near_5y) : item.return5y != null ? String(item.return5y) : navPerformance.return5y || "0",
       returnThisYear: perf.ytd != null ? String(perf.ytd) : item.ytd != null ? String(item.ytd) : navPerformance.returnThisYear || "0",
-      annualizedReturn: perf.annualizedReturn || item.annualizedReturn || item.annualized_return || navPerformance.annualizedReturn || "0",
-      annualizedVolatility: perf.annualizedVolatility || navPerformance.annualizedVolatility || "0",
+      annualizedReturn: pickMetric(perf.annualizedReturn, perf.annualized_return, item.annualizedReturn, item.annualized_return, navPerformance.annualizedReturn, perf.near_1y, item.near_1y, item.return1y) || "0",
+      annualizedVolatility: pickMetric(perf.annualizedVolatility, navPerformance.annualizedVolatility) || "0",
       // 夏普/回撤需净值历史计算，轻量摘要模式下无此数据 → 展示 "—"
       // 后台预热完成后再次查询即可获得真实值
-      sharpeRatio: perf.sharpeRatio || item.sharpe_ratio || navPerformance.sharpeRatio || "—",
-      maxDrawdown: perf.maxDrawdown || item.max_drawdown || navPerformance.maxDrawdown || "—",
+      sharpeRatio: pickMetric(perf.sharpeRatio, perf.sharpe_ratio, item.sharpe_ratio, navPerformance.sharpeRatio) || "—",
+      maxDrawdown: pickMetric(perf.maxDrawdown, perf.max_drawdown, item.max_drawdown, navPerformance.maxDrawdown) || "—",
       calmarRatio: perf.calmarRatio || navPerformance.calmarRatio || "0",
       sortinoRatio: perf.sortinoRatio || navPerformance.sortinoRatio || "0",
       informationRatio: perf.informationRatio || navPerformance.informationRatio || "0",

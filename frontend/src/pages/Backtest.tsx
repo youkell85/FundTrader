@@ -66,7 +66,10 @@ function money(value: unknown) {
 }
 
 export default function Backtest() {
-  const { data: listData } = trpc.fund.list.useQuery({ pageSize: 1000 });
+  const { data: listData } = trpc.fund.list.useQuery(
+    { pageSize: 1000, withMetrics: true },
+    { staleTime: 30 * 60 * 1000, refetchOnWindowFocus: false }
+  );
   const allFunds = listData?.funds ?? [];
 
   const [selectedFunds, setSelectedFunds] = useState<number[]>([]);
