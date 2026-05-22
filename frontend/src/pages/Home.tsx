@@ -17,6 +17,17 @@ function isMissingMetric(value: unknown) {
   return value === undefined || value === null || value === "" || value === "—" || value === "暂无" || value === "鈥?";
 }
 
+function parseMetric(value: unknown): number | null {
+  if (isMissingMetric(value)) return null;
+  const num = parseFloat(String(value ?? "").replace("%", ""));
+  return Number.isFinite(num) ? num : null;
+}
+
+function average(values: Array<number | null>) {
+  const valid = values.filter((value): value is number => value !== null && Number.isFinite(value));
+  return valid.length ? valid.reduce((sum, value) => sum + value, 0) / valid.length : null;
+}
+
 export default function Home() {
   const utils = trpc.useUtils();
   const { data: listData, isLoading: listLoading, refetch: refetchList } = trpc.fund.list.useQuery(
@@ -117,12 +128,17 @@ export default function Home() {
   }, [filteredFunds, page]);
 
   const totalPages = Math.ceil(filteredFunds.length / pageSize);
-  const categoryStats = useMemo(() => {
-    const parseMetric = (value: unknown) => {
-      if (isMissingMetric(value)) return null;
-      const num = parseFloat(String(value ?? "").replace("%", ""));
-      return Number.isFinite(num) ? num : null;
+  const currentOverview = useMemo(() => {
+    const avgReturn = average(filteredFunds.map((fund: any) => parseMetric(fund.performance?.annualizedReturn ?? fund.performance?.return1y)));
+    const avgSharpe = average(filteredFunds.map((fund: any) => parseMetric(fund.performance?.sharpeRatio)).filter((value) => value !== 0));
+    return {
+      total: filteredFunds.length,
+      avgReturn: avgReturn === null ? "—" : avgReturn.toFixed(2),
+      avgSharpe: avgSharpe === null ? "—" : avgSharpe.toFixed(2),
     };
+  }, [filteredFunds]);
+
+  const categoryStats = useMemo(() => {
     const groups = new Map<string, any[]>();
     for (const fund of filteredFunds) {
       const key = typeLabels[fund.fundType] || fund.category || fund.fundType || "其他";
@@ -258,9 +274,9 @@ export default function Home() {
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 md:gap-3 mt-6 md:mt-8">
           {[
-            { label: "当前列表", value: filteredFunds.length, suffix: "只", icon: PieChart, color: ACCENT_PRIMARY },
-            { label: "平均年化收益", value: overview.avgReturn, suffix: "%", icon: TrendingUp, color: parseFloat(overview.avgReturn) >= 0 ? UP_COLOR : DOWN_COLOR },
-            { label: "平均夏普比率", value: overview.avgSharpe, suffix: "", icon: Shield, color: POSITIVE_METRIC_COLOR },
+            { label: "当前列表", value: currentOverview.total, suffix: "只", icon: PieChart, color: ACCENT_PRIMARY },
+            { label: "平均年化收益", value: currentOverview.avgReturn, suffix: currentOverview.avgReturn === "—" ? "" : "%", icon: TrendingUp, color: parseFloat(currentOverview.avgReturn) >= 0 ? UP_COLOR : DOWN_COLOR },
+            { label: "平均夏普比率", value: currentOverview.avgSharpe, suffix: "", icon: Shield, color: POSITIVE_METRIC_COLOR },
           ].map((card) => (
             <div key={card.label} className="liquid-glass-sm p-3 md:p-4 group hover:bg-white/[0.06] transition-all">
               <div className="flex items-center gap-2 mb-1.5 md:mb-2">
@@ -276,11 +292,32 @@ export default function Home() {
         </div>
 
         <div className="mt-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
+          {(category || fundType || riskLevel || search) && (
+            <button
+              onClick={() => { setFundType(""); setCategory(""); setRiskLevel(""); setSearch(""); setPage(1); }}
+              className="rounded-lg border border-[#00F0FF]/20 bg-[#00F0FF]/[0.06] px-3 py-3 text-left hover:bg-[#00F0FF]/[0.09] transition-colors"
+            >
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <span className="text-[#00F0FF] text-sm font-medium">返回全部列表</span>
+                <span className="data-number text-white/45 text-xs">{overview.totalFunds || allFunds.length}只</span>
+              </div>
+              <div className="text-white/42 text-[11px]">清除当前类别、风险和搜索条件</div>
+            </button>
+          )}
           {categoryStats.map((item) => (
             <button
               key={item.label}
-              onClick={() => { setFundType(""); setCategory(item.label); setPage(1); }}
-              className="rounded-lg border border-white/[0.06] bg-white/[0.025] px-3 py-3 text-left hover:bg-white/[0.05] transition-colors"
+              onClick={() => {
+                const nextCategory = category === item.label ? "" : item.label;
+                setFundType("");
+                setCategory(nextCategory);
+                setPage(1);
+              }}
+              className={`rounded-lg border px-3 py-3 text-left transition-colors ${
+                category === item.label
+                  ? "border-[#3B6CFF]/35 bg-[#3B6CFF]/[0.10]"
+                  : "border-white/[0.06] bg-white/[0.025] hover:bg-white/[0.05]"
+              }`}
             >
               <div className="flex items-center justify-between gap-2 mb-2">
                 <span className="text-white/80 text-sm font-medium">{item.label}</span>

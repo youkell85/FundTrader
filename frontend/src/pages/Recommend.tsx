@@ -230,6 +230,10 @@ export default function Recommend() {
                                   <div className="min-w-0 flex-1">
                                     <div className="text-white text-sm truncate group-hover:text-[#5AA9FF] transition-colors">{fund.fundAbbr || fund.fundName}</div>
                                     <div className="text-white/32 text-xs data-number">{fund.fundCode} · {fund.category}</div>
+                                    <div className="flex items-center gap-2 text-[11px] mt-1">
+                                      <span className="data-number" style={{ color: RISK_COLOR }}>回撤 {fund.performance?.maxDrawdown ?? "—"}%</span>
+                                      <span className="data-number" style={{ color: POSITIVE_METRIC_COLOR }}>夏普 {fund.performance?.sharpeRatio ?? "—"}</span>
+                                    </div>
                                     <div className="text-white/42 text-[11px] leading-relaxed mt-1">{fd.reason}</div>
                                   </div>
                                   <div className="text-right shrink-0">
