@@ -168,7 +168,7 @@ function DistributionTooltip({ active, payload }: any) {
 }
 
 type Mode = "overall" | "type" | "manager";
-type PickerAnchor = { left: number; top: number; width: number };
+type PickerAnchor = { left: number; top: number; width: number; maxHeight: number };
 
 export default function Analysis() {
   const { data: listData, isLoading } = trpc.fund.list.useQuery(
@@ -258,7 +258,8 @@ export default function Analysis() {
     const width = Math.min(preferredWidth, Math.max(220, window.innerWidth - 32));
     const left = Math.min(Math.max(16, rect.left), Math.max(16, window.innerWidth - width - 16));
     const top = Math.min(rect.bottom + 8, Math.max(16, window.innerHeight - 96));
-    setPickerAnchor({ left, top, width });
+    const maxHeight = Math.max(180, window.innerHeight - top - 16);
+    setPickerAnchor({ left, top, width, maxHeight });
     setOpenPicker(picker);
   };
 
@@ -317,8 +318,8 @@ export default function Analysis() {
 
         {openPicker === "type" && pickerAnchor && (
           <div
-            className="fixed z-[9999] max-h-[min(20rem,calc(100vh-6rem))] overflow-y-auto rounded-xl border border-white/[0.08] bg-[#070B18] shadow-2xl p-2"
-            style={{ left: pickerAnchor.left, top: pickerAnchor.top, width: pickerAnchor.width }}
+            className="fixed z-[9999] overflow-y-auto rounded-xl border border-white/[0.08] bg-[#070B18] shadow-2xl p-2"
+            style={{ left: pickerAnchor.left, top: pickerAnchor.top, width: pickerAnchor.width, maxHeight: pickerAnchor.maxHeight }}
           >
             <button onClick={() => { setSelectedType(""); setOpenPicker(null); setPickerAnchor(null); }} className="w-full text-left rounded-lg px-3 py-2 text-xs text-white/65 hover:bg-white/[0.06]">全部子类别</button>
             {groups.map((group) => (
@@ -332,8 +333,8 @@ export default function Analysis() {
 
         {openPicker === "manager" && pickerAnchor && (
           <div
-            className="fixed z-[9999] max-h-[min(24rem,calc(100vh-6rem))] overflow-y-auto rounded-xl border border-white/[0.08] bg-[#070B18] shadow-2xl p-2"
-            style={{ left: pickerAnchor.left, top: pickerAnchor.top, width: pickerAnchor.width }}
+            className="fixed z-[9999] overflow-y-auto rounded-xl border border-white/[0.08] bg-[#070B18] shadow-2xl p-2"
+            style={{ left: pickerAnchor.left, top: pickerAnchor.top, width: pickerAnchor.width, maxHeight: pickerAnchor.maxHeight }}
           >
             <button onClick={() => { setSelectedManagerId(null); setOpenPicker(null); setPickerAnchor(null); }} className="w-full text-left rounded-lg px-3 py-2 text-xs text-white/65 hover:bg-white/[0.06]">全部基金经理</button>
             {managers.slice(0, 120).map((manager: any) => (
