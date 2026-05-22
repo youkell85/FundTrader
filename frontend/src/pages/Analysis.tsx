@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router";
-import { Activity, ArrowRight, BarChart3, BrainCircuit, Layers, Loader2, PieChart, Search, Shield, Target, TrendingUp, User } from "lucide-react";
+import { Activity, ArrowRight, BarChart3, BrainCircuit, BriefcaseBusiness, Layers, Loader2, PieChart, Shield, TrendingUp, User } from "lucide-react";
 import {
   Bar,
   BarChart,
@@ -60,8 +60,7 @@ function num(value: unknown): number | null {
 
 function average(values: Array<number | null>): number | null {
   const valid = values.filter((item): item is number => item !== null && Number.isFinite(item));
-  if (valid.length === 0) return null;
-  return valid.reduce((sum, item) => sum + item, 0) / valid.length;
+  return valid.length ? valid.reduce((sum, item) => sum + item, 0) / valid.length : null;
 }
 
 function fmt(value: number | null, digits = 2, suffix = "") {
@@ -72,8 +71,20 @@ function fundName(fund: any) {
   return fund?.fundAbbr || fund?.fundName || fund?.fundCode || "—";
 }
 
+function typeName(fund: any) {
+  return typeLabels[fund.fundType] || fund.category || fund.fundType || "其他";
+}
+
+function formatDate(value: unknown) {
+  const raw = String(value || "").trim();
+  if (!raw || raw === "2010-01-01") return "待补充";
+  const normalized = raw.replace(/[./]/g, "-");
+  const match = normalized.match(/^(\d{4})-?(\d{2})-?(\d{2})/);
+  return match ? `${match[1]}-${match[2]}-${match[3]}` : raw;
+}
+
 function calcStats(funds: any[]) {
-  const avgReturn = average(funds.map((fund) => num(fund.performance?.annualizedReturn ?? fund.performance?.return1y)));
+  const avgAnnual = average(funds.map((fund) => num(fund.performance?.annualizedReturn ?? fund.performance?.return1y)));
   const avgReturn1y = average(funds.map((fund) => num(fund.performance?.return1y)));
   const avgSharpe = average(funds.map((fund) => num(fund.performance?.sharpeRatio)).filter((value) => value !== 0));
   const avgMaxDD = average(funds.map((fund) => num(fund.performance?.maxDrawdown)).filter((value) => value !== 0));
@@ -81,7 +92,7 @@ function calcStats(funds: any[]) {
   const riskCoverage = funds.filter((fund) => num(fund.performance?.sharpeRatio) !== null && num(fund.performance?.maxDrawdown) !== null).length;
   return {
     count: funds.length,
-    avgReturn,
+    avgAnnual,
     avgReturn1y,
     avgSharpe,
     avgMaxDD,
@@ -90,8 +101,26 @@ function calcStats(funds: any[]) {
   };
 }
 
-function getTypeLabel(fund: any) {
-  return typeLabels[fund.fundType] || fund.category || fund.fundType || "其他";
+function buildGroups(funds: any[]) {
+  const groups = new Map<string, any[]>();
+  funds.forEach((fund) => {
+    const label = typeName(fund);
+    groups.set(label, [...(groups.get(label) || []), fund]);
+  });
+  return Array.from(groups.entries())
+    .map(([label, groupFunds]) => ({ label, funds: groupFunds, stats: calcStats(groupFunds) }))
+    .sort((a, b) => b.funds.length - a.funds.length);
+}
+
+function distributionFromGroups(groups: ReturnType<typeof buildGroups>, total: number) {
+  return groups.map((group) => ({
+    name: group.label,
+    count: group.funds.length,
+    ratio: total ? Number((group.funds.length / total * 100).toFixed(2)) : 0,
+    avgReturn: group.stats.avgReturn1y ?? 0,
+    avgSharpe: group.stats.avgSharpe ?? 0,
+    avgMaxDD: Math.abs(group.stats.avgMaxDD ?? 0),
+  }));
 }
 
 export default function Analysis() {
@@ -101,28 +130,11 @@ export default function Analysis() {
   );
   const allFunds = listData?.funds ?? [];
 
-  const [mode, setMode] = useState<"overall" | "type" | "manager" | "fund">("overall");
+  const [mode, setMode] = useState<"overall" | "type" | "manager">("overall");
   const [selectedType, setSelectedType] = useState("");
   const [selectedManagerId, setSelectedManagerId] = useState<number | null>(null);
-  const [selectedFundCode, setSelectedFundCode] = useState("");
-  const [keyword, setKeyword] = useState("");
 
-  const { data: managerDetail } = trpc.fund.managerDetail.useQuery(
-    { id: selectedManagerId! },
-    { enabled: mode === "manager" && selectedManagerId != null }
-  );
-
-  const typeGroups = useMemo(() => {
-    const groups = new Map<string, any[]>();
-    allFunds.forEach((fund: any) => {
-      const label = getTypeLabel(fund);
-      groups.set(label, [...(groups.get(label) || []), fund]);
-    });
-    return Array.from(groups.entries())
-      .map(([label, funds]) => ({ label, funds, stats: calcStats(funds) }))
-      .sort((a, b) => b.funds.length - a.funds.length);
-  }, [allFunds]);
-
+  const typeGroups = useMemo(() => buildGroups(allFunds), [allFunds]);
   const managers = useMemo(() => {
     const byId = new Map<number, any>();
     allFunds.forEach((fund: any) => {
@@ -132,61 +144,45 @@ export default function Analysis() {
       byId.set(fund.manager.id, existing);
     });
     return Array.from(byId.values())
-      .map((manager: any) => ({ ...manager, stats: calcStats(manager.funds || []) }))
+      .map((manager: any) => {
+        const company = manager.company && manager.company !== "—"
+          ? manager.company
+          : manager.funds.find((fund: any) => fund.company && fund.company !== "—")?.company || "基金公司待补充";
+        return { ...manager, company, stats: calcStats(manager.funds || []) };
+      })
       .sort((a: any, b: any) => (b.stats.avgReturn1y ?? -999) - (a.stats.avgReturn1y ?? -999));
   }, [allFunds]);
 
-  const filteredFundsForSearch = useMemo(() => {
-    const key = keyword.trim().toLowerCase();
-    if (!key) return allFunds.slice(0, 40);
-    return allFunds.filter((fund: any) => [
-      fund.fundCode,
-      fund.fundName,
-      fund.fundAbbr,
-      fund.manager?.name,
-      fund.category,
-    ].some((item) => String(item || "").toLowerCase().includes(key))).slice(0, 40);
-  }, [allFunds, keyword]);
-
-  const selectedFund = useMemo(() => {
-    if (!selectedFundCode) return null;
-    return allFunds.find((fund: any) => fund.fundCode === selectedFundCode) || null;
-  }, [allFunds, selectedFundCode]);
+  const { data: managerDetail } = trpc.fund.managerDetail.useQuery(
+    { id: selectedManagerId! },
+    { enabled: mode === "manager" && selectedManagerId != null }
+  );
 
   const scopeFunds = useMemo(() => {
     if (mode === "type" && selectedType) return typeGroups.find((group) => group.label === selectedType)?.funds || [];
     if (mode === "manager" && selectedManagerId != null) return allFunds.filter((fund: any) => fund.managerId === selectedManagerId);
-    if (mode === "fund" && selectedFund) return [selectedFund];
     return allFunds;
-  }, [allFunds, mode, selectedFund, selectedManagerId, selectedType, typeGroups]);
+  }, [allFunds, mode, selectedManagerId, selectedType, typeGroups]);
 
+  const scopeGroups = useMemo(() => buildGroups(scopeFunds), [scopeFunds]);
   const poolStats = useMemo(() => calcStats(allFunds), [allFunds]);
   const scopeStats = useMemo(() => calcStats(scopeFunds), [scopeFunds]);
+  const typeDistribution = useMemo(() => distributionFromGroups(mode === "overall" ? typeGroups : scopeGroups, mode === "overall" ? allFunds.length : scopeFunds.length), [allFunds.length, mode, scopeFunds.length, scopeGroups, typeGroups]);
 
-  const typeDistribution = useMemo(() => typeGroups.map((group) => ({
-    name: group.label,
-    count: group.funds.length,
-    ratio: allFunds.length ? Number((group.funds.length / allFunds.length * 100).toFixed(2)) : 0,
-    avgReturn: group.stats.avgReturn1y ?? 0,
-    avgSharpe: group.stats.avgSharpe ?? 0,
-    avgMaxDD: Math.abs(group.stats.avgMaxDD ?? 0),
-  })), [allFunds.length, typeGroups]);
+  const scopeName = mode === "type" && selectedType
+    ? selectedType
+    : mode === "manager" && selectedManagerId != null
+      ? managers.find((item: any) => item.id === selectedManagerId)?.name || "基金经理"
+      : "鑫基荟全池";
 
-  const radarData = useMemo(() => {
-    const toScore = {
-      return: (value: number | null) => Math.max(0, Math.min(100, 50 + (value ?? 0) * 1.2)),
-      sharpe: (value: number | null) => Math.max(0, Math.min(100, 45 + (value ?? 0) * 20)),
-      drawdown: (value: number | null) => Math.max(0, Math.min(100, 100 - Math.abs(value ?? 50) * 2)),
-      coverage: (value: number | null) => Math.max(0, Math.min(100, value ?? 0)),
-    };
-    return [
-      { metric: "收益", scope: toScore.return(scopeStats.avgReturn1y), pool: toScore.return(poolStats.avgReturn1y) },
-      { metric: "年化", scope: toScore.return(scopeStats.avgReturn), pool: toScore.return(poolStats.avgReturn) },
-      { metric: "夏普", scope: toScore.sharpe(scopeStats.avgSharpe), pool: toScore.sharpe(poolStats.avgSharpe) },
-      { metric: "回撤", scope: toScore.drawdown(scopeStats.avgMaxDD), pool: toScore.drawdown(poolStats.avgMaxDD) },
-      { metric: "覆盖", scope: toScore.coverage(scopeStats.riskCoverage), pool: toScore.coverage(poolStats.riskCoverage) },
-    ];
-  }, [poolStats, scopeStats]);
+  const radarValues = [
+    { metric: "近1年收益", raw: scopeStats.avgReturn1y, suffix: "%", score: Math.max(0, Math.min(100, 50 + (scopeStats.avgReturn1y ?? 0) * 1.2)), pool: Math.max(0, Math.min(100, 50 + (poolStats.avgReturn1y ?? 0) * 1.2)) },
+    { metric: "年化收益", raw: scopeStats.avgAnnual, suffix: "%", score: Math.max(0, Math.min(100, 50 + (scopeStats.avgAnnual ?? 0) * 1.2)), pool: Math.max(0, Math.min(100, 50 + (poolStats.avgAnnual ?? 0) * 1.2)) },
+    { metric: "夏普比率", raw: scopeStats.avgSharpe, suffix: "", score: Math.max(0, Math.min(100, 45 + (scopeStats.avgSharpe ?? 0) * 20)), pool: Math.max(0, Math.min(100, 45 + (poolStats.avgSharpe ?? 0) * 20)) },
+    { metric: "最大回撤", raw: scopeStats.avgMaxDD, suffix: "%", score: Math.max(0, Math.min(100, 100 - Math.abs(scopeStats.avgMaxDD ?? 50) * 2)), pool: Math.max(0, Math.min(100, 100 - Math.abs(poolStats.avgMaxDD ?? 50) * 2)) },
+    { metric: "数据覆盖", raw: scopeStats.riskCoverage, suffix: "%", score: Math.max(0, Math.min(100, scopeStats.riskCoverage ?? 0)), pool: Math.max(0, Math.min(100, poolStats.riskCoverage ?? 0)) },
+  ];
+  const radarData = radarValues.map((item) => ({ metric: item.metric.replace("比率", "").replace("最大", ""), scope: item.score, pool: item.pool }));
 
   const rankedFunds = useMemo(() => {
     const sorted = [...scopeFunds].sort((a: any, b: any) => {
@@ -196,32 +192,20 @@ export default function Analysis() {
     });
     return {
       best: sorted.slice(0, 8),
-      risk: [...scopeFunds]
-        .sort((a: any, b: any) => Math.abs(num(b.performance?.maxDrawdown) ?? 0) - Math.abs(num(a.performance?.maxDrawdown) ?? 0))
-        .slice(0, 6),
+      risk: [...scopeFunds].sort((a: any, b: any) => Math.abs(num(b.performance?.maxDrawdown) ?? 0) - Math.abs(num(a.performance?.maxDrawdown) ?? 0)).slice(0, 6),
     };
   }, [scopeFunds]);
 
-  const categoryLeader = typeDistribution
-    .filter((item) => item.count >= 3)
-    .sort((a, b) => b.avgReturn - a.avgReturn)[0];
-  const riskLeader = typeDistribution
-    .filter((item) => item.count >= 3 && item.avgMaxDD > 0)
-    .sort((a, b) => a.avgMaxDD - b.avgMaxDD)[0];
+  const categoryLeader = distributionFromGroups(typeGroups, allFunds.length).filter((item) => item.count >= 3).sort((a, b) => b.avgReturn - a.avgReturn)[0];
+  const riskLeader = distributionFromGroups(typeGroups, allFunds.length).filter((item) => item.count >= 3 && item.avgMaxDD > 0).sort((a, b) => a.avgMaxDD - b.avgMaxDD)[0];
   const topManager = managers[0];
-  const scopeName = mode === "type" && selectedType
-    ? selectedType
-    : mode === "manager" && selectedManagerId != null
-      ? managers.find((item: any) => item.id === selectedManagerId)?.name || "基金经理"
-      : mode === "fund" && selectedFund
-        ? fundName(selectedFund)
-        : "鑫基荟全池";
+  const activeManager = managerDetail || (selectedManagerId != null ? managers.find((manager: any) => manager.id === selectedManagerId) : null);
 
   const insight = [
-    `当前分析范围为${scopeName}，覆盖 ${scopeStats.count} 只产品，近一年平均收益 ${fmt(scopeStats.avgReturn1y, 2, "%")}，平均最大回撤 ${fmt(scopeStats.avgMaxDD, 2, "%")}，平均夏普 ${fmt(scopeStats.avgSharpe, 2)}。`,
-    categoryLeader ? `${categoryLeader.name}在大类中近一年均值更突出，样本 ${categoryLeader.count} 只，均值 ${categoryLeader.avgReturn.toFixed(2)}%。` : "",
+    `当前范围为${scopeName}，覆盖 ${scopeStats.count} 只产品，近一年平均收益 ${fmt(scopeStats.avgReturn1y, 2, "%")}，平均最大回撤 ${fmt(scopeStats.avgMaxDD, 2, "%")}，平均夏普 ${fmt(scopeStats.avgSharpe, 2)}。`,
+    categoryLeader ? `全池中${categoryLeader.name}近一年均值较突出，样本 ${categoryLeader.count} 只，均值 ${categoryLeader.avgReturn.toFixed(2)}%。` : "",
     riskLeader ? `${riskLeader.name}当前回撤均值相对更稳，平均最大回撤约 -${riskLeader.avgMaxDD.toFixed(2)}%。` : "",
-    topManager ? `基金经理维度中，${topManager.name} 近一年在管产品均值 ${fmt(topManager.stats.avgReturn1y, 2, "%")}，可结合其在管数量和回撤继续筛选。` : "",
+    topManager ? `基金经理维度中，${topManager.name} 近一年在管产品均值 ${fmt(topManager.stats.avgReturn1y, 2, "%")}。` : "",
   ].filter(Boolean).join("");
 
   if (isLoading) return <LoadingScreen />;
@@ -231,7 +215,7 @@ export default function Analysis() {
       <div className="max-w-7xl mx-auto px-4 md:px-6">
         <div className="pt-8 md:pt-12 pb-5 md:pb-7">
           <h1 className="text-2xl md:text-4xl font-semibold text-white tracking-tight">鑫基荟深度分析</h1>
-          <p className="mt-2 text-white/45 text-sm md:text-base">按全池、子类别、单只基金和基金经理拆解收益、风险、配置与履职表现。</p>
+          <p className="mt-2 text-white/45 text-sm md:text-base">按全池、子类别和基金经理三条路径，融合净值历史、排名表现、风险指标与经理履职数据。</p>
         </div>
 
         <div className="liquid-glass p-3 md:p-4 mb-4 md:mb-6">
@@ -240,19 +224,13 @@ export default function Analysis() {
               {[
                 { key: "overall", label: "全池", icon: Layers },
                 { key: "type", label: "子类别", icon: PieChart },
-                { key: "fund", label: "单只基金", icon: Target },
                 { key: "manager", label: "基金经理", icon: User },
               ].map((item) => {
                 const Icon = item.icon;
                 const active = mode === item.key;
                 return (
-                  <button
-                    key={item.key}
-                    onClick={() => setMode(item.key as any)}
-                    className={`h-9 px-3 rounded-lg border text-xs flex items-center gap-1.5 transition-all ${
-                      active ? "bg-[#3B6CFF]/18 border-[#3B6CFF]/35 text-[#00F0FF]" : "bg-white/[0.03] border-white/[0.07] text-white/45 hover:text-white/75"
-                    }`}
-                  >
+                  <button key={item.key} onClick={() => setMode(item.key as any)}
+                    className={`h-9 px-3 rounded-lg border text-xs flex items-center gap-1.5 transition-all ${active ? "bg-[#3B6CFF]/18 border-[#3B6CFF]/35 text-[#00F0FF]" : "bg-white/[0.03] border-white/[0.07] text-white/45 hover:text-white/75"}`}>
                     <Icon className="w-3.5 h-3.5" />{item.label}
                   </button>
                 );
@@ -262,7 +240,7 @@ export default function Analysis() {
             {mode === "type" && (
               <select value={selectedType} onChange={(e) => setSelectedType(e.target.value)}
                 className="h-9 px-3 rounded-lg bg-[#0B1021] border border-white/[0.08] text-white text-xs focus:outline-none focus:border-[#3B6CFF]/50">
-                <option value="">全部类别</option>
+                <option value="">全部子类别</option>
                 {typeGroups.map((group) => <option key={group.label} value={group.label}>{group.label}</option>)}
               </select>
             )}
@@ -271,25 +249,8 @@ export default function Analysis() {
               <select value={selectedManagerId ?? ""} onChange={(e) => setSelectedManagerId(e.target.value ? Number(e.target.value) : null)}
                 className="h-9 px-3 rounded-lg bg-[#0B1021] border border-white/[0.08] text-white text-xs focus:outline-none focus:border-[#3B6CFF]/50">
                 <option value="">选择基金经理</option>
-                {managers.slice(0, 80).map((manager: any) => <option key={manager.id} value={manager.id}>{manager.name} · {manager.funds.length}只</option>)}
+                {managers.slice(0, 100).map((manager: any) => <option key={manager.id} value={manager.id}>{manager.name} · {manager.funds.length}只</option>)}
               </select>
-            )}
-
-            {mode === "fund" && (
-              <div className="relative w-full lg:w-80">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/25" />
-                <input value={keyword} onChange={(e) => setKeyword(e.target.value)}
-                  placeholder="搜索基金名称或代码"
-                  className="w-full h-9 pl-8 pr-3 rounded-lg bg-[#0B1021] border border-white/[0.08] text-white text-xs placeholder:text-white/25 focus:outline-none focus:border-[#3B6CFF]/50" />
-                <div className="mt-2 grid grid-cols-1 gap-1 max-h-40 overflow-y-auto">
-                  {filteredFundsForSearch.slice(0, keyword ? 12 : 4).map((fund: any) => (
-                    <button key={fund.fundCode} onClick={() => { setSelectedFundCode(fund.fundCode); setKeyword(fundName(fund)); }}
-                      className={`text-left px-2 py-1.5 rounded text-xs transition-all ${selectedFundCode === fund.fundCode ? "bg-[#3B6CFF]/18 text-[#00F0FF]" : "text-white/55 hover:bg-white/[0.04]"}`}>
-                      {fundName(fund)} <span className="data-number text-white/30">{fund.fundCode}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
             )}
           </div>
         </div>
@@ -309,14 +270,14 @@ export default function Analysis() {
           ))}
         </div>
 
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 md:gap-6">
-          <div className="xl:col-span-2 space-y-4 md:space-y-6">
+        <div className={`grid grid-cols-1 gap-4 md:gap-6 ${mode === "manager" ? "xl:grid-cols-[1fr_420px]" : "xl:grid-cols-3"}`}>
+          <main className={`${mode === "manager" ? "" : "xl:col-span-2"} space-y-4 md:space-y-6`}>
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-6">
               <section className="liquid-glass p-4 md:p-5">
                 <h2 className="text-base font-medium text-white mb-4 flex items-center gap-2">
                   <Activity className="w-5 h-5" style={{ color: ACCENT_INFO }} />多维能力雷达
                 </h2>
-                <div className="h-72">
+                <div className="h-64">
                   <ResponsiveContainer width="100%" height="100%">
                     <RadarChart data={radarData}>
                       <PolarGrid stroke="rgba(255,255,255,0.06)" />
@@ -327,45 +288,68 @@ export default function Analysis() {
                     </RadarChart>
                   </ResponsiveContainer>
                 </div>
+                <div className="grid grid-cols-2 gap-2 mt-3">
+                  {radarValues.map((item) => (
+                    <div key={item.metric} className="rounded-lg bg-white/[0.03] border border-white/[0.05] px-3 py-2">
+                      <div className="text-white/30 text-[10px]">{item.metric}</div>
+                      <div className="data-number text-sm text-white/80">{fmt(item.raw, item.metric === "数据覆盖" ? 0 : 2, item.suffix)}</div>
+                    </div>
+                  ))}
+                </div>
               </section>
 
               <section className="liquid-glass p-4 md:p-5">
                 <h2 className="text-base font-medium text-white mb-4 flex items-center gap-2">
                   <PieChart className="w-5 h-5" style={{ color: ACCENT_PRIMARY }} />类型配置分布
                 </h2>
-                <div className="h-72">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <RePie>
-                      <Pie data={typeDistribution} cx="50%" cy="50%" innerRadius={58} outerRadius={92} paddingAngle={2} dataKey="ratio" nameKey="name">
-                        {typeDistribution.map((_, index) => <Cell key={index} fill={COLORS[index % COLORS.length]} />)}
-                      </Pie>
-                      <ReTooltip
-                        contentStyle={{ background: "rgba(5,8,26,0.96)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "8px", fontSize: "12px" }}
-                        formatter={(value: any) => [`${Number(value).toFixed(2)}%`, "占比"]}
-                      />
-                    </RePie>
-                  </ResponsiveContainer>
-                </div>
+                {typeDistribution.length > 0 ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-[180px_1fr] gap-4 items-center">
+                    <div className="h-48">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <RePie>
+                          <Pie data={typeDistribution} cx="50%" cy="50%" innerRadius={42} outerRadius={72} paddingAngle={2} dataKey="ratio" nameKey="name">
+                            {typeDistribution.map((_, index) => <Cell key={index} fill={COLORS[index % COLORS.length]} />)}
+                          </Pie>
+                          <ReTooltip contentStyle={{ background: "rgba(5,8,26,0.96)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "8px", fontSize: "12px" }} formatter={(value: any) => [`${Number(value).toFixed(2)}%`, "占比"]} />
+                        </RePie>
+                      </ResponsiveContainer>
+                    </div>
+                    <div className="space-y-2">
+                      {typeDistribution.slice(0, 8).map((item, index) => (
+                        <div key={item.name} className="flex items-center gap-2 rounded-lg bg-white/[0.03] px-3 py-2">
+                          <span className="w-2.5 h-2.5 rounded-sm" style={{ backgroundColor: COLORS[index % COLORS.length] }} />
+                          <span className="text-white/65 text-xs flex-1">{item.name}</span>
+                          <span className="data-number text-white/80 text-xs">{item.count}只</span>
+                          <span className="data-number text-white/45 text-xs">{item.ratio.toFixed(1)}%</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="py-16 text-center text-white/35 text-sm">暂无可用于配置分布的数据</div>
+                )}
               </section>
             </div>
 
-            <section className="liquid-glass p-4 md:p-5">
-              <h2 className="text-base font-medium text-white mb-4 flex items-center gap-2">
-                <BarChart3 className="w-5 h-5" style={{ color: POSITIVE_METRIC_COLOR }} />子类别收益与回撤
-              </h2>
-              <div className="h-72">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={typeDistribution.filter((item) => item.count > 0).slice(0, 8)}>
-                    <CartesianGrid stroke="rgba(255,255,255,0.05)" vertical={false} />
-                    <XAxis dataKey="name" tick={{ fill: "rgba(255,255,255,0.38)", fontSize: 11 }} axisLine={false} tickLine={false} />
-                    <YAxis tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 10 }} axisLine={false} tickLine={false} />
-                    <ReTooltip contentStyle={{ background: "rgba(5,8,26,0.96)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "8px", fontSize: "12px" }} />
-                    <Bar dataKey="avgReturn" name="近1年均值" fill={UP_COLOR} radius={[4, 4, 0, 0]} />
-                    <Bar dataKey="avgMaxDD" name="平均回撤绝对值" fill={RISK_COLOR} radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </section>
+            {mode === "type" && (
+              <section className="liquid-glass p-4 md:p-5">
+                <h2 className="text-base font-medium text-white mb-4 flex items-center gap-2">
+                  <BarChart3 className="w-5 h-5" style={{ color: POSITIVE_METRIC_COLOR }} />子类别收益与回撤
+                </h2>
+                <div className="h-72">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={distributionFromGroups(typeGroups, allFunds.length).filter((item) => item.count > 0).slice(0, 8)}>
+                      <CartesianGrid stroke="rgba(255,255,255,0.05)" vertical={false} />
+                      <XAxis dataKey="name" tick={{ fill: "rgba(255,255,255,0.38)", fontSize: 11 }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 10 }} axisLine={false} tickLine={false} />
+                      <ReTooltip contentStyle={{ background: "rgba(5,8,26,0.96)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "8px", fontSize: "12px" }} />
+                      <Bar dataKey="avgReturn" name="近1年均值" fill={UP_COLOR} radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="avgMaxDD" name="平均回撤绝对值" fill={RISK_COLOR} radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </section>
+            )}
 
             <section className="liquid-glass p-4 md:p-5">
               <h2 className="text-base font-medium text-white mb-4 flex items-center gap-2">
@@ -403,7 +387,26 @@ export default function Analysis() {
                 </div>
               </div>
             </section>
-          </div>
+
+            {mode === "overall" && (
+              <section className="liquid-glass p-4 md:p-5">
+                <h2 className="text-base font-medium text-white mb-4 flex items-center gap-2">
+                  <User className="w-5 h-5" style={{ color: ACCENT_HIGHLIGHT }} />基金经理排行
+                </h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                  {managers.slice(0, 10).map((manager: any, index: number) => (
+                    <button key={manager.id} onClick={() => { setMode("manager"); setSelectedManagerId(manager.id); }}
+                      className="grid grid-cols-[24px_1fr_68px_50px] gap-2 items-center rounded-lg px-3 py-2 bg-white/[0.03] hover:bg-white/[0.06] transition-all text-left">
+                      <span className="data-number text-xs text-white/35">{index + 1}</span>
+                      <span className="text-white/75 text-xs truncate">{manager.name}</span>
+                      <span className={`data-number text-xs text-right ${getChangeTextClass(manager.stats.avgReturn1y ?? 0)}`}>{fmt(manager.stats.avgReturn1y, 1, "%")}</span>
+                      <span className="data-number text-xs text-right" style={{ color: POSITIVE_METRIC_COLOR }}>{fmt(manager.stats.avgSharpe, 2)}</span>
+                    </button>
+                  ))}
+                </div>
+              </section>
+            )}
+          </main>
 
           <aside className="space-y-4 md:space-y-6">
             <section className="liquid-glass p-4 md:p-5">
@@ -415,23 +418,23 @@ export default function Analysis() {
 
             <section className="liquid-glass p-4 md:p-5">
               <h2 className="text-base font-medium text-white mb-3 flex items-center gap-2">
-                <User className="w-5 h-5" style={{ color: ACCENT_HIGHLIGHT }} />基金经理履职
+                <BriefcaseBusiness className="w-5 h-5" style={{ color: ACCENT_HIGHLIGHT }} />基金经理履职
               </h2>
-              {managerDetail ? (
+              {activeManager ? (
                 <div>
                   <div className="flex items-center gap-3 mb-4">
-                    <div className="w-12 h-12 rounded-full bg-gradient-to-br from-[#3B6CFF] to-[#00F0FF] flex items-center justify-center text-white font-semibold">{managerDetail.name?.[0] ?? "?"}</div>
+                    <div className="w-12 h-12 rounded-full bg-gradient-to-br from-[#3B6CFF] to-[#00F0FF] flex items-center justify-center text-white font-semibold">{activeManager.name?.[0] ?? "?"}</div>
                     <div className="min-w-0">
-                      <div className="text-white font-medium truncate">{managerDetail.name ?? "未知"}</div>
-                      <div className="text-white/35 text-xs truncate">{managerDetail.company || "—"}</div>
+                      <div className="text-white font-medium truncate">{activeManager.name ?? "未知"}</div>
+                      <div className="text-white/35 text-xs truncate">{activeManager.company || "基金公司待补充"}</div>
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2 mb-3">
                     {[
-                      { label: "管理年限", value: `${managerDetail.manageYears ?? "—"}年` },
-                      { label: "在管数量", value: `${managerDetail.fundCount ?? managerDetail.funds?.length ?? 0}只` },
-                      { label: "近1年均值", value: `${managerDetail.avgReturn1y ?? "—"}%` },
-                      { label: "平均回撤", value: `${managerDetail.avgMaxDrawdown ?? "—"}%` },
+                      { label: "管理年限", value: `${activeManager.manageYears ?? "—"}年` },
+                      { label: "在管数量", value: `${activeManager.fundCount ?? activeManager.funds?.length ?? 0}只` },
+                      { label: "近1年均值", value: `${activeManager.avgReturn1y ?? activeManager.stats?.avgReturn1y?.toFixed?.(2) ?? "—"}%` },
+                      { label: "平均回撤", value: `${activeManager.avgMaxDrawdown ?? activeManager.stats?.avgMaxDD?.toFixed?.(2) ?? "—"}%` },
                     ].map((item) => (
                       <div key={item.label} className="liquid-glass-sm p-2 text-center">
                         <div className="text-white/28 text-[10px]">{item.label}</div>
@@ -440,42 +443,23 @@ export default function Analysis() {
                     ))}
                   </div>
                   <div className="rounded-lg border border-white/[0.06] bg-white/[0.03] p-3 text-xs text-white/58 leading-relaxed">
-                    <div>任职起点：<span className="data-number text-white/78">{managerDetail.careerStart || "—"}</span></div>
-                    <div>投资风格：{managerDetail.investmentStyle || "暂无明确风格标签"}</div>
-                    <div>代表产品：{managerDetail.funds?.slice(0, 3).map((fund: any) => fundName(fund)).join("、") || "—"}</div>
+                    <div>基金公司：<span className="text-white/78">{activeManager.company || "基金公司待补充"}</span></div>
+                    <div>任职起点：<span className="data-number text-white/78">{formatDate(activeManager.careerStart)}</span></div>
+                    <div>投资风格：{activeManager.investmentStyle || "暂无明确风格标签"}</div>
+                    <div>代表产品：{activeManager.funds?.slice(0, 3).map((fund: any) => fundName(fund)).join("、") || "—"}</div>
                   </div>
                 </div>
               ) : (
-                <div className="space-y-2">
-                  {managers.slice(0, 8).map((manager: any, index: number) => (
-                    <button key={manager.id} onClick={() => { setMode("manager"); setSelectedManagerId(manager.id); }}
-                      className="w-full grid grid-cols-[24px_1fr_58px_46px] gap-2 items-center rounded-lg px-2 py-2 text-left hover:bg-white/[0.04] transition-all">
-                      <span className="data-number text-xs text-white/35">{index + 1}</span>
-                      <span className="text-white/72 text-xs truncate">{manager.name}</span>
-                      <span className={`data-number text-xs text-right ${getChangeTextClass(manager.stats.avgReturn1y ?? 0)}`}>{fmt(manager.stats.avgReturn1y, 1, "%")}</span>
-                      <span className="data-number text-xs text-right" style={{ color: POSITIVE_METRIC_COLOR }}>{fmt(manager.stats.avgSharpe, 2)}</span>
-                    </button>
-                  ))}
-                </div>
+                <p className="text-white/45 text-sm leading-relaxed">请选择一位基金经理，查看基金公司、任职起点、在管产品、平均收益和回撤表现。</p>
               )}
             </section>
 
             <section className="liquid-glass p-4 md:p-5">
               <h2 className="text-base font-medium text-white mb-3 flex items-center gap-2">
-                <Shield className="w-5 h-5" style={{ color: RISK_COLOR }} />风险提示
-              </h2>
-              <div className="space-y-3 text-sm text-white/58 leading-relaxed">
-                <p>当前范围内正收益产品占比 {fmt(scopeStats.positiveRatio, 0, "%")}，风险指标覆盖率 {fmt(scopeStats.riskCoverage, 0, "%")}。</p>
-                <p>若单只基金收益高但回撤同步放大，应优先与同类别均值比较，避免只按收益排序追高。</p>
-              </div>
-            </section>
-
-            <section className="liquid-glass p-4 md:p-5">
-              <h2 className="text-base font-medium text-white mb-3 flex items-center gap-2">
-                <Target className="w-5 h-5" style={{ color: ACCENT_PRIMARY }} />快速入口
+                <ArrowRight className="w-5 h-5" style={{ color: ACCENT_PRIMARY }} />快速入口
               </h2>
               <div className="space-y-2">
-                {(selectedFund ? [selectedFund] : rankedFunds.best.slice(0, 4)).map((fund: any) => (
+                {rankedFunds.best.slice(0, 4).map((fund: any) => (
                   <Link key={fund.fundCode} to={`/${fund.fundCode}`} className="flex items-center justify-between gap-2 rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-2 hover:bg-white/[0.06] transition-all">
                     <span className="text-white/70 text-xs truncate">{fundName(fund)}</span>
                     <ArrowRight className="w-3.5 h-3.5 text-white/25" />
@@ -485,6 +469,17 @@ export default function Analysis() {
             </section>
           </aside>
         </div>
+
+        <section className="liquid-glass p-4 md:p-5 mt-4 md:mt-6">
+          <h2 className="text-base font-medium text-white mb-3 flex items-center gap-2">
+            <Shield className="w-5 h-5" style={{ color: RISK_COLOR }} />风险提示
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-sm text-white/58 leading-relaxed">
+            <p>当前范围内正收益产品占比 {fmt(scopeStats.positiveRatio, 0, "%")}，风险指标覆盖率 {fmt(scopeStats.riskCoverage, 0, "%")}。</p>
+            <p>若收益高但回撤同步放大，应优先与同类别均值比较，避免只按收益排序追高。</p>
+            <p>本页数据来自后端融合层缓存的 Tushare、iFinD、efinance 等数据源结果；交易日数据更新后会随服务端缓存刷新。</p>
+          </div>
+        </section>
       </div>
     </div>
   );

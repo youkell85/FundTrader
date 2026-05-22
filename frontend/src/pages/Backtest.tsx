@@ -83,6 +83,8 @@ export default function Backtest() {
   const [llmLoading, setLlmLoading] = useState(false);
   const [fundSearch, setFundSearch] = useState("");
   const [activeType, setActiveType] = useState("all");
+  const [fundSortBy, setFundSortBy] = useState<"annualizedReturn" | "maxDrawdown" | "sharpeRatio">("annualizedReturn");
+  const [fundSortOrder, setFundSortOrder] = useState<"asc" | "desc">("desc");
 
   const utils = trpc.useUtils();
   const llmMutation = trpc.fund.analyzeDcaLLM.useMutation();
@@ -102,10 +104,21 @@ export default function Backtest() {
       const key = fund.fundType || "other";
       groups.set(key, [...(groups.get(key) || []), fund]);
     });
+    const sortFund = (a: any, b: any) => {
+      const metric = (fund: any) => {
+        const perf = fund.performance || {};
+        if (fundSortBy === "annualizedReturn") return toNum(perf.annualizedReturn ?? perf.return1y);
+        if (fundSortBy === "maxDrawdown") return Math.abs(toNum(perf.maxDrawdown));
+        return toNum(perf.sharpeRatio);
+      };
+      const aVal = metric(a);
+      const bVal = metric(b);
+      return fundSortOrder === "desc" ? bVal - aVal : aVal - bVal;
+    };
     return Array.from(groups.entries())
-      .map(([type, funds]) => ({ type, label: typeLabels[type] || type || "其他", funds: funds.slice(0, 16) }))
+      .map(([type, funds]) => ({ type, label: typeLabels[type] || type || "其他", funds: [...funds].sort(sortFund).slice(0, 16) }))
       .sort((a, b) => b.funds.length - a.funds.length);
-  }, [allFunds, fundSearch, selectedFunds]);
+  }, [allFunds, fundSearch, fundSortBy, fundSortOrder, selectedFunds]);
 
   const visibleGroups = activeType === "all" ? groupedFunds : groupedFunds.filter((group) => group.type === activeType);
   const selectedFundDetails = selectedFunds.map((id) => allFunds.find((fund: any) => fund.id === id)).filter(Boolean);
@@ -234,6 +247,31 @@ export default function Backtest() {
                       </button>
                     ))}
                   </div>
+                  <div className="mt-2 flex items-center gap-1.5 flex-wrap">
+                    <span className="text-white/30 text-[11px]">当前类别排序</span>
+                    {[
+                      { key: "annualizedReturn", label: "年化收益" },
+                      { key: "maxDrawdown", label: "最大回撤" },
+                      { key: "sharpeRatio", label: "夏普" },
+                    ].map((item) => (
+                      <button
+                        key={item.key}
+                        type="button"
+                        onClick={() => {
+                          if (fundSortBy === item.key) setFundSortOrder(fundSortOrder === "desc" ? "asc" : "desc");
+                          else {
+                            setFundSortBy(item.key as typeof fundSortBy);
+                            setFundSortOrder(item.key === "maxDrawdown" ? "asc" : "desc");
+                          }
+                        }}
+                        className={`h-7 px-2.5 rounded-lg text-[11px] border transition-all ${
+                          fundSortBy === item.key ? "bg-[#00F0FF]/12 border-[#00F0FF]/30 text-[#00F0FF]" : "bg-white/[0.03] border-white/[0.06] text-white/40 hover:text-white/70"
+                        }`}
+                      >
+                        {item.label}{fundSortBy === item.key ? (fundSortOrder === "desc" ? "↓" : "↑") : ""}
+                      </button>
+                    ))}
+                  </div>
                   <div className="mt-2 max-h-[420px] overflow-y-auto space-y-3 pr-1">
                     {visibleGroups.map((group) => (
                       <div key={group.type} className="rounded-lg border border-white/[0.06] bg-[#070B18]/70 overflow-hidden">
@@ -253,6 +291,13 @@ export default function Backtest() {
                               <div className="min-w-0 flex-1">
                                 <div className="text-white/85 text-sm truncate">{fund.fundAbbr || fund.fundName}</div>
                                 <div className="text-white/35 text-xs data-number">{fund.fundCode} · {fund.category}</div>
+                                <div className="flex items-center gap-2 text-[10px] mt-1">
+                                  <span className={`data-number ${getChangeTextClass(toNum(fund.performance?.annualizedReturn ?? fund.performance?.return1y))}`}>
+                                    年化 {toNum(fund.performance?.annualizedReturn ?? fund.performance?.return1y).toFixed(2)}%
+                                  </span>
+                                  <span className="data-number" style={{ color: RISK_COLOR }}>回撤 {toNum(fund.performance?.maxDrawdown).toFixed(2)}%</span>
+                                  <span className="data-number" style={{ color: POSITIVE_METRIC_COLOR }}>夏普 {toNum(fund.performance?.sharpeRatio).toFixed(2)}</span>
+                                </div>
                               </div>
                             </button>
                           ))}

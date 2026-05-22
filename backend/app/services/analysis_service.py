@@ -216,6 +216,8 @@ def analyze_fund(code: str) -> Dict[str, Any]:
         return {
             "code": code,
             "name": detail.name or code,
+            "company": detail.basic.management if detail.basic and detail.basic.management else None,
+            "management": detail.basic.management if detail.basic and detail.basic.management else None,
             "nav": detail.nav,
             "nav_date": detail.nav_date,
             "day_growth": detail.day_growth,
@@ -324,6 +326,8 @@ def _analyze_fund_legacy(code: str) -> Dict[str, Any]:
     return {
         "code": code,
         "name": fund_name,
+        "company": info.get("基金管理人") or info.get("基金公司") or info.get("management") if info else None,
+        "management": info.get("基金管理人") or info.get("基金公司") or info.get("management") if info else None,
         "nav": latest_nav.get("nav"),
         "nav_date": latest_nav.get("nav_date"),
         "day_growth": latest_nav.get("day_growth"),
