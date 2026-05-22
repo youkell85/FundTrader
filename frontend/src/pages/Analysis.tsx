@@ -168,6 +168,7 @@ function DistributionTooltip({ active, payload }: any) {
 }
 
 type Mode = "overall" | "type" | "manager";
+type PickerAnchor = { left: number; top: number; width: number };
 
 export default function Analysis() {
   const { data: listData, isLoading } = trpc.fund.list.useQuery(
@@ -180,6 +181,7 @@ export default function Analysis() {
   const [selectedType, setSelectedType] = useState("");
   const [selectedManagerId, setSelectedManagerId] = useState<number | null>(null);
   const [openPicker, setOpenPicker] = useState<"type" | "manager" | null>(null);
+  const [pickerAnchor, setPickerAnchor] = useState<PickerAnchor | null>(null);
 
   const groups = useMemo(() => buildGroups(allFunds), [allFunds]);
   const managers = useMemo(() => {
@@ -250,6 +252,16 @@ export default function Analysis() {
     topManager ? `基金经理维度中，${topManager.name} 在管产品近1年均值 ${fmt(topManager.stats.avgReturn1y, 2, "%")}。` : "",
   ].filter(Boolean).join("");
 
+  const openAnchoredPicker = (picker: "type" | "manager", target: HTMLElement) => {
+    const rect = target.getBoundingClientRect();
+    const preferredWidth = picker === "manager" ? 320 : 256;
+    const width = Math.min(preferredWidth, Math.max(220, window.innerWidth - 32));
+    const left = Math.min(Math.max(16, rect.left), Math.max(16, window.innerWidth - width - 16));
+    const top = Math.min(rect.bottom + 8, Math.max(16, window.innerHeight - 96));
+    setPickerAnchor({ left, top, width });
+    setOpenPicker(picker);
+  };
+
   if (isLoading) return <LoadingScreen />;
 
   const modeButtons: Array<{ key: Mode; label: string; icon: any }> = [
@@ -275,9 +287,20 @@ export default function Analysis() {
               return (
                 <div key={item.key} className="relative">
                   <button
-                    onClick={() => {
+                    onClick={(event) => {
                       setMode(item.key);
-                      setOpenPicker(isPicker ? (openPicker === item.key ? null : item.key as "type" | "manager") : null);
+                      if (!isPicker) {
+                        setOpenPicker(null);
+                        setPickerAnchor(null);
+                        return;
+                      }
+                      const pickerKey = item.key as "type" | "manager";
+                      if (openPicker === pickerKey) {
+                        setOpenPicker(null);
+                        setPickerAnchor(null);
+                        return;
+                      }
+                      openAnchoredPicker(pickerKey, event.currentTarget);
                     }}
                     className={`h-10 px-3 rounded-lg border text-xs flex items-center gap-1.5 transition-all ${active ? "bg-[#3B6CFF]/18 border-[#3B6CFF]/35 text-[#00F0FF]" : "bg-white/[0.03] border-white/[0.07] text-white/45 hover:text-white/75"}`}
                   >
@@ -286,34 +309,41 @@ export default function Analysis() {
                     {isPicker && <ChevronDown className={`w-3.5 h-3.5 transition-transform ${openPicker === item.key ? "rotate-180" : ""}`} />}
                   </button>
 
-                  {openPicker === "type" && item.key === "type" && (
-                    <div className="absolute z-[90] left-0 top-12 w-64 max-h-80 overflow-y-auto rounded-xl border border-white/[0.08] bg-[#070B18]/98 shadow-2xl p-2">
-                      <button onClick={() => { setSelectedType(""); setOpenPicker(null); }} className="w-full text-left rounded-lg px-3 py-2 text-xs text-white/65 hover:bg-white/[0.06]">全部子类别</button>
-                      {groups.map((group) => (
-                        <button key={group.label} onClick={() => { setSelectedType(group.label); setOpenPicker(null); }} className="w-full text-left rounded-lg px-3 py-2 text-xs hover:bg-white/[0.06]">
-                          <span className="text-white/80">{group.label}</span>
-                          <span className="data-number float-right text-white/35">{group.funds.length} 只</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-
-                  {openPicker === "manager" && item.key === "manager" && (
-                    <div className="absolute z-[90] left-0 top-12 w-80 max-h-96 overflow-y-auto rounded-xl border border-white/[0.08] bg-[#070B18]/98 shadow-2xl p-2">
-                      <button onClick={() => { setSelectedManagerId(null); setOpenPicker(null); }} className="w-full text-left rounded-lg px-3 py-2 text-xs text-white/65 hover:bg-white/[0.06]">全部基金经理</button>
-                      {managers.slice(0, 120).map((manager: any) => (
-                        <button key={manager.id} onClick={() => { setSelectedManagerId(manager.id); setOpenPicker(null); }} className="w-full text-left rounded-lg px-3 py-2 hover:bg-white/[0.06]">
-                          <span className="block text-white/80 text-xs truncate">{manager.name}</span>
-                          <span className="block text-white/35 text-[10px] truncate">{manager.company} · {manager.funds.length} 只 · 近1年 {fmt(manager.stats.avgReturn1y, 1, "%")}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
                 </div>
               );
             })}
           </div>
         </div>
+
+        {openPicker === "type" && pickerAnchor && (
+          <div
+            className="fixed z-[9999] max-h-[min(20rem,calc(100vh-6rem))] overflow-y-auto rounded-xl border border-white/[0.08] bg-[#070B18] shadow-2xl p-2"
+            style={{ left: pickerAnchor.left, top: pickerAnchor.top, width: pickerAnchor.width }}
+          >
+            <button onClick={() => { setSelectedType(""); setOpenPicker(null); setPickerAnchor(null); }} className="w-full text-left rounded-lg px-3 py-2 text-xs text-white/65 hover:bg-white/[0.06]">全部子类别</button>
+            {groups.map((group) => (
+              <button key={group.label} onClick={() => { setSelectedType(group.label); setOpenPicker(null); setPickerAnchor(null); }} className="w-full text-left rounded-lg px-3 py-2 text-xs hover:bg-white/[0.06]">
+                <span className="text-white/80">{group.label}</span>
+                <span className="data-number float-right text-white/35">{group.funds.length} 只</span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {openPicker === "manager" && pickerAnchor && (
+          <div
+            className="fixed z-[9999] max-h-[min(24rem,calc(100vh-6rem))] overflow-y-auto rounded-xl border border-white/[0.08] bg-[#070B18] shadow-2xl p-2"
+            style={{ left: pickerAnchor.left, top: pickerAnchor.top, width: pickerAnchor.width }}
+          >
+            <button onClick={() => { setSelectedManagerId(null); setOpenPicker(null); setPickerAnchor(null); }} className="w-full text-left rounded-lg px-3 py-2 text-xs text-white/65 hover:bg-white/[0.06]">全部基金经理</button>
+            {managers.slice(0, 120).map((manager: any) => (
+              <button key={manager.id} onClick={() => { setSelectedManagerId(manager.id); setOpenPicker(null); setPickerAnchor(null); }} className="w-full text-left rounded-lg px-3 py-2 hover:bg-white/[0.06]">
+                <span className="block text-white/80 text-xs truncate">{manager.name}</span>
+                <span className="block text-white/35 text-[10px] truncate">{manager.company} · {manager.funds.length} 只 · 近1年 {fmt(manager.stats.avgReturn1y, 1, "%")}</span>
+              </button>
+            ))}
+          </div>
+        )}
 
         <div className="grid grid-cols-2 md:grid-cols-5 gap-2 md:gap-3 mb-4 md:mb-6">
           {[
