@@ -179,6 +179,21 @@ export default function Backtest() {
   const benchmarkReturnNum = toNum(result?.benchmark?.totalReturn ?? result?.benchmarkReturn);
   const excessNum = totalReturnNum - benchmarkReturnNum;
   const weightTotal = weights.slice(0, selectedFunds.length).reduce((sum, weight) => sum + (Number(weight) || 0), 0);
+  const performanceChartDomain = useMemo<[number, number]>(() => {
+    const values = (result?.monthlyData || []).flatMap((point: any) => [
+      toNum(point?.invested),
+      toNum(point?.value),
+      toNum(point?.benchmark),
+    ]).filter((value: number) => Number.isFinite(value));
+
+    if (values.length === 0) return [0, 10000];
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const span = Math.max(max - min, max * 0.08, 1000);
+    const bottom = Math.floor(Math.min(0, min - span * 0.18));
+    const top = Math.ceil(max + span * 0.32);
+    return [bottom, top];
+  }, [result?.monthlyData]);
 
   const handleAddFund = (fundId: number) => {
     if (selectedFunds.includes(fundId)) return;
@@ -482,7 +497,7 @@ export default function Backtest() {
                   <p className="text-white/35 text-xs mb-4">蓝色为定投累计投入，绿色为定投市值，黄色为同等总资金在期初一次性买入后的市值。</p>
                   <div className="h-72 md:h-80">
                     <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={result.monthlyData || []} margin={{ top: 24, right: 18, left: 4, bottom: 0 }}>
+                      <AreaChart data={result.monthlyData || []} margin={{ top: 36, right: 18, left: 4, bottom: 0 }}>
                         <defs>
                           <linearGradient id="investedGrad" x1="0" y1="0" x2="0" y2="1">
                             <stop offset="0%" stopColor={ACCENT_PRIMARY} stopOpacity={0.18} />
@@ -499,18 +514,7 @@ export default function Backtest() {
                           axisLine={false}
                           tickLine={false}
                           width={66}
-                          domain={[
-                            (dataMin: number) => {
-                              const min = Number.isFinite(dataMin) ? dataMin : 0;
-                              const pad = Math.max(Math.abs(min) * 0.18, 1000);
-                              return Math.floor(Math.min(0, min - pad));
-                            },
-                            (dataMax: number) => {
-                              const max = Number.isFinite(dataMax) ? dataMax : 0;
-                              const pad = Math.max(Math.abs(max) * 0.24, 2000);
-                              return Math.ceil(max + pad);
-                            },
-                          ]}
+                          domain={performanceChartDomain}
                           allowDataOverflow={false}
                           tickFormatter={(v) => `¥${(v / 10000).toFixed(1)}万`}
                         />
