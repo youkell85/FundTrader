@@ -21,9 +21,9 @@ API_PREFIX = "/fund/api"
 
 # 缓存配置
 CACHE_DIR = os.getenv("CACHE_DIR", "/tmp/fundtrader_cache")
-CACHE_TTL_RANKING = int(os.getenv("CACHE_TTL_RANKING", "1800"))  # 30分钟
-CACHE_TTL_NAV = int(os.getenv("CACHE_TTL_NAV", "3600"))  # 1小时
-CACHE_TTL_INFO = int(os.getenv("CACHE_TTL_INFO", "7200"))  # 2小时
+CACHE_TTL_RANKING = int(os.getenv("CACHE_TTL_RANKING", "86400"))  # 基金排名/阶段收益日频更新
+CACHE_TTL_NAV = int(os.getenv("CACHE_TTL_NAV", "86400"))  # 基金净值日频更新
+CACHE_TTL_INFO = int(os.getenv("CACHE_TTL_INFO", "86400"))  # 基础信息/分析指标默认日缓存
 
 # 数据源配置
 TUSHARE_TOKEN = os.getenv("TUSHARE_TOKEN", "")

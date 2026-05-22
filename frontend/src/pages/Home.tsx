@@ -13,6 +13,10 @@ const riskLabels: Record<string, string> = {
   medium_high: "中高风险", high: "高风险",
 };
 
+function isMissingMetric(value: unknown) {
+  return value === undefined || value === null || value === "" || value === "—" || value === "暂无" || value === "鈥?";
+}
+
 export default function Home() {
   const utils = trpc.useUtils();
   const { data: listData, isLoading: listLoading, refetch: refetchList } = trpc.fund.list.useQuery(
@@ -57,16 +61,9 @@ export default function Home() {
   const [searchError, setSearchError] = useState<string | null>(null);
 
   useEffect(() => {
-    const hasMetric = (value: unknown) => (
-      value !== undefined &&
-      value !== null &&
-      value !== "" &&
-      value !== "—" &&
-      value !== "鈥?"
-    );
     const hasRiskMetrics = allFunds.some((fund: any) => {
       const perf = fund.performance || {};
-      return hasMetric(perf.sharpeRatio) && hasMetric(perf.maxDrawdown);
+      return !isMissingMetric(perf.sharpeRatio) && !isMissingMetric(perf.maxDrawdown);
     });
     if (allFunds.length === 0 || hasRiskMetrics) return;
 
@@ -97,7 +94,7 @@ export default function Home() {
       const aPerf = a.performance || {};
       const bPerf = b.performance || {};
       const parseSortVal = (val: string | undefined) => {
-        if (val === "—" || val === undefined) return NaN;  // 无数据排末尾
+        if (isMissingMetric(val)) return NaN;  // 无数据排末尾
         return parseFloat(val);
       };
       const aVal = sortKey.startsWith("return") || sortKey === "annualizedReturn" || sortKey === "sharpeRatio" || sortKey === "maxDrawdown"
@@ -122,6 +119,7 @@ export default function Home() {
   const totalPages = Math.ceil(filteredFunds.length / pageSize);
   const categoryStats = useMemo(() => {
     const parseMetric = (value: unknown) => {
+      if (isMissingMetric(value)) return null;
       const num = parseFloat(String(value ?? "").replace("%", ""));
       return Number.isFinite(num) ? num : null;
     };
@@ -291,11 +289,11 @@ export default function Home() {
               <div className="grid grid-cols-3 gap-2 text-[11px]">
                 <div>
                   <div className="text-white/28">平均年化</div>
-                  <div className={`data-number font-medium ${getChangeTextClass(parseFloat(item.avgReturn || "0"))}`}>{item.avgReturn}%</div>
+                  <div className={`data-number font-medium ${getChangeTextClass(parseFloat(item.avgReturn || "0"))}`}>{item.avgReturn === "—" ? "—" : `${item.avgReturn}%`}</div>
                 </div>
                 <div>
                   <div className="text-white/28">最大回撤</div>
-                  <div className="data-number font-medium" style={{ color: RISK_COLOR }}>{item.avgMaxDrawdown}%</div>
+                  <div className="data-number font-medium" style={{ color: RISK_COLOR }}>{item.avgMaxDrawdown === "—" ? "—" : `${item.avgMaxDrawdown}%`}</div>
                 </div>
                 <div>
                   <div className="text-white/28">夏普</div>

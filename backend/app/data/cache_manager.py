@@ -65,4 +65,9 @@ class CacheManager:
             pass
 
 
-cache = CacheManager()
+try:
+    from ..config import CACHE_DIR
+except Exception:
+    CACHE_DIR = "/tmp/fundtrader_cache"
+
+cache = CacheManager(CACHE_DIR)

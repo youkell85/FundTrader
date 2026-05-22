@@ -64,12 +64,15 @@ def cached_analyze_fund(code: str) -> Dict[str, Any]:
     cache_key = f"analysis_full_{code}"
     cached = cache.get(cache_key, CACHE_TTL_INFO)
     if cached:
-        cached = _fill_missing_fees(code, cached)
-        cached = _fill_missing_holding_changes(cached)
-        cache.set(cache_key, cached)
-        return cached
+        enriched = _fill_missing_nav_metrics(cached)
+        enriched = _fill_missing_fees(code, enriched)
+        enriched = _fill_missing_holding_changes(enriched)
+        if enriched != cached:
+            cache.set(cache_key, enriched)
+        return enriched
     result = analyze_fund(code)
     if result and not result.get("error"):
+        result = _fill_missing_nav_metrics(result)
         result = _fill_missing_fees(code, result)
         result = _fill_missing_holding_changes(result)
         cache.set(cache_key, result)
@@ -117,6 +120,22 @@ def _calc_nav_risk_metrics(nav_data: List[Dict[str, Any]]) -> Dict[str, float | 
         "sharpeRatio": sharpe_ratio,
         "maxDrawdown": round(max_drawdown, 2),
     }
+
+
+def _fill_missing_nav_metrics(data: Dict[str, Any]) -> Dict[str, Any]:
+    if not data or not isinstance(data, dict):
+        return data
+    if data.get("sharpe_ratio") is not None and data.get("max_drawdown") is not None:
+        return data
+    metrics = _calc_nav_risk_metrics(data.get("nav_data") or [])
+    if metrics.get("sharpeRatio") is None and metrics.get("maxDrawdown") is None:
+        return data
+    enriched = dict(data)
+    if enriched.get("sharpe_ratio") is None:
+        enriched["sharpe_ratio"] = metrics.get("sharpeRatio")
+    if enriched.get("max_drawdown") is None:
+        enriched["max_drawdown"] = metrics.get("maxDrawdown")
+    return enriched
 
 
 @router.get("/{code}")
