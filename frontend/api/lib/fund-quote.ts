@@ -50,9 +50,50 @@ function getEastmoneySecid(code: string): string | null {
   return null;
 }
 
+function getTencentSymbol(code: string): string | null {
+  if (/^5\d{5}$/.test(code)) return `s_sh${code}`;
+  if (/^159\d{3}$/.test(code)) return `s_sz${code}`;
+  return null;
+}
+
+async function fetchTencentExchangeFundQuote(code: string, signal: AbortSignal): Promise<FundQuote | null> {
+  const symbol = getTencentSymbol(code);
+  if (!symbol) return null;
+
+  try {
+    const res = await fetch(`https://qt.gtimg.cn/q=${symbol}`, {
+      signal,
+      headers: {
+        "User-Agent": "Mozilla/5.0",
+        "Referer": "https://finance.qq.com/",
+      },
+    });
+    if (!res.ok) return null;
+    const text = await res.text();
+    const match = text.match(/="([^"]*)"/);
+    if (!match) return null;
+    const parts = match[1].split("~");
+    if (parts.length < 6 || parts[2] !== code) return null;
+
+    return {
+      code,
+      name: "",
+      nav: parseNumber(parts[3]),
+      dayGrowth: parseNumber(parts[5]),
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function fetchExchangeFundQuote(code: string, signal: AbortSignal): Promise<FundQuote | null> {
   const secid = getEastmoneySecid(code);
   if (!secid) return null;
+
+  const tencentQuote = await fetchTencentExchangeFundQuote(code, signal);
+  if (tencentQuote?.dayGrowth !== undefined || tencentQuote?.nav !== undefined) {
+    return tencentQuote;
+  }
 
   try {
     const res = await fetch(
