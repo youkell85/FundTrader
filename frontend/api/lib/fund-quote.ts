@@ -15,6 +15,10 @@ type CacheEntry = {
 const quoteCache = new Map<string, CacheEntry>();
 const CACHE_TTL_MS = 10 * 60 * 1000;
 
+export function isExchangeFundCode(code: string): boolean {
+  return /^5\d{5}$/.test(code) || /^159\d{3}$/.test(code);
+}
+
 function parseNumber(value: unknown): number | undefined {
   if (value === null || value === undefined || value === "") return undefined;
   const num = Number(String(value).replace("%", ""));
@@ -38,6 +42,49 @@ function cleanFundName(value: string) {
     .replace(/\s*基金概况.*$/i, "")
     .replace(/\s*\(\d{6}\).*$/, "")
     .trim();
+}
+
+function getEastmoneySecid(code: string): string | null {
+  if (/^5\d{5}$/.test(code)) return `1.${code}`;
+  if (/^159\d{3}$/.test(code)) return `0.${code}`;
+  return null;
+}
+
+async function fetchExchangeFundQuote(code: string, signal: AbortSignal): Promise<FundQuote | null> {
+  const secid = getEastmoneySecid(code);
+  if (!secid) return null;
+
+  try {
+    const res = await fetch(
+      `https://push2.eastmoney.com/api/qt/stock/get?secid=${secid}&fields=f43,f57,f58,f60,f170,f86`,
+      {
+        signal,
+        headers: {
+          "User-Agent": "Mozilla/5.0",
+          "Referer": "https://quote.eastmoney.com/",
+        },
+      }
+    );
+    if (!res.ok) return null;
+    const data = await res.json() as { data?: Record<string, unknown> };
+    const quote = data?.data;
+    if (!quote || String(quote.f57 || "") !== code) return null;
+
+    const price = parseNumber(quote.f43);
+    const dayGrowthRaw = parseNumber(quote.f170);
+    const timestamp = parseNumber(quote.f86);
+    const navDate = timestamp ? new Date(timestamp * 1000).toISOString().slice(0, 10) : undefined;
+
+    return {
+      code,
+      name: String(quote.f58 || "").trim(),
+      nav: price === undefined ? undefined : price / 1000,
+      navDate,
+      dayGrowth: dayGrowthRaw === undefined ? undefined : dayGrowthRaw / 100,
+    };
+  } catch {
+    return null;
+  }
 }
 
 async function fetchFundNameFallback(code: string, signal: AbortSignal): Promise<string> {
@@ -79,6 +126,12 @@ export async function fetchFundQuote(code: string): Promise<FundQuote | null> {
   const timer = setTimeout(() => controller.abort(), 8000);
 
   try {
+    const exchangeQuote = await fetchExchangeFundQuote(code, controller.signal);
+    if (exchangeQuote?.dayGrowth !== undefined || exchangeQuote?.nav !== undefined) {
+      quoteCache.set(code, { expiresAt: Date.now() + CACHE_TTL_MS, quote: exchangeQuote });
+      return exchangeQuote;
+    }
+
     const res = await fetch(`http://fundgz.1234567.com.cn/js/${code}.js`, {
       signal: controller.signal,
       headers: {
