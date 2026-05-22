@@ -80,6 +80,19 @@ function setCache<T>(key: string, data: T, ttlMs = BFF_CACHE_TTL): void {
   bffCache.set(key, { expiresAt: Date.now() + ttlMs, data });
 }
 
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: () => Promise<T> | T): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<T>((resolve) => {
+    timer = setTimeout(async () => resolve(await fallback()), timeoutMs);
+    timer.unref?.();
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 function invalidateCache(prefix: string): void {
   for (const key of bffCache.keys()) {
     if (key.startsWith(prefix)) bffCache.delete(key);
@@ -403,6 +416,7 @@ export const fundRouter = createRouter({
         search: z.string().optional(),
         sortBy: z.string().optional(),
         sortOrder: z.enum(["asc", "desc"]).optional(),
+        withMetrics: z.boolean().optional(),
         page: z.number().optional(),
         pageSize: z.number().optional(),
       }).optional()
@@ -417,7 +431,14 @@ export const fundRouter = createRouter({
 
         // 首页优先返回已预热的完整缓存；冷启动时先返回轻量列表，后台继续预热风险指标。
         let rawFunds = getCached<any[]>("homeFunds");
-        if (!rawFunds || !hasAnyRiskMetrics(rawFunds)) {
+        if (opts.withMetrics) {
+          if (!rawFunds || !hasAnyRiskMetrics(rawFunds)) {
+            rawFunds = await withTimeout(fetchHomeFunds(), 85 * 1000, async () => {
+              scheduleHomeFundsPrewarm();
+              return getCached<any[]>("homeFunds") || await fetchHomeFundSummaries();
+            });
+          }
+        } else if (!rawFunds || !hasAnyRiskMetrics(rawFunds)) {
           rawFunds = await fetchHomeFundSummaries();
           scheduleHomeFundsPrewarm();
         }
