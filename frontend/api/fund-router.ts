@@ -115,6 +115,17 @@ function hasAnyRiskMetrics(funds: any[]): boolean {
   return funds.some(hasRiskMetrics);
 }
 
+function isUsableFundName(name: unknown, code: string) {
+  const value = String(name || "").trim();
+  return Boolean(value) && value !== code && !/^\d{6}$/.test(value);
+}
+
+function chooseFundName(preferred: unknown, fallback: unknown, code: string) {
+  if (isUsableFundName(preferred, code)) return String(preferred).trim();
+  if (isUsableFundName(fallback, code)) return String(fallback).trim();
+  return code;
+}
+
 function parseMetric(value: unknown): number | null {
   if (value === undefined || value === null || value === "" || value === "—" || value === "暂无") return null;
   const num = parseFloat(String(value).replace("%", ""));
@@ -315,7 +326,7 @@ async function fetchHomeFunds() {
         code: fund.code,
         _source: fund._source,
         is_xinjihui: fund.is_xinjihui,
-        name: analysis.name || fund.name,
+        name: chooseFundName(analysis.name, fund.name, fund.code),
         nav: analysis.nav ?? fund.nav,
         nav_date: analysis.nav_date || fund.nav_date,
         day_growth: analysis.day_growth ?? fund.day_growth,
@@ -348,7 +359,7 @@ async function enrichFundSummary(fund: any) {
   return {
     ...fund,
     code,
-    name: quote.name,
+    name: chooseFundName(fund?.name, quote.name, code),
     nav: fund?.nav ?? quote.nav,
     accum_nav: fund?.accum_nav ?? quote.accumNav,
     nav_date: fund?.nav_date ?? quote.navDate,
@@ -365,7 +376,7 @@ async function enrichFundAnalysis(analysis: any, code: string) {
   return {
     ...analysis,
     code,
-    name: quote.name,
+    name: chooseFundName(analysis?.name, quote.name, code),
     nav: analysis?.nav ?? quote.nav,
     accum_nav: analysis?.accum_nav ?? quote.accumNav,
     nav_date: analysis?.nav_date ?? quote.navDate,
@@ -559,14 +570,31 @@ export const fundRouter = createRouter({
     .input(z.object({ id: z.number() }))
     .query(async ({ input }) => {
       try {
-        const ftList = await getFundList({ guoyuan_only: true, page_size: 100 });
-        const rawFunds = Array.isArray(ftList?.funds) ? ftList.funds : [];
+        const rawFunds = getCached<any[]>("homeFunds") || await fetchHomeFunds();
         const allFunds = rawFunds.map(mapFundItem).filter(Boolean);
         const managerFund = allFunds.find((f: any) => f.managerId === input.id);
         if (!managerFund || !managerFund.manager) return null;
 
         const managedFunds = allFunds.filter((f: any) => f.managerId === input.id);
-        return { ...managerFund.manager, funds: managedFunds };
+        const parse = (value: unknown) => {
+          const num = parseFloat(String(value ?? "").replace("%", ""));
+          return Number.isFinite(num) ? num : null;
+        };
+        const average = (values: Array<number | null>) => {
+          const valid = values.filter((value): value is number => value !== null);
+          return valid.length ? valid.reduce((sum, value) => sum + value, 0) / valid.length : null;
+        };
+        const avgReturn1y = average(managedFunds.map((fund: any) => parse(fund.performance?.return1y)));
+        const avgSharpe = average(managedFunds.map((fund: any) => parse(fund.performance?.sharpeRatio)));
+        const avgMaxDrawdown = average(managedFunds.map((fund: any) => parse(fund.performance?.maxDrawdown)));
+        return {
+          ...managerFund.manager,
+          funds: managedFunds,
+          fundCount: managedFunds.length,
+          avgReturn1y: avgReturn1y == null ? "—" : avgReturn1y.toFixed(2),
+          avgSharpe: avgSharpe == null ? "—" : avgSharpe.toFixed(2),
+          avgMaxDrawdown: avgMaxDrawdown == null ? "—" : avgMaxDrawdown.toFixed(2),
+        };
       } catch (err) {
         wrapError(err, "获取基金经理详情失败");
       }
@@ -613,7 +641,7 @@ export const fundRouter = createRouter({
     .query(async ({ input }) => {
       try {
         const opts = input || {};
-        const rawFunds = await fetchHomeFundSummaries();
+        const rawFunds = getCached<any[]>("homeFunds") || await fetchHomeFunds();
         let funds = rawFunds.map(mapFundItem).filter(Boolean);
         if (opts.preferredTypes?.length) {
           funds = funds.filter((fund: any) => opts.preferredTypes?.includes(fund.fundType));
