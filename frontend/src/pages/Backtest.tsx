@@ -65,6 +65,56 @@ function money(value: unknown) {
   return `¥${Math.round(toNum(value)).toLocaleString()}`;
 }
 
+function equalWeights(count: number): number[] {
+  if (count <= 0) return [];
+  const base = Math.floor(100 / count);
+  const remainder = 100 - base * count;
+  return Array.from({ length: count }, (_, index) => base + (index < remainder ? 1 : 0));
+}
+
+function normalizeWeights(count: number, current: number[] = [], lockedIndex?: number, lockedValue?: number): number[] {
+  if (count <= 0) return [];
+  if (count === 1) return [100];
+
+  const values = Array.from({ length: count }, (_, index) => {
+    const value = Number(current[index]);
+    return Number.isFinite(value) ? Math.max(0, Math.min(100, Math.round(value))) : 0;
+  });
+
+  if (lockedIndex !== undefined && lockedIndex >= 0 && lockedIndex < count) {
+    values[lockedIndex] = Math.max(0, Math.min(100, Math.round(lockedValue ?? 0)));
+    const remaining = 100 - values[lockedIndex];
+    const otherIndexes = values.map((_, index) => index).filter((index) => index !== lockedIndex);
+    const otherTotal = otherIndexes.reduce((sum, index) => sum + values[index], 0);
+
+    if (otherTotal > 0) {
+      let used = 0;
+      otherIndexes.forEach((index, order) => {
+        const next = order === otherIndexes.length - 1 ? remaining - used : Math.round((values[index] / otherTotal) * remaining);
+        values[index] = Math.max(0, next);
+        used += values[index];
+      });
+    } else {
+      const split = equalWeights(otherIndexes.length).map((weight) => Math.round((weight / 100) * remaining));
+      let used = 0;
+      otherIndexes.forEach((index, order) => {
+        values[index] = order === otherIndexes.length - 1 ? remaining - used : split[order];
+        used += values[index];
+      });
+    }
+    return values;
+  }
+
+  const total = values.reduce((sum, value) => sum + value, 0);
+  if (total <= 0) return equalWeights(count);
+  let used = 0;
+  return values.map((value, index) => {
+    const next = index === count - 1 ? 100 - used : Math.round((value / total) * 100);
+    used += next;
+    return Math.max(0, next);
+  });
+}
+
 export default function Backtest() {
   const { data: listData } = trpc.fund.list.useQuery(
     { pageSize: 1000, withMetrics: true },
@@ -128,18 +178,24 @@ export default function Backtest() {
   const totalReturnNum = toNum(result?.totalReturn);
   const benchmarkReturnNum = toNum(result?.benchmark?.totalReturn ?? result?.benchmarkReturn);
   const excessNum = totalReturnNum - benchmarkReturnNum;
+  const weightTotal = weights.slice(0, selectedFunds.length).reduce((sum, weight) => sum + (Number(weight) || 0), 0);
 
   const handleAddFund = (fundId: number) => {
     if (selectedFunds.includes(fundId)) return;
     const newFunds = [...selectedFunds, fundId];
     setSelectedFunds(newFunds);
-    setWeights(newFunds.map(() => Math.floor(100 / newFunds.length)));
+    setWeights(equalWeights(newFunds.length));
   };
 
   const handleRemoveFund = (index: number) => {
     const newFunds = selectedFunds.filter((_, i) => i !== index);
     setSelectedFunds(newFunds);
-    setWeights(newFunds.map(() => Math.floor(100 / Math.max(1, newFunds.length))));
+    setWeights(normalizeWeights(newFunds.length, weights.filter((_, i) => i !== index)));
+  };
+
+  const handleWeightChange = (index: number, value: string) => {
+    const parsed = parseInt(value, 10);
+    setWeights(normalizeWeights(selectedFunds.length, weights, index, Number.isFinite(parsed) ? parsed : 0));
   };
 
   const handleRun = async () => {
@@ -157,12 +213,8 @@ export default function Backtest() {
     setErrorMsg("");
     setLlmReview(null);
     try {
-      let normalizedWeights = weights.length ? weights : selectedFunds.map(() => Math.floor(100 / selectedFunds.length));
-      const totalW = normalizedWeights.reduce((a, b) => a + b, 0);
-      if (totalW !== 100 && totalW > 0) {
-        normalizedWeights = normalizedWeights.map((w) => Math.round((w / totalW) * 100));
-        normalizedWeights[0] += 100 - normalizedWeights.reduce((a, b) => a + b, 0);
-      }
+      const normalizedWeights = normalizeWeights(selectedFunds.length, weights);
+      setWeights(normalizedWeights);
       const data = await utils.fund.runBacktest.fetch({
         fundIds: selectedFunds,
         weights: normalizedWeights,
@@ -311,6 +363,12 @@ export default function Backtest() {
 
                   {selectedFundDetails.length > 0 && (
                     <div className="mt-3 space-y-2">
+                      {selectedFunds.length > 1 && (
+                        <div className="flex items-center justify-between text-[11px] text-white/35 px-1">
+                          <span>配置比例合计</span>
+                          <span className={`data-number ${weightTotal === 100 ? "text-[#00F0FF]" : "text-[#F5384B]"}`}>{weightTotal}%</span>
+                        </div>
+                      )}
                       {selectedFundDetails.map((fund: any, i: number) => (
                         <div key={fund.id} className="flex items-center gap-2 rounded-lg bg-white/[0.05] border border-white/[0.08] px-3 py-2">
                           <CheckCircle2 className="w-3.5 h-3.5 text-[#00F0FF]" />
@@ -318,7 +376,9 @@ export default function Backtest() {
                           <span className="text-white/35 text-xs">{typeLabels[fund.fundType] || fund.category}</span>
                           {selectedFunds.length > 1 && (
                             <input type="number" value={weights[i] || 0}
-                              onChange={(e) => { const next = [...weights]; next[i] = parseInt(e.target.value) || 0; setWeights(next); }}
+                              min={0}
+                              max={100}
+                              onChange={(e) => handleWeightChange(i, e.target.value)}
                               className="w-14 h-7 rounded bg-[#0B1021] border border-white/[0.08] text-white text-xs data-number text-center" />
                           )}
                           <button onClick={() => handleRemoveFund(i)} className="text-white/35 hover:text-[#F5384B] p-1" title="移除">
