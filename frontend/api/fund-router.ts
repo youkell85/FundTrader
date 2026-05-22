@@ -20,7 +20,7 @@ import {
   mapBacktestResult,
   mapMarketOverview,
 } from "./lib/mapper";
-import { fetchFundQuote } from "./lib/fund-quote";
+import { fetchFundQuote, isExchangeFundCode } from "./lib/fund-quote";
 
 const strategyMap: Record<string, string> = {
   compare: "compare",
@@ -340,9 +340,9 @@ async function fetchHomeFunds() {
         _source: fund._source,
         is_xinjihui: fund.is_xinjihui,
         name: chooseFundName(analysis.name, fund.name, fund.code),
-        nav: analysis.nav ?? fund.nav,
-        nav_date: analysis.nav_date || fund.nav_date,
-        day_growth: analysis.day_growth ?? fund.day_growth,
+        nav: isExchangeFundCode(fund.code) ? (fund.nav ?? analysis.nav) : (analysis.nav ?? fund.nav),
+        nav_date: isExchangeFundCode(fund.code) ? (fund.nav_date || analysis.nav_date) : (analysis.nav_date || fund.nav_date),
+        day_growth: isExchangeFundCode(fund.code) ? (fund.day_growth ?? analysis.day_growth) : (analysis.day_growth ?? fund.day_growth),
         nav_data: analysis.nav_data || [],
         manager_info: analysis.manager || fund.manager_info,
         holdings: analysis.holdings || fund.holdings,
@@ -364,7 +364,7 @@ function needsFundName(fund: any, code: string) {
 
 async function enrichFundSummary(fund: any) {
   const code = String(fund?.code || fund?.fundCode || "").trim();
-  if (!needsFundName(fund, code)) return fund;
+  if (!needsFundName(fund, code) && !isExchangeFundCode(code)) return fund;
 
   const quote = await fetchFundQuote(code);
   if (!quote) return fund;
@@ -373,15 +373,15 @@ async function enrichFundSummary(fund: any) {
     ...fund,
     code,
     name: chooseFundName(fund?.name, quote.name, code),
-    nav: fund?.nav ?? quote.nav,
+    nav: isExchangeFundCode(code) ? (quote.nav ?? fund?.nav) : (fund?.nav ?? quote.nav),
     accum_nav: fund?.accum_nav ?? quote.accumNav,
-    nav_date: fund?.nav_date ?? quote.navDate,
-    day_growth: fund?.day_growth ?? quote.dayGrowth,
+    nav_date: isExchangeFundCode(code) ? (quote.navDate ?? fund?.nav_date) : (fund?.nav_date ?? quote.navDate),
+    day_growth: isExchangeFundCode(code) ? (quote.dayGrowth ?? fund?.day_growth) : (fund?.day_growth ?? quote.dayGrowth),
   };
 }
 
 async function enrichFundAnalysis(analysis: any, code: string) {
-  if (!analysis || !needsFundName(analysis, code)) return analysis;
+  if (!analysis || (!needsFundName(analysis, code) && !isExchangeFundCode(code))) return analysis;
 
   const quote = await fetchFundQuote(code);
   if (!quote) return analysis;
@@ -390,10 +390,10 @@ async function enrichFundAnalysis(analysis: any, code: string) {
     ...analysis,
     code,
     name: chooseFundName(analysis?.name, quote.name, code),
-    nav: analysis?.nav ?? quote.nav,
+    nav: isExchangeFundCode(code) ? (quote.nav ?? analysis?.nav) : (analysis?.nav ?? quote.nav),
     accum_nav: analysis?.accum_nav ?? quote.accumNav,
-    nav_date: analysis?.nav_date ?? quote.navDate,
-    day_growth: analysis?.day_growth ?? quote.dayGrowth,
+    nav_date: isExchangeFundCode(code) ? (quote.navDate ?? analysis?.nav_date) : (analysis?.nav_date ?? quote.navDate),
+    day_growth: isExchangeFundCode(code) ? (quote.dayGrowth ?? analysis?.day_growth) : (analysis?.day_growth ?? quote.dayGrowth),
   };
 }
 
