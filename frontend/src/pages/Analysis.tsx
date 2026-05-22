@@ -266,8 +266,8 @@ export default function Analysis() {
           <p className="mt-2 text-white/45 text-sm md:text-base">按全池、子类别和基金经理拆解收益、回撤、夏普、分布和履职质量。</p>
         </div>
 
-        <div className="liquid-glass p-3 md:p-4 mb-4 md:mb-6 overflow-visible">
-          <div className="flex flex-wrap gap-2 relative">
+        <div className="liquid-glass p-3 md:p-4 mb-4 md:mb-6 overflow-visible relative z-[70]">
+          <div className="flex flex-wrap gap-2 relative z-[80]">
             {modeButtons.map((item) => {
               const Icon = item.icon;
               const active = mode === item.key;
@@ -287,7 +287,7 @@ export default function Analysis() {
                   </button>
 
                   {openPicker === "type" && item.key === "type" && (
-                    <div className="absolute z-30 left-0 top-12 w-64 max-h-80 overflow-y-auto rounded-xl border border-white/[0.08] bg-[#070B18]/95 shadow-2xl p-2">
+                    <div className="absolute z-[90] left-0 top-12 w-64 max-h-80 overflow-y-auto rounded-xl border border-white/[0.08] bg-[#070B18]/98 shadow-2xl p-2">
                       <button onClick={() => { setSelectedType(""); setOpenPicker(null); }} className="w-full text-left rounded-lg px-3 py-2 text-xs text-white/65 hover:bg-white/[0.06]">全部子类别</button>
                       {groups.map((group) => (
                         <button key={group.label} onClick={() => { setSelectedType(group.label); setOpenPicker(null); }} className="w-full text-left rounded-lg px-3 py-2 text-xs hover:bg-white/[0.06]">
@@ -299,7 +299,7 @@ export default function Analysis() {
                   )}
 
                   {openPicker === "manager" && item.key === "manager" && (
-                    <div className="absolute z-30 left-0 top-12 w-80 max-h-96 overflow-y-auto rounded-xl border border-white/[0.08] bg-[#070B18]/95 shadow-2xl p-2">
+                    <div className="absolute z-[90] left-0 top-12 w-80 max-h-96 overflow-y-auto rounded-xl border border-white/[0.08] bg-[#070B18]/98 shadow-2xl p-2">
                       <button onClick={() => { setSelectedManagerId(null); setOpenPicker(null); }} className="w-full text-left rounded-lg px-3 py-2 text-xs text-white/65 hover:bg-white/[0.06]">全部基金经理</button>
                       {managers.slice(0, 120).map((manager: any) => (
                         <button key={manager.id} onClick={() => { setSelectedManagerId(manager.id); setOpenPicker(null); }} className="w-full text-left rounded-lg px-3 py-2 hover:bg-white/[0.06]">
