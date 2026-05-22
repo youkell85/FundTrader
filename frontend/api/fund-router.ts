@@ -692,6 +692,10 @@ export const fundRouter = createRouter({
             .sort((a: any, b: any) => scoreFund(b) - scoreFund(a));
           const fallback = funds
             .filter((item: any) => !usedCodes.has(item.fundCode))
+            .filter((item: any) => {
+              const maxDD = Math.abs(parseMetric(item.performance?.maxDrawdown));
+              return maxDD === 0 || maxDD <= maxDdLimit;
+            })
             .sort((a: any, b: any) => scoreFund(b) - scoreFund(a))[0];
           const fund = candidates[0] || fallback;
           if (fund) usedCodes.add(fund.fundCode);
