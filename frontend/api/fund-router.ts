@@ -50,10 +50,24 @@ const bffCache = new Map<string, { expiresAt: number; data: any }>();
 
 /** 默认缓存TTL按数据层级分级 */
 const BFF_CACHE_TTL = 30 * 60 * 1000;                     // 默认 30分钟
-const SNAPSHOT_TTL = 60 * 60 * 1000;                       // L0+L1快照 1小时
-const ANALYSIS_TTL = 60 * 60 * 1000;                       // 准静态分析 1小时
+const DAILY_PREWARM_HOUR = Number(process.env.FUNDTRADER_PREWARM_HOUR ?? 6);
+const DAILY_PREWARM_MINUTE = Number(process.env.FUNDTRADER_PREWARM_MINUTE ?? 20);
+const DAILY_CACHE_FLOOR_TTL = 60 * 60 * 1000;
+const DAILY_CACHE_MAX_TTL = 24 * 60 * 60 * 1000;
+const ANALYSIS_TTL = DAILY_CACHE_MAX_TTL;                  // 风险指标/净值历史日频更新
 const HOLDINGS_TTL = 6 * 60 * 60 * 1000;                   // 持仓/行业 6小时（季报级别）
-const QUOTE_TTL = 15 * 60 * 1000;                          // 日频净值 15分钟
+
+function msUntilDailyPrewarm(now = new Date()): number {
+  const next = new Date(now);
+  next.setHours(DAILY_PREWARM_HOUR, DAILY_PREWARM_MINUTE, 0, 0);
+  if (next <= now) next.setDate(next.getDate() + 1);
+  return next.getTime() - now.getTime();
+}
+
+function dailyCacheTtl(now = new Date()): number {
+  const ttl = msUntilDailyPrewarm(now);
+  return Math.min(DAILY_CACHE_MAX_TTL, Math.max(DAILY_CACHE_FLOOR_TTL, ttl));
+}
 
 function getCached<T>(key: string): T | null {
   const entry = bffCache.get(key);
@@ -70,6 +84,13 @@ function invalidateCache(prefix: string): void {
   for (const key of bffCache.keys()) {
     if (key.startsWith(prefix)) bffCache.delete(key);
   }
+}
+
+function invalidateHomeCaches(): void {
+  invalidateCache("homeFunds");
+  invalidateCache("homeFundSummaries");
+  invalidateCache("marketOverview");
+  invalidateCache("analysis_");
 }
 
 function hasRiskMetrics(fund: any): boolean {
@@ -94,6 +115,40 @@ function hasAnyRiskMetrics(funds: any[]): boolean {
   return funds.some(hasRiskMetrics);
 }
 
+function parseMetric(value: unknown): number | null {
+  if (value === undefined || value === null || value === "" || value === "—" || value === "暂无") return null;
+  const num = parseFloat(String(value).replace("%", ""));
+  return Number.isFinite(num) ? num : null;
+}
+
+function finiteAverage(values: Array<number | null>, options: { excludeZero?: boolean } = {}) {
+  const valid = values.filter((value): value is number => (
+    value !== null &&
+    Number.isFinite(value) &&
+    (!options.excludeZero || Math.abs(value) > 1e-8)
+  ));
+  return valid.length > 0
+    ? (valid.reduce((sum, value) => sum + value, 0) / valid.length).toFixed(2)
+    : "—";
+}
+
+function buildMarketOverview(mappedFunds: any[]) {
+  const totalFunds = mappedFunds.length;
+  return {
+    totalFunds,
+    avgReturn: totalFunds > 0
+      ? finiteAverage(mappedFunds.map((fund: any) => parseMetric(fund.performance?.annualizedReturn ?? fund.performance?.return1y)))
+      : "0",
+    avgSharpe: totalFunds > 0
+      ? finiteAverage(mappedFunds.map((fund: any) => parseMetric(fund.performance?.sharpeRatio)), { excludeZero: true })
+      : "—",
+    avgMaxDD: totalFunds > 0
+      ? finiteAverage(mappedFunds.map((fund: any) => parseMetric(fund.performance?.maxDrawdown)), { excludeZero: true })
+      : "—",
+    marketingCount: mappedFunds.filter((fund: any) => fund.isXinjihui || fund.isContinuousMarketing).length,
+  };
+}
+
 // ========== 防并发锁（冷启动时 list + marketOverview 竞态问题） ==========
 const inflightRequests = new Map<string, Promise<any>>();
 let homeFundsPrewarmStartedAt = 0;
@@ -116,6 +171,30 @@ function scheduleHomeFundsPrewarm() {
       console.error("[fundRouter] 预热首页风险指标失败:", err);
     });
   }, 100);
+}
+
+function refreshHomeCaches(reason: string) {
+  invalidateCache("homeFunds");
+  invalidateCache("homeFundSummaries");
+  invalidateCache("marketOverview");
+  fetchHomeFunds()
+    .then((funds) => {
+      const mapped = funds.map(mapFundItem).filter(Boolean);
+      const overview = buildMarketOverview(mapped);
+      setCache("marketOverview", overview, dailyCacheTtl());
+    })
+    .catch((err) => {
+      console.error(`[fundRouter] 首页缓存刷新失败(${reason}):`, err);
+    });
+}
+
+function scheduleDailyHomePrewarm() {
+  const delay = Math.max(1000, msUntilDailyPrewarm());
+  const timer = setTimeout(() => {
+    refreshHomeCaches("daily");
+    scheduleDailyHomePrewarm();
+  }, delay);
+  timer.unref?.();
 }
 
 async function fetchAllFundList(params: Record<string, any>) {
@@ -175,7 +254,7 @@ async function fetchHomeFundSummaries() {
     const enriched = await Promise.all(funds.map(enrichFundSummary));
 
     // 短 TTL：15min（净值日频，排名数据下一个交易日才更新）
-    setCache("homeFundSummaries", enriched, QUOTE_TTL);
+    setCache("homeFundSummaries", enriched, dailyCacheTtl());
     return enriched;
   });
 }
@@ -202,7 +281,7 @@ async function fetchHomeFunds() {
 
     // 使用批量接口获取所有基金的分析数据（1次HTTP请求替代N次）
     const codes = Array.from(fundsByCode.keys());
-    let analysisMap = new Map<string, any>();
+    const analysisMap = new Map<string, any>();
     if (codes.length > 0) {
       try {
         const batchResult = await getFundAnalysisBatch(codes);
@@ -232,6 +311,10 @@ async function fetchHomeFunds() {
       if (!analysis || analysis.error) return fund;
       return {
         ...fund,
+        ...analysis,
+        code: fund.code,
+        _source: fund._source,
+        is_xinjihui: fund.is_xinjihui,
         name: analysis.name || fund.name,
         nav: analysis.nav ?? fund.nav,
         nav_date: analysis.nav_date || fund.nav_date,
@@ -245,7 +328,7 @@ async function fetchHomeFunds() {
     });
 
     // L0+L1 快照：1小时 TTL（净值日频，分析准静态）
-    setCache("homeFunds", withAnalysis, SNAPSHOT_TTL);
+    setCache("homeFunds", withAnalysis, dailyCacheTtl());
     return withAnalysis;
   });
 }
@@ -288,6 +371,12 @@ async function enrichFundAnalysis(analysis: any, code: string) {
     nav_date: analysis?.nav_date ?? quote.navDate,
     day_growth: analysis?.day_growth ?? quote.dayGrowth,
   };
+}
+
+if (process.env.FUNDTRADER_DISABLE_AUTO_PREWARM !== "true") {
+  const startupTimer = setTimeout(() => refreshHomeCaches("startup"), 1000);
+  startupTimer.unref?.();
+  scheduleDailyHomePrewarm();
 }
 
 export const fundRouter = createRouter({
@@ -428,8 +517,7 @@ export const fundRouter = createRouter({
     .input(z.object({ code: z.string().regex(/^\d{6}$/) }))
     .mutation(async ({ input }) => {
       try {
-        invalidateCache("homeFunds");
-        invalidateCache("analysis_");
+        invalidateHomeCaches();
         const [quote, xinjihuiFunds] = await Promise.all([
           fetchFundQuote(input.code),
           fetchAllFundList({ guoyuan_only: true }).catch(() => [] as any[]),
@@ -458,8 +546,7 @@ export const fundRouter = createRouter({
     .input(z.object({ code: z.string().regex(/^\d{6}$/) }))
     .mutation(async ({ input }) => {
       try {
-        invalidateCache("homeFunds");
-        invalidateCache("analysis_");
+        invalidateHomeCaches();
         await ftRemoveFromWatchlist(input.code);
         return { success: true, code: input.code };
       } catch (err) {
@@ -727,30 +814,10 @@ export const fundRouter = createRouter({
       const cached = getCached<any>(cacheKey);
       if (cached) return cached;
 
-      // 首页概览只需要轻量摘要，避免首屏为深度分析阻塞。
-      const funds = await fetchHomeFundSummaries();
+      const funds = getCached<any[]>("homeFunds") || await fetchHomeFunds();
       const mapped = funds.map(mapFundItem).filter(Boolean);
-      const totalFunds = mapped.length;
-      const finiteAverage = (values: number[], options: { excludeZero?: boolean } = {}) => {
-        const valid = values.filter((value) => (
-          Number.isFinite(value) &&
-          (!options.excludeZero || Math.abs(value) > 1e-8)
-        ));
-        return valid.length > 0
-          ? (valid.reduce((sum, value) => sum + value, 0) / valid.length).toFixed(2)
-          : "—";
-      };
-      const avgReturn = totalFunds > 0
-        ? finiteAverage(mapped.map((f: any) => parseFloat(f.performance?.return1y || "0")))
-        : "0";
-      const avgSharpe = totalFunds > 0
-        ? finiteAverage(mapped.map((f: any) => parseFloat(f.performance?.sharpeRatio || "0")), { excludeZero: true })
-        : "—";
-      const avgMaxDD = totalFunds > 0
-        ? finiteAverage(mapped.map((f: any) => parseFloat(f.performance?.maxDrawdown || "0")), { excludeZero: true })
-        : "—";
-      const result = { totalFunds, avgReturn, avgSharpe, avgMaxDD, marketingCount: totalFunds };
-      setCache(cacheKey, result, SNAPSHOT_TTL);
+      const result = buildMarketOverview(mapped);
+      setCache(cacheKey, result, dailyCacheTtl());
       return result;
     } catch {
       return mapMarketOverview({});

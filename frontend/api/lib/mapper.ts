@@ -211,12 +211,12 @@ export function mapFundItem(item: any): any {
       return1m: perf.near_1m != null ? String(perf.near_1m) : item.near_1m != null ? String(item.near_1m) : navPerformance.return1m || "0",
       return3m: perf.near_3m != null ? String(perf.near_3m) : item.near_3m != null ? String(item.near_3m) : navPerformance.return3m || "0",
       return6m: perf.near_6m != null ? String(perf.near_6m) : item.near_6m != null ? String(item.near_6m) : navPerformance.return6m || "0",
-      return1y: perf.near_1y != null ? String(perf.near_1y) : item.near_1y != null ? String(item.near_1y) : navPerformance.return1y || "0",
+      return1y: perf.near_1y != null ? String(perf.near_1y) : item.near_1y != null ? String(item.near_1y) : item.return1y != null ? String(item.return1y) : navPerformance.return1y || "0",
       return2y: perf.near_2y != null ? String(perf.near_2y) : navPerformance.return2y || "0",
-      return3y: perf.near_3y != null ? String(perf.near_3y) : item.near_3y != null ? String(item.near_3y) : navPerformance.return3y || "0",
-      return5y: perf.near_5y != null ? String(perf.near_5y) : navPerformance.return5y || "0",
+      return3y: perf.near_3y != null ? String(perf.near_3y) : item.near_3y != null ? String(item.near_3y) : item.return3y != null ? String(item.return3y) : navPerformance.return3y || "0",
+      return5y: perf.near_5y != null ? String(perf.near_5y) : item.return5y != null ? String(item.return5y) : navPerformance.return5y || "0",
       returnThisYear: perf.ytd != null ? String(perf.ytd) : item.ytd != null ? String(item.ytd) : navPerformance.returnThisYear || "0",
-      annualizedReturn: perf.annualizedReturn || item.annualizedReturn || navPerformance.annualizedReturn || "0",
+      annualizedReturn: perf.annualizedReturn || item.annualizedReturn || item.annualized_return || navPerformance.annualizedReturn || "0",
       annualizedVolatility: perf.annualizedVolatility || navPerformance.annualizedVolatility || "0",
       // 夏普/回撤需净值历史计算，轻量摘要模式下无此数据 → 展示 "—"
       // 后台预热完成后再次查询即可获得真实值
@@ -419,10 +419,10 @@ export function mapBacktestResult(result: any): any {
 export function mapMarketOverview(data: any): any {
   data = data || {};
   const funds = data.funds || [];
-  const totalFunds = data.totalFunds || funds.length || 14;
-  const avgReturn = data.avgReturn || "8.50";
-  const avgSharpe = data.avgSharpe || "0.75";
-  const avgMaxDD = data.avgMaxDD || "-20.00";
+  const totalFunds = data.totalFunds ?? funds.length ?? 0;
+  const avgReturn = data.avgReturn ?? "0";
+  const avgSharpe = data.avgSharpe ?? "—";
+  const avgMaxDD = data.avgMaxDD ?? "—";
   const marketingCount = data.marketingCount || totalFunds;
 
   return { totalFunds, avgReturn, avgSharpe, avgMaxDD, marketingCount };
