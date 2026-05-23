@@ -38,6 +38,47 @@ const riskMetricDescriptions: Record<string, string> = {
   回撤修复: "从回撤低点恢复到前高大致经历的交易日数，越短说明修复效率越高。",
 };
 
+function parseReviewText(text: string): any | null {
+  const trimmed = String(text || "").trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
+  const jsonText = trimmed.match(/\{[\s\S]*\}/)?.[0] || trimmed;
+  try {
+    return JSON.parse(jsonText);
+  } catch {
+    const review: Record<string, any> = {};
+    ["performance_review", "risk_review", "manager_review", "holdings_review", "investment_advice"].forEach((key) => {
+      const match = jsonText.match(new RegExp(`"${key}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"`));
+      if (!match) return;
+      try {
+        review[key] = JSON.parse(`"${match[1]}"`);
+      } catch {
+        review[key] = match[1];
+      }
+    });
+    ["risk_warnings", "strengths"].forEach((key) => {
+      const match = jsonText.match(new RegExp(`"${key}"\\s*:\\s*(\\[[\\s\\S]*?\\])`));
+      if (!match) return;
+      try {
+        const parsed = JSON.parse(match[1]);
+        if (Array.isArray(parsed)) review[key] = parsed;
+      } catch {
+        // DeepSeek 偶尔会在数组处截断，此时展示前面已识别出的段落。
+      }
+    });
+    return Object.keys(review).length ? { ...review, parseWarning: "AI 返回内容不完整，已展示可识别部分。可点击刷新重新生成。" } : null;
+  }
+}
+
+function normalizeReview(review: any): any {
+  if (typeof review === "string") return parseReviewText(review) || { raw: review };
+  if (review?.raw && typeof review.raw === "string") return parseReviewText(review.raw) || review;
+  return review || {};
+}
+
+function isJsonLikeText(value: unknown) {
+  const text = String(value || "").trim();
+  return text.startsWith("{") || text.startsWith("```json") || text.includes('"performance_review"');
+}
+
 export default function FundDetail() {
   const location = useLocation();
   const { id } = useParams<{ id: string }>();
@@ -327,9 +368,14 @@ export default function FundDetail() {
                 </div>
               )}
               {llmEnabled && !llmQuery.isLoading && llmQuery.data && (() => {
-                const review: any = (llmQuery.data as any).review || {};
+                const review: any = normalizeReview((llmQuery.data as any).review);
                 return (
                   <div className="space-y-3">
+                    {review.parseWarning && (
+                      <div className="rounded-lg border border-[#FFB800]/20 bg-[#FFB800]/[0.06] px-3 py-2 text-xs leading-relaxed" style={{ color: RISK_COLOR }}>
+                        {review.parseWarning}
+                      </div>
+                    )}
                     {review.performance_review && (
                       <div className="liquid-glass-sm p-3">
                         <div className="text-xs mb-1" style={{ color: ACCENT_INFO }}>业绩评价</div>
@@ -380,8 +426,13 @@ export default function FundDetail() {
                         </ul>
                       </div>
                     )}
-                    {review.raw && (
+                    {review.raw && !isJsonLikeText(review.raw) && (
                       <p className="text-white/60 text-sm leading-relaxed whitespace-pre-wrap">{review.raw}</p>
+                    )}
+                    {review.raw && isJsonLikeText(review.raw) && (
+                      <div className="rounded-lg border border-[#FFB800]/20 bg-[#FFB800]/[0.06] px-3 py-2 text-xs leading-relaxed" style={{ color: RISK_COLOR }}>
+                        AI 返回了未完整的 JSON，暂无法结构化展示。请点击“刷新分析”重新生成。
+                      </div>
                     )}
                   </div>
                 );

@@ -80,6 +80,50 @@ function setCache<T>(key: string, data: T, ttlMs = BFF_CACHE_TTL): void {
   bffCache.set(key, { expiresAt: Date.now() + ttlMs, data });
 }
 
+function parseReviewText(text: string): any | null {
+  const trimmed = String(text || "").trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
+  const jsonText = trimmed.match(/\{[\s\S]*\}/)?.[0] || trimmed;
+  try {
+    return JSON.parse(jsonText);
+  } catch {
+    const review: Record<string, any> = {};
+    const stringKeys = ["performance_review", "risk_review", "manager_review", "holdings_review", "investment_advice"];
+    stringKeys.forEach((key) => {
+      const match = jsonText.match(new RegExp(`"${key}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"`));
+      if (!match) return;
+      try {
+        review[key] = JSON.parse(`"${match[1]}"`);
+      } catch {
+        review[key] = match[1];
+      }
+    });
+    ["risk_warnings", "strengths"].forEach((key) => {
+      const match = jsonText.match(new RegExp(`"${key}"\\s*:\\s*(\\[[\\s\\S]*?\\])`));
+      if (!match) return;
+      try {
+        const parsed = JSON.parse(match[1]);
+        if (Array.isArray(parsed)) review[key] = parsed;
+      } catch {
+        // 保留已提取的文本字段，数组缺失时不展示原始 JSON。
+      }
+    });
+    return Object.keys(review).length ? { ...review, parseWarning: "AI 返回内容不完整，已展示可识别部分。" } : null;
+  }
+}
+
+function normalizeLlmReview(data: any): any {
+  const review = data?.review;
+  if (typeof review === "string") {
+    const parsed = parseReviewText(review);
+    return parsed ? { ...data, review: parsed } : data;
+  }
+  if (review?.raw && typeof review.raw === "string") {
+    const parsed = parseReviewText(review.raw);
+    if (parsed) return { ...data, review: parsed };
+  }
+  return data;
+}
+
 async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: () => Promise<T> | T): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<T>((resolve) => {
@@ -1026,10 +1070,10 @@ export const fundRouter = createRouter({
     .input(z.object({ code: z.string().regex(/^\d{6}$/) }))
     .query(async ({ input }) => {
       try {
-        const cacheKey = `llm_review_v2_${input.code}`;
+        const cacheKey = `llm_review_v3_${input.code}`;
         const cached = getCached<any>(cacheKey);
         if (cached) return cached;
-        const data = await getFundLLMReview(input.code);
+        const data = normalizeLlmReview(await getFundLLMReview(input.code));
         // BFF 缓存 30 分钟（后端同时有 12 小时文件缓存）
         if (data && (data as any).review) setCache(cacheKey, data, 30 * 60 * 1000);
         return data;
