@@ -185,9 +185,11 @@ export function mapFundItem(item: any): any {
   const id = codeToId(code);
   const source = item._source || "guoyuan";
   const tags = item.tags || generateTags(name, type);
+  const hasXinjihuiTag = tags.some((tag: unknown) => String(tag).includes("鑫基荟"));
   const isXinjihui =
     item.is_xinjihui === true ||
     item.isXinjihui === true ||
+    hasXinjihuiTag ||
     tags.includes("鑫基荟") ||
     source === "xinjihui" ||
     source === "guoyuan";
