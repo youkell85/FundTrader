@@ -268,7 +268,13 @@ async function fetchHomeFundSummaries() {
       for (const fund of watchlistResult) {
         if (fund?.code) {
           watchlistCodes.add(fund.code);
-          fundsByCode.set(fund.code, { ...fund, _source: "watchlist" });
+          const existing = fundsByCode.get(fund.code);
+          fundsByCode.set(fund.code, {
+            ...(existing || {}),
+            ...fund,
+            _source: existing?._source === "xinjihui" ? "xinjihui" : "watchlist",
+            is_xinjihui: existing?.is_xinjihui === true || fund.is_xinjihui === true,
+          });
         }
       }
     }
