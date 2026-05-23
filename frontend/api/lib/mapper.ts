@@ -279,7 +279,10 @@ export function mapFundDetail(analysis: any): any {
     ratio: h?.ratio != null ? (h.ratio / 100).toFixed(4) : "0",
     changeRatio: h?.change_ratio != null ? String(h.change_ratio) : "0",
     dailyChange: h?.daily_change != null ? String(h.daily_change) : null,
+    quoteCode: h?.quote_code || null,
     quarter: h?.quarter || null,
+    source: h?.source || null,
+    updatedAt: h?.updated_at || null,
   }));
 
   const industries: any[] = [];

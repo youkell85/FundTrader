@@ -37,6 +37,9 @@ class FundHolding:
     code: str = ""
     ratio: float = 0.0
     industry: str = ""
+    quarter: str = ""
+    source: str = ""
+    updated_at: str = ""
 
 
 @dataclass

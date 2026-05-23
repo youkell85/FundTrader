@@ -135,6 +135,9 @@ def get_fund_portfolio(code: str) -> Optional[Dict[str, Any]]:
                         "name": row.get("股票名称", ""),
                         "code": row.get("股票代码", ""),
                         "ratio": ratio,
+                        "quarter": str(row.get("报告期") or row.get("持仓日期") or year),
+                        "source": "AkShare 东方财富F10",
+                        "updated_at": str(row.get("报告期") or row.get("持仓日期") or year),
                     })
                 break  # 成功获取后退出
         except Exception:
@@ -211,7 +214,13 @@ def get_stock_daily_changes(codes: List[str]) -> Dict[str, float]:
             by_normalized = cached
         else:
             by_normalized = {}
-            quote_codes = sorted({_to_quote_code(code) for code in requested if _to_quote_code(code)})
+
+        missing_requested = [
+            code for code in requested
+            if _normalize_stock_code(code) not in by_normalized
+        ]
+        if missing_requested:
+            quote_codes = sorted({_to_quote_code(code) for code in missing_requested if _to_quote_code(code)})
             try:
                 df = ef.stock.get_latest_quote(quote_codes)
             except Exception:
@@ -226,7 +235,11 @@ def get_stock_daily_changes(codes: List[str]) -> Dict[str, float]:
                     except (ValueError, TypeError):
                         continue
 
-            if not by_normalized:
+            still_missing = [
+                code for code in requested
+                if _normalize_stock_code(code) not in by_normalized
+            ]
+            if still_missing:
                 df = ak.stock_zh_a_spot()
                 if df is not None and not df.empty:
                     for _, row in df.iterrows():
@@ -237,8 +250,8 @@ def get_stock_daily_changes(codes: List[str]) -> Dict[str, float]:
                             by_normalized[normalized] = round(float(row.get("涨跌幅")), 2)
                         except (ValueError, TypeError):
                             continue
-            if by_normalized:
-                cache.set("stock_daily_changes_v2", by_normalized)
+        if by_normalized:
+            cache.set("stock_daily_changes_v2", by_normalized)
 
         result = {}
         for code in requested:

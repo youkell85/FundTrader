@@ -133,5 +133,8 @@ class iFinDProvider(DataProvider):
                 code=item.get("code", ""),
                 ratio=self._safe_float(item.get("ratio")) or 0,
                 industry=item.get("industry", ""),
+                quarter=str(item.get("quarter") or item.get("report_date") or ""),
+                source="iFinD",
+                updated_at=str(item.get("updated_at") or item.get("report_date") or item.get("quarter") or ""),
             ))
         return result

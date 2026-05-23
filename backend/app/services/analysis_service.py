@@ -13,15 +13,22 @@ def _enrich_holdings_with_daily_change(holdings: List[Dict]) -> List[Dict]:
         return holdings
     try:
         from ..data.akshare_fetcher import get_stock_daily_changes
+        from ..data.akshare_fetcher import _normalize_stock_code
         changes = get_stock_daily_changes([item.get("code", "") for item in holdings])
         if not changes:
-            return holdings
+            return [{**item, "quote_code": _normalize_stock_code(item.get("code", ""))} for item in holdings]
         enriched = []
+        normalized_changes = {_normalize_stock_code(code): value for code, value in changes.items()}
         for item in holdings:
             next_item = dict(item)
             code = next_item.get("code", "")
             if code in changes:
                 next_item["daily_change"] = changes[code]
+            else:
+                normalized = _normalize_stock_code(code)
+                if normalized in normalized_changes:
+                    next_item["daily_change"] = normalized_changes[normalized]
+            next_item["quote_code"] = _normalize_stock_code(code)
             enriched.append(next_item)
         return enriched
     except Exception:
@@ -151,7 +158,15 @@ def analyze_fund(code: str) -> Dict[str, Any]:
         # 关键修复：使用 efinance 补充长周期净值历史（解决净值图只到 2025-12-10 问题）
         nav_data = _supplement_nav_with_efinance(code, nav_data)
         holdings = [
-            {"name": h.name, "code": h.code, "ratio": h.ratio}
+            {
+                "name": h.name,
+                "code": h.code,
+                "ratio": h.ratio,
+                "industry": h.industry,
+                "quarter": h.quarter,
+                "source": h.source or detail.source,
+                "updated_at": h.updated_at,
+            }
             for h in (detail.holdings or [])
         ]
         holdings = _enrich_holdings_with_daily_change(holdings)

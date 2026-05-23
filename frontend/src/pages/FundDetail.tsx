@@ -559,9 +559,24 @@ export default function FundDetail() {
                 <h2 className="text-base md:text-lg font-medium text-white mb-4 flex items-center gap-2">
                   <Layers className="w-5 h-5" style={{ color: ACCENT_INFO }} />重仓持股
                 </h2>
-                <div className="mb-3 rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-2 text-xs text-white/50 leading-relaxed">
-                  重仓持股来自公开季报/F10/数据源聚合，属于季度披露数据，不是实时仓位；日涨跌只反映成分股当日价格变化。
-                </div>
+                {(() => {
+                  const firstHolding = fund.holdings[0] || {};
+                  const source = firstHolding.source || "公开季报/F10/数据源聚合";
+                  const quarter = firstHolding.quarter || "未标明";
+                  const updatedAt = firstHolding.updatedAt || firstHolding.quarter || "随数据源更新";
+                  const missingDailyCount = fund.holdings.filter((item: any) => item.dailyChange == null || Number.isNaN(parseFloat(item.dailyChange))).length;
+                  return (
+                    <div className="mb-3 rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-2 text-xs text-white/50 leading-relaxed">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5 mb-1.5">
+                        <div><span className="text-white/30">数据源：</span>{source}</div>
+                        <div><span className="text-white/30">报告期：</span>{quarter}</div>
+                        <div><span className="text-white/30">更新：</span>{updatedAt}</div>
+                      </div>
+                      重仓持股属于公开披露的季度/定期报告数据，不是实时仓位；日涨跌为按股票代码额外匹配的最新行情。
+                      {missingDailyCount > 0 && <span style={{ color: RISK_COLOR }}> 其中 {missingDailyCount} 只暂未匹配到当日涨跌幅。</span>}
+                    </div>
+                  );
+                })()}
                 <div className="space-y-2">
                   {fund.holdings.map((h: any, i: number) => {
                     const ratio = parseFloat(h.ratio || "0") * 100;
@@ -571,7 +586,7 @@ export default function FundDetail() {
                         <span className="data-number text-white/30 text-xs w-4">{i + 1}</span>
                         <div className="flex-1 min-w-0">
                           <div className="text-white text-sm truncate">{h.stockName}</div>
-                          <div className="text-white/30 text-xs data-number truncate">{h.stockCode} · {h.industry}</div>
+                          <div className="text-white/30 text-xs data-number truncate">{h.stockCode}{h.quoteCode ? ` / ${h.quoteCode}` : ""} · {h.industry}</div>
                         </div>
                         <div className="hidden md:block w-24 h-1.5 rounded-full bg-white/[0.05] overflow-hidden">
                           <div className="h-full rounded-full" style={{ width: `${Math.min(ratio * 3, 100)}%`, background: `linear-gradient(90deg, ${ACCENT_PRIMARY}, ${ACCENT_INFO})` }} />
@@ -579,7 +594,7 @@ export default function FundDetail() {
                         <div className="text-right w-20 md:w-24 shrink-0">
                           <div className="data-number text-white/70 text-sm">{ratio.toFixed(2)}%</div>
                           <div className={`data-number text-[10px] ${dailyChange == null || Number.isNaN(dailyChange) ? "text-white/30" : getChangeTextClass(dailyChange)}`}>
-                            {dailyChange == null || Number.isNaN(dailyChange) ? "—" : `${dailyChange >= 0 ? "+" : ""}${dailyChange.toFixed(2)}%`}
+                            {dailyChange == null || Number.isNaN(dailyChange) ? "未取到行情" : `${dailyChange >= 0 ? "+" : ""}${dailyChange.toFixed(2)}%`}
                           </div>
                         </div>
                       </div>

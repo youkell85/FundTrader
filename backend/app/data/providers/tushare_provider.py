@@ -189,6 +189,17 @@ class TushareProvider(DataProvider):
         if df is None or df.empty:
             return []
 
+        report_col = "end_date" if "end_date" in df.columns else "ann_date" if "ann_date" in df.columns else ""
+        report_period = ""
+        if report_col:
+            try:
+                df = df.sort_values(by=report_col, ascending=False)
+                report_period = str(df.iloc[0].get(report_col, "") or "")
+                if report_period:
+                    df = df[df[report_col].astype(str) == report_period]
+            except Exception:
+                report_period = ""
+
         # 提取持仓股票代码
         holdings_raw = []
         symbols = []
@@ -225,6 +236,9 @@ class TushareProvider(DataProvider):
                 name=stock_name,
                 code=symbol,
                 ratio=ratio,
+                quarter=report_period,
+                source="Tushare fund_portfolio",
+                updated_at=report_period,
             ))
         return result
 
