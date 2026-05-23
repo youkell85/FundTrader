@@ -8,6 +8,7 @@ const typeMap: Record<string, string> = {
   "混合型": "hybrid",
   "债券型": "bond",
   "指数型": "index",
+  "ETF": "etf",
   "QDII": "qdii",
   "货币型": "money",
   "FOF": "fof",

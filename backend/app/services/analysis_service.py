@@ -35,6 +35,10 @@ def _enrich_holdings_with_daily_change(holdings: List[Dict]) -> List[Dict]:
         return holdings
 
 
+def _normalize_legacy_holdings(portfolio: Optional[Dict]) -> List[Dict]:
+    return portfolio.get("stock_holdings", []) if portfolio else []
+
+
 def _calc_period_returns(nav_data: List[Dict]) -> Dict[str, Any]:
     """基于 nav_data 计算 1y/3y/5y 区间收益率与年化收益。
     nav_data 已按日期升序排列，每项含 date / nav / accum_nav。
@@ -169,6 +173,8 @@ def analyze_fund(code: str) -> Dict[str, Any]:
             }
             for h in (detail.holdings or [])
         ]
+        if not holdings:
+            holdings = _normalize_legacy_holdings(get_fund_portfolio(code))
         holdings = _enrich_holdings_with_daily_change(holdings)
         manager = detail.manager_info or {}
         if not manager and detail.basic and detail.basic.manager:
@@ -351,7 +357,7 @@ def _analyze_fund_legacy(code: str) -> Dict[str, Any]:
         "score": score,
         "reasons": reasons,
         "manager": {**manager, "best_return": best_return, "worst_return": worst_return},
-        "holdings": _enrich_holdings_with_daily_change(portfolio.get("stock_holdings", []) if portfolio else []),
+        "holdings": _enrich_holdings_with_daily_change(_normalize_legacy_holdings(portfolio)),
         "nav_data": nav_data if nav_data else [],
         "radar_scores": radar,
         "source": "legacy",

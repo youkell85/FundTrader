@@ -17,7 +17,7 @@ import {
 
 const typeLabels: Record<string, string> = {
   equity: "股票型", hybrid: "混合型", bond: "债券型",
-  index: "指数型", qdii: "QDII", money: "货币型", fof: "FOF", reits: "REITs",
+  index: "指数型", etf: "ETF", qdii: "QDII", money: "货币型", fof: "FOF", reits: "REITs",
 };
 const riskLabels: Record<string, string> = {
   low: "低风险", low_medium: "中低风险", medium: "中风险",
@@ -554,7 +554,7 @@ export default function FundDetail() {
               </div>
             </div>
 
-            {fund.holdings && fund.holdings.length > 0 && (
+            {(fund.holdings && fund.holdings.length > 0) ? (
               <div className="liquid-glass p-4 md:p-6">
                 <h2 className="text-base md:text-lg font-medium text-white mb-4 flex items-center gap-2">
                   <Layers className="w-5 h-5" style={{ color: ACCENT_INFO }} />重仓持股
@@ -600,6 +600,15 @@ export default function FundDetail() {
                       </div>
                     );
                   })}
+                </div>
+              </div>
+            ) : (/ETF|LOF/i.test(String(fund.fundName || fund.fundAbbr || "")) || fund.fundType === "etf" || fund.fundType === "index") && (
+              <div className="liquid-glass p-4 md:p-6">
+                <h2 className="text-base md:text-lg font-medium text-white mb-3 flex items-center gap-2">
+                  <Layers className="w-5 h-5" style={{ color: ACCENT_INFO }} />持仓披露
+                </h2>
+                <div className="rounded-lg border border-[#FFB800]/20 bg-[#FFB800]/[0.06] px-3 py-2 text-xs leading-relaxed" style={{ color: RISK_COLOR }}>
+                  暂未从 Tushare/东方财富F10 获取到该 ETF 的前十大持仓。ETF 持仓通常来自定期报告或申购赎回清单，债券、黄金、货币、跨境 ETF 也可能不披露为“重仓股票”。后续可接入指数成分股或 PCF 清单作为 ETF 专属展示口径。
                 </div>
               </div>
             )}

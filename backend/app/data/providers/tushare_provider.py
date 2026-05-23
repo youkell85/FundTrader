@@ -181,11 +181,26 @@ class TushareProvider(DataProvider):
                 prev_nav = nav
         return result
 
+    def _fund_portfolio_codes(self, code: str) -> List[str]:
+        raw = str(code or "").strip()
+        codes = [f"{raw}.OF"]
+        if raw.startswith("5"):
+            codes.append(f"{raw}.SH")
+        elif raw.startswith(("159", "16")):
+            codes.append(f"{raw}.SZ")
+        return list(dict.fromkeys(codes))
+
     def get_fund_holdings(self, code: str) -> List[FundHolding]:
         pro = self._get_pro()
         if pro is None:
             return []
-        df = self._safe_call(pro.fund_portfolio, ts_code=f"{code}.OF")
+        df = None
+        used_ts_code = ""
+        for ts_code in self._fund_portfolio_codes(code):
+            df = self._safe_call(pro.fund_portfolio, ts_code=ts_code)
+            if df is not None and not df.empty:
+                used_ts_code = ts_code
+                break
         if df is None or df.empty:
             return []
 
@@ -237,7 +252,7 @@ class TushareProvider(DataProvider):
                 code=symbol,
                 ratio=ratio,
                 quarter=report_period,
-                source="Tushare fund_portfolio",
+                source=f"Tushare fund_portfolio:{used_ts_code}" if used_ts_code else "Tushare fund_portfolio",
                 updated_at=report_period,
             ))
         return result
