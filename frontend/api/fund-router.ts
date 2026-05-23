@@ -667,93 +667,200 @@ export const fundRouter = createRouter({
       preferredTypes: z.array(z.string()).optional(),
       maxDrawdown: z.number().optional(),
       amount: z.number().optional(),
+      optimizationGoal: z.string().optional(),
+      focusTheme: z.string().optional(),
     }).optional())
     .query(async ({ input }) => {
       try {
         const opts = input || {};
         const rawFunds = getCached<any[]>("homeFunds") || await fetchHomeFunds();
-        let funds = rawFunds.map(mapFundItem).filter(Boolean);
-        if (opts.preferredTypes?.length) {
-          funds = funds.filter((fund: any) => opts.preferredTypes?.includes(fund.fundType));
-        }
         const parseMetric = (value: unknown) => {
-          const num = parseFloat(String(value ?? "").replace("%", ""));
-          return Number.isFinite(num) ? num : 0;
+          if (value === null || value === undefined || value === "" || value === "—") return null;
+          const num = parseFloat(String(value).replace("%", ""));
+          return Number.isFinite(num) ? num : null;
+        };
+        const valueOrZero = (value: unknown) => parseMetric(value) ?? 0;
+        const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+        const round = (value: number, digits = 2) => Number.isFinite(value) ? Number(value.toFixed(digits)) : 0;
+        const typeLabels: Record<string, string> = {
+          bond: "债券",
+          money: "货币",
+          hybrid: "混合",
+          index: "指数",
+          equity: "股票",
+          qdii: "QDII",
+          fof: "FOF",
         };
         const riskProfile = opts.riskProfile || "balanced";
         const maxDdLimit = opts.maxDrawdown ?? (riskProfile === "conservative" ? 12 : riskProfile === "aggressive" ? 35 : 22);
         const horizon = opts.horizon || "1年";
         const returnKey = horizon.includes("3个月") ? "return3m" : horizon.includes("6个月") ? "return6m" : horizon.includes("3年") ? "return3y" : "return1y";
-        const templates: Record<string, Array<{ type: string; weight: number }>> = {
-          conservative: [{ type: "bond", weight: 55 }, { type: "money", weight: 15 }, { type: "hybrid", weight: 20 }, { type: "index", weight: 10 }],
-          balanced: [{ type: "bond", weight: 25 }, { type: "hybrid", weight: 35 }, { type: "index", weight: 25 }, { type: "equity", weight: 15 }],
-          aggressive: [{ type: "equity", weight: 35 }, { type: "index", weight: 35 }, { type: "hybrid", weight: 20 }, { type: "qdii", weight: 10 }],
-          moderate: [{ type: "bond", weight: 35 }, { type: "hybrid", weight: 35 }, { type: "index", weight: 20 }, { type: "equity", weight: 10 }],
-        };
-        let template = templates[riskProfile] || templates.balanced;
-        if (horizon.includes("3个月")) {
-          template = template.map((slot) => slot.type === "equity" || slot.type === "qdii" ? { ...slot, weight: Math.max(5, slot.weight - 10) } : slot.type === "bond" || slot.type === "money" ? { ...slot, weight: slot.weight + 8 } : slot);
-        } else if (horizon.includes("3年")) {
-          template = template.map((slot) => slot.type === "equity" || slot.type === "index" ? { ...slot, weight: slot.weight + 8 } : slot.type === "money" ? { ...slot, weight: Math.max(0, slot.weight - 10) } : slot);
+        const optimizationGoal = opts.optimizationGoal || "balanced";
+        const focusTheme = opts.focusTheme || "all";
+        const preferredTypes = opts.preferredTypes?.length ? opts.preferredTypes : ["bond", "hybrid", "index", "equity", "money", "qdii"];
+        let funds = rawFunds
+          .map(mapFundItem)
+          .filter(Boolean)
+          .filter((fund: any) => preferredTypes.includes(fund.fundType));
+
+        if (funds.length < 8) {
+          funds = rawFunds.map(mapFundItem).filter(Boolean);
         }
-        const totalTemplateWeight = template.reduce((sum, slot) => sum + slot.weight, 0) || 100;
-        template = template.map((slot) => ({ ...slot, weight: Math.round(slot.weight / totalTemplateWeight * 100) }));
-        const drift = 100 - template.reduce((sum, slot) => sum + slot.weight, 0);
-        if (template[0]) template[0].weight += drift;
-        const usedCodes = new Set<string>();
-        const scoreFund = (fund: any) => {
-          const perf = fund.performance || {};
-          const periodReturn = parseMetric(perf[returnKey]);
-          const sharpe = parseMetric(perf.sharpeRatio);
-          const maxDD = Math.abs(parseMetric(perf.maxDrawdown));
-          const hasRisk = maxDD > 0 || sharpe > 0;
-          const drawdownPenalty = maxDD > maxDdLimit ? (maxDD - maxDdLimit) * 2.5 : maxDD * 0.28;
-          const missingRiskPenalty = hasRisk ? 0 : 8;
-          const horizonBonus = horizon.includes("3年") ? parseMetric(perf.return3y) * 0.25 : 0;
-          return periodReturn + horizonBonus + sharpe * 6 - drawdownPenalty - missingRiskPenalty;
+
+        const themeMatches = (fund: any) => {
+          const text = `${fund.fundName || ""}${fund.fundAbbr || ""}${fund.category || ""}${(fund.tags || []).join("")}`;
+          if (focusTheme === "all") return true;
+          if (focusTheme === "income") return /债|红利|股息|收益|现金|货币|短债|中短债/.test(text);
+          if (focusTheme === "growth") return /科技|创新|成长|新能源|高端|制造|人工智能|半导体|芯片/.test(text);
+          if (focusTheme === "diversified") return /指数|宽基|沪深|中证|上证|创业板|QDII|全球|海外|标普|纳斯达克/.test(text);
+          if (focusTheme === "defensive") return /低波|稳健|价值|红利|债|医药|消费|公用|银行/.test(text);
+          return true;
         };
-        const allocations = template.map((slot) => {
-          const candidates = funds
-            .filter((fund: any) => fund.fundType === slot.type && !usedCodes.has(fund.fundCode))
-            .filter((fund: any) => {
-              const maxDD = Math.abs(parseMetric(fund.performance?.maxDrawdown));
-              return maxDD === 0 || maxDD <= maxDdLimit;
-            })
-            .sort((a: any, b: any) => scoreFund(b) - scoreFund(a));
-          const fallback = funds
-            .filter((item: any) => !usedCodes.has(item.fundCode))
-            .filter((item: any) => {
-              const maxDD = Math.abs(parseMetric(item.performance?.maxDrawdown));
-              return maxDD === 0 || maxDD <= maxDdLimit;
-            })
-            .sort((a: any, b: any) => scoreFund(b) - scoreFund(a))[0];
-          const fund = candidates[0] || fallback;
-          if (fund) usedCodes.add(fund.fundCode);
-          return fund ? {
-            fundId: fund.id,
-            weight: slot.weight,
-            reason: `${fund.category}配置；${horizon}观察指标${fund.performance?.[returnKey] ?? "0"}%，最大回撤${fund.performance?.maxDrawdown ?? "—"}%，夏普${fund.performance?.sharpeRatio ?? "—"}，符合${maxDdLimit}%回撤约束下的综合得分。`,
-            fund,
-          } : null;
-        }).filter(Boolean);
-        const expectedReturn = allocations.length
-          ? (allocations.reduce((sum: number, item: any) => sum + parseMetric(item.fund.performance?.[returnKey]) * item.weight, 0) / 100).toFixed(2)
-          : "0";
-        const expectedRisk = allocations.length
-          ? (allocations.reduce((sum: number, item: any) => sum + Math.abs(parseMetric(item.fund.performance?.maxDrawdown)) * item.weight, 0) / 100).toFixed(2)
-          : "0";
-        return [{
-          id: 1,
-          name: `${riskProfile === "conservative" ? "稳健防守" : riskProfile === "aggressive" ? "进取成长" : "均衡配置"}组合`,
-          description: `按${horizon}周期、最大回撤约束${maxDdLimit}%从鑫基荟池内生成`,
-          riskProfile,
-          marketCondition: horizon,
-          expectedReturn,
-          expectedRisk,
-          rationale: `组合按风险档位先确定大类权重，再按${horizon}对应收益指标、最大回撤、夏普比率和缺失数据惩罚进行排序。最大回撤约束会先过滤不合规产品，周期改变会切换收益观察窗口，因此调参会真实影响产品和权重。`,
-          tags: ["鑫基荟", "可调参数", "快速生成"],
-          fundAllocations: allocations,
-        }];
+
+        const annualizedReturn = (fund: any) => {
+          const perf = fund.performance || {};
+          const periodReturn = valueOrZero(perf[returnKey]);
+          if (returnKey === "return3y") return periodReturn / 3;
+          if (returnKey === "return6m") return periodReturn * 2;
+          if (returnKey === "return3m") return periodReturn * 4;
+          return valueOrZero(perf.annualizedReturn || perf.return1y);
+        };
+        const riskStats = (fund: any) => {
+          const perf = fund.performance || {};
+          const drawdown = Math.abs(valueOrZero(perf.maxDrawdown));
+          const volatility = Math.abs(valueOrZero(perf.annualizedVolatility)) || clamp(drawdown * 1.35, 4, 42);
+          const sharpe = valueOrZero(perf.sharpeRatio);
+          const expected = annualizedReturn(fund);
+          const missingRisk = parseMetric(perf.maxDrawdown) === null || parseMetric(perf.sharpeRatio) === null;
+          return { expected, drawdown, volatility, sharpe, missingRisk };
+        };
+        const qualityScore = (fund: any, variant: "defensive" | "balanced" | "growth") => {
+          const stats = riskStats(fund);
+          const calmar = stats.drawdown > 0 ? stats.expected / stats.drawdown : 0;
+          const themeBonus = themeMatches(fund) ? 5 : -5;
+          const missingPenalty = stats.missingRisk ? 8 : 0;
+          const goalTilt = optimizationGoal === "return" ? stats.expected * 0.28 : optimizationGoal === "risk" ? -stats.drawdown * 0.35 : stats.sharpe * 2;
+          const variantTilt = variant === "defensive"
+            ? -stats.drawdown * 0.65 + stats.sharpe * 10
+            : variant === "growth"
+              ? stats.expected * 0.55 + stats.sharpe * 5
+              : stats.expected * 0.35 + stats.sharpe * 8 - stats.drawdown * 0.35;
+          return variantTilt + calmar * 6 + themeBonus + goalTilt - missingPenalty;
+        };
+
+        const baseTemplates: Record<string, Record<string, number>> = {
+          conservative: { bond: 50, money: 15, hybrid: 20, index: 10, equity: 5 },
+          moderate: { bond: 36, money: 6, hybrid: 30, index: 18, equity: 10 },
+          balanced: { bond: 24, hybrid: 32, index: 26, equity: 14, qdii: 4 },
+          aggressive: { bond: 10, hybrid: 24, index: 32, equity: 26, qdii: 8 },
+        };
+        const variantTilts: Record<string, Record<string, number>> = {
+          defensive: { bond: 10, money: 6, hybrid: -2, index: -6, equity: -6, qdii: -2 },
+          balanced: {},
+          growth: { bond: -8, money: -5, hybrid: -2, index: 7, equity: 6, qdii: 2 },
+        };
+        const names: Record<string, string> = {
+          defensive: "稳健优先",
+          balanced: "平衡推荐",
+          growth: "进攻增强",
+        };
+        const normalizeTemplate = (variant: "defensive" | "balanced" | "growth") => {
+          const template = { ...(baseTemplates[riskProfile] || baseTemplates.balanced) };
+          Object.entries(variantTilts[variant]).forEach(([type, tilt]) => {
+            template[type] = Math.max(0, (template[type] || 0) + tilt);
+          });
+          if (horizon.includes("3个月")) {
+            template.bond = (template.bond || 0) + 10;
+            template.money = (template.money || 0) + 8;
+            template.equity = Math.max(0, (template.equity || 0) - 8);
+            template.qdii = Math.max(0, (template.qdii || 0) - 5);
+          } else if (horizon.includes("3年")) {
+            template.index = (template.index || 0) + 6;
+            template.equity = (template.equity || 0) + 6;
+            template.money = Math.max(0, (template.money || 0) - 7);
+          }
+          Object.keys(template).forEach((type) => {
+            if (!preferredTypes.includes(type)) template[type] = 0;
+          });
+          const total = Object.values(template).reduce((sum, weight) => sum + weight, 0) || 100;
+          const slots = Object.entries(template)
+            .filter(([, weight]) => weight > 0)
+            .map(([type, weight]) => ({ type, weight: Math.round(weight / total * 100) }));
+          const drift = 100 - slots.reduce((sum, slot) => sum + slot.weight, 0);
+          if (slots[0]) slots[0].weight += drift;
+          return slots;
+        };
+        const buildPortfolio = (variant: "defensive" | "balanced" | "growth", id: number) => {
+          const usedCodes = new Set<string>();
+          const slots = normalizeTemplate(variant);
+          const allocations = slots.map((slot) => {
+            const withinType = funds
+              .filter((fund: any) => fund.fundType === slot.type && !usedCodes.has(fund.fundCode))
+              .filter((fund: any) => {
+                const stats = riskStats(fund);
+                return stats.drawdown === 0 || stats.drawdown <= maxDdLimit * (variant === "growth" ? 1.15 : 1);
+              })
+              .sort((a: any, b: any) => qualityScore(b, variant) - qualityScore(a, variant));
+            const fallback = funds
+              .filter((fund: any) => !usedCodes.has(fund.fundCode))
+              .sort((a: any, b: any) => qualityScore(b, variant) - qualityScore(a, variant));
+            const fund = withinType[0] || fallback[0];
+            if (!fund) return null;
+            usedCodes.add(fund.fundCode);
+            const stats = riskStats(fund);
+            return {
+              fundId: fund.id,
+              weight: slot.weight,
+              score: round(qualityScore(fund, variant), 1),
+              role: slot.type === "bond" || slot.type === "money" ? "防守底仓" : slot.type === "index" ? "权益核心" : slot.type === "qdii" ? "分散卫星" : "收益增强",
+              reason: `${typeLabels[slot.type] || fund.category}仓位；${horizon}年化折算${round(stats.expected)}%，最大回撤${round(stats.drawdown)}%，夏普${round(stats.sharpe, 2)}，在${names[variant]}目标下综合排序靠前。`,
+              fund,
+            };
+          }).filter(Boolean);
+          const weighted = (pick: (item: any) => number) => allocations.reduce((sum: number, item: any) => sum + pick(item) * item.weight, 0) / 100;
+          const expectedReturn = weighted((item: any) => riskStats(item.fund).expected);
+          const weightedDrawdown = weighted((item: any) => riskStats(item.fund).drawdown);
+          const volatility = weighted((item: any) => riskStats(item.fund).volatility) * (allocations.length > 1 ? 0.82 : 1);
+          const concentration = allocations.length ? Math.max(...allocations.map((item: any) => item.weight)) : 0;
+          const concentrationPenalty = Math.max(0, concentration - 35) * 0.08;
+          const expectedRisk = weightedDrawdown * 0.72 + concentrationPenalty;
+          const sharpe = volatility > 0 ? expectedReturn / volatility : 0;
+          const cvar95 = expectedRisk * 1.25 + volatility * 0.12;
+          const score = expectedReturn * 0.7 + sharpe * 14 - expectedRisk * 0.75 - cvar95 * 0.28;
+          const constraints = [
+            { label: "回撤约束", passed: expectedRisk <= maxDdLimit, value: `${round(expectedRisk)}% / ${maxDdLimit}%` },
+            { label: "单品集中度", passed: concentration <= 45, value: `${round(concentration, 0)}%` },
+            { label: "基金数量", passed: allocations.length >= 3, value: `${allocations.length}只` },
+            { label: "风险数据覆盖", passed: allocations.every((item: any) => !riskStats(item.fund).missingRisk), value: `${allocations.filter((item: any) => !riskStats(item.fund).missingRisk).length}/${allocations.length}` },
+          ];
+          const stressTests = [
+            { label: "股债同时调整", loss: round(-(expectedRisk * 0.65 + volatility * 0.08)), note: "权益和债券同时承压时的组合级估算" },
+            { label: "权益急跌", loss: round(-(expectedRisk * (variant === "growth" ? 0.95 : 0.75))), note: "权益类仓位主导的短期冲击" },
+            { label: "利率上行", loss: round(-(expectedRisk * 0.35 + (allocations.some((item: any) => item.fund?.fundType === "bond") ? 1.2 : 0))), note: "债券底仓净值回撤压力" },
+          ];
+          return {
+            id,
+            name: names[variant],
+            description: `${horizon}视角，目标${optimizationGoal === "risk" ? "控制波动" : optimizationGoal === "return" ? "提高收益弹性" : "收益风险平衡"}，约束最大回撤${maxDdLimit}%`,
+            riskProfile,
+            marketCondition: horizon,
+            expectedReturn: round(expectedReturn).toFixed(2),
+            expectedRisk: round(expectedRisk).toFixed(2),
+            volatility: round(volatility).toFixed(2),
+            sharpe: round(sharpe, 2).toFixed(2),
+            cvar95: round(cvar95).toFixed(2),
+            score: round(score, 1),
+            rationale: `先按风险档位和投资周期确定大类权重，再在各大类内用${horizon}年化收益、最大回撤、波动、夏普、卡玛和数据完整度评分选基。组合层面用加权回撤、估算波动、CVaR95和集中度复核，参数变化会同时影响大类权重、候选基金排序和约束通过情况。`,
+            constraints,
+            stressTests,
+            tags: ["鑫基荟", "组合优化", names[variant]],
+            fundAllocations: allocations,
+          };
+        };
+
+        return (["defensive", "balanced", "growth"] as const)
+          .map((variant, index) => buildPortfolio(variant, index + 1))
+          .sort((a, b) => Number(b.score) - Number(a.score));
       } catch (err) {
         wrapError(err, "获取推荐配置失败");
       }
