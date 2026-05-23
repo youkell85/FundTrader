@@ -1,18 +1,20 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router";
 import {
-  Activity,
   ArrowRight,
   Check,
   Gauge,
   Layers3,
   Loader2,
   PieChart,
+  RefreshCw,
+  Search,
   Shield,
   SlidersHorizontal,
   Target,
   TrendingUp,
   Users,
+  Wallet,
   Zap,
 } from "lucide-react";
 import { trpc } from "@/providers/trpc";
@@ -27,13 +29,13 @@ import {
 } from "@/lib/colors";
 
 const riskProfiles = [
-  { value: "conservative", label: "保守型", desc: "先守住回撤", icon: Shield, maxDrawdown: 12 },
-  { value: "moderate", label: "稳健型", desc: "稳中求进", icon: Users, maxDrawdown: 18 },
-  { value: "balanced", label: "均衡型", desc: "收益风险平衡", icon: Target, maxDrawdown: 24 },
-  { value: "aggressive", label: "进取型", desc: "提高权益弹性", icon: TrendingUp, maxDrawdown: 35 },
+  { value: "conservative", label: "保守型", desc: "债券和现金权重最高，默认回撤上限12%，权益仓位最低。", icon: Shield, maxDrawdown: 12, equityCap: "约15%" },
+  { value: "moderate", label: "稳健型", desc: "固收打底、混合增强，默认回撤上限18%，适合稳中求进。", icon: Users, maxDrawdown: 18, equityCap: "约30%" },
+  { value: "balanced", label: "均衡型", desc: "股债均衡，默认回撤上限24%，更重视收益风险比。", icon: Target, maxDrawdown: 24, equityCap: "约45%" },
+  { value: "aggressive", label: "进取型", desc: "权益和指数权重最高，默认回撤上限35%，追求长期弹性。", icon: TrendingUp, maxDrawdown: 35, equityCap: "约65%" },
 ];
 
-const horizons = ["3个月", "6个月", "1年", "3年"];
+const horizons = ["6个月", "1年", "3年", "5年", "10年"];
 
 const fundTypes = [
   { value: "bond", label: "债券" },
@@ -53,10 +55,46 @@ const optimizationGoals = [
 const focusThemes = [
   { value: "all", label: "全市场" },
   { value: "income", label: "固收收益" },
-  { value: "defensive", label: "防守低波" },
+  { value: "dividend", label: "红利低波" },
+  { value: "defensive", label: "防守均衡" },
   { value: "growth", label: "科技成长" },
-  { value: "diversified", label: "宽基/QDII" },
+  { value: "consumption", label: "消费医药" },
+  { value: "manufacturing", label: "高端制造" },
+  { value: "diversified", label: "宽基配置" },
+  { value: "overseas", label: "海外QDII" },
 ];
+
+type SourceMode = "xinjihui" | "watchlist" | "custom";
+
+type RecommendParams = {
+  sourceMode: SourceMode;
+  riskProfile: string;
+  horizon: string;
+  maxDrawdown: number;
+  amount: number;
+  preferredTypes: string[];
+  optimizationGoal: string;
+  focusTheme: string;
+  selectedFundCodes: string[];
+};
+
+const sourceModes: Array<{ value: SourceMode; label: string; desc: string }> = [
+  { value: "xinjihui", label: "鑫基荟", desc: "从优选池中生成" },
+  { value: "watchlist", label: "自选基金", desc: "只使用用户自选池" },
+  { value: "custom", label: "指定产品", desc: "手工选择候选基金" },
+];
+
+const defaultParams: RecommendParams = {
+  sourceMode: "xinjihui",
+  riskProfile: "balanced",
+  horizon: "1年",
+  maxDrawdown: 24,
+  amount: 100000,
+  preferredTypes: ["bond", "hybrid", "index", "equity"],
+  optimizationGoal: "balanced",
+  focusTheme: "all",
+  selectedFundCodes: [] as string[],
+};
 
 const barColors = [ACCENT_PRIMARY, ACCENT_INFO, POSITIVE_METRIC_COLOR, ACCENT_HIGHLIGHT, "#9D7BFF", "#16C784"];
 
@@ -64,7 +102,7 @@ function LoadingScreen() {
   return (
     <div className="flex flex-col items-center justify-center py-16 text-white/35">
       <Loader2 className="w-8 h-8 animate-spin mb-3" />
-      <span className="text-sm">正在按参数生成配置...</span>
+      <span className="text-sm">正在生成配置...</span>
     </div>
   );
 }
@@ -97,40 +135,68 @@ function MetricTile({ label, value, color, suffix = "" }: { label: string; value
 }
 
 export default function Recommend() {
-  const [riskProfile, setRiskProfile] = useState("balanced");
-  const [horizon, setHorizon] = useState("1年");
-  const [maxDrawdown, setMaxDrawdown] = useState(24);
-  const [amount, setAmount] = useState(100000);
-  const [preferredTypes, setPreferredTypes] = useState<string[]>(["bond", "hybrid", "index", "equity"]);
-  const [optimizationGoal, setOptimizationGoal] = useState("balanced");
-  const [focusTheme, setFocusTheme] = useState("all");
+  const [draft, setDraft] = useState(defaultParams);
+  const [applied, setApplied] = useState(defaultParams);
   const [activePlanId, setActivePlanId] = useState<number | null>(null);
   const [expandedFundCode, setExpandedFundCode] = useState<string | null>(null);
+  const [fundSearch, setFundSearch] = useState("");
 
-  const { data: recommendationsData, isLoading } = trpc.fund.recommendations.useQuery({
-    riskProfile,
-    horizon,
-    preferredTypes,
-    maxDrawdown,
-    amount,
-    optimizationGoal,
-    focusTheme,
-  });
+  const { data: listData } = trpc.fund.list.useQuery(
+    { pageSize: 1000 },
+    { staleTime: 5 * 60 * 1000, refetchOnWindowFocus: false }
+  );
+  const { data: recommendationsData, isLoading, isFetching } = trpc.fund.recommendations.useQuery(
+    applied,
+    { enabled: applied.sourceMode !== "custom" || applied.selectedFundCodes.length > 0 }
+  );
+
+  const allFunds = listData?.funds ?? [];
+  const availableFunds = useMemo(() => {
+    const bySource = allFunds.filter((fund: any) => {
+      if (draft.sourceMode === "watchlist") return fund.source === "watchlist" || !fund.isXinjihui;
+      if (draft.sourceMode === "xinjihui") return fund.isXinjihui;
+      return true;
+    });
+    const keyword = fundSearch.trim().toLowerCase();
+    const searched = keyword
+      ? bySource.filter((fund: any) => `${fund.fundCode}${fund.fundName}${fund.fundAbbr}${fund.category}`.toLowerCase().includes(keyword))
+      : bySource;
+    return searched.slice(0, 36);
+  }, [allFunds, draft.sourceMode, fundSearch]);
+  const selectedFunds = useMemo(
+    () => allFunds.filter((fund: any) => draft.selectedFundCodes.includes(String(fund.fundCode))),
+    [allFunds, draft.selectedFundCodes]
+  );
   const recommendations = recommendationsData ?? [];
   const activePlan = recommendations.find((item: any) => item.id === activePlanId) ?? recommendations[0];
   const allocations = (activePlan as any)?.fundAllocations || [];
   const totalWeight = allocations.reduce((sum: number, item: any) => sum + (item.weight || 0), 0) || 100;
+  const pendingChanges = JSON.stringify(draft) !== JSON.stringify(applied);
+  const canGenerate = draft.sourceMode !== "custom" || draft.selectedFundCodes.length > 0;
 
+  const updateDraft = (patch: Partial<typeof defaultParams>) => setDraft((prev) => ({ ...prev, ...patch }));
   const updateRiskProfile = (value: string) => {
     const profile = riskProfiles.find((item) => item.value === value);
-    setRiskProfile(value);
-    if (profile) setMaxDrawdown(profile.maxDrawdown);
+    updateDraft({ riskProfile: value, maxDrawdown: profile?.maxDrawdown ?? draft.maxDrawdown });
   };
-
   const toggleType = (value: string) => {
-    setPreferredTypes((prev) => (
-      prev.includes(value) ? prev.filter((item) => item !== value) : [...prev, value]
-    ));
+    updateDraft({
+      preferredTypes: draft.preferredTypes.includes(value)
+        ? draft.preferredTypes.filter((item) => item !== value)
+        : [...draft.preferredTypes, value],
+    });
+  };
+  const toggleFundCode = (code: string) => {
+    updateDraft({
+      selectedFundCodes: draft.selectedFundCodes.includes(code)
+        ? draft.selectedFundCodes.filter((item) => item !== code)
+        : [...draft.selectedFundCodes, code],
+    });
+  };
+  const applySettings = () => {
+    setApplied(draft);
+    setActivePlanId(null);
+    setExpandedFundCode(null);
   };
 
   return (
@@ -141,42 +207,124 @@ export default function Recommend() {
             <div>
               <h1 className="text-2xl md:text-4xl font-semibold text-white tracking-tight">配置组合</h1>
               <p className="mt-2 max-w-3xl text-white/48 text-sm md:text-base leading-relaxed">
-                用风险档位、周期、回撤上限和投资偏好生成三套可比较方案，并展示大类权重、约束结果、压力测试和产品入选理由。
+                先设定资金、产品池、风险档位和投资方向，再一次性生成组合，避免参数未定时反复刷新结果。
               </p>
             </div>
-            <div className="flex items-center gap-2 rounded-lg border border-white/[0.07] bg-white/[0.03] px-3 py-2 text-xs text-white/45">
-              <Activity className="w-4 h-4" style={{ color: ACCENT_INFO }} />
-              参数变化会实时重新排序组合
+            <div className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-xs ${pendingChanges ? "border-[#FFB800]/25 bg-[#FFB800]/[0.06] text-white/70" : "border-white/[0.07] bg-white/[0.03] text-white/45"}`}>
+              <RefreshCw className="w-4 h-4" style={{ color: pendingChanges ? RISK_COLOR : ACCENT_INFO }} />
+              {pendingChanges ? "设置有改动，点击生成后生效" : "当前结果已按设置生成"}
             </div>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 xl:grid-cols-[360px_1fr] gap-4 md:gap-6 items-start">
+        <div className="grid grid-cols-1 xl:grid-cols-[390px_1fr] gap-4 md:gap-6 items-start">
           <aside className="liquid-glass p-4 md:p-5 xl:sticky xl:top-20">
             <div className="flex items-center justify-between gap-3 mb-4">
-              <PanelTitle icon={SlidersHorizontal} title="配置参数" />
-              <span className="text-[11px] text-white/35 data-number">{preferredTypes.length}类已选</span>
+              <PanelTitle icon={SlidersHorizontal} title="组合设置" />
+              <span className="text-[11px] text-white/35 data-number">{draft.preferredTypes.length}类已选</span>
             </div>
 
             <div className="space-y-5">
+              <section className="rounded-lg border border-white/[0.06] bg-white/[0.025] p-3">
+                <div className="flex items-center gap-2 text-white/75 text-sm mb-3">
+                  <Wallet className="w-4 h-4" style={{ color: ACCENT_INFO }} />计划配置金额
+                </div>
+                <input
+                  type="number"
+                  min={1000}
+                  step={1000}
+                  value={draft.amount}
+                  onChange={(event) => updateDraft({ amount: Number(event.target.value) || 0 })}
+                  className="w-full h-11 px-3 rounded-lg bg-[#0B1021] border border-white/[0.08] text-white text-base data-number focus:outline-none focus:border-[#3B6CFF]/50"
+                />
+              </section>
+
+              <section>
+                <div className="text-xs text-white/35 mb-2">产品来源</div>
+                <div className="grid grid-cols-3 gap-2">
+                  {sourceModes.map((item) => (
+                    <button
+                      key={item.value}
+                      onClick={() => updateDraft({ sourceMode: item.value, selectedFundCodes: item.value === "custom" ? draft.selectedFundCodes : [] })}
+                      className={`min-h-14 rounded-lg border px-2 text-left transition-all ${
+                        draft.sourceMode === item.value ? "bg-[#3B6CFF]/16 border-[#3B6CFF]/35 text-white" : "bg-white/[0.03] border-white/[0.07] text-white/50 hover:text-white/75"
+                      }`}
+                    >
+                      <div className="text-sm">{item.label}</div>
+                      <div className="mt-1 text-[10px] text-white/35 leading-tight">{item.desc}</div>
+                    </button>
+                  ))}
+                </div>
+              </section>
+
+              {draft.sourceMode === "custom" && (
+                <section className="rounded-lg border border-white/[0.06] bg-white/[0.025] p-3">
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <div className="text-xs text-white/45">指定候选基金</div>
+                    <button onClick={() => updateDraft({ selectedFundCodes: [] })} className="text-[11px] text-white/35 hover:text-white/65">清空</button>
+                  </div>
+                  <div className="relative mb-2">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/25" />
+                    <input
+                      value={fundSearch}
+                      onChange={(event) => setFundSearch(event.target.value)}
+                      placeholder="搜索代码、名称、类型"
+                      className="w-full h-9 pl-9 pr-3 rounded-lg bg-[#0B1021] border border-white/[0.08] text-white text-sm placeholder:text-white/25 focus:outline-none focus:border-[#3B6CFF]/50"
+                    />
+                  </div>
+                  {selectedFunds.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mb-2">
+                      {selectedFunds.map((fund: any) => (
+                        <button key={fund.fundCode} onClick={() => toggleFundCode(String(fund.fundCode))} className="rounded-md border border-[#3B6CFF]/25 bg-[#3B6CFF]/10 px-2 py-1 text-[11px] text-[#5AA9FF]">
+                          {fund.fundAbbr || fund.fundName}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <div className="max-h-56 overflow-y-auto space-y-1 pr-1">
+                    {availableFunds.map((fund: any) => {
+                      const selected = draft.selectedFundCodes.includes(String(fund.fundCode));
+                      return (
+                        <button
+                          key={fund.fundCode}
+                          onClick={() => toggleFundCode(String(fund.fundCode))}
+                          className={`w-full rounded-lg px-2.5 py-2 text-left border transition-all ${selected ? "border-[#00F0FF]/30 bg-[#00F0FF]/[0.08]" : "border-white/[0.05] bg-white/[0.025] hover:bg-white/[0.05]"}`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="text-xs text-white/75 truncate">{fund.fundAbbr || fund.fundName}</div>
+                              <div className="text-[10px] text-white/32 data-number">{fund.fundCode} · {fund.category}</div>
+                            </div>
+                            {selected && <Check className="w-3.5 h-3.5 shrink-0" style={{ color: ACCENT_INFO }} />}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </section>
+              )}
+
               <section>
                 <div className="text-xs text-white/35 mb-2">风险承受能力</div>
-                <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-2">
                   {riskProfiles.map((rp) => {
                     const Icon = rp.icon;
-                    const active = riskProfile === rp.value;
+                    const active = draft.riskProfile === rp.value;
                     return (
                       <button
                         key={rp.value}
                         onClick={() => updateRiskProfile(rp.value)}
-                        className={`min-h-14 rounded-lg border px-3 text-left transition-all ${
+                        className={`w-full rounded-lg border p-3 text-left transition-all ${
                           active ? "bg-[#3B6CFF]/18 border-[#3B6CFF]/35 text-white" : "bg-white/[0.03] border-white/[0.07] text-white/55 hover:text-white/80"
                         }`}
                       >
-                        <div className="flex items-center gap-2 text-sm">
-                          <Icon className="w-4 h-4" />{rp.label}
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-2 text-sm">
+                            <Icon className="w-4 h-4" />{rp.label}
+                          </div>
+                          <div className="text-[11px] text-white/42 data-number">回撤{rp.maxDrawdown}% · 权益{rp.equityCap}</div>
                         </div>
-                        <div className="mt-1 text-[11px] text-white/35">{rp.desc}</div>
+                        <div className="mt-1 text-[11px] text-white/38 leading-relaxed">{rp.desc}</div>
                       </button>
                     );
                   })}
@@ -185,13 +333,13 @@ export default function Recommend() {
 
               <section>
                 <div className="text-xs text-white/35 mb-2">投资周期</div>
-                <div className="grid grid-cols-4 gap-2">
+                <div className="grid grid-cols-5 gap-2">
                   {horizons.map((item) => (
                     <button
                       key={item}
-                      onClick={() => setHorizon(item)}
+                      onClick={() => updateDraft({ horizon: item })}
                       className={`h-9 rounded-lg text-xs border transition-all ${
-                        horizon === item ? "bg-[#00F0FF]/12 border-[#00F0FF]/35 text-[#00F0FF]" : "bg-white/[0.03] border-white/[0.07] text-white/45 hover:text-white/70"
+                        draft.horizon === item ? "bg-[#00F0FF]/12 border-[#00F0FF]/35 text-[#00F0FF]" : "bg-white/[0.03] border-white/[0.07] text-white/45 hover:text-white/70"
                       }`}
                     >
                       {item}
@@ -203,21 +351,17 @@ export default function Recommend() {
               <section>
                 <div className="flex justify-between text-xs mb-2">
                   <span className="text-white/35">最大回撤约束</span>
-                  <span className="data-number" style={{ color: RISK_COLOR }}>{maxDrawdown}%</span>
+                  <span className="data-number" style={{ color: RISK_COLOR }}>{draft.maxDrawdown}%</span>
                 </div>
                 <input
                   type="range"
                   min={5}
                   max={45}
                   step={1}
-                  value={maxDrawdown}
-                  onChange={(event) => setMaxDrawdown(Number(event.target.value))}
+                  value={draft.maxDrawdown}
+                  onChange={(event) => updateDraft({ maxDrawdown: Number(event.target.value) })}
                   className="w-full accent-[#3B6CFF]"
                 />
-                <div className="mt-1 flex justify-between text-[10px] text-white/25">
-                  <span>严格</span>
-                  <span>宽松</span>
-                </div>
               </section>
 
               <section>
@@ -227,9 +371,9 @@ export default function Recommend() {
                     <button
                       key={item.value}
                       title={item.desc}
-                      onClick={() => setOptimizationGoal(item.value)}
+                      onClick={() => updateDraft({ optimizationGoal: item.value })}
                       className={`h-10 rounded-lg text-xs border transition-all ${
-                        optimizationGoal === item.value ? "bg-[#3B6CFF]/15 border-[#3B6CFF]/35 text-[#5AA9FF]" : "bg-white/[0.03] border-white/[0.07] text-white/45 hover:text-white/70"
+                        draft.optimizationGoal === item.value ? "bg-[#3B6CFF]/15 border-[#3B6CFF]/35 text-[#5AA9FF]" : "bg-white/[0.03] border-white/[0.07] text-white/45 hover:text-white/70"
                       }`}
                     >
                       {item.label}
@@ -244,9 +388,9 @@ export default function Recommend() {
                   {focusThemes.map((item) => (
                     <button
                       key={item.value}
-                      onClick={() => setFocusTheme(item.value)}
+                      onClick={() => updateDraft({ focusTheme: item.value })}
                       className={`h-8 px-3 rounded-lg text-xs border transition-all ${
-                        focusTheme === item.value ? "bg-[#00F0FF]/12 border-[#00F0FF]/30 text-[#00F0FF]" : "bg-white/[0.03] border-white/[0.06] text-white/42 hover:text-white/70"
+                        draft.focusTheme === item.value ? "bg-[#00F0FF]/12 border-[#00F0FF]/30 text-[#00F0FF]" : "bg-white/[0.03] border-white/[0.06] text-white/42 hover:text-white/70"
                       }`}
                     >
                       {item.label}
@@ -259,7 +403,7 @@ export default function Recommend() {
                 <div className="text-xs text-white/35 mb-2">基金大类</div>
                 <div className="flex flex-wrap gap-2">
                   {fundTypes.map((item) => {
-                    const active = preferredTypes.includes(item.value);
+                    const active = draft.preferredTypes.includes(item.value);
                     return (
                       <button
                         key={item.value}
@@ -275,23 +419,20 @@ export default function Recommend() {
                 </div>
               </section>
 
-              <section>
-                <label className="text-xs text-white/35 mb-2 block">计划配置金额</label>
-                <input
-                  type="number"
-                  min={1000}
-                  step={1000}
-                  value={amount}
-                  onChange={(event) => setAmount(Number(event.target.value) || 0)}
-                  className="w-full h-10 px-3 rounded-lg bg-[#0B1021] border border-white/[0.08] text-white text-sm data-number focus:outline-none focus:border-[#3B6CFF]/50"
-                />
-              </section>
+              <button
+                onClick={applySettings}
+                disabled={!pendingChanges || !canGenerate}
+                className="w-full h-11 rounded-lg bg-gradient-to-r from-[#3B6CFF] to-[#2A52CC] text-white text-sm font-medium flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <RefreshCw className="w-4 h-4" />生成组合
+              </button>
+              {!canGenerate && <div className="text-xs text-[#FFB800]">请至少选择一只指定产品后再生成。</div>}
             </div>
           </aside>
 
           <main className="min-w-0">
-            {isLoading ? <LoadingScreen /> : !activePlan ? (
-              <div className="liquid-glass p-8 text-center text-white/45">当前参数下暂无可配置产品，请放宽回撤约束或增加基金大类。</div>
+            {isLoading || isFetching ? <LoadingScreen /> : !activePlan ? (
+              <div className="liquid-glass p-8 text-center text-white/45">当前产品池暂无可配置产品，请调整来源、指定产品或基金大类。</div>
             ) : (
               <div className="space-y-4 md:space-y-6">
                 <section className="grid grid-cols-1 lg:grid-cols-3 gap-3">
@@ -310,7 +451,10 @@ export default function Recommend() {
                             <div className="text-white font-medium">{rec.name}</div>
                             <div className="mt-1 text-xs text-white/38 leading-relaxed">{rec.description}</div>
                           </div>
-                          <div className="data-number text-sm" style={{ color: active ? ACCENT_INFO : "rgba(255,255,255,0.38)" }}>{rec.score}</div>
+                          <div className="text-right">
+                            <div className="data-number text-sm" style={{ color: active ? ACCENT_INFO : "rgba(255,255,255,0.38)" }}>{rec.score}</div>
+                            <div className="text-[10px] text-white/28">综合分</div>
+                          </div>
                         </div>
                         <div className="mt-4 grid grid-cols-3 gap-2">
                           <div>
@@ -332,54 +476,55 @@ export default function Recommend() {
                 </section>
 
                 <section className="liquid-glass p-4 md:p-6">
-                  <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 mb-5">
+                  <div className="grid grid-cols-1 lg:grid-cols-[1.25fr_0.75fr] gap-5">
                     <div>
                       <div className="flex items-center gap-2 text-white/45 text-xs mb-2">
                         <PieChart className="w-4 h-4" style={{ color: ACCENT_INFO }} />
-                        当前方案
+                        当前组合
                       </div>
-                      <h2 className="text-xl md:text-2xl text-white font-medium">{activePlan.name}</h2>
-                      <p className="mt-1 text-sm text-white/45 leading-relaxed">{activePlan.rationale}</p>
+                      <h2 className="text-2xl md:text-3xl text-white font-medium">{activePlan.name}</h2>
+                      <p className="mt-2 text-sm text-white/48 leading-relaxed">{activePlan.rationale}</p>
+                      <div className="mt-4 flex flex-wrap gap-1.5">
+                        {activePlan.tags?.map((tag: string) => (
+                          <span key={tag} className="px-2 py-0.5 rounded text-[10px] font-medium border" style={{ background: `${ACCENT_PRIMARY}1A`, color: ACCENT_INFO, borderColor: `${ACCENT_PRIMARY}33` }}>{tag}</span>
+                        ))}
+                      </div>
                     </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {activePlan.tags?.map((tag: string) => (
-                        <span key={tag} className="px-2 py-0.5 rounded text-[10px] font-medium border" style={{ background: `${ACCENT_PRIMARY}1A`, color: ACCENT_INFO, borderColor: `${ACCENT_PRIMARY}33` }}>{tag}</span>
-                      ))}
+
+                    <div className="rounded-lg border border-white/[0.06] bg-white/[0.025] p-4">
+                      <div className="flex items-center justify-between gap-3 mb-3">
+                        <div className="text-sm text-white/70">资金分布</div>
+                        <div className="text-xs text-white/35 data-number">{yuan(applied.amount)}</div>
+                      </div>
+                      <div className="flex items-center gap-1 h-3 rounded-full overflow-hidden bg-white/[0.04]">
+                        {allocations.map((fd: any, index: number) => (
+                          <div
+                            key={`${fd.fund?.fundCode || fd.fundId}-${index}`}
+                            className="h-full transition-all"
+                            style={{ width: `${(fd.weight / totalWeight) * 100}%`, backgroundColor: barColors[index % barColors.length] }}
+                          />
+                        ))}
+                      </div>
+                      <div className="mt-3 space-y-2">
+                        {allocations.map((fd: any, index: number) => (
+                          <div key={`${fd.fund?.fundCode || fd.fundId}-mini`} className="flex items-center justify-between gap-2 text-xs">
+                            <div className="min-w-0 flex items-center gap-2 text-white/55">
+                              <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: barColors[index % barColors.length] }} />
+                              <span className="truncate">{fd.role}</span>
+                            </div>
+                            <span className="data-number text-white/75">{fd.weight}%</span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 md:grid-cols-5 gap-2 md:gap-3 mb-5">
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-2 md:gap-3 my-5">
                     <MetricTile label="预估年化" value={`${Number(activePlan.expectedReturn) >= 0 ? "+" : ""}${activePlan.expectedReturn}`} suffix="%" color={UP_COLOR} />
                     <MetricTile label="组合回撤" value={activePlan.expectedRisk} suffix="%" color={RISK_COLOR} />
                     <MetricTile label="估算波动" value={activePlan.volatility} suffix="%" color={ACCENT_INFO} />
                     <MetricTile label="夏普" value={activePlan.sharpe} color={POSITIVE_METRIC_COLOR} />
                     <MetricTile label="CVaR95" value={activePlan.cvar95} suffix="%" color={ACCENT_HIGHLIGHT} />
-                  </div>
-
-                  <div className="mb-5">
-                    <div className="flex items-center gap-1 h-3 rounded-full overflow-hidden bg-white/[0.04]">
-                      {allocations.map((fd: any, index: number) => (
-                        <div
-                          key={`${fd.fund?.fundCode || fd.fundId}-${index}`}
-                          className="h-full transition-all"
-                          style={{ width: `${(fd.weight / totalWeight) * 100}%`, backgroundColor: barColors[index % barColors.length] }}
-                        />
-                      ))}
-                    </div>
-                    <div className="mt-3 grid grid-cols-2 md:grid-cols-3 gap-2">
-                      {allocations.map((fd: any, index: number) => {
-                        const fund = fd.fund || {};
-                        return (
-                          <div key={`${fund.fundCode || fd.fundId}-legend`} className="flex items-center justify-between gap-2 rounded-lg bg-white/[0.025] border border-white/[0.05] px-3 py-2">
-                            <div className="min-w-0 flex items-center gap-2">
-                              <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: barColors[index % barColors.length] }} />
-                              <span className="text-xs text-white/58 truncate">{fd.role}</span>
-                            </div>
-                            <span className="data-number text-xs text-white/75">{fd.weight}%</span>
-                          </div>
-                        );
-                      })}
-                    </div>
                   </div>
 
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -418,7 +563,7 @@ export default function Recommend() {
                 <section className="liquid-glass p-4 md:p-6">
                   <div className="flex items-center justify-between gap-3 mb-4">
                     <PanelTitle icon={Layers3} title="产品明细" />
-                    <span className="text-xs text-white/35">配置金额 {yuan(amount)}</span>
+                    <span className="text-xs text-white/35">配置金额 {yuan(applied.amount)}</span>
                   </div>
 
                   <div className="space-y-2">
@@ -442,7 +587,7 @@ export default function Recommend() {
                             </div>
                             <div className="text-right">
                               <div className="data-number text-white text-sm">{fd.weight}%</div>
-                              <div className="data-number text-white/35 text-xs">{yuan(amount * fd.weight / 100)}</div>
+                              <div className="data-number text-white/35 text-xs">{yuan(applied.amount * fd.weight / 100)}</div>
                             </div>
                             <div className={`hidden md:block data-number text-sm ${getChangeTextClass(perf?.return1y)}`}>
                               {metricValue(perf?.return1y) >= 0 ? "+" : ""}{metricValue(perf?.return1y).toFixed(2)}%
@@ -463,7 +608,7 @@ export default function Recommend() {
                                 <MetricTile label="夏普" value={metricValue(perf?.sharpeRatio).toFixed(2)} color={POSITIVE_METRIC_COLOR} />
                               </div>
                               <p className="text-white/55 text-sm leading-relaxed">{fd.reason}</p>
-                              <Link to={`/${fund.fundCode || fd.fundId}`} className="mt-3 inline-flex items-center gap-1 text-sm" style={{ color: ACCENT_INFO }}>
+                              <Link to={`/${fund.fundCode || fd.fundId}`} state={{ from: "/recommend" }} className="mt-3 inline-flex items-center gap-1 text-sm" style={{ color: ACCENT_INFO }}>
                                 查看基金详情 <ArrowRight className="w-3.5 h-3.5" />
                               </Link>
                             </div>

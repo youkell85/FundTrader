@@ -1,4 +1,4 @@
-import { useParams, Link } from "react-router";
+import { useParams, Link, useLocation } from "react-router";
 import { useMemo, useState } from "react";
 import { AlertCircle, ArrowLeft, User, BarChart3, PieChart, Layers, Target, Award, Zap, Loader2, Sparkles } from "lucide-react";
 import { XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from "recharts";
@@ -39,7 +39,9 @@ const riskMetricDescriptions: Record<string, string> = {
 };
 
 export default function FundDetail() {
+  const location = useLocation();
   const { id } = useParams<{ id: string }>();
+  const backTo = (location.state as { from?: string } | null)?.from || "/";
   const routeParam = id || "";
   const isFundCode = /^\d{6}$/.test(routeParam);
   const fundId = isFundCode ? 0 : parseInt(routeParam || "0");
@@ -121,8 +123,8 @@ export default function FundDetail() {
             >
               重试
             </button>
-            <Link to="/" className="h-10 px-4 rounded-lg bg-white/[0.03] text-white/60 border border-white/[0.06] text-sm hover:bg-white/[0.06] transition-all flex items-center">
-              返回首页
+            <Link to={backTo} className="h-10 px-4 rounded-lg bg-white/[0.03] text-white/60 border border-white/[0.06] text-sm hover:bg-white/[0.06] transition-all flex items-center">
+              返回上一页
             </Link>
           </div>
         </div>
@@ -142,8 +144,8 @@ export default function FundDetail() {
     <div className="min-h-screen pt-14 pb-12">
       <div className="max-w-7xl mx-auto px-4 md:px-6">
         <div className="flex items-center gap-2 py-4 text-sm">
-          <Link to="/" className="text-white/30 hover:text-white/60 flex items-center gap-1 transition-colors">
-            <ArrowLeft className="w-3.5 h-3.5" />返回列表
+          <Link to={backTo} className="text-white/30 hover:text-white/60 flex items-center gap-1 transition-colors">
+            <ArrowLeft className="w-3.5 h-3.5" />{backTo === "/recommend" ? "返回配置组合" : "返回列表"}
           </Link>
           <span className="text-white/10">/</span>
           <span className="text-white/50 truncate">{fund.fundAbbr}</span>

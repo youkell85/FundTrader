@@ -669,6 +669,8 @@ export const fundRouter = createRouter({
       amount: z.number().optional(),
       optimizationGoal: z.string().optional(),
       focusTheme: z.string().optional(),
+      sourceMode: z.enum(["xinjihui", "watchlist", "custom"]).optional(),
+      selectedFundCodes: z.array(z.string()).optional(),
     }).optional())
     .query(async ({ input }) => {
       try {
@@ -694,43 +696,62 @@ export const fundRouter = createRouter({
         const riskProfile = opts.riskProfile || "balanced";
         const maxDdLimit = opts.maxDrawdown ?? (riskProfile === "conservative" ? 12 : riskProfile === "aggressive" ? 35 : 22);
         const horizon = opts.horizon || "1年";
-        const returnKey = horizon.includes("3个月") ? "return3m" : horizon.includes("6个月") ? "return6m" : horizon.includes("3年") ? "return3y" : "return1y";
+        const horizonConfig = horizon.includes("10年")
+          ? { key: "return10y", years: 10, label: "近10年" }
+          : horizon.includes("5年")
+            ? { key: "return5y", years: 5, label: "近5年" }
+            : horizon.includes("3年")
+              ? { key: "return3y", years: 3, label: "近3年" }
+              : horizon.includes("6个月")
+                ? { key: "return6m", years: 0.5, label: "近6个月" }
+                : { key: "return1y", years: 1, label: "近1年" };
+        const returnKey = horizonConfig.key;
         const optimizationGoal = opts.optimizationGoal || "balanced";
         const focusTheme = opts.focusTheme || "all";
+        const sourceMode = opts.sourceMode || "xinjihui";
+        const selectedFundCodes = new Set((opts.selectedFundCodes || []).map((code) => String(code)));
         const preferredTypes = opts.preferredTypes?.length ? opts.preferredTypes : ["bond", "hybrid", "index", "equity", "money", "qdii"];
-        let funds = rawFunds
-          .map(mapFundItem)
-          .filter(Boolean)
-          .filter((fund: any) => preferredTypes.includes(fund.fundType));
+        const allFunds = rawFunds.map(mapFundItem).filter(Boolean);
+        let funds = allFunds.filter((fund: any) => {
+          if (sourceMode === "custom") return selectedFundCodes.has(String(fund.fundCode));
+          if (sourceMode === "watchlist") return fund.source === "watchlist" || !fund.isXinjihui;
+          return fund.isXinjihui;
+        });
+        funds = funds.filter((fund: any) => preferredTypes.includes(fund.fundType));
 
-        if (funds.length < 8) {
-          funds = rawFunds.map(mapFundItem).filter(Boolean);
-        }
+        if (funds.length === 0) return [];
 
         const themeMatches = (fund: any) => {
           const text = `${fund.fundName || ""}${fund.fundAbbr || ""}${fund.category || ""}${(fund.tags || []).join("")}`;
           if (focusTheme === "all") return true;
           if (focusTheme === "income") return /债|红利|股息|收益|现金|货币|短债|中短债/.test(text);
+          if (focusTheme === "dividend") return /红利|股息|央企|价值|低波|银行|公用/.test(text);
           if (focusTheme === "growth") return /科技|创新|成长|新能源|高端|制造|人工智能|半导体|芯片/.test(text);
+          if (focusTheme === "consumption") return /消费|白酒|食品|家电|旅游|医药|医疗/.test(text);
+          if (focusTheme === "manufacturing") return /制造|高端|装备|军工|新能源|汽车|机器人/.test(text);
           if (focusTheme === "diversified") return /指数|宽基|沪深|中证|上证|创业板|QDII|全球|海外|标普|纳斯达克/.test(text);
+          if (focusTheme === "overseas") return /QDII|全球|海外|标普|纳斯达克|恒生|港股|美元/.test(text);
           if (focusTheme === "defensive") return /低波|稳健|价值|红利|债|医药|消费|公用|银行/.test(text);
           return true;
         };
 
         const annualizedReturn = (fund: any) => {
           const perf = fund.performance || {};
-          const periodReturn = valueOrZero(perf[returnKey]);
-          if (returnKey === "return3y") return periodReturn / 3;
-          if (returnKey === "return6m") return periodReturn * 2;
-          if (returnKey === "return3m") return periodReturn * 4;
+          const periodReturn = parseMetric(perf[returnKey]);
+          if (periodReturn !== null && periodReturn !== 0) return periodReturn / horizonConfig.years;
+          if (returnKey === "return10y") {
+            const return5y = parseMetric(perf.return5y);
+            if (return5y !== null && return5y !== 0) return return5y / 5;
+          }
           return valueOrZero(perf.annualizedReturn || perf.return1y);
         };
         const riskStats = (fund: any) => {
           const perf = fund.performance || {};
           const drawdown = Math.abs(valueOrZero(perf.maxDrawdown));
-          const volatility = Math.abs(valueOrZero(perf.annualizedVolatility)) || clamp(drawdown * 1.35, 4, 42);
-          const sharpe = valueOrZero(perf.sharpeRatio);
+          const rawVolatility = Math.abs(valueOrZero(perf.annualizedVolatility));
+          const volatility = rawVolatility > 0 ? rawVolatility : clamp(drawdown * 1.18 + 0.6, 1.2, 42);
           const expected = annualizedReturn(fund);
+          const sharpe = volatility > 0 ? expected / volatility : valueOrZero(perf.sharpeRatio);
           const missingRisk = parseMetric(perf.maxDrawdown) === null || parseMetric(perf.sharpeRatio) === null;
           return { expected, drawdown, volatility, sharpe, missingRisk };
         };
@@ -769,15 +790,20 @@ export const fundRouter = createRouter({
           Object.entries(variantTilts[variant]).forEach(([type, tilt]) => {
             template[type] = Math.max(0, (template[type] || 0) + tilt);
           });
-          if (horizon.includes("3个月")) {
-            template.bond = (template.bond || 0) + 10;
-            template.money = (template.money || 0) + 8;
-            template.equity = Math.max(0, (template.equity || 0) - 8);
-            template.qdii = Math.max(0, (template.qdii || 0) - 5);
-          } else if (horizon.includes("3年")) {
+          if (horizon.includes("6个月")) {
+            template.bond = (template.bond || 0) + 8;
+            template.money = (template.money || 0) + 5;
+            template.equity = Math.max(0, (template.equity || 0) - 7);
+            template.qdii = Math.max(0, (template.qdii || 0) - 4);
+          } else if (horizon.includes("3年") || horizon.includes("5年") || horizon.includes("10年")) {
             template.index = (template.index || 0) + 6;
             template.equity = (template.equity || 0) + 6;
             template.money = Math.max(0, (template.money || 0) - 7);
+            if (horizon.includes("10年")) {
+              template.index = (template.index || 0) + 4;
+              template.qdii = (template.qdii || 0) + 3;
+              template.bond = Math.max(0, (template.bond || 0) - 4);
+            }
           }
           Object.keys(template).forEach((type) => {
             if (!preferredTypes.includes(type)) template[type] = 0;
@@ -813,24 +839,25 @@ export const fundRouter = createRouter({
               weight: slot.weight,
               score: round(qualityScore(fund, variant), 1),
               role: slot.type === "bond" || slot.type === "money" ? "防守底仓" : slot.type === "index" ? "权益核心" : slot.type === "qdii" ? "分散卫星" : "收益增强",
-              reason: `${typeLabels[slot.type] || fund.category}仓位；${horizon}年化折算${round(stats.expected)}%，最大回撤${round(stats.drawdown)}%，夏普${round(stats.sharpe, 2)}，在${names[variant]}目标下综合排序靠前。`,
+              reason: `${typeLabels[slot.type] || fund.category}仓位；${horizonConfig.label}年化折算${round(stats.expected)}%，最大回撤${round(stats.drawdown)}%，估算夏普${round(stats.sharpe, 2)}，在${names[variant]}目标下综合排序靠前。`,
               fund,
             };
           }).filter(Boolean);
           const weighted = (pick: (item: any) => number) => allocations.reduce((sum: number, item: any) => sum + pick(item) * item.weight, 0) / 100;
           const expectedReturn = weighted((item: any) => riskStats(item.fund).expected);
           const weightedDrawdown = weighted((item: any) => riskStats(item.fund).drawdown);
-          const volatility = weighted((item: any) => riskStats(item.fund).volatility) * (allocations.length > 1 ? 0.82 : 1);
+          const volatility = weighted((item: any) => riskStats(item.fund).volatility) * (allocations.length > 1 ? 0.78 : 1);
           const concentration = allocations.length ? Math.max(...allocations.map((item: any) => item.weight)) : 0;
           const concentrationPenalty = Math.max(0, concentration - 35) * 0.08;
           const expectedRisk = weightedDrawdown * 0.72 + concentrationPenalty;
           const sharpe = volatility > 0 ? expectedReturn / volatility : 0;
           const cvar95 = expectedRisk * 1.25 + volatility * 0.12;
-          const score = expectedReturn * 0.7 + sharpe * 14 - expectedRisk * 0.75 - cvar95 * 0.28;
+          const riskAdjustedScore = clamp(50 + expectedReturn * 1.8 + sharpe * 16 - expectedRisk * 1.2 - cvar95 * 0.35 - concentrationPenalty * 2, 0, 100);
+          const sourceLabel = sourceMode === "watchlist" ? "自选基金" : sourceMode === "custom" ? "指定产品" : "鑫基荟";
           const constraints = [
             { label: "回撤约束", passed: expectedRisk <= maxDdLimit, value: `${round(expectedRisk)}% / ${maxDdLimit}%` },
             { label: "单品集中度", passed: concentration <= 45, value: `${round(concentration, 0)}%` },
-            { label: "基金数量", passed: allocations.length >= 3, value: `${allocations.length}只` },
+            { label: "基金数量", passed: allocations.length >= (sourceMode === "custom" ? 2 : 3), value: `${allocations.length}只` },
             { label: "风险数据覆盖", passed: allocations.every((item: any) => !riskStats(item.fund).missingRisk), value: `${allocations.filter((item: any) => !riskStats(item.fund).missingRisk).length}/${allocations.length}` },
           ];
           const stressTests = [
@@ -841,7 +868,7 @@ export const fundRouter = createRouter({
           return {
             id,
             name: names[variant],
-            description: `${horizon}视角，目标${optimizationGoal === "risk" ? "控制波动" : optimizationGoal === "return" ? "提高收益弹性" : "收益风险平衡"}，约束最大回撤${maxDdLimit}%`,
+            description: `${sourceLabel} · ${horizon}视角，目标${optimizationGoal === "risk" ? "控制波动" : optimizationGoal === "return" ? "提高收益弹性" : "收益风险平衡"}，约束最大回撤${maxDdLimit}%`,
             riskProfile,
             marketCondition: horizon,
             expectedReturn: round(expectedReturn).toFixed(2),
@@ -849,11 +876,12 @@ export const fundRouter = createRouter({
             volatility: round(volatility).toFixed(2),
             sharpe: round(sharpe, 2).toFixed(2),
             cvar95: round(cvar95).toFixed(2),
-            score: round(score, 1),
-            rationale: `先按风险档位和投资周期确定大类权重，再在各大类内用${horizon}年化收益、最大回撤、波动、夏普、卡玛和数据完整度评分选基。组合层面用加权回撤、估算波动、CVaR95和集中度复核，参数变化会同时影响大类权重、候选基金排序和约束通过情况。`,
+            score: round(riskAdjustedScore, 1),
+            sourceLabel,
+            rationale: `先按风险档位和投资周期确定大类权重，再在${sourceLabel}池内用${horizonConfig.label}收益折算年化、最大回撤、估算波动、夏普、卡玛和数据完整度评分选基。组合层面用加权回撤、组合波动、CVaR95和集中度复核；5年、10年优先使用对应长周期收益，缺失时使用最长可得净值年化。`,
             constraints,
             stressTests,
-            tags: ["鑫基荟", "组合优化", names[variant]],
+            tags: [sourceLabel, "组合优化", names[variant]],
             fundAllocations: allocations,
           };
         };
