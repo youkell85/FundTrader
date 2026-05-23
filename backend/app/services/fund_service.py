@@ -9,6 +9,8 @@
 - 持仓/经理 → Tushare fund_portfolio / fund_manager → akshare 补充学历信息
 """
 import math
+import os
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from typing import List, Dict, Any, Optional
 from ..utils import console_error
 from ..data.akshare_fetcher import get_fund_ranking, get_fund_info
@@ -22,6 +24,9 @@ SORT_FIELD_MAP: Dict[str, str] = {
     "近1月": "near_1m", "近3月": "near_3m", "近6月": "near_6m",
     "近1年": "near_1y", "近3年": "near_3y", "今年来": "ytd",
 }
+
+BULK_PERFORMANCE_TIMEOUT_SECONDS = float(os.getenv("FUNDTRADER_BULK_PERFORMANCE_TIMEOUT_SECONDS", "8"))
+_bulk_performance_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="fund-perf")
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
