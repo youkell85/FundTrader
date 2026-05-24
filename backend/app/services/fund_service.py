@@ -11,6 +11,7 @@
 import math
 import os
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
+from datetime import date, datetime
 from typing import List, Dict, Any, Optional
 from ..utils import console_error
 from ..data.akshare_fetcher import get_fund_ranking, get_fund_info
@@ -40,6 +41,8 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
 
 def _json_safe(value: Any) -> Any:
     """Recursively remove non-finite floats before FastAPI JSON serialization."""
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
     if isinstance(value, float):
         return value if math.isfinite(value) else 0.0
     if isinstance(value, dict):
@@ -100,6 +103,9 @@ def get_fund_list(
             funds = get_fund_ranking(category)
             if not funds:
                 funds = get_fund_ranking_em(category)
+            if category != "全部":
+                funds = [{**fund, "type": fund.get("type") or category} for fund in funds]
+            funds = _json_safe(funds)
             cache.set(cache_key, funds)
 
     # 筛选+排序

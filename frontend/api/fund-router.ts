@@ -468,11 +468,27 @@ function quoteToAnalysis(code: string, quote: Awaited<ReturnType<typeof fetchFun
   };
 }
 
-async function fetchFullMarketRanking() {
-  const cached = getCached<any[]>("fullMarketRanking");
+const PEER_RANKING_CATEGORIES = ["股票型", "混合型", "债券型", "指数型", "QDII", "FOF", "货币"];
+
+function resolvePeerCategory(...values: unknown[]) {
+  const text = values.map((value) => String(value || "")).join(" ");
+  if (/股票/.test(text)) return "股票型";
+  if (/混合/.test(text)) return "混合型";
+  if (/债/.test(text)) return "债券型";
+  if (/指数|ETF|LOF|index|etf/i.test(text)) return "指数型";
+  if (/QDII|海外|全球|港股|美股/i.test(text)) return "QDII";
+  if (/FOF/i.test(text)) return "FOF";
+  if (/货币|money/i.test(text)) return "货币";
+  return "";
+}
+
+async function fetchPeerMarketRanking(category: string) {
+  const cacheKey = `peerMarketRanking_${category}`;
+  const cached = getCached<any[]>(cacheKey);
   if (cached) return cached;
-  const funds = await fetchAllFundList({ guoyuan_only: false });
-  setCache("fullMarketRanking", funds, dailyCacheTtl());
+  const funds = (await fetchAllFundList({ guoyuan_only: false, category }))
+    .map((fund: any) => ({ ...fund, type: fund?.type || category }));
+  setCache(cacheKey, funds, dailyCacheTtl());
   return funds;
 }
 
@@ -665,31 +681,46 @@ export const fundRouter = createRouter({
     .input(z.object({ code: z.string().regex(/^\d{6}$/) }))
     .query(async ({ input }) => {
       try {
-        const fullMarket = await fetchFullMarketRanking();
         const cachedHomeFunds = getCached<any[]>("homeFunds") || getCached<any[]>("homeFundSummaries") || [];
-        const marketFund = fullMarket.find((fund: any) => String(fund?.code || fund?.fundCode || "") === input.code);
         const cachedFund = cachedHomeFunds.find((fund: any) => String(fund?.code || fund?.fundCode || "") === input.code);
-        const analysis = (!marketFund && !cachedFund) ? await getFundAnalysis(input.code).catch(() => null) : null;
-        const mapped = mapFundItem(cachedFund || analysis || marketFund || { code: input.code });
+        const analysis = await getFundAnalysis(input.code).catch(() => null);
+        const mapped = mapFundItem(cachedFund || analysis || { code: input.code });
+        const preferredCategory = resolvePeerCategory(cachedFund?.type, analysis?.type, mapped?.category, mapped?.fundType, mapped?.fundName);
+        const categories = preferredCategory
+          ? [preferredCategory, ...PEER_RANKING_CATEGORIES.filter((item) => item !== preferredCategory)]
+          : PEER_RANKING_CATEGORIES;
+        let peerCategory = preferredCategory || "";
+        let peerFunds: any[] = [];
+        let marketFund: any = null;
+        for (const category of categories) {
+          const ranking = await fetchPeerMarketRanking(category);
+          const found = ranking.find((fund: any) => String(fund?.code || fund?.fundCode || "") === input.code);
+          if (found || category === preferredCategory) {
+            peerCategory = category;
+            peerFunds = ranking;
+            marketFund = found || null;
+            if (found) break;
+          }
+        }
         const target = {
           ...(marketFund || {}),
           ...(analysis || {}),
           code: input.code,
-          type: marketFund?.type || cachedFund?.type || analysis?.type || mapped?.category,
+          type: peerCategory || marketFund?.type || cachedFund?.type || analysis?.type || mapped?.category,
           mappedType: mapped?.fundType,
           near_1m: marketFund?.near_1m ?? analysis?.return1m ?? mapped?.performance?.return1m,
           near_3m: marketFund?.near_3m ?? analysis?.return3m ?? mapped?.performance?.return3m,
           near_6m: marketFund?.near_6m ?? analysis?.return6m ?? mapped?.performance?.return6m,
           near_1y: marketFund?.near_1y ?? analysis?.return1y ?? mapped?.performance?.return1y,
         };
-        const peers = fullMarket.map((fund: any) => {
+        const peers = peerFunds.map((fund: any) => {
           const item = mapFundItem(fund);
-          return { ...fund, mappedType: item?.fundType };
+          return { ...fund, type: fund?.type || peerCategory, mappedType: item?.fundType };
         });
         return {
           code: input.code,
-          peerType: target.type || mapped?.category || mapped?.fundType || "同类基金",
-          source: "东方财富/AKShare 全市场基金排行",
+          peerType: peerCategory || target.type || mapped?.category || mapped?.fundType || "同类基金",
+          source: "东方财富/AKShare 全市场同类基金排行",
           updatedAt: new Date().toISOString(),
           rows: buildPeerPerformanceRows(target, peers),
         };
