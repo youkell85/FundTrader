@@ -11,7 +11,7 @@ Environment=API_PORT=8766
 Environment=API_PREFIX=/fund/api
 Environment=CACHE_DIR=/tmp/fundtrader_cache
 EnvironmentFile=/opt/fundtrader/backend/.env
-Environment=LLM_MODEL=deepseek-v4-flash
+Environment=LLM_MODEL=MiniMax-M2.7
 ExecStart=/opt/fundtrader/backend/.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8766 --root-path /fund/api
 Restart=always
 RestartSec=5

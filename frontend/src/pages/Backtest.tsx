@@ -600,11 +600,11 @@ export default function Backtest() {
                   </div>
                   {llmLoading && (
                     <div className="flex items-center gap-2 text-white/40 text-sm py-6">
-                      <Loader2 className="w-4 h-4 animate-spin" />DeepSeek v4 flash 正在分析定投表现...
+                      <Loader2 className="w-4 h-4 animate-spin" />MiniMax M2.7 正在分析定投表现...
                     </div>
                   )}
                   {!llmLoading && !llmReview && (
-                    <p className="text-white/40 text-sm">点击上方按钮调用 DeepSeek v4 flash，对当前回测策略生成专业评价。</p>
+                    <p className="text-white/40 text-sm">点击上方按钮调用 MiniMax M2.7，对当前回测策略生成专业评价。</p>
                   )}
                   {!llmLoading && llmReview && (
                     <div className="space-y-3">

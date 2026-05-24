@@ -7,6 +7,35 @@ from ..utils import console_error
 from ..config import LLM_API_URL, LLM_API_KEY, LLM_MODEL
 
 
+def _is_minimax() -> bool:
+    return "api.minimaxi.com" in LLM_API_URL.lower() or LLM_MODEL.lower().startswith("minimax")
+
+
+def _build_payload(messages: list, max_tokens: int, temperature: float) -> bytes:
+    payload = {
+        "model": LLM_MODEL,
+        "messages": messages,
+        "temperature": temperature,
+    }
+    if _is_minimax():
+        payload["max_completion_tokens"] = 2048
+        payload["reasoning_split"] = True
+    else:
+        payload["max_tokens"] = max_tokens
+    return json.dumps(payload).encode("utf-8")
+
+
+def _strip_reasoning(content: str) -> str:
+    if not content:
+        return ""
+    return re.sub(r"^\s*<think>[\s\S]*?</think>\s*", "", content).strip()
+
+
+def _choice_content(result: dict) -> str:
+    content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+    return _strip_reasoning(content)
+
+
 def _parse_json_lenient(content: str) -> Optional[dict]:
     """宽容解析 LLM 返回的 JSON：去除 markdown、提取首个 JSON 对象。"""
     if not content:
@@ -54,12 +83,11 @@ def analyze_manager_style(
 请用简洁专业的语言回答，不超过300字。"""
 
     try:
-        payload = json.dumps({
-            "model": LLM_MODEL,
-            "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 500,
-            "temperature": 0.7,
-        }).encode("utf-8")
+        payload = _build_payload(
+            [{"role": "user", "content": prompt}],
+            max_tokens=500,
+            temperature=0.7,
+        )
 
         req = urllib.request.Request(
             LLM_API_URL,
@@ -72,7 +100,7 @@ def analyze_manager_style(
 
         with urllib.request.urlopen(req, timeout=30) as resp:
             result = json.loads(resp.read().decode("utf-8"))
-            return result.get("choices", [{}])[0].get("message", {}).get("content", "")
+            return _choice_content(result)
 
     except Exception as e:
         console_error(f"LLM analysis error: {e}")
@@ -113,19 +141,18 @@ JSON格式：
 {{"performance_review":"多周期业绩点评180字以内，必须比较近1年/近3年/今年来表现，指出趋势是否稳定","risk_review":"风控指标点评180字以内，必须覆盖最大回撤、夏普、波动收益匹配、回撤修复难度","manager_review":"经理点评150字以内，结合任职年限、管理规模、风格稳定性","holdings_review":"持仓点评120字以内，说明集中度、行业暴露和潜在相关性风险","investment_advice":"投资建议120字以内，给出适合的持有周期、仓位和观察触发条件","risk_warnings":["具体风险点1","具体风险点2","具体风险点3"],"strengths":["优势1","优势2","优势3"]}}"""
 
     try:
-        payload = json.dumps({
-            "model": LLM_MODEL,
-            "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 1200,
-            "temperature": 0.3,
-        }).encode("utf-8")
+        payload = _build_payload(
+            [{"role": "user", "content": prompt}],
+            max_tokens=1200,
+            temperature=0.3,
+        )
         req = urllib.request.Request(LLM_API_URL, data=payload, headers={
             "Content-Type": "application/json",
             "Authorization": f"Bearer {LLM_API_KEY}",
         })
         with urllib.request.urlopen(req, timeout=45) as resp:
             result = json.loads(resp.read().decode("utf-8"))
-            content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+            content = _choice_content(result)
             parsed = _parse_json_lenient(content)
             if parsed is not None:
                 return parsed
@@ -182,19 +209,18 @@ def analyze_dca_strategy(
 请仅输出JSON（不要markdown）：
 {{"verdict":"定投还是一次性买入更优，30字内","analysis":"策略对比点评260字以内，必须包含收益差、回撤、夏普、资金占用、心理负担五个角度","suggestions":["具体调参建议1","具体调参建议2","具体调参建议3"],"risk_notes":["风险提示1","风险提示2"]}}"""
     try:
-        payload = json.dumps({
-            "model": LLM_MODEL,
-            "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 800,
-            "temperature": 0.3,
-        }).encode("utf-8")
+        payload = _build_payload(
+            [{"role": "user", "content": prompt}],
+            max_tokens=800,
+            temperature=0.3,
+        )
         req = urllib.request.Request(LLM_API_URL, data=payload, headers={
             "Content-Type": "application/json",
             "Authorization": f"Bearer {LLM_API_KEY}",
         })
         with urllib.request.urlopen(req, timeout=45) as resp:
             result = json.loads(resp.read().decode("utf-8"))
-            content = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+            content = _choice_content(result)
             parsed = _parse_json_lenient(content)
             if parsed is not None:
                 return parsed
@@ -228,12 +254,11 @@ def generate_recommendation_analysis(
 不超过200字，简洁专业。"""
 
     try:
-        payload = json.dumps({
-            "model": LLM_MODEL,
-            "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 400,
-            "temperature": 0.7,
-        }).encode("utf-8")
+        payload = _build_payload(
+            [{"role": "user", "content": prompt}],
+            max_tokens=400,
+            temperature=0.7,
+        )
 
         req = urllib.request.Request(
             LLM_API_URL,
@@ -246,7 +271,7 @@ def generate_recommendation_analysis(
 
         with urllib.request.urlopen(req, timeout=30) as resp:
             result = json.loads(resp.read().decode("utf-8"))
-            return result.get("choices", [{}])[0].get("message", {}).get("content", "")
+            return _choice_content(result)
 
     except Exception as e:
         console_error(f"LLM recommendation error: {e}")
