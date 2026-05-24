@@ -37,12 +37,12 @@ if git diff --cached --quiet; then
   echo "  没有新的变更需要提交"
 else
   git commit -m "deploy: $(date '+%Y-%m-%d %H:%M')"
-  git push ${GIT_REMOTE} master
-  echo "  代码已推送"
 fi
 
 # ── 2. 服务器拉取最新代码 ──
 echo "[2/6] 服务器拉取最新代码..."
+git push ${GIT_REMOTE} master
+echo "  代码已推送"
 ssh -p ${SSH_PORT} root@${SG_HOST} "cd ${PROJECT_DIR} && git pull ${GIT_REMOTE} master"
 
 # ── 3. 同步 .env 文件（仅 --env 或 --full） ──
