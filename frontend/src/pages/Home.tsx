@@ -6,7 +6,7 @@ import { UP_COLOR, DOWN_COLOR, ACCENT_PRIMARY, RISK_COLOR, POSITIVE_METRIC_COLOR
 
 const typeLabels: Record<string, string> = {
   equity: "股票型", hybrid: "混合型", bond: "债券型",
-  index: "指数型", qdii: "QDII", money: "货币型", fof: "FOF", reits: "REITs",
+  index: "指数型", etf: "ETF", qdii: "QDII", money: "货币型", fof: "FOF", reits: "REITs",
 };
 const riskLabels: Record<string, string> = {
   low: "低风险", low_medium: "中低风险", medium: "中风险",
@@ -102,6 +102,11 @@ export default function Home() {
     const sortKey = sortBy;
     const sortDir = sortOrder;
     result.sort((a: any, b: any) => {
+      if (!showXinjihui) {
+        const aTime = new Date(a.updatedAt || 0).getTime();
+        const bTime = new Date(b.updatedAt || 0).getTime();
+        if (aTime !== bTime) return bTime - aTime;
+      }
       const aPerf = a.performance || {};
       const bPerf = b.performance || {};
       const parseSortVal = (val: string | undefined) => {

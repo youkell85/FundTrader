@@ -1,7 +1,7 @@
 import { useParams, Link, useLocation } from "react-router";
 import { useMemo, useState } from "react";
 import { AlertCircle, ArrowLeft, User, BarChart3, PieChart, Layers, Target, Award, Zap, Loader2, Sparkles } from "lucide-react";
-import { XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar } from "recharts";
+import { XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Radar, PieChart as RechartsPieChart, Pie, Cell } from "recharts";
 import { trpc } from "@/providers/trpc";
 import { Tooltip as UiTooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
@@ -79,6 +79,12 @@ function isJsonLikeText(value: unknown) {
   return text.startsWith("{") || text.startsWith("```json") || text.includes('"performance_review"');
 }
 
+function metricNumber(value: unknown): number | null {
+  if (value === undefined || value === null || value === "" || value === "—" || value === "暂无") return null;
+  const num = parseFloat(String(value).replace("%", ""));
+  return Number.isFinite(num) ? num : null;
+}
+
 export default function FundDetail() {
   const location = useLocation();
   const { id } = useParams<{ id: string }>();
@@ -90,6 +96,10 @@ export default function FundDetail() {
   const [selectedRiskMetric, setSelectedRiskMetric] = useState<string | null>(null);
   const detailById = trpc.fund.detail.useQuery({ id: fundId }, { enabled: !isFundCode && fundId > 0 });
   const detailByCode = trpc.fund.detailByCode.useQuery({ code: routeParam }, { enabled: isFundCode });
+  const { data: listData } = trpc.fund.list.useQuery(
+    { pageSize: 1000 },
+    { staleTime: 5 * 60 * 1000, refetchOnWindowFocus: false }
+  );
   const fund = isFundCode ? detailByCode.data : detailById.data;
   const isLoading = isFundCode ? detailByCode.isLoading : detailById.isLoading;
   const queryError = isFundCode ? detailByCode.error : detailById.error;
@@ -137,6 +147,49 @@ export default function FundDetail() {
     }
     return all.slice(startIdx);
   }, [fund?.navHistory, navPeriod]);
+
+  const performanceRows = useMemo(() => {
+    if (!fund?.performance) return [];
+    const peers = (listData?.funds || []).filter((item: any) => item.fundType === fund.fundType && item.fundCode !== fund.fundCode);
+    const rows = [
+      { label: "近1周", key: "return1w", value: null as number | null },
+      { label: "近1个月", key: "return1m", value: metricNumber(fund.performance.return1m) },
+      { label: "近3个月", key: "return3m", value: metricNumber(fund.performance.return3m) },
+      { label: "近6个月", key: "return6m", value: metricNumber(fund.performance.return6m) },
+      { label: "近1年", key: "return1y", value: metricNumber(fund.performance.return1y) },
+    ];
+    if (fund.navHistory?.length > 1) {
+      const latest = fund.navHistory[fund.navHistory.length - 1];
+      const latestTime = new Date(latest.navDate).getTime();
+      const target = latestTime - 7 * 24 * 60 * 60 * 1000;
+      const start = [...fund.navHistory].reverse().find((item: any) => new Date(item.navDate).getTime() <= target) || fund.navHistory[0];
+      const startNav = metricNumber(start.nav);
+      const endNav = metricNumber(latest.nav);
+      rows[0].value = startNav && endNav ? ((endNav - startNav) / startNav) * 100 : null;
+    }
+    return rows.map((row) => {
+      const peerVals = peers.map((item: any) => metricNumber(item.performance?.[row.key])).filter((value): value is number => value !== null);
+      const avg = peerVals.length ? peerVals.reduce((sum, value) => sum + value, 0) / peerVals.length : null;
+      const rank = row.value === null ? null : peerVals.filter((value) => value > row.value!).length + 1;
+      return { ...row, avg, rank, total: peerVals.length + (row.value === null ? 0 : 1) };
+    });
+  }, [fund, listData?.funds]);
+
+  const assetChartData = useMemo(() => (
+    (fund?.assetAllocation || []).map((item: any) => ({
+      name: item.name,
+      value: (metricNumber(item.ratio) || 0) * 100,
+      reportDate: item.reportDate,
+    })).filter((item: any) => item.value > 0)
+  ), [fund?.assetAllocation]);
+
+  const industryChartData = useMemo(() => (
+    (fund?.industries || []).map((item: any) => ({
+      name: item.industry,
+      value: (metricNumber(item.ratio) || 0) * 100,
+      quarter: item.quarter,
+    })).filter((item: any) => item.value > 0).sort((a: any, b: any) => b.value - a.value).slice(0, 12)
+  ), [fund?.industries]);
 
   if (isLoading) {
     return (
@@ -252,6 +305,20 @@ export default function FundDetail() {
                     </div>
                   );
                 })}
+              </div>
+
+              <div className="mb-6 overflow-hidden rounded-lg border border-white/[0.06]">
+                <div className="grid grid-cols-[1fr_1fr_1fr_1fr] bg-white/[0.035] px-3 py-2 text-xs text-white/40">
+                  <span>周期</span><span className="text-right">本基金</span><span className="text-right">同类平均</span><span className="text-right">同类排名</span>
+                </div>
+                {performanceRows.map((row: any) => (
+                  <div key={row.label} className="grid grid-cols-[1fr_1fr_1fr_1fr] px-3 py-2 text-xs border-t border-white/[0.04]">
+                    <span className="text-white/55">{row.label}</span>
+                    <span className={`data-number text-right ${row.value == null ? "text-white/30" : getChangeTextClass(row.value)}`}>{row.value == null ? "—" : `${row.value >= 0 ? "+" : ""}${row.value.toFixed(2)}%`}</span>
+                    <span className={`data-number text-right ${row.avg == null ? "text-white/30" : getChangeTextClass(row.avg)}`}>{row.avg == null ? "—" : `${row.avg >= 0 ? "+" : ""}${row.avg.toFixed(2)}%`}</span>
+                    <span className="data-number text-right text-white/55">{row.rank == null || row.total === 0 ? "—" : `${row.rank}/${row.total}`}</span>
+                  </div>
+                ))}
               </div>
 
               {fund.navHistory && fund.navHistory.length > 0 && (
@@ -465,18 +532,45 @@ export default function FundDetail() {
               </div>
             </div>
 
-            {fund.industries && fund.industries.length > 0 && (
+            {assetChartData.length > 0 && (
+              <div className="liquid-glass p-4 md:p-6">
+                <h2 className="text-base md:text-lg font-medium text-white mb-4">资产配置</h2>
+                <div className="h-56">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <RechartsPieChart>
+                      <Pie data={assetChartData} dataKey="value" nameKey="name" innerRadius={48} outerRadius={82} paddingAngle={2}>
+                        {assetChartData.map((_: any, index: number) => (
+                          <Cell key={index} fill={[ACCENT_PRIMARY, ACCENT_INFO, POSITIVE_METRIC_COLOR, ACCENT_HIGHLIGHT][index % 4]} />
+                        ))}
+                      </Pie>
+                      <Tooltip contentStyle={{ background: "rgba(5, 8, 26, 0.95)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "8px", fontSize: "12px" }} formatter={(v: any) => [`${Number(v).toFixed(2)}%`, "占比"]} />
+                    </RechartsPieChart>
+                  </ResponsiveContainer>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  {assetChartData.map((item: any, index: number) => (
+                    <div key={item.name} className="flex items-center justify-between gap-2">
+                      <span className="text-white/50 flex items-center gap-1.5"><span className="w-2 h-2 rounded-full" style={{ backgroundColor: [ACCENT_PRIMARY, ACCENT_INFO, POSITIVE_METRIC_COLOR, ACCENT_HIGHLIGHT][index % 4] }} />{item.name}</span>
+                      <span className="data-number text-white/70">{item.value.toFixed(2)}%</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-2 text-[11px] text-white/30">报告期：{assetChartData[0]?.reportDate || "未标明"}</div>
+              </div>
+            )}
+
+            {industryChartData.length > 0 && (
               <div className="liquid-glass p-4 md:p-6">
                 <h2 className="text-base md:text-lg font-medium text-white mb-4">行业分布</h2>
                 <div className="space-y-3">
-                  {fund.industries.map((ind: any, i: number) => {
-                    const ratio = parseFloat(ind.ratio || "0") * 100;
+                  {industryChartData.map((ind: any, i: number) => {
+                    const ratio = ind.value;
                     // 中性色阶：主色【蓝】×不同透明度 + 辅助【象牙金】
                     const palette = [ACCENT_PRIMARY, ACCENT_INFO, POSITIVE_METRIC_COLOR, ACCENT_HIGHLIGHT, "#9D7BFF", "#5AA9FF", "#3B6CFF"];
                     return (
                       <div key={i}>
                         <div className="flex justify-between text-xs mb-1">
-                          <span className="text-white/60">{ind.industry}</span>
+                          <span className="text-white/60">{ind.name}</span>
                           <span className="data-number text-white/70">{ratio.toFixed(1)}%</span>
                         </div>
                         <div className="w-full h-1.5 rounded-full bg-white/[0.05] overflow-hidden">
@@ -553,6 +647,23 @@ export default function FundDetail() {
                 <div className="flex justify-between"><span className="text-white/40">累计净值</span><span className="data-number text-white/70">{fund.accumNav}</span></div>
               </div>
             </div>
+
+            {fund.dividends && fund.dividends.length > 0 && (
+              <div className="liquid-glass p-4 md:p-6">
+                <h2 className="text-base md:text-lg font-medium text-white mb-4">基金分红</h2>
+                <div className="space-y-2">
+                  {fund.dividends.slice(0, 8).map((item: any, index: number) => (
+                    <div key={`${item.exDate || item.annDate}-${index}`} className="grid grid-cols-[1fr_auto] gap-3 rounded-lg border border-white/[0.05] bg-white/[0.025] px-3 py-2 text-xs">
+                      <div>
+                        <div className="text-white/65">除息日 {item.exDate || "—"}</div>
+                        <div className="text-white/30 mt-0.5">派息日 {item.payDate || "—"} / 公告 {item.annDate || "—"}</div>
+                      </div>
+                      <div className="data-number text-white/75">{item.cash ? `${item.cash}元/份` : "—"}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {(fund.holdings && fund.holdings.length > 0) ? (
               <div className="liquid-glass p-4 md:p-6">

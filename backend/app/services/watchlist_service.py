@@ -2,6 +2,7 @@
 import json
 import os
 import re
+from datetime import datetime
 from typing import List, Dict, Any, Optional
 from ..utils import console_error
 
@@ -38,10 +39,21 @@ def add_fund(code: str, name: str = "", type_: str = "", tags: List[str] = []) -
         return {"status": "error", "message": "无效的基金代码格式，应为6位数字"}
 
     watchlist = get_watchlist()
+    now = datetime.now().isoformat(timespec="seconds")
     # 检查是否已存在
-    for f in watchlist:
+    for index, f in enumerate(watchlist):
         if f["code"] == code:
-            return {"status": "duplicate", "message": f"基金 {code} 已在自选列表中"}
+            updated = {
+                **f,
+                "name": name or f.get("name", code),
+                "type": type_ or f.get("type", ""),
+                "tags": tags or f.get("tags", []),
+                "updated_at": now,
+            }
+            watchlist.pop(index)
+            watchlist.append(updated)
+            _save_watchlist(watchlist)
+            return {"status": "duplicate", "message": f"基金 {code} 已在自选列表中", "fund": updated}
 
     # 尝试从AkShare获取基金名称（如果未提供）
     if not name:
@@ -59,6 +71,8 @@ def add_fund(code: str, name: str = "", type_: str = "", tags: List[str] = []) -
         "name": name or code,
         "type": type_ or "未知",
         "tags": tags,
+        "created_at": now,
+        "updated_at": now,
     }
     watchlist.append(fund)
     _save_watchlist(watchlist)

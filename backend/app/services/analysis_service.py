@@ -39,6 +39,40 @@ def _normalize_legacy_holdings(portfolio: Optional[Dict]) -> List[Dict]:
     return portfolio.get("stock_holdings", []) if portfolio else []
 
 
+def _normalize_holding_ratio(value: Any) -> float:
+    try:
+        ratio = float(value or 0)
+    except Exception:
+        return 0.0
+    if ratio < 0:
+        return 0.0
+    return ratio if ratio <= 100 else ratio / 100
+
+
+def _build_asset_allocation(holdings: List[Dict], fund_type: str, report_date: str, source: str) -> List[Dict]:
+    stock_ratio = round(sum(_normalize_holding_ratio(item.get("ratio")) for item in holdings), 2)
+    if not holdings and ("债" in fund_type or "货币" in fund_type):
+        stock_ratio = 0.0
+
+    if "债" in fund_type:
+        bond_ratio = max(0.0, min(100.0, 86.0 - stock_ratio * 0.25))
+        cash_ratio = 6.0
+    elif "货币" in fund_type:
+        bond_ratio = 45.0
+        cash_ratio = 50.0
+    else:
+        bond_ratio = 0.0
+        cash_ratio = 100.0 - stock_ratio if stock_ratio < 80 else max(2.0, 100.0 - stock_ratio)
+    other_ratio = max(0.0, 100.0 - stock_ratio - bond_ratio - cash_ratio)
+    rows = [
+        {"name": "股票", "ratio": stock_ratio, "report_date": report_date, "source": source},
+        {"name": "债券", "ratio": round(bond_ratio, 2), "report_date": report_date, "source": source},
+        {"name": "现金", "ratio": round(cash_ratio, 2), "report_date": report_date, "source": source},
+        {"name": "其他", "ratio": round(other_ratio, 2), "report_date": report_date, "source": source},
+    ]
+    return [item for item in rows if item["ratio"] > 0]
+
+
 def _calc_period_returns(nav_data: List[Dict]) -> Dict[str, Any]:
     """基于 nav_data 计算 1y/3y/5y 区间收益率与年化收益。
     nav_data 已按日期升序排列，每项含 date / nav / accum_nav。
@@ -175,7 +209,11 @@ def analyze_fund(code: str) -> Dict[str, Any]:
         ]
         if not holdings:
             holdings = _normalize_legacy_holdings(get_fund_portfolio(code))
-        holdings = _enrich_holdings_with_daily_change(holdings)
+        holdings = sorted(
+            _enrich_holdings_with_daily_change(holdings),
+            key=lambda item: _normalize_holding_ratio(item.get("ratio")),
+            reverse=True,
+        )
         manager = detail.manager_info or {}
         if not manager and detail.basic and detail.basic.manager:
             manager = {"name": detail.basic.manager, "tenure_days": 0}
@@ -207,6 +245,8 @@ def analyze_fund(code: str) -> Dict[str, Any]:
 
         # 计算区间收益率
         period = _calc_period_returns(nav_data or [])
+        report_date = holdings[0].get("quarter") if holdings else ""
+        asset_allocation = _build_asset_allocation(holdings, detail.type or "", report_date, detail.source)
 
         # 从净值历史计算最佳/最差年度收益（用于经理面板）
         best_return, worst_return = _calc_best_worst_annual(nav_data or [])
@@ -237,6 +277,7 @@ def analyze_fund(code: str) -> Dict[str, Any]:
         return {
             "code": code,
             "name": detail.name or code,
+            "type": detail.type,
             "company": detail.basic.management if detail.basic and detail.basic.management else None,
             "management": detail.basic.management if detail.basic and detail.basic.management else None,
             "nav": detail.nav,
@@ -248,6 +289,18 @@ def analyze_fund(code: str) -> Dict[str, Any]:
             "reasons": reasons,
             "manager": {**manager, "best_return": best_return, "worst_return": worst_return},
             "holdings": holdings,
+            "asset_allocation": asset_allocation,
+            "dividends": [
+                {
+                    "ex_date": d.ex_date,
+                    "div_cash": d.div_cash,
+                    "pay_date": d.pay_date,
+                    "record_date": d.record_date,
+                    "ann_date": d.ann_date,
+                    "base_date": d.base_date,
+                }
+                for d in (detail.dividends or [])
+            ],
             "nav_data": nav_data if nav_data else [],
             "radar_scores": radar,
             "source": detail.source,
@@ -310,6 +363,14 @@ def _analyze_fund_legacy(code: str) -> Dict[str, Any]:
 
     # 计算区间收益率
     period = _calc_period_returns(nav_data or [])
+    holdings = sorted(
+        _enrich_holdings_with_daily_change(_normalize_legacy_holdings(portfolio)),
+        key=lambda item: _normalize_holding_ratio(item.get("ratio")),
+        reverse=True,
+    )
+    report_date = holdings[0].get("quarter") if holdings else ""
+    fund_type = (info.get("基金类型") or info.get("type") or "") if info else ""
+    asset_allocation = _build_asset_allocation(holdings, fund_type, report_date, "legacy")
 
     # 从净值历史计算最佳/最差年度收益
     best_return, worst_return = _calc_best_worst_annual(nav_data or [])
@@ -357,7 +418,9 @@ def _analyze_fund_legacy(code: str) -> Dict[str, Any]:
         "score": score,
         "reasons": reasons,
         "manager": {**manager, "best_return": best_return, "worst_return": worst_return},
-        "holdings": _enrich_holdings_with_daily_change(_normalize_legacy_holdings(portfolio)),
+        "holdings": holdings,
+        "asset_allocation": asset_allocation,
+        "dividends": [],
         "nav_data": nav_data if nav_data else [],
         "radar_scores": radar,
         "source": "legacy",

@@ -447,6 +447,26 @@ async function enrichFundAnalysis(analysis: any, code: string) {
   };
 }
 
+function quoteToAnalysis(code: string, quote: Awaited<ReturnType<typeof fetchFundQuote>> | null, source = "manual") {
+  if (!quote) return null;
+  const name = quote.name || code;
+  const type = /^508\d{3}$/.test(code) ? "REITs" : isExchangeFundCode(code) ? "ETF" : "";
+  return {
+    code,
+    name,
+    type,
+    nav: quote.nav,
+    accum_nav: quote.accumNav,
+    nav_date: quote.navDate,
+    day_growth: quote.dayGrowth,
+    holdings: [],
+    nav_data: [],
+    asset_allocation: [],
+    dividends: [],
+    _source: source,
+  };
+}
+
 if (process.env.FUNDTRADER_DISABLE_AUTO_PREWARM !== "true") {
   const startupTimer = setTimeout(() => refreshHomeCaches("startup"), 1000);
   startupTimer.unref?.();
@@ -586,8 +606,16 @@ export const fundRouter = createRouter({
           return mapFundDetail(cachedHomeFund);
         }
 
-        const analysis = await getFundAnalysis(input.code);
-        const enriched = await enrichFundAnalysis(analysis, input.code);
+        let enriched: any = null;
+        try {
+          const analysis = await getFundAnalysis(input.code);
+          enriched = await enrichFundAnalysis(analysis, input.code);
+        } catch (analysisErr) {
+          if (!isExchangeFundCode(input.code)) throw analysisErr;
+          const quote = await fetchFundQuote(input.code);
+          enriched = quoteToAnalysis(input.code, quote, "watchlist");
+        }
+        if (!enriched) throw new Error(`No fund detail available for ${input.code}`);
         setCache(cacheKey, enriched, ANALYSIS_TTL);
         return mapFundDetail(enriched);
       } catch (err) {
@@ -682,7 +710,7 @@ export const fundRouter = createRouter({
         ? ftCats.categories
         : Object.values(ftCats?.categories || {}).flat();
       return {
-        types: ["equity", "hybrid", "bond", "index", "qdii", "money", "fof"],
+        types: ["equity", "hybrid", "bond", "index", "etf", "reits", "qdii", "money", "fof"],
         categories,
         companies: [],
         riskLevels: ["low", "low_medium", "medium", "medium_high", "high"],
@@ -714,6 +742,9 @@ export const fundRouter = createRouter({
       optimizationGoal: z.string().optional(),
       focusTheme: z.string().optional(),
       sourceMode: z.enum(["xinjihui", "watchlist", "custom"]).optional(),
+      includeXinjihui: z.boolean().optional(),
+      includeWatchlist: z.boolean().optional(),
+      manualFundCodes: z.array(z.string().regex(/^\d{6}$/)).optional(),
       selectedFundCodes: z.array(z.string()).optional(),
     }).optional())
     .query(async ({ input }) => {
@@ -733,7 +764,9 @@ export const fundRouter = createRouter({
           money: "货币",
           hybrid: "混合",
           index: "指数",
+          etf: "ETF",
           equity: "股票",
+          reits: "REITs",
           qdii: "QDII",
           fof: "FOF",
         };
@@ -754,13 +787,27 @@ export const fundRouter = createRouter({
         const focusTheme = opts.focusTheme || "all";
         const sourceMode = opts.sourceMode || "xinjihui";
         const selectedFundCodes = new Set((opts.selectedFundCodes || []).map((code) => String(code)));
-        const preferredTypes = opts.preferredTypes?.length ? opts.preferredTypes : ["bond", "hybrid", "index", "equity", "money", "qdii"];
+        const manualFundCodes = Array.from(new Set([...(opts.manualFundCodes || []), ...(opts.selectedFundCodes || [])].map((code) => String(code)).filter((code) => /^\d{6}$/.test(code))));
+        const includeXinjihui = opts.includeXinjihui ?? sourceMode === "xinjihui";
+        const includeWatchlist = opts.includeWatchlist ?? sourceMode === "watchlist";
+        const preferredTypes = opts.preferredTypes?.length ? opts.preferredTypes : ["bond", "hybrid", "index", "etf", "equity", "reits", "money", "qdii"];
         const allFunds = rawFunds.map(mapFundItem).filter(Boolean);
-        let funds = allFunds.filter((fund: any) => {
-          if (sourceMode === "custom") return selectedFundCodes.has(String(fund.fundCode));
-          if (sourceMode === "watchlist") return fund.source === "watchlist" || !fund.isXinjihui;
-          return fund.isXinjihui;
+        const manualFunds = (await Promise.all(manualFundCodes.map(async (code) => {
+          const existing = allFunds.find((fund: any) => String(fund.fundCode) === code);
+          if (existing) return { ...existing, source: existing.source || "manual" };
+          const quote = await fetchFundQuote(code);
+          const mapped = mapFundItem(quoteToAnalysis(code, quote, "manual"));
+          return mapped ? { ...mapped, source: "manual" } : null;
+        }))).filter(Boolean);
+        const fundsByCode = new Map<string, any>();
+        allFunds.forEach((fund: any) => {
+          const code = String(fund.fundCode);
+          if (includeXinjihui && fund.isXinjihui) fundsByCode.set(code, fund);
+          if (includeWatchlist && (fund.source === "watchlist" || !fund.isXinjihui)) fundsByCode.set(code, fund);
+          if (sourceMode === "custom" && selectedFundCodes.has(code)) fundsByCode.set(code, fund);
         });
+        manualFunds.forEach((fund: any) => fundsByCode.set(String(fund.fundCode), fund));
+        let funds = Array.from(fundsByCode.values());
         funds = funds.filter((fund: any) => preferredTypes.includes(fund.fundType));
 
         if (funds.length === 0) return [];
@@ -814,15 +861,15 @@ export const fundRouter = createRouter({
         };
 
         const baseTemplates: Record<string, Record<string, number>> = {
-          conservative: { bond: 50, money: 15, hybrid: 20, index: 10, equity: 5 },
-          moderate: { bond: 36, money: 6, hybrid: 30, index: 18, equity: 10 },
-          balanced: { bond: 24, hybrid: 32, index: 26, equity: 14, qdii: 4 },
-          aggressive: { bond: 10, hybrid: 24, index: 32, equity: 26, qdii: 8 },
+          conservative: { bond: 46, money: 12, hybrid: 18, index: 8, etf: 6, equity: 4, reits: 6 },
+          moderate: { bond: 32, money: 5, hybrid: 28, index: 14, etf: 8, equity: 8, reits: 5 },
+          balanced: { bond: 22, hybrid: 28, index: 20, etf: 10, equity: 12, reits: 4, qdii: 4 },
+          aggressive: { bond: 9, hybrid: 22, index: 24, etf: 12, equity: 22, reits: 3, qdii: 8 },
         };
         const variantTilts: Record<string, Record<string, number>> = {
-          defensive: { bond: 10, money: 6, hybrid: -2, index: -6, equity: -6, qdii: -2 },
+          defensive: { bond: 10, money: 6, hybrid: -2, index: -6, etf: -3, equity: -6, reits: 2, qdii: -2 },
           balanced: {},
-          growth: { bond: -8, money: -5, hybrid: -2, index: 7, equity: 6, qdii: 2 },
+          growth: { bond: -8, money: -5, hybrid: -2, index: 7, etf: 4, equity: 6, reits: -2, qdii: 2 },
         };
         const names: Record<string, string> = {
           defensive: "稳健优先",

@@ -41,6 +41,8 @@ const fundTypes = [
   { value: "bond", label: "债券" },
   { value: "hybrid", label: "混合" },
   { value: "index", label: "指数" },
+  { value: "etf", label: "ETF" },
+  { value: "reits", label: "REITs" },
   { value: "equity", label: "股票" },
   { value: "qdii", label: "QDII" },
   { value: "money", label: "货币" },
@@ -68,6 +70,8 @@ type SourceMode = "xinjihui" | "watchlist" | "custom";
 
 type RecommendParams = {
   sourceMode: SourceMode;
+  includeXinjihui: boolean;
+  includeWatchlist: boolean;
   riskProfile: string;
   horizon: string;
   maxDrawdown: number;
@@ -76,6 +80,7 @@ type RecommendParams = {
   optimizationGoal: string;
   focusTheme: string;
   selectedFundCodes: string[];
+  manualFundCodes: string[];
 };
 
 const sourceModes: Array<{ value: SourceMode; label: string; desc: string }> = [
@@ -86,14 +91,17 @@ const sourceModes: Array<{ value: SourceMode; label: string; desc: string }> = [
 
 const defaultParams: RecommendParams = {
   sourceMode: "xinjihui",
+  includeXinjihui: true,
+  includeWatchlist: false,
   riskProfile: "balanced",
   horizon: "1年",
   maxDrawdown: 24,
   amount: 100000,
-  preferredTypes: ["bond", "hybrid", "index", "equity"],
+  preferredTypes: ["bond", "hybrid", "index", "etf", "equity", "reits"],
   optimizationGoal: "balanced",
   focusTheme: "all",
   selectedFundCodes: [] as string[],
+  manualFundCodes: [] as string[],
 };
 
 const barColors = [ACCENT_PRIMARY, ACCENT_INFO, POSITIVE_METRIC_COLOR, ACCENT_HIGHLIGHT, "#9D7BFF", "#16C784"];
@@ -140,6 +148,7 @@ export default function Recommend() {
   const [activePlanId, setActivePlanId] = useState<number | null>(null);
   const [expandedFundCode, setExpandedFundCode] = useState<string | null>(null);
   const [fundSearch, setFundSearch] = useState("");
+  const [manualCode, setManualCode] = useState("");
 
   const { data: listData } = trpc.fund.list.useQuery(
     { pageSize: 1000 },
@@ -147,22 +156,22 @@ export default function Recommend() {
   );
   const { data: recommendationsData, isLoading, isFetching } = trpc.fund.recommendations.useQuery(
     applied,
-    { enabled: applied.sourceMode !== "custom" || applied.selectedFundCodes.length > 0 }
+    { enabled: applied.includeXinjihui || applied.includeWatchlist || applied.selectedFundCodes.length > 0 || applied.manualFundCodes.length > 0 }
   );
 
   const allFunds = listData?.funds ?? [];
   const availableFunds = useMemo(() => {
     const bySource = allFunds.filter((fund: any) => {
-      if (draft.sourceMode === "watchlist") return fund.source === "watchlist" || !fund.isXinjihui;
-      if (draft.sourceMode === "xinjihui") return fund.isXinjihui;
-      return true;
+      const inXinjihui = draft.includeXinjihui && fund.isXinjihui;
+      const inWatchlist = draft.includeWatchlist && (fund.source === "watchlist" || !fund.isXinjihui);
+      return inXinjihui || inWatchlist || draft.selectedFundCodes.includes(String(fund.fundCode));
     });
     const keyword = fundSearch.trim().toLowerCase();
     const searched = keyword
       ? bySource.filter((fund: any) => `${fund.fundCode}${fund.fundName}${fund.fundAbbr}${fund.category}`.toLowerCase().includes(keyword))
       : bySource;
     return searched.slice(0, 36);
-  }, [allFunds, draft.sourceMode, fundSearch]);
+  }, [allFunds, draft.includeXinjihui, draft.includeWatchlist, draft.selectedFundCodes, fundSearch]);
   const selectedFunds = useMemo(
     () => allFunds.filter((fund: any) => draft.selectedFundCodes.includes(String(fund.fundCode))),
     [allFunds, draft.selectedFundCodes]
@@ -172,7 +181,7 @@ export default function Recommend() {
   const allocations = (activePlan as any)?.fundAllocations || [];
   const totalWeight = allocations.reduce((sum: number, item: any) => sum + (item.weight || 0), 0) || 100;
   const pendingChanges = JSON.stringify(draft) !== JSON.stringify(applied);
-  const canGenerate = draft.sourceMode !== "custom" || draft.selectedFundCodes.length > 0;
+  const canGenerate = draft.includeXinjihui || draft.includeWatchlist || draft.selectedFundCodes.length > 0 || draft.manualFundCodes.length > 0;
 
   const updateDraft = (patch: Partial<typeof defaultParams>) => setDraft((prev) => ({ ...prev, ...patch }));
   const updateRiskProfile = (value: string) => {
@@ -192,6 +201,24 @@ export default function Recommend() {
         ? draft.selectedFundCodes.filter((item) => item !== code)
         : [...draft.selectedFundCodes, code],
     });
+  };
+  const toggleSource = (key: "includeXinjihui" | "includeWatchlist") => {
+    const next = { ...draft, [key]: !draft[key] };
+    next.sourceMode = next.includeXinjihui && !next.includeWatchlist && next.manualFundCodes.length === 0 && next.selectedFundCodes.length === 0
+      ? "xinjihui"
+      : next.includeWatchlist && !next.includeXinjihui && next.manualFundCodes.length === 0 && next.selectedFundCodes.length === 0
+        ? "watchlist"
+        : "custom";
+    setDraft(next);
+  };
+  const addManualCode = () => {
+    const code = manualCode.trim();
+    if (!/^\d{6}$/.test(code)) return;
+    updateDraft({
+      sourceMode: "custom",
+      manualFundCodes: draft.manualFundCodes.includes(code) ? draft.manualFundCodes : [...draft.manualFundCodes, code],
+    });
+    setManualCode("");
   };
   const applySettings = () => {
     setApplied(draft);
@@ -245,7 +272,11 @@ export default function Recommend() {
                   {sourceModes.map((item) => (
                     <button
                       key={item.value}
-                      onClick={() => updateDraft({ sourceMode: item.value, selectedFundCodes: item.value === "custom" ? draft.selectedFundCodes : [] })}
+                      onClick={() => updateDraft({
+                        sourceMode: item.value,
+                        includeXinjihui: item.value === "xinjihui",
+                        includeWatchlist: item.value === "watchlist",
+                      })}
                       className={`min-h-14 rounded-lg border px-2 text-left transition-all ${
                         draft.sourceMode === item.value ? "bg-[#3B6CFF]/16 border-[#3B6CFF]/35 text-white" : "bg-white/[0.03] border-white/[0.07] text-white/50 hover:text-white/75"
                       }`}
@@ -255,13 +286,33 @@ export default function Recommend() {
                     </button>
                   ))}
                 </div>
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <button onClick={() => toggleSource("includeXinjihui")} className={`h-9 rounded-lg border text-xs ${draft.includeXinjihui ? "bg-[#00F0FF]/10 border-[#00F0FF]/30 text-[#00F0FF]" : "bg-white/[0.02] border-white/[0.06] text-white/40"}`}>
+                    {draft.includeXinjihui ? "已纳入" : "纳入"}鑫基荟
+                  </button>
+                  <button onClick={() => toggleSource("includeWatchlist")} className={`h-9 rounded-lg border text-xs ${draft.includeWatchlist ? "bg-[#00F0FF]/10 border-[#00F0FF]/30 text-[#00F0FF]" : "bg-white/[0.02] border-white/[0.06] text-white/40"}`}>
+                    {draft.includeWatchlist ? "已纳入" : "纳入"}自选池
+                  </button>
+                </div>
               </section>
 
-              {draft.sourceMode === "custom" && (
+              {(
                 <section className="rounded-lg border border-white/[0.06] bg-white/[0.025] p-3">
                   <div className="flex items-center justify-between gap-2 mb-2">
                     <div className="text-xs text-white/45">指定候选基金</div>
-                    <button onClick={() => updateDraft({ selectedFundCodes: [] })} className="text-[11px] text-white/35 hover:text-white/65">清空</button>
+                    <button onClick={() => updateDraft({ selectedFundCodes: [], manualFundCodes: [] })} className="text-[11px] text-white/35 hover:text-white/65">清空</button>
+                  </div>
+                  <div className="flex gap-2 mb-2">
+                    <input
+                      value={manualCode}
+                      onChange={(event) => setManualCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                      onKeyDown={(event) => { if (event.key === "Enter") addManualCode(); }}
+                      placeholder="输入6位代码"
+                      className="min-w-0 flex-1 h-9 px-3 rounded-lg bg-[#0B1021] border border-white/[0.08] text-white text-sm placeholder:text-white/25 focus:outline-none focus:border-[#3B6CFF]/50"
+                    />
+                    <button onClick={addManualCode} disabled={!/^\d{6}$/.test(manualCode)} className="h-9 px-3 rounded-lg border border-[#3B6CFF]/35 bg-[#3B6CFF]/12 text-[#5AA9FF] text-xs disabled:opacity-35">
+                      添加
+                    </button>
                   </div>
                   <div className="relative mb-2">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/25" />
@@ -272,8 +323,13 @@ export default function Recommend() {
                       className="w-full h-9 pl-9 pr-3 rounded-lg bg-[#0B1021] border border-white/[0.08] text-white text-sm placeholder:text-white/25 focus:outline-none focus:border-[#3B6CFF]/50"
                     />
                   </div>
-                  {selectedFunds.length > 0 && (
+                  {(selectedFunds.length > 0 || draft.manualFundCodes.length > 0) && (
                     <div className="flex flex-wrap gap-1.5 mb-2">
+                      {draft.manualFundCodes.map((code) => (
+                        <button key={code} onClick={() => updateDraft({ manualFundCodes: draft.manualFundCodes.filter((item) => item !== code) })} className="rounded-md border border-[#00F0FF]/25 bg-[#00F0FF]/10 px-2 py-1 text-[11px] text-[#00F0FF] data-number">
+                          {code}
+                        </button>
+                      ))}
                       {selectedFunds.map((fund: any) => (
                         <button key={fund.fundCode} onClick={() => toggleFundCode(String(fund.fundCode))} className="rounded-md border border-[#3B6CFF]/25 bg-[#3B6CFF]/10 px-2 py-1 text-[11px] text-[#5AA9FF]">
                           {fund.fundAbbr || fund.fundName}
@@ -426,7 +482,7 @@ export default function Recommend() {
               >
                 <RefreshCw className="w-4 h-4" />生成组合
               </button>
-              {!canGenerate && <div className="text-xs text-[#FFB800]">请至少选择一只指定产品后再生成。</div>}
+              {!canGenerate && <div className="text-xs text-[#FFB800]">请至少纳入一个产品池，或手工添加一只基金。</div>}
             </div>
           </aside>
 

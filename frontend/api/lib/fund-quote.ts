@@ -16,7 +16,7 @@ const quoteCache = new Map<string, CacheEntry>();
 const CACHE_TTL_MS = 10 * 60 * 1000;
 
 export function isExchangeFundCode(code: string): boolean {
-  return /^5\d{5}$/.test(code) || /^159\d{3}$/.test(code);
+  return /^(5\d{5}|508\d{3}|15\d{4}|16\d{4}|18\d{4})$/.test(code);
 }
 
 function parseNumber(value: unknown): number | undefined {
@@ -45,14 +45,14 @@ function cleanFundName(value: string) {
 }
 
 function getEastmoneySecid(code: string): string | null {
-  if (/^5\d{5}$/.test(code)) return `1.${code}`;
-  if (/^159\d{3}$/.test(code)) return `0.${code}`;
+  if (/^(5\d{5}|508\d{3})$/.test(code)) return `1.${code}`;
+  if (/^(15\d{4}|16\d{4}|18\d{4})$/.test(code)) return `0.${code}`;
   return null;
 }
 
 function getTencentSymbol(code: string): string | null {
-  if (/^5\d{5}$/.test(code)) return `s_sh${code}`;
-  if (/^159\d{3}$/.test(code)) return `s_sz${code}`;
+  if (/^(5\d{5}|508\d{3})$/.test(code)) return `s_sh${code}`;
+  if (/^(15\d{4}|16\d{4}|18\d{4})$/.test(code)) return `s_sz${code}`;
   return null;
 }
 
@@ -91,7 +91,7 @@ async function fetchExchangeFundQuote(code: string, signal: AbortSignal): Promis
   if (!secid) return null;
 
   const tencentQuote = await fetchTencentExchangeFundQuote(code, signal);
-  if (tencentQuote?.dayGrowth !== undefined || tencentQuote?.nav !== undefined) {
+  if (tencentQuote?.name && (tencentQuote.dayGrowth !== undefined || tencentQuote.nav !== undefined)) {
     return tencentQuote;
   }
 
@@ -119,12 +119,12 @@ async function fetchExchangeFundQuote(code: string, signal: AbortSignal): Promis
     return {
       code,
       name: String(quote.f58 || "").trim(),
-      nav: price === undefined ? undefined : price / 1000,
+      nav: price === undefined ? tencentQuote?.nav : price / 1000,
       navDate,
-      dayGrowth: dayGrowthRaw === undefined ? undefined : dayGrowthRaw / 100,
+      dayGrowth: dayGrowthRaw === undefined ? tencentQuote?.dayGrowth : dayGrowthRaw / 100,
     };
   } catch {
-    return null;
+    return tencentQuote;
   }
 }
 
@@ -169,6 +169,7 @@ export async function fetchFundQuote(code: string): Promise<FundQuote | null> {
   try {
     const exchangeQuote = await fetchExchangeFundQuote(code, controller.signal);
     if (exchangeQuote?.dayGrowth !== undefined || exchangeQuote?.nav !== undefined) {
+      if (!exchangeQuote.name) exchangeQuote.name = await fetchFundNameFallback(code, controller.signal);
       quoteCache.set(code, { expiresAt: Date.now() + CACHE_TTL_MS, quote: exchangeQuote });
       return exchangeQuote;
     }

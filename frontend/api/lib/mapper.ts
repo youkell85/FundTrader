@@ -54,6 +54,13 @@ function generateTags(name: string, _type: string): string[] {
   return tags.slice(0, 2);
 }
 
+function inferFundType(code: string, name: string, rawType: string): string {
+  const text = `${rawType || ""}${name || ""}`.toUpperCase();
+  if (/REIT/.test(text) || /^508\d{3}$/.test(code)) return "REITs";
+  if (/ETF/.test(text) || /LOF/.test(text) || /^(15\d{4}|16\d{4}|18\d{4}|5\d{5})$/.test(code)) return "ETF";
+  return rawType || "";
+}
+
 function toNumber(value: any): number | null {
   if (value === null || value === undefined || value === "") return null;
   const num = typeof value === "number" ? value : parseFloat(String(value).replace("%", ""));
@@ -71,6 +78,12 @@ function pickMetric(...values: any[]): string | undefined {
     return String(value);
   }
   return undefined;
+}
+
+function normalizeRatio(value: any): number {
+  const num = toNumber(value);
+  if (num === null || num < 0) return 0;
+  return num > 1 ? num / 100 : num;
 }
 
 function uniqueNavPoints(navData: any[]) {
@@ -178,7 +191,7 @@ export function mapFundItem(item: any): any {
   if (!item || typeof item !== "object") return null;
   const code = item.code || "";
   const name = item.name || "";
-  const type = item.type || "";
+  const type = inferFundType(code, name, item.type || "");
   const perf = item.performance || {};
   const navPerformance = calcPerformanceFromNav(item.nav_data || item.navHistory || []);
   // 兼容 manager 为字符串或对象的情况
@@ -219,6 +232,7 @@ export function mapFundItem(item: any): any {
     tags,
     trackingIndex: item.trackingIndex || null,
     source, // xinjihui / watchlist 标记
+    updatedAt: item.updated_at || item.updatedAt || item.created_at || null,
     performance: {
       return1m: perf.near_1m != null ? String(perf.near_1m) : item.near_1m != null ? String(item.near_1m) : navPerformance.return1m || "0",
       return3m: perf.near_3m != null ? String(perf.near_3m) : item.near_3m != null ? String(item.near_3m) : navPerformance.return3m || "0",
@@ -277,14 +291,14 @@ export function mapFundDetail(analysis: any): any {
     stockCode: h?.code || "",
     stockName: h?.name || "",
     industry: h?.industry || "—",
-    ratio: h?.ratio != null ? (h.ratio / 100).toFixed(4) : "0",
+    ratio: normalizeRatio(h?.ratio).toFixed(4),
     changeRatio: h?.change_ratio != null ? String(h.change_ratio) : "0",
     dailyChange: h?.daily_change != null ? String(h.daily_change) : null,
     quoteCode: h?.quote_code || null,
     quarter: h?.quarter || null,
     source: h?.source || null,
     updatedAt: h?.updated_at || null,
-  }));
+  })).sort((a: any, b: any) => parseFloat(b.ratio || "0") - parseFloat(a.ratio || "0"));
 
   const industries: any[] = [];
   if (holdings.length > 0) {
@@ -295,12 +309,31 @@ export function mapFundDetail(analysis: any): any {
     });
   }
 
+  const assetAllocation = (analysis.asset_allocation || analysis.assetAllocation || []).map((item: any) => ({
+    name: item?.name || item?.asset || item?.type || "",
+    ratio: normalizeRatio(item?.ratio ?? item?.value).toFixed(4),
+    reportDate: item?.report_date || item?.reportDate || item?.quarter || holdings[0]?.quarter || null,
+    source: item?.source || analysis.source || null,
+  })).filter((item: any) => item.name && parseFloat(item.ratio) > 0);
+
+  const dividends = (analysis.dividends || []).map((item: any) => ({
+    exDate: item?.ex_date || item?.exDate || "",
+    payDate: item?.pay_date || item?.payDate || "",
+    recordDate: item?.record_date || item?.recordDate || "",
+    annDate: item?.ann_date || item?.annDate || "",
+    baseDate: item?.base_date || item?.baseDate || "",
+    cash: item?.div_cash != null ? String(item.div_cash) : item?.cash != null ? String(item.cash) : "",
+  })).filter((item: any) => item.exDate || item.annDate || item.cash);
+
   return {
     ...base,
     navHistory: navData, // 返回全量净值数据，由前端按周期裁剪
     navHistoryFull: navData, // 保留完整历史供周期切换
     holdings,
     industries,
+    industryHistory: analysis.industry_history || analysis.industryHistory || industries,
+    assetAllocation,
+    dividends,
   };
 }
 

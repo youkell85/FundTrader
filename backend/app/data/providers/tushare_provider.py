@@ -184,9 +184,9 @@ class TushareProvider(DataProvider):
     def _fund_portfolio_codes(self, code: str) -> List[str]:
         raw = str(code or "").strip()
         codes = [f"{raw}.OF"]
-        if raw.startswith("5"):
+        if raw.startswith(("5", "508")):
             codes.append(f"{raw}.SH")
-        elif raw.startswith(("159", "16")):
+        elif raw.startswith(("15", "16", "18")):
             codes.append(f"{raw}.SZ")
         return list(dict.fromkeys(codes))
 
