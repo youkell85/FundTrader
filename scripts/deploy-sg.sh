@@ -78,7 +78,7 @@ if [ "$DEPLOY_NGINX" = true ]; then
   scp -P ${SSH_PORT} deploy/nginx_fund.conf root@${SG_HOST}:/etc/nginx/conf.d/fundtrader.conf
   scp -P ${SSH_PORT} deploy/fundtrader.service root@${SG_HOST}:/etc/systemd/system/fundtrader.service
   scp -P ${SSH_PORT} deploy/fundtrader-frontend.service root@${SG_HOST}:/etc/systemd/system/fundtrader-frontend.service
-  ssh -p ${SSH_PORT} root@${SG_HOST} "systemctl daemon-reload && nginx -t && systemctl reload nginx"
+  ssh -p ${SSH_PORT} root@${SG_HOST} "systemctl daemon-reload && nginx -t && systemctl reload nginx && systemctl restart fundtrader fundtrader-frontend"
   echo "  Nginx & Systemd 配置已更新"
 else
   echo "[6/6] 跳过 Nginx 配置更新"
@@ -92,7 +92,7 @@ sleep 3
 BACKEND_OK=$(ssh -p ${SSH_PORT} root@${SG_HOST} "curl -s -o /dev/null -w '%{http_code}' http://localhost:8766/health" || echo "ERR")
 FRONTEND_OK=$(ssh -p ${SSH_PORT} root@${SG_HOST} "curl -s -o /dev/null -w '%{http_code}' http://localhost:3000/fund/" || echo "ERR")
 NGINX_OK=$(ssh -p ${SSH_PORT} root@${SG_HOST} "curl -s -o /dev/null -w '%{http_code}' http://localhost/fund/" || echo "ERR")
-ASSET_OK=$(ssh -p ${SSH_PORT} root@${SG_HOST} "asset=\$(curl -fsS http://localhost/fund/ | grep -o '/fund/assets/[^\"'\"' ]*' | head -n 1); if [ -n \"\$asset\" ]; then curl -s -o /dev/null -w '%{http_code}' \"http://localhost\$asset\"; else echo MISSING; fi" || echo "ERR")
+ASSET_OK=$(ssh -p ${SSH_PORT} root@${SG_HOST} "asset=\$(curl -fsS http://localhost/fund/ | grep -o \"/fund/assets/[^\\\" ]*\" | head -n 1); if [ -n \"\$asset\" ]; then curl -s -o /dev/null -w '%{http_code}' \"http://localhost\$asset\"; else echo MISSING; fi" || echo "ERR")
 if [ "${NGINX_OK}" != "200" ] || [ "${ASSET_OK}" != "200" ]; then
   echo "  Static asset:       ${ASSET_OK}"
   echo "  Frontend verification failed: page or entry asset is not reachable"
