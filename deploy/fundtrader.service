@@ -15,6 +15,7 @@ Environment=LLM_MODEL=MiniMax-M2.7
 ExecStart=/opt/fundtrader/backend/.venv/bin/python -m uvicorn app.main:app --host 0.0.0.0 --port 8766 --root-path /fund/api
 Restart=always
 RestartSec=5
+WatchdogSec=0
 
 [Install]
 WantedBy=multi-user.target
