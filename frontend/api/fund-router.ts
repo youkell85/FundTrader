@@ -48,7 +48,7 @@ function wrapError(err: unknown, message: string): never {
 // L2 日频: 净值/日涨跌 — 15min TTL，交易时段实时
 
 const bffCache = new Map<string, { expiresAt: number; data: any }>();
-const DETAIL_ANALYSIS_TIMEOUT_MS = Number(process.env.FUNDTRADER_DETAIL_TIMEOUT_MS ?? 12_000);
+const DETAIL_ANALYSIS_TIMEOUT_MS = Number(process.env.FUNDTRADER_DETAIL_TIMEOUT_MS ?? 4_000);
 
 /** 默认缓存TTL按数据层级分级 */
 const BFF_CACHE_TTL = 30 * 60 * 1000;                     // 默认 30分钟
@@ -472,10 +472,12 @@ function quoteToAnalysis(code: string, quote: Awaited<ReturnType<typeof fetchFun
 const PEER_RANKING_CATEGORIES = ["股票型", "混合型", "债券型", "指数型", "QDII", "FOF", "货币"];
 
 async function fetchAndCacheFundAnalysis(code: string, cacheKey = `analysis_${code}`) {
-  const analysis = await getFundAnalysis(code);
-  const enriched = await enrichFundAnalysis(analysis, code);
-  if (enriched) setCache(cacheKey, enriched, ANALYSIS_TTL);
-  return enriched;
+  return dedupe(`detailAnalysis_${code}`, async () => {
+    const analysis = await getFundAnalysis(code);
+    const enriched = await enrichFundAnalysis(analysis, code);
+    if (enriched) setCache(cacheKey, enriched, ANALYSIS_TTL);
+    return enriched;
+  });
 }
 
 function scheduleFundAnalysisWarmup(code: string, cacheKey = `analysis_${code}`) {
