@@ -130,7 +130,10 @@ export default function FundDetail() {
   // 按周期裁剪净值数据
   const periodNavData = useMemo(() => {
     if (!fund?.navHistory || fund.navHistory.length === 0) return [];
-    const all = fund.navHistory;
+    const all = fund.navHistory
+      .map((item: any) => ({ ...item, nav: navNumber(item?.nav) }))
+      .filter((item: any) => item.nav !== null && item.navDate)
+      .sort((a: any, b: any) => String(a.navDate).localeCompare(String(b.navDate)));
     if (navPeriod === "all") return all;
     const daysMap: Record<string, number> = { "3m": 90, "6m": 180, "1y": 365, "3y": 365 * 3, "5y": 365 * 5 };
     const days = daysMap[navPeriod] ?? 365;
