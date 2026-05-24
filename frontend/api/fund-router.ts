@@ -21,6 +21,7 @@ import {
   mapMarketOverview,
 } from "./lib/mapper";
 import { fetchFundQuote, isExchangeFundCode } from "./lib/fund-quote";
+import { buildPeerPerformanceRows } from "./lib/peer-rankings";
 
 const strategyMap: Record<string, string> = {
   compare: "compare",
@@ -467,6 +468,14 @@ function quoteToAnalysis(code: string, quote: Awaited<ReturnType<typeof fetchFun
   };
 }
 
+async function fetchFullMarketRanking() {
+  const cached = getCached<any[]>("fullMarketRanking");
+  if (cached) return cached;
+  const funds = await fetchAllFundList({ guoyuan_only: false });
+  setCache("fullMarketRanking", funds, dailyCacheTtl());
+  return funds;
+}
+
 if (process.env.FUNDTRADER_DISABLE_AUTO_PREWARM !== "true") {
   const startupTimer = setTimeout(() => refreshHomeCaches("startup"), 1000);
   startupTimer.unref?.();
@@ -648,6 +657,44 @@ export const fundRouter = createRouter({
         });
       } catch (err) {
         wrapError(err, "添加基金到首页列表失败");
+      }
+    }),
+
+  // 全市场同类收益排名
+  peerPerformanceRanking: publicQuery
+    .input(z.object({ code: z.string().regex(/^\d{6}$/) }))
+    .query(async ({ input }) => {
+      try {
+        const fullMarket = await fetchFullMarketRanking();
+        const cachedHomeFunds = getCached<any[]>("homeFunds") || getCached<any[]>("homeFundSummaries") || [];
+        const marketFund = fullMarket.find((fund: any) => String(fund?.code || fund?.fundCode || "") === input.code);
+        const cachedFund = cachedHomeFunds.find((fund: any) => String(fund?.code || fund?.fundCode || "") === input.code);
+        const analysis = (!marketFund && !cachedFund) ? await getFundAnalysis(input.code).catch(() => null) : null;
+        const mapped = mapFundItem(cachedFund || analysis || marketFund || { code: input.code });
+        const target = {
+          ...(marketFund || {}),
+          ...(analysis || {}),
+          code: input.code,
+          type: marketFund?.type || cachedFund?.type || analysis?.type || mapped?.category,
+          mappedType: mapped?.fundType,
+          near_1m: marketFund?.near_1m ?? analysis?.return1m ?? mapped?.performance?.return1m,
+          near_3m: marketFund?.near_3m ?? analysis?.return3m ?? mapped?.performance?.return3m,
+          near_6m: marketFund?.near_6m ?? analysis?.return6m ?? mapped?.performance?.return6m,
+          near_1y: marketFund?.near_1y ?? analysis?.return1y ?? mapped?.performance?.return1y,
+        };
+        const peers = fullMarket.map((fund: any) => {
+          const item = mapFundItem(fund);
+          return { ...fund, mappedType: item?.fundType };
+        });
+        return {
+          code: input.code,
+          peerType: target.type || mapped?.category || mapped?.fundType || "同类基金",
+          source: "东方财富/AKShare 全市场基金排行",
+          updatedAt: new Date().toISOString(),
+          rows: buildPeerPerformanceRows(target, peers),
+        };
+      } catch (err) {
+        wrapError(err, "获取全市场同类收益排名失败");
       }
     }),
 

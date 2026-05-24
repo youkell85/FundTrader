@@ -96,14 +96,14 @@ export default function FundDetail() {
   const [selectedRiskMetric, setSelectedRiskMetric] = useState<string | null>(null);
   const detailById = trpc.fund.detail.useQuery({ id: fundId }, { enabled: !isFundCode && fundId > 0 });
   const detailByCode = trpc.fund.detailByCode.useQuery({ code: routeParam }, { enabled: isFundCode });
-  const { data: listData } = trpc.fund.list.useQuery(
-    { pageSize: 1000 },
-    { staleTime: 5 * 60 * 1000, refetchOnWindowFocus: false }
-  );
   const fund = isFundCode ? detailByCode.data : detailById.data;
   const isLoading = isFundCode ? detailByCode.isLoading : detailById.isLoading;
   const queryError = isFundCode ? detailByCode.error : detailById.error;
   const refetchDetail = isFundCode ? detailByCode.refetch : detailById.refetch;
+  const peerRankingQuery = trpc.fund.peerPerformanceRanking.useQuery(
+    { code: fund?.fundCode || routeParam },
+    { enabled: !!(fund?.fundCode || (isFundCode && routeParam)), staleTime: 6 * 60 * 60 * 1000, refetchOnWindowFocus: false }
+  );
 
   // LLM 综合分析（懒加载）
   const [llmEnabled, setLlmEnabled] = useState(false);
@@ -148,32 +148,7 @@ export default function FundDetail() {
     return all.slice(startIdx);
   }, [fund?.navHistory, navPeriod]);
 
-  const performanceRows = useMemo(() => {
-    if (!fund?.performance) return [];
-    const peers = (listData?.funds || []).filter((item: any) => item.fundType === fund.fundType && item.fundCode !== fund.fundCode);
-    const rows = [
-      { label: "近1周", key: "return1w", value: null as number | null },
-      { label: "近1个月", key: "return1m", value: metricNumber(fund.performance.return1m) },
-      { label: "近3个月", key: "return3m", value: metricNumber(fund.performance.return3m) },
-      { label: "近6个月", key: "return6m", value: metricNumber(fund.performance.return6m) },
-      { label: "近1年", key: "return1y", value: metricNumber(fund.performance.return1y) },
-    ];
-    if (fund.navHistory?.length > 1) {
-      const latest = fund.navHistory[fund.navHistory.length - 1];
-      const latestTime = new Date(latest.navDate).getTime();
-      const target = latestTime - 7 * 24 * 60 * 60 * 1000;
-      const start = [...fund.navHistory].reverse().find((item: any) => new Date(item.navDate).getTime() <= target) || fund.navHistory[0];
-      const startNav = metricNumber(start.nav);
-      const endNav = metricNumber(latest.nav);
-      rows[0].value = startNav && endNav ? ((endNav - startNav) / startNav) * 100 : null;
-    }
-    return rows.map((row) => {
-      const peerVals = peers.map((item: any) => metricNumber(item.performance?.[row.key])).filter((value): value is number => value !== null);
-      const avg = peerVals.length ? peerVals.reduce((sum, value) => sum + value, 0) / peerVals.length : null;
-      const rank = row.value === null ? null : peerVals.filter((value) => value > row.value!).length + 1;
-      return { ...row, avg, rank, total: peerVals.length + (row.value === null ? 0 : 1) };
-    });
-  }, [fund, listData?.funds]);
+  const performanceRows = peerRankingQuery.data?.rows ?? [];
 
   const assetChartData = useMemo(() => (
     (fund?.assetAllocation || []).map((item: any) => ({
@@ -311,14 +286,25 @@ export default function FundDetail() {
                 <div className="grid grid-cols-[1fr_1fr_1fr_1fr] bg-white/[0.035] px-3 py-2 text-xs text-white/40">
                   <span>周期</span><span className="text-right">本基金</span><span className="text-right">同类平均</span><span className="text-right">同类排名</span>
                 </div>
+                {peerRankingQuery.isLoading && (
+                  <div className="px-3 py-3 text-xs text-white/35 border-t border-white/[0.04]">正在计算全市场同类排名...</div>
+                )}
+                {!peerRankingQuery.isLoading && performanceRows.length === 0 && (
+                  <div className="px-3 py-3 text-xs text-white/35 border-t border-white/[0.04]">暂无全市场同类排名数据</div>
+                )}
                 {performanceRows.map((row: any) => (
                   <div key={row.label} className="grid grid-cols-[1fr_1fr_1fr_1fr] px-3 py-2 text-xs border-t border-white/[0.04]">
                     <span className="text-white/55">{row.label}</span>
                     <span className={`data-number text-right ${row.value == null ? "text-white/30" : getChangeTextClass(row.value)}`}>{row.value == null ? "—" : `${row.value >= 0 ? "+" : ""}${row.value.toFixed(2)}%`}</span>
-                    <span className={`data-number text-right ${row.avg == null ? "text-white/30" : getChangeTextClass(row.avg)}`}>{row.avg == null ? "—" : `${row.avg >= 0 ? "+" : ""}${row.avg.toFixed(2)}%`}</span>
+                    <span className={`data-number text-right ${row.peerAverage == null ? "text-white/30" : getChangeTextClass(row.peerAverage)}`}>{row.peerAverage == null ? "—" : `${row.peerAverage >= 0 ? "+" : ""}${row.peerAverage.toFixed(2)}%`}</span>
                     <span className="data-number text-right text-white/55">{row.rank == null || row.total === 0 ? "—" : `${row.rank}/${row.total}`}</span>
                   </div>
                 ))}
+                {peerRankingQuery.data && (
+                  <div className="px-3 py-2 text-[11px] text-white/30 border-t border-white/[0.04]">
+                    口径：{peerRankingQuery.data.peerType} / {peerRankingQuery.data.source}
+                  </div>
+                )}
               </div>
 
               {fund.navHistory && fund.navHistory.length > 0 && (
