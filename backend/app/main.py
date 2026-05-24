@@ -34,6 +34,18 @@ async def health():
     return {"status": "ok", "service": "FundTrader"}
 
 
+@app.get("/api/health")
+async def api_health():
+    """Health endpoint under root_path prefix (/fund/api/health)"""
+    return {"status": "ok", "service": "FundTrader"}
+
+
+@app.get("/fund/api/health")
+async def full_path_health():
+    """Health endpoint for direct access with full path"""
+    return {"status": "ok", "service": "FundTrader"}
+
+
 if __name__ == "__main__":
     import uvicorn
     from .config import API_HOST, API_PORT
