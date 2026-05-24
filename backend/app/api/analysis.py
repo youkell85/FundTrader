@@ -10,7 +10,7 @@ from starlette.concurrency import run_in_threadpool
 
 from ..config import CACHE_TTL_INFO
 from ..data.cache_manager import cache
-from ..services.analysis_service import analyze_fund
+from ..services.analysis_service import analyze_fund, normalize_nav_data
 from ..services.llm_service import (
     analyze_fund_comprehensive,
     analyze_manager_style,
@@ -80,7 +80,7 @@ def _to_float(value: Any) -> float | None:
 
 def _calc_nav_risk_metrics(nav_data: List[Dict[str, Any]]) -> Dict[str, float | None]:
     points: List[float] = []
-    for item in nav_data or []:
+    for item in normalize_nav_data(nav_data):
         nav = _to_float(item.get("accum_nav") if item.get("accum_nav") not in (None, "", 0) else item.get("nav"))
         if nav is not None and nav > 0:
             points.append(nav)
@@ -111,15 +111,17 @@ def _calc_nav_risk_metrics(nav_data: List[Dict[str, Any]]) -> Dict[str, float | 
 def _fill_missing_nav_metrics(data: Dict[str, Any]) -> Dict[str, Any]:
     if not data or not isinstance(data, dict):
         return data
-    if data.get("sharpe_ratio") is not None and data.get("max_drawdown") is not None:
-        return data
-    metrics = _calc_nav_risk_metrics(data.get("nav_data") or [])
+    normalized_nav_data = normalize_nav_data(data.get("nav_data") or [])
+    if normalized_nav_data != (data.get("nav_data") or []):
+        data = dict(data)
+        data["nav_data"] = normalized_nav_data
+    metrics = _calc_nav_risk_metrics(normalized_nav_data)
     if metrics.get("sharpeRatio") is None and metrics.get("maxDrawdown") is None:
         return data
     enriched = dict(data)
-    if enriched.get("sharpe_ratio") is None:
+    if metrics.get("sharpeRatio") is not None:
         enriched["sharpe_ratio"] = metrics.get("sharpeRatio")
-    if enriched.get("max_drawdown") is None:
+    if metrics.get("maxDrawdown") is not None:
         enriched["max_drawdown"] = metrics.get("maxDrawdown")
     return enriched
 

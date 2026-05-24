@@ -95,7 +95,7 @@ function uniqueNavPoints(navData: any[]) {
     byDate.set(String(date), {
       date: String(date),
       nav,
-      dayGrowth: toNumber(item?.day_growth ?? item?.dailyReturn ?? item?.日增长率),
+      dayGrowth: toNumber(item?.day_growth ?? item?.dailyReturn ?? item?.日增长率 ?? item?.涨跌幅 ?? item?.增长率),
     });
   }
   return Array.from(byDate.values()).sort((a, b) => a.date.localeCompare(b.date));
@@ -280,11 +280,19 @@ export function mapFundItem(item: any): any {
 export function mapFundDetail(analysis: any): any {
   if (!analysis || typeof analysis !== "object") return null;
   const base = mapFundItem(analysis);
-  const navData = (analysis.nav_data || []).map((n: any) => ({
-    navDate: n?.date,
-    nav: n?.nav != null ? String(n.nav) : "—",
-    dailyReturn: n?.day_growth != null ? String(n.day_growth) : "0",
-  }));
+  const navData = (analysis.nav_data || [])
+    .map((n: any) => ({
+      navDate: n?.date || n?.navDate || n?.净值日期,
+      nav: n?.nav ?? n?.单位净值 ?? n?.nav_value,
+      dailyReturn: n?.day_growth ?? n?.dailyReturn ?? n?.日增长率 ?? n?.涨跌幅 ?? n?.增长率 ?? "0",
+    }))
+    .filter((n: any) => n.navDate && toNumber(n.nav) !== null)
+    .sort((a: any, b: any) => String(a.navDate).localeCompare(String(b.navDate)))
+    .map((n: any) => ({
+      navDate: String(n.navDate),
+      nav: String(n.nav),
+      dailyReturn: n.dailyReturn != null ? String(n.dailyReturn) : "0",
+    }));
 
   const holdings = (analysis.holdings || []).map((h: any) => ({
     fundId: base?.id,
