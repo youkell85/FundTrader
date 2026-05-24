@@ -367,7 +367,7 @@ export function mapRecommendation(rec: any, fundsMap: Map<string, any>): any {
 }
 
 // 映射回测结果
-export function mapBacktestResult(result: any): any {
+function mapBacktestResultLegacy(result: any): any {
   result = result || {};
   // 后端返回结构：{ individual: [...], combined: {...} } 或 { strategies: {...} }
   const individual = Array.isArray(result.individual) ? result.individual : [];
@@ -465,6 +465,321 @@ export function mapBacktestResult(result: any): any {
 }
 
 // 映射市场概览
+type BacktestMapOptions = {
+  weights?: number[];
+  strategy?: string;
+  fundMeta?: any[];
+  feeRate?: number;
+  slippageRate?: number;
+  riskProfile?: string;
+  maxDrawdownLimit?: number;
+  targetAnnualReturn?: number;
+};
+
+function toFiniteBacktestNumber(value: unknown, fallback = 0): number {
+  const num = typeof value === "number" ? value : parseFloat(String(value ?? "").replace("%", ""));
+  return Number.isFinite(num) ? num : fallback;
+}
+
+function normalizePortfolioWeights(count: number, weights: number[] = []): number[] {
+  if (count <= 0) return [];
+  const values = Array.from({ length: count }, (_, index) => Math.max(0, toFiniteBacktestNumber(weights[index], 0)));
+  const total = values.reduce((sum, value) => sum + value, 0);
+  if (total <= 0) return Array.from({ length: count }, () => 1 / count);
+  return values.map((value) => value / total);
+}
+
+function parseBacktestDate(date: unknown): number {
+  const time = new Date(String(date || "")).getTime();
+  return Number.isFinite(time) ? time : 0;
+}
+
+function calcPortfolioDrawdown(curve: Array<{ value: number }>): number {
+  let peak = 0;
+  let maxDrawdown = 0;
+  curve.forEach((point) => {
+    if (point.value > peak) peak = point.value;
+    if (peak > 0) maxDrawdown = Math.max(maxDrawdown, (peak - point.value) / peak * 100);
+  });
+  return maxDrawdown;
+}
+
+function calcPortfolioSharpe(curve: Array<{ value: number }>): number {
+  const values = curve.map((point) => point.value).filter((value) => value > 0);
+  if (values.length < 3) return 0;
+  const returns: number[] = [];
+  for (let index = 1; index < values.length; index += 1) {
+    const prev = values[index - 1];
+    if (prev > 0) returns.push((values[index] - prev) / prev);
+  }
+  if (returns.length < 2) return 0;
+  const mean = returns.reduce((sum, value) => sum + value, 0) / returns.length;
+  const variance = returns.reduce((sum, value) => sum + (value - mean) ** 2, 0) / Math.max(1, returns.length - 1);
+  const volatility = Math.sqrt(variance);
+  return volatility > 0 ? (mean / volatility) * Math.sqrt(252) : 0;
+}
+
+function calcPortfolioXirr(cashFlows: Array<{ date: string; value: number }>): number {
+  if (cashFlows.length < 2) return 0;
+  const dated = cashFlows
+    .map((flow) => ({ date: parseBacktestDate(flow.date), value: flow.value }))
+    .filter((flow) => flow.date > 0 && Number.isFinite(flow.value));
+  if (!dated.some((flow) => flow.value < 0) || !dated.some((flow) => flow.value > 0)) return 0;
+  const start = dated[0].date;
+  const npv = (rate: number) => dated.reduce((sum, flow) => {
+    const years = (flow.date - start) / (365.25 * 24 * 60 * 60 * 1000);
+    return sum + flow.value / ((1 + rate) ** years);
+  }, 0);
+
+  let low = -0.95;
+  let high = 5;
+  for (let index = 0; index < 100; index += 1) {
+    const mid = (low + high) / 2;
+    const value = npv(mid);
+    if (Math.abs(value) < 1e-6) return mid * 100;
+    if (value > 0) low = mid;
+    else high = mid;
+  }
+  return ((low + high) / 2) * 100;
+}
+
+function getStrategyPayload(item: any, strategyKey: string): any {
+  if (item?.strategies && typeof item.strategies === "object") return item.strategies[strategyKey];
+  return item;
+}
+
+type WeightedCurvePoint = { date: string; invested: number; value: number; feeCost?: number };
+type BenchmarkCurvePoint = { date: string; value: number };
+
+function mergeWeightedCurves(
+  individual: any[],
+  weights: number[],
+  strategyKey: string,
+  feeRate = 0,
+  slippageRate = 0
+) {
+  const perFund: WeightedCurvePoint[][] = individual.map((item) => {
+    const payload = getStrategyPayload(item, strategyKey);
+    const curve = Array.isArray(payload?.nav_curve) ? payload.nav_curve : [];
+    return curve
+      .map((point: any) => ({
+        date: String(point?.date || ""),
+        invested: toFiniteBacktestNumber(point?.invested),
+        value: toFiniteBacktestNumber(point?.value),
+      }))
+      .filter((point: WeightedCurvePoint) => point.date)
+      .sort((a: WeightedCurvePoint, b: WeightedCurvePoint) => parseBacktestDate(a.date) - parseBacktestDate(b.date));
+  });
+
+  const dates = Array.from(new Set(perFund.flatMap((curve: WeightedCurvePoint[]) => curve.map((point: WeightedCurvePoint) => point.date))))
+    .sort((a, b) => parseBacktestDate(a) - parseBacktestDate(b));
+  const cursors = Array.from({ length: perFund.length }, () => 0);
+  const lastPoints: Array<{ invested: number; value: number } | null> = Array.from({ length: perFund.length }, () => null);
+  let cumulativeCost = 0;
+  let previousInvested = 0;
+  const costRate = Math.max(0, feeRate + slippageRate) / 100;
+
+  const curve = dates.map((date) => {
+    let invested = 0;
+    let value = 0;
+    perFund.forEach((fundCurve, index) => {
+      while (cursors[index] < fundCurve.length && fundCurve[cursors[index]].date <= date) {
+        lastPoints[index] = fundCurve[cursors[index]];
+        cursors[index] += 1;
+      }
+      const point = lastPoints[index];
+      if (!point) return;
+      invested += point.invested * (weights[index] || 0);
+      value += point.value * (weights[index] || 0);
+    });
+    const added = Math.max(0, invested - previousInvested);
+    cumulativeCost += added * costRate;
+    previousInvested = invested;
+    return {
+      date,
+      invested: Math.round(invested * 100) / 100,
+      value: Math.max(0, Math.round((value - cumulativeCost) * 100) / 100),
+      feeCost: Math.round(cumulativeCost * 100) / 100,
+    };
+  }).filter((point) => point.invested > 0 || point.value > 0);
+
+  const final = curve[curve.length - 1] || { date: "", invested: 0, value: 0, feeCost: 0 };
+  const totalReturn = final.invested > 0 ? (final.value - final.invested) / final.invested * 100 : 0;
+  const cashFlows: Array<{ date: string; value: number }> = [];
+  let lastInvested = 0;
+  curve.forEach((point) => {
+    const added = point.invested - lastInvested;
+    if (added > 0) cashFlows.push({ date: point.date, value: -added });
+    lastInvested = point.invested;
+  });
+  if (final.value > 0) cashFlows.push({ date: final.date, value: final.value });
+
+  return {
+    curve,
+    totalInvested: final.invested,
+    finalValue: final.value,
+    totalReturn,
+    annualizedReturn: calcPortfolioXirr(cashFlows),
+    maxDrawdown: calcPortfolioDrawdown(curve),
+    sharpeRatio: calcPortfolioSharpe(curve),
+    feeCost: final.feeCost,
+  };
+}
+
+function mergeWeightedBenchmark(individual: any[], weights: number[]) {
+  const curves: BenchmarkCurvePoint[][] = individual.map((item) => {
+    const curve = Array.isArray(item?.benchmark?.curve) ? item.benchmark.curve : [];
+    return curve
+      .map((point: any) => ({ date: String(point?.date || ""), value: toFiniteBacktestNumber(point?.value) }))
+      .filter((point: BenchmarkCurvePoint) => point.date)
+      .sort((a: BenchmarkCurvePoint, b: BenchmarkCurvePoint) => parseBacktestDate(a.date) - parseBacktestDate(b.date));
+  });
+  const dates = Array.from(new Set(curves.flatMap((curve: BenchmarkCurvePoint[]) => curve.map((point: BenchmarkCurvePoint) => point.date))))
+    .sort((a, b) => parseBacktestDate(a) - parseBacktestDate(b));
+  const cursors = Array.from({ length: curves.length }, () => 0);
+  const lastPoints: Array<{ value: number } | null> = Array.from({ length: curves.length }, () => null);
+  const curve = dates.map((date) => {
+    let value = 0;
+    curves.forEach((fundCurve, index) => {
+      while (cursors[index] < fundCurve.length && fundCurve[cursors[index]].date <= date) {
+        lastPoints[index] = fundCurve[cursors[index]];
+        cursors[index] += 1;
+      }
+      const point = lastPoints[index];
+      if (point) value += point.value * (weights[index] || 0);
+    });
+    return { date, value: Math.round(value * 100) / 100 };
+  }).filter((point) => point.value > 0);
+  const totalInvested = individual.reduce((sum, item, index) => (
+    sum + toFiniteBacktestNumber(item?.benchmark?.total_invested) * (weights[index] || 0)
+  ), 0);
+  const finalValue = curve[curve.length - 1]?.value || 0;
+  const totalReturn = totalInvested > 0 ? (finalValue - totalInvested) / totalInvested * 100 : 0;
+  return {
+    curve,
+    totalInvested,
+    finalValue,
+    totalReturn,
+    annualReturn: totalInvested > 0 && curve.length > 1
+      ? calcPortfolioXirr([{ date: curve[0].date, value: -totalInvested }, { date: curve[curve.length - 1].date, value: finalValue }])
+      : 0,
+    maxDrawdown: calcPortfolioDrawdown(curve),
+  };
+}
+
+export function mapBacktestResult(result: any, options: BacktestMapOptions = {}): any {
+  result = result || {};
+  const individual = Array.isArray(result.individual) ? result.individual : [];
+  const first = individual[0] || result.combined || {};
+  const weights = normalizePortfolioWeights(individual.length || 1, options.weights);
+  const feeRate = toFiniteBacktestNumber(options.feeRate);
+  const slippageRate = toFiniteBacktestNumber(options.slippageRate);
+  const strategyEntries = first.strategies && typeof first.strategies === "object"
+    ? Object.entries(first.strategies as Record<string, any>)
+    : [];
+  const strategyResults = strategyEntries.map(([key]: [string, any]) => {
+    const portfolio = mergeWeightedCurves(individual.length ? individual : [first], individual.length ? weights : [1], key, feeRate, slippageRate);
+    return {
+      key,
+      totalInvested: portfolio.totalInvested.toFixed(2),
+      finalValue: portfolio.finalValue.toFixed(2),
+      totalReturn: portfolio.totalReturn.toFixed(2),
+      annualizedReturn: portfolio.annualizedReturn.toFixed(2),
+      maxDrawdown: portfolio.maxDrawdown.toFixed(2),
+      sharpeRatio: portfolio.sharpeRatio.toFixed(2),
+      feeCost: portfolio.feeCost.toFixed(2),
+      score: (portfolio.annualizedReturn - portfolio.maxDrawdown * 0.45 + portfolio.sharpeRatio * 5).toFixed(2),
+    };
+  });
+  const selectedStrategyKey = options.strategy === "compare"
+    ? (strategyResults.slice().sort((a: any, b: any) => toFiniteBacktestNumber(b.score) - toFiniteBacktestNumber(a.score))[0]?.key || "fixed")
+    : (options.strategy === "fixed_amount" ? "fixed"
+      : options.strategy === "fixed_ratio" ? "ratio"
+        : options.strategy === "value_averaging" || options.strategy === "smart_beta" ? "ma"
+          : options.strategy === "martingale" ? "martingale"
+            : "fixed");
+  const strategyData: any = first.strategies?.[selectedStrategyKey] || first.strategies?.fixed || first.strategies?.ma || first;
+  const portfolioMetrics = individual.length > 0 ? mergeWeightedCurves(individual, weights, selectedStrategyKey, feeRate, slippageRate) : null;
+  const metricsSource: any = portfolioMetrics ?? strategyData ?? first;
+  const monthlyData = portfolioMetrics?.curve?.length
+    ? portfolioMetrics.curve.map((p: any) => ({
+        date: p.date || "",
+        invested: p.invested != null ? String(p.invested) : "0",
+        value: p.value != null ? String(p.value) : "0",
+        feeCost: p.feeCost != null ? String(p.feeCost) : "0",
+      }))
+    : mapBacktestResultLegacy({ individual: [first] }).monthlyData;
+  const weightedBenchmark = individual.length > 0 ? mergeWeightedBenchmark(individual, weights) : null;
+  const benchmarkRaw = weightedBenchmark?.curve || first?.benchmark?.curve || strategyData?.benchmark?.curve || result?.benchmark?.curve || [];
+  const benchmarkCurve = Array.isArray(benchmarkRaw)
+    ? benchmarkRaw.map((p: any) => ({
+        date: p?.date || "",
+        value: p?.value != null ? String(p.value) : "0",
+      }))
+    : [];
+  const benchmarkMap = new Map<string, string>();
+  benchmarkCurve.forEach((p: any) => benchmarkMap.set(p.date, p.value));
+  const merged = monthlyData.map((p: any) => ({ ...p, benchmark: benchmarkMap.get(p.date) ?? null }));
+  const benchSummary = weightedBenchmark || first?.benchmark || strategyData?.benchmark || result?.benchmark || {};
+  const totalInvested = metricsSource.totalInvested ?? metricsSource.total_invested ?? 0;
+  const finalValue = metricsSource.finalValue ?? metricsSource.total_value ?? 0;
+  const totalReturn = metricsSource.totalReturn ?? metricsSource.total_profit_rate ?? 0;
+  const annualizedReturn = metricsSource.annualizedReturn ?? metricsSource.annual_return ?? 0;
+  const maxDrawdown = metricsSource.maxDrawdown ?? metricsSource.max_drawdown ?? 0;
+  const sharpeRatio = metricsSource.sharpeRatio ?? metricsSource.sharpe_ratio ?? 0;
+  return {
+    id: result.id || 1,
+    name: result.name || "DCA Backtest",
+    type: result.type || "portfolio",
+    fundIds: result.fundIds || individual.map((r: any) => r?.fund_code).filter(Boolean),
+    weights: options.weights || result.weights || [],
+    strategy: options.strategy || result.strategy || "fixed_amount",
+    selectedStrategyKey,
+    recommendedStrategyKey: strategyResults.slice().sort((a: any, b: any) => toFiniteBacktestNumber(b.score) - toFiniteBacktestNumber(a.score))[0]?.key || selectedStrategyKey,
+    startDate: result.startDate || result.start_date || "",
+    endDate: result.endDate || result.end_date || "",
+    investAmount: result.investAmount || result.amount || "1000",
+    investFrequency: result.investFrequency || result.frequency || "monthly",
+    totalInvested: toFiniteBacktestNumber(totalInvested).toFixed(2),
+    finalValue: toFiniteBacktestNumber(finalValue).toFixed(2),
+    totalReturn: toFiniteBacktestNumber(totalReturn).toFixed(2),
+    annualizedReturn: toFiniteBacktestNumber(annualizedReturn).toFixed(2),
+    maxDrawdown: toFiniteBacktestNumber(maxDrawdown).toFixed(2),
+    sharpeRatio: toFiniteBacktestNumber(sharpeRatio).toFixed(2),
+    feeCost: toFiniteBacktestNumber(portfolioMetrics?.feeCost).toFixed(2),
+    benchmarkReturn: metricsSource.benchmark_return != null ? String(metricsSource.benchmark_return) : "0",
+    excessReturn: metricsSource.excess_return != null ? String(metricsSource.excess_return) : "0",
+    monthlyData: merged,
+    benchmarkCurve,
+    strategyResults,
+    benchmark: {
+      totalInvested: toFiniteBacktestNumber(benchSummary?.totalInvested ?? benchSummary?.total_invested).toFixed(2),
+      finalValue: toFiniteBacktestNumber(benchSummary?.finalValue ?? benchSummary?.final_value).toFixed(2),
+      totalReturn: toFiniteBacktestNumber(benchSummary?.totalReturn ?? benchSummary?.total_return).toFixed(2),
+      annualReturn: toFiniteBacktestNumber(benchSummary?.annualReturn ?? benchSummary?.annual_return).toFixed(2),
+      maxDrawdown: toFiniteBacktestNumber(benchSummary?.maxDrawdown ?? benchSummary?.max_drawdown).toFixed(2),
+    },
+    fundBreakdown: individual.map((item: any, index: number) => ({
+      code: item?.fund_code || options.fundMeta?.[index]?.fundCode || "",
+      name: options.fundMeta?.[index]?.fundAbbr || options.fundMeta?.[index]?.fundName || item?.fund_name || item?.fund_code || "",
+      weight: Math.round((weights[index] || 0) * 10000) / 100,
+      strategyReturn: toFiniteBacktestNumber(getStrategyPayload(item, selectedStrategyKey)?.total_profit_rate).toFixed(2),
+      annualizedReturn: toFiniteBacktestNumber(getStrategyPayload(item, selectedStrategyKey)?.annual_return).toFixed(2),
+      maxDrawdown: toFiniteBacktestNumber(getStrategyPayload(item, selectedStrategyKey)?.max_drawdown).toFixed(2),
+      sharpeRatio: toFiniteBacktestNumber(getStrategyPayload(item, selectedStrategyKey)?.sharpe_ratio).toFixed(2),
+    })),
+    settings: {
+      feeRate,
+      slippageRate,
+      riskProfile: options.riskProfile || "balanced",
+      maxDrawdownLimit: options.maxDrawdownLimit ?? null,
+      targetAnnualReturn: options.targetAnnualReturn ?? null,
+    },
+    fundCode: first?.fund_code || (individual[0]?.fund_code) || "",
+    fundName: first?.fund_name || (individual[0]?.fund_name) || "",
+  };
+}
+
 export function mapMarketOverview(data: any): any {
   data = data || {};
   const funds = data.funds || [];

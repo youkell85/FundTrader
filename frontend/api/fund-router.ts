@@ -1082,6 +1082,11 @@ export const fundRouter = createRouter({
         endDate: z.string(),
         investAmount: z.number(),
         investFrequency: z.enum(["weekly", "biweekly", "monthly"]),
+        feeRate: z.number().optional(),
+        slippageRate: z.number().optional(),
+        riskProfile: z.string().optional(),
+        maxDrawdownLimit: z.number().optional(),
+        targetAnnualReturn: z.number().optional(),
       })
     )
     .query(async ({ input }) => {
@@ -1114,7 +1119,17 @@ export const fundRouter = createRouter({
           end_date: input.endDate,
         });
 
-        return mapBacktestResult(ftResult);
+        const selectedFundMeta = input.fundIds.map((id) => allFunds.find((x: any) => x.id === id)).filter(Boolean);
+        return mapBacktestResult(ftResult, {
+          weights: input.weights,
+          strategy: input.strategy,
+          fundMeta: selectedFundMeta,
+          feeRate: input.feeRate,
+          slippageRate: input.slippageRate,
+          riskProfile: input.riskProfile,
+          maxDrawdownLimit: input.maxDrawdownLimit,
+          targetAnnualReturn: input.targetAnnualReturn,
+        });
       } catch (err) {
         wrapError(err, "执行回测失败");
       }
