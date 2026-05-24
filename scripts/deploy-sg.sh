@@ -57,7 +57,7 @@ fi
 # ── 4. 部署后端 ──
 if [ "$DEPLOY_BACKEND" = true ]; then
   echo "[4/6] 部署后端 (FastAPI)..."
-  ssh -p ${SSH_PORT} root@${SG_HOST} "cd ${BACKEND_DIR} && pip3 install -r requirements.txt -q && systemctl restart fundtrader"
+  ssh -p ${SSH_PORT} root@${SG_HOST} "cd ${BACKEND_DIR} && python3 -m venv .venv && .venv/bin/pip install -U pip -q && .venv/bin/pip install -r requirements.txt -q && systemctl restart fundtrader"
   echo "  后端已重启"
 else
   echo "[4/6] 跳过后端部署"

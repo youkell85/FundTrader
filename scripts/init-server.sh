@@ -33,7 +33,10 @@ fi
 
 # ── 4. 安装后端依赖 ──
 echo "[4/7] 安装后端依赖..."
-pip3 install -r ${BACKEND_DIR}/requirements.txt -q
+cd ${BACKEND_DIR}
+python3 -m venv .venv
+.venv/bin/pip install -U pip -q
+.venv/bin/pip install -r requirements.txt -q
 
 # ── 5. 构建前端 ──
 echo "[5/7] 构建前端..."

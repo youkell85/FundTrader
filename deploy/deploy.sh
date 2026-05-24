@@ -15,7 +15,9 @@ git pull origin master || git pull gitee master
 
 echo "2. 安装后端依赖..."
 cd $BACKEND_DIR
-pip3 install -r requirements.txt
+python3 -m venv .venv
+.venv/bin/pip install -U pip -q
+.venv/bin/pip install -r requirements.txt
 
 echo "3. 构建前端..."
 cd $FRONTEND_DIR
