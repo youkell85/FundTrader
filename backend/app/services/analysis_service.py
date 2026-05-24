@@ -49,6 +49,52 @@ def _normalize_holding_ratio(value: Any) -> float:
     return ratio if ratio <= 100 else ratio / 100
 
 
+def _to_float(value: Any) -> Optional[float]:
+    if value in (None, "", "--", "—"):
+        return None
+    try:
+        number = float(str(value).replace("%", "").strip())
+        return number if number == number else None
+    except Exception:
+        return None
+
+
+def normalize_nav_data(nav_data: Optional[List[Dict]]) -> List[Dict]:
+    """Normalize fund NAV history to ascending dates and stable field names."""
+    by_date: Dict[str, Dict] = {}
+    for item in nav_data or []:
+        if not isinstance(item, dict):
+            continue
+        date = item.get("date") or item.get("navDate") or item.get("净值日期") or item.get("日期")
+        if not date:
+            continue
+        date = str(date)[:10]
+        nav = _to_float(item.get("nav") or item.get("单位净值") or item.get("nav_value"))
+        if nav is None or nav <= 0:
+            continue
+        accum_nav = _to_float(item.get("accum_nav") or item.get("acc_nav") or item.get("累计净值"))
+        day_growth = _to_float(
+            item.get("day_growth")
+            if item.get("day_growth") is not None
+            else item.get("dailyReturn")
+            if item.get("dailyReturn") is not None
+            else item.get("日增长率")
+            if item.get("日增长率") is not None
+            else item.get("涨跌幅")
+            if item.get("涨跌幅") is not None
+            else item.get("增长率")
+            if item.get("增长率") is not None
+            else item.get("daily_change")
+        )
+        by_date[date] = {
+            "date": date,
+            "nav": nav,
+            "accum_nav": accum_nav,
+            "day_growth": day_growth,
+        }
+    return [by_date[date] for date in sorted(by_date.keys())]
+
+
 def _build_asset_allocation(holdings: List[Dict], fund_type: str, report_date: str, source: str) -> List[Dict]:
     stock_ratio = round(sum(_normalize_holding_ratio(item.get("ratio")) for item in holdings), 2)
     if not holdings and ("债" in fund_type or "货币" in fund_type):
@@ -147,7 +193,10 @@ def _supplement_nav_with_efinance(code: str, current_navs: List[Dict]) -> List[D
     nav_cache_key = f"fund_nav_full_{code}"
     cached = cache.get(nav_cache_key, CACHE_TTL_NAV * 6)  # 6小时缓存
     if cached and isinstance(cached, list) and len(cached) > 200:
-        return cached
+        normalized = normalize_nav_data(cached)
+        if normalized != cached:
+            cache.set(nav_cache_key, normalized)
+        return normalized
     try:
         ef_nav = get_fund_nav_history(code)
     except Exception:
@@ -156,26 +205,15 @@ def _supplement_nav_with_efinance(code: str, current_navs: List[Dict]) -> List[D
         return current_navs
     # 按日期去重合并
     by_date: Dict[str, Dict] = {}
-    for n in current_navs:
+    for n in normalize_nav_data(current_navs):
         d = n.get("date")
         if d:
             by_date[str(d)] = n
-    for n in ef_nav:
-        try:
-            d = n.get("date")
-            if not d:
-                continue
-            d = str(d)
-            if d not in by_date:
-                by_date[d] = {
-                    "date": d,
-                    "nav": float(n.get("nav")) if n.get("nav") not in (None, "") else None,
-                    "accum_nav": float(n.get("acc_nav")) if n.get("acc_nav") not in (None, "") else None,
-                    "day_growth": float(str(n.get("day_growth", "0")).replace("%", "")) if n.get("day_growth") not in (None, "") else None,
-                }
-        except Exception:
-            continue
-    merged = [by_date[d] for d in sorted(by_date.keys())]
+    for n in normalize_nav_data(ef_nav):
+        d = n.get("date")
+        if d and d not in by_date:
+            by_date[d] = n
+    merged = normalize_nav_data(list(by_date.values()))
     if len(merged) > 200:
         cache.set(nav_cache_key, merged)
     return merged
@@ -194,7 +232,7 @@ def analyze_fund(code: str) -> Dict[str, Any]:
             for n in (detail.nav_history or [])
         ]
         # 关键修复：使用 efinance 补充长周期净值历史（解决净值图只到 2025-12-10 问题）
-        nav_data = _supplement_nav_with_efinance(code, nav_data)
+        nav_data = normalize_nav_data(_supplement_nav_with_efinance(code, nav_data))
         holdings = [
             {
                 "name": h.name,
@@ -335,6 +373,12 @@ def _analyze_fund_legacy(code: str) -> Dict[str, Any]:
     if nav_data is None:
         nav_data = get_fund_nav_history(code)
         if nav_data:
+            nav_data = normalize_nav_data(nav_data)
+            cache.set(nav_cache_key, nav_data)
+    else:
+        normalized_nav_data = normalize_nav_data(nav_data)
+        if normalized_nav_data != nav_data:
+            nav_data = normalized_nav_data
             cache.set(nav_cache_key, nav_data)
 
     # 基金经理
