@@ -33,9 +33,9 @@ IFIND_TOKEN = os.getenv("IFIND_TOKEN", "")
 IFIND_USE_MCP = os.getenv("IFIND_USE_MCP", "true")
 
 # LLM配置
-LLM_API_URL = os.getenv("LLM_API_URL", "https://api.deepseek.com/v1/chat/completions")
+LLM_API_URL = os.getenv("LLM_API_URL", "https://api.minimaxi.com/v1/chat/completions")
 LLM_API_KEY = os.getenv("LLM_API_KEY", "")
-LLM_MODEL = os.getenv("LLM_MODEL", "deepseek-v4-flash")
+LLM_MODEL = os.getenv("LLM_MODEL", "MiniMax-M2.7")
 
 # CORS
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*")

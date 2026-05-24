@@ -61,7 +61,7 @@ function parseReviewText(text: string): any | null {
         const parsed = JSON.parse(match[1]);
         if (Array.isArray(parsed)) review[key] = parsed;
       } catch {
-        // DeepSeek 偶尔会在数组处截断，此时展示前面已识别出的段落。
+        // LLM 偶尔会在数组处截断，此时展示前面已识别出的段落。
       }
     });
     return Object.keys(review).length ? { ...review, parseWarning: "AI 返回内容不完整，已展示可识别部分。可点击刷新重新生成。" } : null;
@@ -426,15 +426,15 @@ export default function FundDetail() {
                   disabled={llmQuery.isLoading || llmQuery.isFetching}
                   className="h-9 px-4 rounded-lg text-xs font-medium transition-all disabled:opacity-40"
                   style={{ background: `${ACCENT_INFO}1A`, color: ACCENT_INFO, border: `1px solid ${ACCENT_INFO}40` }}>
-                  {(llmQuery.isLoading || llmQuery.isFetching) ? "AI 分析中..." : (llmQuery.data ? "刷新分析" : "调用 DeepSeek v4 flash 生成专业报告")}
+                  {(llmQuery.isLoading || llmQuery.isFetching) ? "AI 分析中..." : (llmQuery.data ? "刷新分析" : "调用 MiniMax M2.7 生成专业报告")}
                 </button>
               </div>
               {!llmEnabled && (
-                <p className="text-white/40 text-sm">点击上方按钮调用 DeepSeek v4 flash，对本基金业绩、基金经理、重仓持股进行专业评价。</p>
+                <p className="text-white/40 text-sm">点击上方按钮调用 MiniMax M2.7，对本基金业绩、基金经理、重仓持股进行专业评价。</p>
               )}
               {llmEnabled && (llmQuery.isLoading || llmQuery.isFetching) && (
                 <div className="flex items-center gap-2 text-white/40 text-sm py-6">
-                  <Loader2 className="w-4 h-4 animate-spin" />DeepSeek 正在生成专业分析报告...
+                  <Loader2 className="w-4 h-4 animate-spin" />MiniMax M2.7 正在生成专业分析报告...
                 </div>
               )}
               {llmEnabled && !llmQuery.isLoading && llmQuery.data && (() => {
