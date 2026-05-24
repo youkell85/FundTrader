@@ -85,6 +85,11 @@ function metricNumber(value: unknown): number | null {
   return Number.isFinite(num) ? num : null;
 }
 
+function navNumber(value: unknown): number | null {
+  const num = metricNumber(value);
+  return num !== null && num > 0 ? num : null;
+}
+
 export default function FundDetail() {
   const location = useLocation();
   const { id } = useParams<{ id: string }>();
@@ -150,6 +155,15 @@ export default function FundDetail() {
     }
     return all.slice(startIdx);
   }, [fund?.navHistory, navPeriod]);
+
+  const navValueDomain = useMemo(() => {
+    const values = periodNavData.map((item: any) => item.nav).filter((value: any) => Number.isFinite(value));
+    if (values.length === 0) return ["auto", "auto"];
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const padding = Math.max((max - min) * 0.08, max * 0.01, 0.001);
+    return [Math.max(0, min - padding), max + padding] as [number, number];
+  }, [periodNavData]);
 
   const performanceRows = peerRankingQuery.data?.rows ?? [];
 
@@ -257,7 +271,7 @@ export default function FundDetail() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
-          <div className="lg:col-span-2 space-y-4 md:space-y-6">
+          <div className="lg:col-span-2 min-w-0 space-y-4 md:space-y-6">
             <div className="liquid-glass p-4 md:p-6">
               <h2 className="text-base md:text-lg font-medium text-white mb-4 flex items-center gap-2">
                 <BarChart3 className="w-5 h-5" style={{ color: ACCENT_PRIMARY }} />业绩表现
@@ -332,9 +346,9 @@ export default function FundDetail() {
                       ))}
                     </div>
                   </div>
-                  <div className="h-56 md:h-64">
+                  <div className="h-56 md:h-64 min-w-0 overflow-hidden">
                     <ResponsiveContainer width="100%" height="100%">
-                      <AreaChart data={periodNavData}>
+                      <AreaChart data={periodNavData} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
                         <defs>
                           <linearGradient id="navGrad" x1="0" y1="0" x2="0" y2="1">
                             <stop offset="0%" stopColor={ACCENT_PRIMARY} stopOpacity={0.3} />
@@ -343,11 +357,11 @@ export default function FundDetail() {
                         </defs>
                         <XAxis dataKey="navDate" tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 10 }} tickFormatter={(v) => v?.slice(5) || ""}
                           axisLine={{ stroke: "rgba(255,255,255,0.06)" }} tickLine={false} />
-                        <YAxis domain={["auto", "auto"]} tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 10 }} axisLine={false} tickLine={false} width={50} />
+                        <YAxis domain={navValueDomain} tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 10 }} axisLine={false} tickLine={false} width={50} />
                         <Tooltip contentStyle={{ background: "rgba(5, 8, 26, 0.95)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: "8px", fontSize: "12px" }}
                           labelStyle={{ color: "rgba(255,255,255,0.4)" }} itemStyle={{ color: ACCENT_INFO }}
                           formatter={(v: any) => [`${parseFloat(v).toFixed(4)}`, "净值"]} />
-                        <Area type="monotone" dataKey="nav" stroke={ACCENT_PRIMARY} strokeWidth={1.5} fill="url(#navGrad)" />
+                        <Area type="linear" dataKey="nav" stroke={ACCENT_PRIMARY} strokeWidth={1.5} fill="url(#navGrad)" baseValue="dataMin" isAnimationActive={false} />
                       </AreaChart>
                     </ResponsiveContainer>
                   </div>
