@@ -48,6 +48,7 @@ function wrapError(err: unknown, message: string): never {
 // L2 日频: 净值/日涨跌 — 15min TTL，交易时段实时
 
 const bffCache = new Map<string, { expiresAt: number; data: any }>();
+const DETAIL_ANALYSIS_TIMEOUT_MS = Number(process.env.FUNDTRADER_DETAIL_TIMEOUT_MS ?? 12_000);
 
 /** 默认缓存TTL按数据层级分级 */
 const BFF_CACHE_TTL = 30 * 60 * 1000;                     // 默认 30分钟
@@ -470,6 +471,20 @@ function quoteToAnalysis(code: string, quote: Awaited<ReturnType<typeof fetchFun
 
 const PEER_RANKING_CATEGORIES = ["股票型", "混合型", "债券型", "指数型", "QDII", "FOF", "货币"];
 
+async function fetchAndCacheFundAnalysis(code: string, cacheKey = `analysis_${code}`) {
+  const analysis = await getFundAnalysis(code);
+  const enriched = await enrichFundAnalysis(analysis, code);
+  if (enriched) setCache(cacheKey, enriched, ANALYSIS_TTL);
+  return enriched;
+}
+
+function scheduleFundAnalysisWarmup(code: string, cacheKey = `analysis_${code}`) {
+  dedupe(`detailWarmup_${code}`, () => fetchAndCacheFundAnalysis(code, cacheKey))
+    .catch((err) => {
+      console.error(`[fundRouter] detail warmup failed for ${code}:`, err);
+    });
+}
+
 function resolvePeerCategory(...values: unknown[]) {
   const text = values.map((value) => String(value || "")).join(" ");
   if (/股票/.test(text)) return "股票型";
@@ -606,9 +621,11 @@ export const fundRouter = createRouter({
           return mapFundDetail(fund);
         }
 
-        const analysis = await getFundAnalysis(fund.code);
-        const enriched = await enrichFundAnalysis(analysis, fund.code);
-        setCache(cacheKey, enriched, ANALYSIS_TTL);
+        const enriched = await withTimeout(
+          fetchAndCacheFundAnalysis(fund.code, cacheKey),
+          DETAIL_ANALYSIS_TIMEOUT_MS,
+          () => fund
+        );
         return mapFundDetail(enriched);
       } catch (err) {
         wrapError(err, "获取基金详情失败");
@@ -631,17 +648,20 @@ export const fundRouter = createRouter({
           return mapFundDetail(cachedHomeFund);
         }
 
-        let enriched: any = null;
-        try {
-          const analysis = await getFundAnalysis(input.code);
-          enriched = await enrichFundAnalysis(analysis, input.code);
-        } catch (analysisErr) {
-          if (!isExchangeFundCode(input.code)) throw analysisErr;
+        const enriched = await withTimeout(
+          fetchAndCacheFundAnalysis(input.code, cacheKey),
+          DETAIL_ANALYSIS_TIMEOUT_MS,
+          async () => {
+            const quote = await fetchFundQuote(input.code);
+            return quoteToAnalysis(input.code, quote, "watchlist") || cachedHomeFund || null;
+          }
+        ).catch(async (analysisErr) => {
+          console.error(`[fundRouter] detail analysis failed for ${input.code}:`, analysisErr);
+          scheduleFundAnalysisWarmup(input.code, cacheKey);
           const quote = await fetchFundQuote(input.code);
-          enriched = quoteToAnalysis(input.code, quote, "watchlist");
-        }
+          return quoteToAnalysis(input.code, quote, "watchlist") || cachedHomeFund || null;
+        });
         if (!enriched) throw new Error(`No fund detail available for ${input.code}`);
-        setCache(cacheKey, enriched, ANALYSIS_TTL);
         return mapFundDetail(enriched);
       } catch (err) {
         wrapError(err, "按基金代码获取详情失败");
