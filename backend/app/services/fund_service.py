@@ -174,7 +174,7 @@ def get_fund_list_from_watchlist(
 
 def _get_watchlist_with_performance(watchlist: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """为自选基金获取业绩数据（批量模式）"""
-    all_perf = _fetch_all_fund_performance()
+    all_perf = _fetch_all_fund_performance_with_timeout()
     result = []
     for fund in watchlist:
         fund_data = dict(fund)
@@ -192,8 +192,8 @@ def _get_guoyuan_funds_with_performance() -> List[Dict[str, Any]]:
     if result is not None:
         return result
 
-    # 一次akshare调用获取全市场业绩，然后按需匹配
-    all_perf = _fetch_all_fund_performance()
+    # 一次akshare调用获取全市场业绩，然后按需匹配；冷启动超时时先返回基础名单，避免首页被外部数据源卡死。
+    all_perf = _fetch_all_fund_performance_with_timeout()
 
     result = []
     for fund in GUOYUAN_FUND_LIST:
@@ -205,6 +205,21 @@ def _get_guoyuan_funds_with_performance() -> List[Dict[str, Any]]:
 
     cache.set(cache_key, result)
     return result
+
+
+def _fetch_all_fund_performance_with_timeout() -> Dict[str, Dict[str, Any]]:
+    cached = cache.get("bulk_fund_performance", CACHE_TTL_RANKING)
+    if cached is not None:
+        return cached
+    future = _bulk_performance_executor.submit(_fetch_all_fund_performance)
+    try:
+        return future.result(timeout=BULK_PERFORMANCE_TIMEOUT_SECONDS)
+    except TimeoutError:
+        console_error(f"Bulk performance fetch timed out after {BULK_PERFORMANCE_TIMEOUT_SECONDS}s; using basic fund list")
+        return {}
+    except Exception as e:
+        console_error(f"Bulk performance fetch failed: {e}")
+        return {}
 
 
 def _fetch_all_fund_performance() -> Dict[str, Dict[str, Any]]:
