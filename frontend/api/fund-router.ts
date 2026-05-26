@@ -988,12 +988,27 @@ export const fundRouter = createRouter({
         };
         const riskStats = (fund: any) => {
           const perf = fund.performance || {};
-          const drawdown = Math.abs(valueOrZero(perf.maxDrawdown));
-          const rawVolatility = Math.abs(valueOrZero(perf.annualizedVolatility));
-          const volatility = rawVolatility > 0 ? rawVolatility : clamp(drawdown * 1.18 + 0.6, 1.2, 42);
+          const rawDrawdown = parseMetric(perf.maxDrawdown);
+          const rawSharpe = parseMetric(perf.sharpeRatio);
+          const rawVolatility = parseMetric(perf.annualizedVolatility);
+          // 回撤数据缺失时，根据基金类型赋予合理惩罚值，而非低估为0
+          const hasDrawdown = rawDrawdown !== null;
+          const hasSharpe = rawSharpe !== null;
+          const hasVolatility = rawVolatility !== null;
+          const fundType = fund.fundType || "";
+          // 根据基金类型赋予默认回撤惩罚：股票/混合 > 指数 > 债券 > 货币
+          const defaultDrawdownByType: Record<string, number> = {
+            equity: 28, hybrid: 22, index: 18, etf: 18, qdii: 25, bond: 5, money: 0.5, fof: 12, reits: 15,
+          };
+          const defaultDrawdown = defaultDrawdownByType[fundType] || 15;
+          const drawdown = hasDrawdown ? Math.abs(rawDrawdown) : defaultDrawdown;
+          // 波动率：有真实值用真实值，否则根据回撤估算（但保底用类型默认值）
+          const defaultVolatility = hasDrawdown ? clamp(drawdown * 1.18 + 0.6, 1.2, 42) : Math.max(defaultDrawdown * 1.3, 3);
+          const volatility = hasVolatility && rawVolatility > 0 ? rawVolatility : defaultVolatility;
           const expected = annualizedReturn(fund);
-          const sharpe = volatility > 0 ? expected / volatility : valueOrZero(perf.sharpeRatio);
-          const missingRisk = parseMetric(perf.maxDrawdown) === null || parseMetric(perf.sharpeRatio) === null;
+          // 夏普：有真实值用真实值，否则用收益/波动率估算
+          const sharpe = hasSharpe && rawSharpe !== 0 ? rawSharpe : (volatility > 0 ? expected / volatility : 0);
+          const missingRisk = !hasDrawdown || !hasSharpe;
           return { expected, drawdown, volatility, sharpe, missingRisk };
         };
         const qualityScore = (fund: any, variant: "defensive" | "balanced" | "growth") => {

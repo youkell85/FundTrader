@@ -197,6 +197,8 @@ export function mapFundItem(item: any): any {
   // 兼容 manager 为字符串或对象的情况
   const mgrRaw = item.manager_info || item.manager;
   const mgr = typeof mgrRaw === "string" ? { name: mgrRaw } : (mgrRaw || {});
+  // 如果 manager 对象存在但 name 为空，尝试从其他字段提取
+  const mgrName = mgr.name || mgr.manager_name || item.manager_name || item.基金经理 || "";
   const id = codeToId(code);
   const source = item._source || "guoyuan";
   const tags = item.tags || generateTags(name, type);
@@ -228,7 +230,7 @@ export function mapFundItem(item: any): any {
     feeManage: item.feeManage ?? item.fee_rate ?? "—",
     feeCustody: item.feeCustody ?? "—",
     stars: item.stars || (item.rating ? Math.min(5, Math.max(1, item.rating)) : 4),
-    managerId: mgr.name ? codeToId(mgr.name) : null,
+    managerId: mgrName ? codeToId(mgrName) : null,
     tags,
     trackingIndex: item.trackingIndex || null,
     source, // xinjihui / watchlist 标记
@@ -257,9 +259,9 @@ export function mapFundItem(item: any): any {
       winRate: perf.winRate || navPerformance.winRate || "0",
       recoveryPeriod: perf.recoveryPeriod != null ? String(perf.recoveryPeriod) : navPerformance.recoveryPeriod || "0",
     },
-    manager: mgr.name ? {
-      id: codeToId(mgr.name),
-      name: mgr.name,
+    manager: mgrName ? {
+      id: codeToId(mgrName),
+      name: mgrName,
       gender: mgr.gender || null,
       education: mgr.education || null,
       careerStart: mgr.begin_date || mgr.career_start || "2010-01-01",
