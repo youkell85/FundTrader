@@ -31,8 +31,8 @@ function average(values: Array<number | null>) {
 export default function Home() {
   const utils = trpc.useUtils();
   const { data: listData, isLoading: listLoading, refetch: refetchList } = trpc.fund.list.useQuery(
-    { pageSize: 1000 },
-    { staleTime: 5 * 60 * 1000, refetchOnWindowFocus: false }
+    { pageSize: 1000, withMetrics: true },
+    { staleTime: 30 * 60 * 1000, refetchOnWindowFocus: false }
   );
   const { data: filterOptsData } = trpc.fund.filterOptions.useQuery(
     undefined,
@@ -62,6 +62,7 @@ export default function Home() {
   const [search, setSearch] = useState("");
   const [fundType, setFundType] = useState("");
   const [category, setCategory] = useState("");
+  const [company, setCompany] = useState("");
   const [riskLevel, setRiskLevel] = useState("");
   const [showXinjihui, setShowXinjihui] = useState(true);
   const [sortBy, setSortBy] = useState("dailyChange");
@@ -89,6 +90,7 @@ export default function Home() {
     let result = [...allFunds];
     if (fundType) result = result.filter((f: any) => f.fundType === fundType);
     if (category) result = result.filter((f: any) => f.category?.includes(category));
+    if (company) result = result.filter((f: any) => f.company?.includes(company));
     if (riskLevel) result = result.filter((f: any) => f.riskLevel === riskLevel);
     result = showXinjihui
       ? result.filter((f: any) => f.isXinjihui || f.source === "xinjihui")
@@ -126,7 +128,7 @@ export default function Home() {
       return sortDir === "desc" ? bVal - aVal : aVal - bVal;
     });
     return result;
-  }, [allFunds, fundType, category, riskLevel, showXinjihui, search, sortBy, sortOrder]);
+  }, [allFunds, fundType, category, company, riskLevel, showXinjihui, search, sortBy, sortOrder]);
 
   const paginatedFunds = useMemo(() => {
     return filteredFunds.slice((page - 1) * pageSize, page * pageSize);
@@ -297,9 +299,9 @@ export default function Home() {
         </div>
 
         <div className="mt-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
-          {(category || fundType || riskLevel || search) && (
+          {(category || fundType || company || riskLevel || search) && (
             <button
-              onClick={() => { setFundType(""); setCategory(""); setRiskLevel(""); setSearch(""); setPage(1); }}
+              onClick={() => { setFundType(""); setCategory(""); setCompany(""); setRiskLevel(""); setSearch(""); setPage(1); }}
               className="rounded-lg border border-[#00F0FF]/20 bg-[#00F0FF]/[0.06] px-3 py-3 text-left hover:bg-[#00F0FF]/[0.09] transition-colors"
             >
               <div className="flex items-center justify-between gap-2 mb-2">
@@ -397,6 +399,11 @@ export default function Home() {
               className="h-11 px-3 rounded-xl bg-[#0B1021] border border-white/[0.08] text-white text-sm focus:outline-none focus:border-[#3B6CFF]/50">
               <option value="" className="bg-[#0B1021] text-white">全部分类</option>
               {filterOpts.categories?.map((c: string) => (<option key={c} value={c} className="bg-[#0B1021] text-white">{c}</option>))}
+            </select>
+            <select value={company} onChange={(e) => { setCompany(e.target.value); setPage(1); }}
+              className="h-11 px-3 rounded-xl bg-[#0B1021] border border-white/[0.08] text-white text-sm focus:outline-none focus:border-[#3B6CFF]/50">
+              <option value="" className="bg-[#0B1021] text-white">全部公司</option>
+              {filterOpts.companies?.map((c: string) => (<option key={c} value={c} className="bg-[#0B1021] text-white">{c}</option>))}
             </select>
             <button onClick={() => { setShowXinjihui(!showXinjihui); setPage(1); }}
               className={`h-11 px-4 rounded-xl text-sm font-medium transition-all ${showXinjihui ? "bg-[#3B6CFF]/20 text-[#00F0FF] border border-[#3B6CFF]/30" : "bg-white/[0.03] text-white/50 border border-white/[0.06] hover:bg-white/[0.06]"}`}>

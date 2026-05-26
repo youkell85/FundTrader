@@ -1,6 +1,12 @@
 export type FundQuote = {
   code: string;
   name: string;
+  type?: string;
+  company?: string;
+  manager?: string;
+  totalScale?: number;
+  feeManage?: number;
+  feeCustody?: number;
   nav?: number;
   accumNav?: number;
   navDate?: string;
@@ -42,6 +48,44 @@ function cleanFundName(value: string) {
     .replace(/\s*基金概况.*$/i, "")
     .replace(/\s*\(\d{6}\).*$/, "")
     .trim();
+}
+
+function stripHtml(value: string) {
+  return value.replace(/<[^>]*>/g, "").replace(/&nbsp;/g, " ").trim();
+}
+
+function parseProfileCell(html: string, label: string) {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = html.match(new RegExp(`<th>\\s*${escaped}\\s*</th>\\s*<td[^>]*>([\\s\\S]*?)</td>`, "i"));
+  return match ? stripHtml(match[1]) : "";
+}
+
+async function fetchFundProfileFallback(code: string, signal: AbortSignal): Promise<Partial<FundQuote>> {
+  try {
+    const res = await fetch(`https://fundf10.eastmoney.com/jbgk_${code}.html`, {
+      signal,
+      headers: {
+        "User-Agent": "Mozilla/5.0",
+        "Referer": "https://fund.eastmoney.com/",
+      },
+    });
+    if (!res.ok) return {};
+    const html = await res.text();
+    const title = html.match(/<title>(.*?)<\/title>/is)?.[1] || "";
+    const name = cleanFundName(stripHtml(title));
+    const scaleText = parseProfileCell(html, "净资产规模");
+    return {
+      name,
+      type: parseProfileCell(html, "基金类型"),
+      company: parseProfileCell(html, "基金管理人"),
+      manager: parseProfileCell(html, "基金经理人"),
+      totalScale: parseNumber(scaleText.match(/[\d.]+/)?.[0]),
+      feeManage: parseNumber(parseProfileCell(html, "管理费率")) !== undefined ? parseNumber(parseProfileCell(html, "管理费率"))! / 100 : undefined,
+      feeCustody: parseNumber(parseProfileCell(html, "托管费率")) !== undefined ? parseNumber(parseProfileCell(html, "托管费率"))! / 100 : undefined,
+    };
+  } catch {
+    return {};
+  }
 }
 
 function getEastmoneySecid(code: string): string | null {
@@ -169,7 +213,16 @@ export async function fetchFundQuote(code: string): Promise<FundQuote | null> {
   try {
     const exchangeQuote = await fetchExchangeFundQuote(code, controller.signal);
     if (exchangeQuote?.dayGrowth !== undefined || exchangeQuote?.nav !== undefined) {
-      if (!exchangeQuote.name) exchangeQuote.name = await fetchFundNameFallback(code, controller.signal);
+      const profile = await fetchFundProfileFallback(code, controller.signal);
+      if (!exchangeQuote.name) exchangeQuote.name = profile.name || await fetchFundNameFallback(code, controller.signal);
+      Object.assign(exchangeQuote, {
+        type: profile.type,
+        company: profile.company,
+        manager: profile.manager,
+        totalScale: profile.totalScale,
+        feeManage: profile.feeManage,
+        feeCustody: profile.feeCustody,
+      });
       quoteCache.set(code, { expiresAt: Date.now() + CACHE_TTL_MS, quote: exchangeQuote });
       return exchangeQuote;
     }
@@ -182,18 +235,26 @@ export async function fetchFundQuote(code: string): Promise<FundQuote | null> {
       },
     });
     if (!res.ok) {
-      const fallbackName = await fetchFundNameFallback(code, controller.signal);
-      return fallbackName ? { code, name: fallbackName } : null;
+      const profile = await fetchFundProfileFallback(code, controller.signal);
+      const fallbackName = profile.name || await fetchFundNameFallback(code, controller.signal);
+      return fallbackName ? { code, name: fallbackName, ...profile } : null;
     }
 
     const data = parseEastmoneyJsonp(await res.text());
     let name = String(data?.name || "").trim();
-    if (!name || name === code) name = await fetchFundNameFallback(code, controller.signal);
+    const profile = await fetchFundProfileFallback(code, controller.signal);
+    if (!name || name === code) name = profile.name || await fetchFundNameFallback(code, controller.signal);
     if (!name || name === code) return null;
 
     const quote: FundQuote = {
       code: String(data?.fundcode || code),
       name,
+      type: profile.type,
+      company: profile.company,
+      manager: profile.manager,
+      totalScale: profile.totalScale,
+      feeManage: profile.feeManage,
+      feeCustody: profile.feeCustody,
       nav: parseNumber(data?.dwjz),
       accumNav: parseNumber(data?.ljjz),
       navDate: data?.jzrq ? String(data.jzrq) : undefined,

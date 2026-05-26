@@ -1,7 +1,7 @@
 """深度产品分析服务 - 多数据源融合版"""
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timedelta
-from ..data.akshare_fetcher import get_fund_info, get_fund_manager_info, get_fund_portfolio
+from ..data.akshare_fetcher import get_fund_info, get_fund_manager_info, get_fund_portfolio, get_fund_bond_portfolio
 from ..data.efinance_fetcher import get_fund_nav_history
 from ..data.providers.fusion import get_fusion
 from ..data.cache_manager import cache
@@ -39,6 +39,26 @@ def _normalize_legacy_holdings(portfolio: Optional[Dict]) -> List[Dict]:
     return portfolio.get("stock_holdings", []) if portfolio else []
 
 
+
+
+def _is_bond_type(fund_type: str) -> bool:
+    """判断基金是否为债券型"""
+    if not fund_type:
+        return False
+    t = fund_type.lower()
+    return "债" in t or "bond" in t
+
+def _get_bond_holdings_for_fund(code: str, fund_type: str) -> List[Dict]:
+    """对债券型基金，获取债券持仓替代股票持仓"""
+    if not _is_bond_type(fund_type):
+        return []
+    try:
+        bond_data = get_fund_bond_portfolio(code)
+        if bond_data and bond_data.get("bond_holdings"):
+            return bond_data["bond_holdings"]
+    except Exception:
+        pass
+    return []
 def _normalize_holding_ratio(value: Any) -> float:
     try:
         ratio = float(value or 0)
@@ -247,6 +267,17 @@ def analyze_fund(code: str) -> Dict[str, Any]:
         ]
         if not holdings:
             holdings = _normalize_legacy_holdings(get_fund_portfolio(code))
+        # 债券型基金：优先使用债券持仓替代股票持仓
+        fund_type = detail.type or ""
+        bond_holdings = _get_bond_holdings_for_fund(code, fund_type)
+        if bond_holdings:
+            stock_total = sum(_normalize_holding_ratio(h.get("ratio")) for h in holdings)
+            # 当股票持仓总占比很低（< 20%），债券才是主要持仓，应优先展示
+            if stock_total < 20:
+                holdings = bond_holdings
+            else:
+                # 混合型：债券持仓排在前面，股票持仓补充
+                holdings = bond_holdings + holdings
         holdings = sorted(
             _enrich_holdings_with_daily_change(holdings),
             key=lambda item: _normalize_holding_ratio(item.get("ratio")),
@@ -407,13 +438,22 @@ def _analyze_fund_legacy(code: str) -> Dict[str, Any]:
 
     # 计算区间收益率
     period = _calc_period_returns(nav_data or [])
+    holdings = _normalize_legacy_holdings(portfolio)
+    fund_type = (info.get("基金类型") or info.get("type") or "") if info else ""
+    # 债券型基金：优先使用债券持仓
+    bond_holdings = _get_bond_holdings_for_fund(code, fund_type)
+    if bond_holdings:
+        stock_total = sum(_normalize_holding_ratio(h.get("ratio")) for h in holdings)
+        if stock_total < 20:
+            holdings = bond_holdings
+        else:
+            holdings = bond_holdings + holdings
     holdings = sorted(
-        _enrich_holdings_with_daily_change(_normalize_legacy_holdings(portfolio)),
+        _enrich_holdings_with_daily_change(holdings),
         key=lambda item: _normalize_holding_ratio(item.get("ratio")),
         reverse=True,
     )
     report_date = holdings[0].get("quarter") if holdings else ""
-    fund_type = (info.get("基金类型") or info.get("type") or "") if info else ""
     asset_allocation = _build_asset_allocation(holdings, fund_type, report_date, "legacy")
 
     # 从净值历史计算最佳/最差年度收益

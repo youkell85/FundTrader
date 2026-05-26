@@ -193,12 +193,22 @@ async def manager_style_analysis(code: str):
 
 @router.get("/{code}/llm_review")
 async def fund_llm_review(code: str):
-    cache_key = f"llm_review_v2_{code}"
+    cache_key = f"llm_review_v3_{code}"
     cached = cache.get(cache_key, CACHE_TTL_INFO * 6)
     if cached:
         return cached
 
+    # 短缓存：LLM 失败后避免反复重试
+    fail_cache_key = f"llm_review_fail_{code}"
+    fail_cached = cache.get(fail_cache_key, CACHE_TTL_INFO)
+    if fail_cached:
+        return fail_cached
+
     fund_data = await run_in_threadpool(cached_analyze_fund, code)
+    if fund_data.get("error"):
+        payload = {"code": code, "review": {"raw": f"基金数据获取失败: {fund_data.get('error')}"}}
+        cache.set(fail_cache_key, payload)
+        return payload
     nav_metrics = _calc_nav_risk_metrics(fund_data.get("nav_data") or [])
     perf = {
         "return1y": fund_data.get("return1y"),
@@ -208,15 +218,23 @@ async def fund_llm_review(code: str):
         "sharpeRatio": nav_metrics.get("sharpeRatio"),
         "maxDrawdown": nav_metrics.get("maxDrawdown"),
     }
-    review = await run_in_threadpool(
-        analyze_fund_comprehensive,
-        code,
-        fund_data.get("name", code),
-        perf,
-        fund_data.get("manager") or {},
-        fund_data.get("holdings") or [],
-    )
-    payload = {"code": code, "review": review or {"raw": "LLM service is not configured or failed"}}
+    try:
+        review = await run_in_threadpool(
+            analyze_fund_comprehensive,
+            code,
+            fund_data.get("name", code),
+            perf,
+            fund_data.get("manager") or {},
+            fund_data.get("holdings") or [],
+        )
+    except Exception as e:
+        payload = {"code": code, "review": {"raw": f"LLM 分析调用异常: {e}"}}
+        cache.set(fail_cache_key, payload)
+        return payload
     if review:
+        payload = {"code": code, "review": review}
         cache.set(cache_key, payload)
+        return payload
+    payload = {"code": code, "review": {"raw": "LLM 分析返回为空，可能是 API 密钥未配置或调用超时"}}
+    cache.set(fail_cache_key, payload)
     return payload

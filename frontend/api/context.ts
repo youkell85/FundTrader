@@ -1,15 +1,20 @@
 import type { FetchCreateContextFnOptions } from "@trpc/server/adapters/fetch";
-import type { User } from "@db/schema";
+import * as cookie from "cookie";
+import { Session } from "@contracts/constants";
+import { getUserBySession, type PublicUser } from "./lib/user-store";
 
 export type TrpcContext = {
   req: Request;
   resHeaders: Headers;
-  user?: User;
+  user?: PublicUser;
+  sessionToken?: string;
 };
 
 export async function createContext(
   opts: FetchCreateContextFnOptions,
 ): Promise<TrpcContext> {
-  // FundTrader 2.0: no authentication system, return empty context
-  return { req: opts.req, resHeaders: opts.resHeaders };
+  const cookies = cookie.parse(opts.req.headers.get("cookie") || "");
+  const sessionToken = cookies[Session.cookieName];
+  const user = getUserBySession(sessionToken) || undefined;
+  return { req: opts.req, resHeaders: opts.resHeaders, user, sessionToken };
 }

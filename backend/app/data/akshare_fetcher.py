@@ -146,6 +146,40 @@ def get_fund_portfolio(code: str) -> Optional[Dict[str, Any]]:
     return {"stock_holdings": holdings}
 
 
+
+
+def get_fund_bond_portfolio(code: str) -> Optional[Dict[str, Any]]:
+    """获取基金债券持仓信息 - 用于债券型基金"""
+    from datetime import datetime
+    current_year = datetime.now().year
+    bond_holdings = []
+
+    for year in [current_year, current_year - 1, current_year - 2]:
+        try:
+            bond_df = ak.fund_portfolio_bond_hold_em(symbol=code, date=str(year))
+            if bond_df is not None and not bond_df.empty:
+                for _, row in bond_df.head(10).iterrows():
+                    ratio_val = row.get("占净值比例", 0)
+                    if isinstance(ratio_val, str):
+                        ratio_val = ratio_val.replace("%", "").strip()
+                    try:
+                        ratio = float(ratio_val)
+                    except (ValueError, TypeError):
+                        ratio = 0
+                    bond_holdings.append({
+                        "name": row.get("债券名称", ""),
+                        "code": row.get("债券代码", ""),
+                        "ratio": ratio,
+                        "quarter": str(row.get("报告期") or year),
+                        "source": "AkShare 东方财富F10 债券持仓",
+                        "updated_at": str(row.get("报告期") or year),
+                    })
+                break
+        except Exception:
+            continue
+
+    return {"bond_holdings": bond_holdings}
+
 def _normalize_stock_code(code: str) -> str:
     raw = str(code or "").strip().lower()
     if not raw:

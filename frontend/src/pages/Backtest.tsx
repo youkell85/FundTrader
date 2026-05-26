@@ -271,6 +271,30 @@ export default function Backtest() {
     const max = Math.max(...values);
     return [0, Math.ceil(max * 1.12)];
   }, [result]);
+  const curveSummary = useMemo(() => {
+    if (!result) return null;
+    const finalValue = toNum(result.finalValue);
+    const invested = toNum(result.totalInvested);
+    const benchmark = toNum(result.benchmark?.finalValue);
+    return {
+      dcaProfit: finalValue - invested,
+      benchmarkProfit: benchmark - invested,
+      gap: finalValue - benchmark,
+    };
+  }, [result]);
+  const strategyChartData = useMemo(() => {
+    const rows = result?.strategyResults || [];
+    const maxReturn = Math.max(1, ...rows.map((item: any) => Math.abs(toNum(item.annualizedReturn))));
+    const maxDrawdown = Math.max(1, ...rows.map((item: any) => Math.abs(toNum(item.maxDrawdown))));
+    const maxSharpe = Math.max(1, ...rows.map((item: any) => Math.abs(toNum(item.sharpeRatio))));
+    return rows.map((item: any) => ({
+      ...item,
+      label: strategyLabels[item.key] || item.key,
+      returnScore: (toNum(item.annualizedReturn) / maxReturn) * 100,
+      drawdownScore: (1 - Math.abs(toNum(item.maxDrawdown)) / maxDrawdown) * 100,
+      sharpeScore: (toNum(item.sharpeRatio) / maxSharpe) * 100,
+    }));
+  }, [result]);
 
   const handleRiskProfile = (value: string) => {
     const profile = riskProfiles.find((item) => item.value === value);
@@ -631,10 +655,26 @@ export default function Backtest() {
                   <div className="mb-4 flex items-center justify-between gap-3">
                     <div>
                       <h2 className="text-base font-medium text-white">资金曲线</h2>
-                      <p className="mt-1 text-xs text-white/35">累计投入、组合市值与一次性买入基准对比</p>
+                      <p className="mt-1 text-xs text-white/35">本金、定投账户市值和同等总本金一次性买入的市值对比</p>
                     </div>
                     <div className="data-number text-xs text-white/35">费率成本 {money(result.feeCost)}</div>
                   </div>
+                  {curveSummary && (
+                    <div className="mb-4 grid grid-cols-3 gap-2 text-xs">
+                      <div className="rounded-lg border border-white/[0.06] bg-white/[0.025] p-3">
+                        <div className="text-white/35">定投盈亏</div>
+                        <div className="data-number mt-1 text-sm font-semibold" style={{ color: curveSummary.dcaProfit >= 0 ? UP_COLOR : DOWN_COLOR }}>{money(curveSummary.dcaProfit)}</div>
+                      </div>
+                      <div className="rounded-lg border border-white/[0.06] bg-white/[0.025] p-3">
+                        <div className="text-white/35">一次性盈亏</div>
+                        <div className="data-number mt-1 text-sm font-semibold" style={{ color: curveSummary.benchmarkProfit >= 0 ? UP_COLOR : DOWN_COLOR }}>{money(curveSummary.benchmarkProfit)}</div>
+                      </div>
+                      <div className="rounded-lg border border-white/[0.06] bg-white/[0.025] p-3">
+                        <div className="text-white/35">定投差额</div>
+                        <div className="data-number mt-1 text-sm font-semibold" style={{ color: curveSummary.gap >= 0 ? UP_COLOR : DOWN_COLOR }}>{money(curveSummary.gap)}</div>
+                      </div>
+                    </div>
+                  )}
                   <div className="h-72 md:h-80">
                     <ResponsiveContainer width="100%" height="100%">
                       <AreaChart data={result.monthlyData || []} margin={{ top: 20, right: 16, left: 4, bottom: 0 }}>
@@ -651,11 +691,16 @@ export default function Backtest() {
                         <CartesianGrid stroke="rgba(255,255,255,0.05)" vertical={false} />
                         <XAxis dataKey="date" tick={{ fill: "rgba(255,255,255,0.35)", fontSize: 10 }} tickFormatter={(value) => String(value).slice(0, 7)} axisLine={false} tickLine={false} />
                         <YAxis width={64} domain={chartDomain} tick={{ fill: "rgba(255,255,255,0.35)", fontSize: 10 }} tickFormatter={(value) => `¥${(Number(value) / 10000).toFixed(1)}万`} axisLine={false} tickLine={false} />
-                        <Tooltip contentStyle={{ background: "rgba(5,8,26,0.96)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, fontSize: 12 }} formatter={(value: any, name: string) => [money(value), name === "invested" ? "累计投入" : name === "value" ? "定投市值" : "一次性买入"]} />
+                        <Tooltip
+                          wrapperStyle={{ outline: "none" }}
+                          contentStyle={{ background: "rgba(5,8,26,0.98)", border: "1px solid rgba(255,255,255,0.10)", borderRadius: 8, fontSize: 12, color: "rgba(255,255,255,0.82)" }}
+                          labelStyle={{ color: "rgba(255,255,255,0.55)" }}
+                          formatter={(value: any, name: string) => [money(value), name === "invested" ? "累计投入本金" : name === "value" ? "定投账户市值" : "一次性买入市值"]}
+                        />
                         <Legend wrapperStyle={{ fontSize: 11, color: "rgba(255,255,255,0.55)" }} />
-                        <Area type="monotone" dataKey="invested" name="累计投入" stroke={ACCENT_PRIMARY} strokeWidth={1.5} fill="url(#investedValue)" />
-                        <Area type="monotone" dataKey="value" name="定投市值" stroke={UP_COLOR} strokeWidth={2} fill="url(#dcaValue)" />
-                        <Area type="monotone" dataKey="benchmark" name="一次性买入" stroke="#FFD166" strokeWidth={2} fill="transparent" connectNulls />
+                        <Area type="stepAfter" dataKey="invested" name="累计投入本金" stroke={ACCENT_PRIMARY} strokeWidth={1.5} fill="url(#investedValue)" />
+                        <Area type="monotone" dataKey="value" name="定投账户市值" stroke={UP_COLOR} strokeWidth={2} fill="url(#dcaValue)" />
+                        <Area type="monotone" dataKey="benchmark" name="一次性买入市值" stroke="#FFD166" strokeWidth={2} fill="transparent" connectNulls />
                       </AreaChart>
                     </ResponsiveContainer>
                   </div>
@@ -666,17 +711,29 @@ export default function Backtest() {
                     <h2 className="mb-4 text-base font-medium text-white">策略横向比较</h2>
                     <div className="h-64">
                       <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={result.strategyResults || []} margin={{ top: 12, right: 8, left: 0, bottom: 0 }}>
+                        <BarChart data={strategyChartData} margin={{ top: 12, right: 8, left: 0, bottom: 0 }}>
                           <CartesianGrid stroke="rgba(255,255,255,0.05)" vertical={false} />
-                          <XAxis dataKey="key" tick={{ fill: "rgba(255,255,255,0.35)", fontSize: 10 }} tickFormatter={(value) => strategyLabels[String(value)] || String(value)} axisLine={false} tickLine={false} />
-                          <YAxis tick={{ fill: "rgba(255,255,255,0.35)", fontSize: 10 }} axisLine={false} tickLine={false} />
-                          <Tooltip contentStyle={{ background: "rgba(5,8,26,0.96)", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, fontSize: 12 }} formatter={(value: any, name: string) => [`${Number(value).toFixed(2)}${name === "sharpeRatio" ? "" : "%"}`, name === "annualizedReturn" ? "年化" : name === "maxDrawdown" ? "回撤" : "夏普"]} />
+                          <XAxis dataKey="label" interval={0} tick={{ fill: "rgba(255,255,255,0.42)", fontSize: 10 }} axisLine={false} tickLine={false} height={42} />
+                          <YAxis domain={[0, 100]} tick={{ fill: "rgba(255,255,255,0.35)", fontSize: 10 }} tickFormatter={(value) => `${value}`} axisLine={false} tickLine={false} />
+                          <Tooltip
+                            wrapperStyle={{ outline: "none" }}
+                            contentStyle={{ background: "rgba(5,8,26,0.98)", border: "1px solid rgba(255,255,255,0.10)", borderRadius: 8, fontSize: 12, color: "rgba(255,255,255,0.82)" }}
+                            labelStyle={{ color: "rgba(255,255,255,0.65)" }}
+                            formatter={(value: any, name: string, item: any) => {
+                              const raw = item?.payload || {};
+                              if (name === "returnScore") return [`评分 ${Number(value).toFixed(0)} / 原值 ${pct(raw.annualizedReturn, false)}`, "年化收益"];
+                              if (name === "drawdownScore") return [`评分 ${Number(value).toFixed(0)} / 原值 ${pct(raw.maxDrawdown, false)}`, "回撤控制"];
+                              return [`评分 ${Number(value).toFixed(0)} / 原值 ${toNum(raw.sharpeRatio).toFixed(2)}`, "夏普比率"];
+                            }}
+                          />
                           <ReferenceLine y={0} stroke="rgba(255,255,255,0.16)" />
-                          <Bar dataKey="annualizedReturn" name="年化" fill={UP_COLOR} radius={[4, 4, 0, 0]} />
-                          <Bar dataKey="maxDrawdown" name="回撤" fill={RISK_COLOR} radius={[4, 4, 0, 0]} />
+                          <Bar dataKey="returnScore" name="年化收益" fill={UP_COLOR} radius={[4, 4, 0, 0]} />
+                          <Bar dataKey="drawdownScore" name="回撤控制" fill={RISK_COLOR} radius={[4, 4, 0, 0]} />
+                          <Bar dataKey="sharpeScore" name="夏普比率" fill={ACCENT_INFO} radius={[4, 4, 0, 0]} />
                         </BarChart>
                       </ResponsiveContainer>
                     </div>
+                    <div className="mt-2 text-[11px] text-white/30">柱状图按 0-100 归一化：收益和夏普越高越好，回撤控制越高代表回撤越小。</div>
                     <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
                       {(result.strategyResults || []).map((item: any) => (
                         <div key={item.key} className="rounded-lg border border-white/[0.06] bg-white/[0.035] p-3">
@@ -775,7 +832,8 @@ export default function Backtest() {
                     <div className="space-y-3">
                       {llmReview.verdict && <div className="rounded-lg border border-white/[0.06] bg-white/[0.035] p-3"><div className="text-xs" style={{ color: ACCENT_INFO }}>综合评级</div><div className="mt-1 text-sm font-medium text-white">{llmReview.verdict}</div></div>}
                       {llmReview.analysis && <div className="rounded-lg border border-white/[0.06] bg-white/[0.035] p-3"><div className="text-xs" style={{ color: ACCENT_INFO }}>专业分析</div><div className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-white/70">{llmReview.analysis}</div></div>}
-                      {Array.isArray(llmReview.suggestions) && llmReview.suggestions.length > 0 && <div className="rounded-lg border border-white/[0.06] bg-white/[0.035] p-3"><div className="mb-2 text-xs" style={{ color: ACCENT_HIGHLIGHT }}>优化建议</div>{llmReview.suggestions.map((item: string) => <div key={item} className="mb-1.5 text-sm text-white/70">{item}</div>)}</div>}
+                      {Array.isArray(llmReview.suggestions) && llmReview.suggestions.length > 0 && <div className="rounded-lg border border-white/[0.06] bg-white/[0.035] p-3"><div className="mb-2 text-xs" style={{ color: ACCENT_HIGHLIGHT }}>优化建议</div>{llmReview.suggestions.map((item: string) => <div key={item} className="mb-1.5 flex gap-2 text-sm text-white/70"><CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#00F0FF]" /><span>{item}</span></div>)}</div>}
+                      {Array.isArray(llmReview.risk_notes) && llmReview.risk_notes.length > 0 && <div className="rounded-lg border border-[#FFB800]/20 bg-[#FFB800]/[0.06] p-3"><div className="mb-2 text-xs" style={{ color: RISK_COLOR }}>风险提示</div>{llmReview.risk_notes.map((item: string) => <div key={item} className="mb-1.5 flex gap-2 text-sm text-white/70"><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" style={{ color: RISK_COLOR }} /><span>{item}</span></div>)}</div>}
                       {llmReview.raw && <p className="whitespace-pre-wrap text-sm leading-relaxed text-white/65">{llmReview.raw}</p>}
                     </div>
                   )}

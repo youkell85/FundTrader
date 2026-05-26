@@ -22,6 +22,7 @@ import {
 } from "./lib/mapper";
 import { fetchFundQuote, isExchangeFundCode } from "./lib/fund-quote";
 import { buildPeerPerformanceRows } from "./lib/peer-rankings";
+import { getUserState, updateUserState } from "./lib/user-store";
 
 const strategyMap: Record<string, string> = {
   compare: "compare",
@@ -48,7 +49,7 @@ function wrapError(err: unknown, message: string): never {
 // L2 日频: 净值/日涨跌 — 15min TTL，交易时段实时
 
 const bffCache = new Map<string, { expiresAt: number; data: any }>();
-const DETAIL_ANALYSIS_TIMEOUT_MS = Number(process.env.FUNDTRADER_DETAIL_TIMEOUT_MS ?? 4_000);
+const DETAIL_ANALYSIS_TIMEOUT_MS = Number(process.env.FUNDTRADER_DETAIL_TIMEOUT_MS ?? 12_000);
 
 /** 默认缓存TTL按数据层级分级 */
 const BFF_CACHE_TTL = 30 * 60 * 1000;                     // 默认 30分钟
@@ -396,6 +397,8 @@ async function fetchHomeFunds() {
         nav_date: isExchangeFundCode(fund.code) ? (fund.nav_date || analysis.nav_date) : (analysis.nav_date || fund.nav_date),
         day_growth: isExchangeFundCode(fund.code) ? (fund.day_growth ?? analysis.day_growth) : (analysis.day_growth ?? fund.day_growth),
         nav_data: analysis.nav_data || [],
+        company: analysis.company || analysis.management || fund.company || fund.management,
+        management: analysis.management || analysis.company || fund.management || fund.company,
         manager_info: analysis.manager || fund.manager_info,
         holdings: analysis.holdings || fund.holdings,
         radar_scores: analysis.radar_scores,
@@ -452,11 +455,17 @@ async function enrichFundAnalysis(analysis: any, code: string) {
 function quoteToAnalysis(code: string, quote: Awaited<ReturnType<typeof fetchFundQuote>> | null, source = "manual") {
   if (!quote) return null;
   const name = quote.name || code;
-  const type = /^508\d{3}$/.test(code) ? "REITs" : isExchangeFundCode(code) ? "ETF" : "";
+  const type = quote.type || (/^508\d{3}$/.test(code) ? "REITs" : isExchangeFundCode(code) ? "ETF" : "");
   return {
     code,
     name,
     type,
+    company: quote.company,
+    management: quote.company,
+    total_scale: quote.totalScale,
+    feeManage: quote.feeManage,
+    feeCustody: quote.feeCustody,
+    manager: quote.manager ? { name: quote.manager, company: quote.company, tenure_days: 0 } : {},
     nav: quote.nav,
     accum_nav: quote.accumNav,
     nav_date: quote.navDate,
@@ -533,7 +542,7 @@ export const fundRouter = createRouter({
         pageSize: z.number().optional(),
       }).optional()
     )
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       try {
         const opts = input || {};
         const page = opts.page ?? 1;
@@ -555,6 +564,18 @@ export const fundRouter = createRouter({
           scheduleHomeFundsPrewarm();
         }
         let result = rawFunds.map(mapFundItem).filter(Boolean);
+        if (ctx.user) {
+          const savedCodes = getUserState(ctx.user.id).watchlistCodes;
+          const existingCodes = new Set(result.map((fund: any) => String(fund.fundCode)));
+          const savedFunds = await Promise.all(savedCodes
+            .filter((code) => /^\d{6}$/.test(code) && !existingCodes.has(code))
+            .map(async (code) => {
+              const quote = await fetchFundQuote(code).catch(() => null);
+              const mapped = mapFundItem(quoteToAnalysis(code, quote, "watchlist"));
+              return mapped ? { ...mapped, source: "watchlist" } : null;
+            }));
+          result = [...result, ...savedFunds.filter(Boolean)];
+        }
 
         // 本地筛选
         if (opts.fundType) result = result.filter((f: any) => f.fundType === opts.fundType);
@@ -672,7 +693,7 @@ export const fundRouter = createRouter({
 
   addByCode: publicQuery
     .input(z.object({ code: z.string().regex(/^\d{6}$/) }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       try {
         invalidateHomeCaches();
         const [quote, xinjihuiFunds] = await Promise.all([
@@ -682,6 +703,13 @@ export const fundRouter = createRouter({
         const knownFund = xinjihuiFunds.find((fund: any) => fund?.code === input.code);
         const name = quote?.name || knownFund?.name || "";
         await addToWatchlist(input.code, name);
+        if (ctx.user) {
+          const state = getUserState(ctx.user.id);
+          updateUserState(ctx.user.id, {
+            watchlistCodes: Array.from(new Set([...state.watchlistCodes, input.code])),
+            recentFunds: Array.from(new Set([input.code, ...state.recentFunds])).slice(0, 20),
+          });
+        }
         return mapFundItem({
           code: input.code,
           name: name || input.code,
@@ -754,10 +782,16 @@ export const fundRouter = createRouter({
   // 移除自选基金
   removeFromWatchlist: publicQuery
     .input(z.object({ code: z.string().regex(/^\d{6}$/) }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       try {
         invalidateHomeCaches();
         await ftRemoveFromWatchlist(input.code);
+        if (ctx.user) {
+          const state = getUserState(ctx.user.id);
+          updateUserState(ctx.user.id, {
+            watchlistCodes: state.watchlistCodes.filter((code) => code !== input.code),
+          });
+        }
         return { success: true, code: input.code };
       } catch (err) {
         wrapError(err, "移除自选基金失败");
@@ -809,10 +843,16 @@ export const fundRouter = createRouter({
       const categories = Array.isArray(ftCats?.categories)
         ? ftCats.categories
         : Object.values(ftCats?.categories || {}).flat();
+      const rawFunds = getCached<any[]>("homeFunds") || getCached<any[]>("homeFundSummaries") || await fetchHomeFundSummaries();
+      const companies = Array.from(new Set(rawFunds
+        .map((fund: any) => fund?.company || fund?.management)
+        .filter((company: unknown) => company && company !== "—")
+        .map((company: unknown) => String(company))))
+        .sort((a, b) => a.localeCompare(b, "zh-CN"));
       return {
         types: ["equity", "hybrid", "bond", "index", "etf", "reits", "qdii", "money", "fof"],
         categories,
-        companies: [],
+        companies,
         riskLevels: ["low", "low_medium", "medium", "medium_high", "high"],
       };
     } catch (err) {
@@ -847,7 +887,7 @@ export const fundRouter = createRouter({
       manualFundCodes: z.array(z.string().regex(/^\d{6}$/)).optional(),
       selectedFundCodes: z.array(z.string()).optional(),
     }).optional())
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       try {
         const opts = input || {};
         const rawFunds = getCached<any[]>("homeFunds") || await fetchHomeFunds();
@@ -890,10 +930,16 @@ export const fundRouter = createRouter({
         const optimizationGoal = opts.optimizationGoal || "balanced";
         const focusTheme = opts.focusTheme || "all";
         const sourceMode = opts.sourceMode || "xinjihui";
-        const selectedFundCodes = new Set((opts.selectedFundCodes || []).map((code) => String(code)));
-        const manualFundCodes = Array.from(new Set([...(opts.manualFundCodes || []), ...(opts.selectedFundCodes || [])].map((code) => String(code)).filter((code) => /^\d{6}$/.test(code))));
         const includeXinjihui = opts.includeXinjihui ?? sourceMode === "xinjihui";
         const includeWatchlist = opts.includeWatchlist ?? sourceMode === "watchlist";
+        const selectedFundCodes = new Set((opts.selectedFundCodes || []).map((code) => String(code)));
+        const savedState = ctx.user ? getUserState(ctx.user.id) : null;
+        const savedWatchlistCodes = savedState?.watchlistCodes || [];
+        const manualFundCodes = Array.from(new Set([
+          ...(opts.manualFundCodes || []),
+          ...(opts.selectedFundCodes || []),
+          ...(includeWatchlist ? savedWatchlistCodes : []),
+        ].map((code) => String(code)).filter((code) => /^\d{6}$/.test(code))));
         const preferredTypes = opts.preferredTypes?.length ? opts.preferredTypes : ["bond", "hybrid", "index", "etf", "equity", "reits", "money", "qdii"];
         const allFunds = rawFunds.map(mapFundItem).filter(Boolean);
         const manualFunds = (await Promise.all(manualFundCodes.map(async (code) => {
@@ -1083,9 +1129,30 @@ export const fundRouter = createRouter({
           };
         };
 
-        return (["defensive", "balanced", "growth"] as const)
+        const portfolios = (["defensive", "balanced", "growth"] as const)
           .map((variant, index) => buildPortfolio(variant, index + 1))
           .sort((a, b) => Number(b.score) - Number(a.score));
+        if (ctx.user) {
+          updateUserState(ctx.user.id, {
+            recommendationRecords: [{
+              id: Date.now(),
+              createdAt: new Date().toISOString(),
+              input: opts,
+              plans: portfolios,
+            }, ...(savedState?.recommendationRecords || [])].slice(0, 50),
+            preferences: {
+              lastRecommendation: {
+                riskProfile,
+                horizon,
+                maxDrawdown: maxDdLimit,
+                preferredTypes,
+                optimizationGoal,
+                focusTheme,
+              },
+            },
+          });
+        }
+        return portfolios;
       } catch (err) {
         wrapError(err, "获取推荐配置失败");
       }
@@ -1094,9 +1161,9 @@ export const fundRouter = createRouter({
   // 回测记录列表
   backtests: publicQuery
     .input(z.object({ strategy: z.string().optional() }).optional())
-    .query(async () => {
-      // FundTrader 后端没有回测记录列表接口，返回空数组
-      return [];
+    .query(async ({ ctx }) => {
+      if (!ctx.user) return [];
+      return getUserState(ctx.user.id).backtestRecords;
     }),
 
   // 执行回测计算
@@ -1117,7 +1184,7 @@ export const fundRouter = createRouter({
         targetAnnualReturn: z.number().optional(),
       })
     )
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       try {
         // 同时获取国元基金和自选基金，与 list 查询保持一致
         const [rawGuoyuan, rawWatchlist] = await Promise.all([
@@ -1148,7 +1215,7 @@ export const fundRouter = createRouter({
         });
 
         const selectedFundMeta = input.fundIds.map((id) => allFunds.find((x: any) => x.id === id)).filter(Boolean);
-        return mapBacktestResult(ftResult, {
+        const mapped = mapBacktestResult(ftResult, {
           weights: input.weights,
           strategy: input.strategy,
           fundMeta: selectedFundMeta,
@@ -1158,6 +1225,28 @@ export const fundRouter = createRouter({
           maxDrawdownLimit: input.maxDrawdownLimit,
           targetAnnualReturn: input.targetAnnualReturn,
         });
+        if (ctx.user) {
+          const state = getUserState(ctx.user.id);
+          updateUserState(ctx.user.id, {
+            backtestRecords: [{
+              id: Date.now(),
+              createdAt: new Date().toISOString(),
+              input,
+              result: mapped,
+            }, ...state.backtestRecords].slice(0, 50),
+            preferences: {
+              lastBacktest: {
+                strategy: input.strategy,
+                investAmount: input.investAmount,
+                investFrequency: input.investFrequency,
+                riskProfile: input.riskProfile,
+                maxDrawdownLimit: input.maxDrawdownLimit,
+                targetAnnualReturn: input.targetAnnualReturn,
+              },
+            },
+          });
+        }
+        return mapped;
       } catch (err) {
         wrapError(err, "执行回测失败");
       }
@@ -1238,7 +1327,7 @@ export const fundRouter = createRouter({
     .input(z.object({ code: z.string().regex(/^\d{6}$/) }))
     .query(async ({ input }) => {
       try {
-        const cacheKey = `llm_review_v3_${input.code}`;
+        const cacheKey = `llm_review_v4_${input.code}`;
         const cached = getCached<any>(cacheKey);
         if (cached) return cached;
         const data = normalizeLlmReview(await getFundLLMReview(input.code));

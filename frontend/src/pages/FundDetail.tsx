@@ -225,6 +225,7 @@ export default function FundDetail() {
     ? "场内交易费率以券商为准"
     : "待披露";
   const dailyChange = parseFloat(fund.dailyChange || "0");
+  const manager = fund.manager;
 
   return (
     <div className="min-h-screen pt-14 pb-12">
@@ -496,9 +497,16 @@ export default function FundDetail() {
                         </ul>
                       </div>
                     )}
-                    {review.raw && !isJsonLikeText(review.raw) && (
-                      <p className="text-white/60 text-sm leading-relaxed whitespace-pre-wrap">{review.raw}</p>
-                    )}
+                    {review.raw && !isJsonLikeText(review.raw) && (() => {
+                      const errRe = /未配置|失败|异常|超时|为空/;
+                      if (errRe.test(review.raw)) return (
+                        <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2">
+                          <p className="text-red-400 text-sm leading-relaxed">{review.raw}</p>
+                          <button className="mt-1.5 text-xs text-red-300 underline underline-offset-2 hover:text-red-200" onClick={() => llmQuery.refetch()}>点击重试</button>
+                        </div>
+                      );
+                      return <p className="text-white/60 text-sm leading-relaxed whitespace-pre-wrap">{review.raw}</p>;
+                    })()}
                     {review.raw && isJsonLikeText(review.raw) && (
                       <div className="rounded-lg border border-[#FFB800]/20 bg-[#FFB800]/[0.06] px-3 py-2 text-xs leading-relaxed" style={{ color: RISK_COLOR }}>
                         AI 返回了未完整的 JSON，暂无法结构化展示。请点击“刷新分析”重新生成。
@@ -586,57 +594,80 @@ export default function FundDetail() {
               </div>
             )}
 
-            {fund.manager && (
+            {manager ? (
               <div className="liquid-glass p-4 md:p-6">
                 <h2 className="text-base md:text-lg font-medium text-white mb-4 flex items-center gap-2">
                   <User className="w-5 h-5" style={{ color: ACCENT_PRIMARY }} />基金经理
                 </h2>
                 <div className="flex items-center gap-3 mb-4">
                   <div className="w-14 h-14 rounded-full flex items-center justify-center text-white font-semibold text-lg" style={{ background: `linear-gradient(135deg, ${ACCENT_PRIMARY}, ${ACCENT_INFO})` }}>
-                    {fund.manager.name?.[0] ?? "?"}
+                    {manager.name?.[0] ?? "?"}
                   </div>
                   <div>
-                    <div className="text-white font-medium">{fund.manager.name ?? "未知"}</div>
-                    {(fund.manager.company !== "—" || fund.manager.education) && (
-                      <div className="text-white/40 text-xs">{fund.manager.company !== "—" ? fund.manager.company : ""}{fund.manager.education ? ` · ${fund.manager.education}` : ""}</div>
+                    <div className="text-white font-medium">{manager.name ?? "未知"}</div>
+                    {(manager.company !== "—" || manager.education) && (
+                      <div className="text-white/40 text-xs">{manager.company !== "—" ? manager.company : ""}{manager.education ? ` · ${manager.education}` : ""}</div>
                     )}
-                    {fund.manager.manageYears !== "5.00" && (
-                      <div className="text-white/40 text-xs">从业{fund.manager.manageYears}年 · 管理{fund.manager.fundCount}只基金</div>
+                    {manager.manageYears !== "5.00" && (
+                      <div className="text-white/40 text-xs">从业{manager.manageYears}年 · 管理{manager.fundCount}只基金</div>
                     )}
                   </div>
                 </div>
 
-                {fund.manager.styleDescription && (
+                {manager.styleDescription && (
                   <div className="mb-4">
                     <h3 className="text-xs mb-2 flex items-center gap-1" style={{ color: ACCENT_INFO }}>
                       <Zap className="w-3 h-3" />AI 投资风格分析
                     </h3>
-                    <p className="text-white/60 text-xs leading-relaxed">{fund.manager.styleDescription}</p>
+                    <p className="text-white/60 text-xs leading-relaxed">{manager.styleDescription}</p>
                   </div>
                 )}
 
                 <div className="grid grid-cols-2 gap-2">
                   <div className="liquid-glass-sm p-2 text-center">
-                    <div className="data-number text-sm font-medium" style={{ color: fund.manager.bestReturn !== "—" ? UP_COLOR : "rgba(255,255,255,0.3)" }}>
-                      {fund.manager.bestReturn !== "—" ? `+${fund.manager.bestReturn}%` : "—"}
+                    <div className="data-number text-sm font-medium" style={{ color: manager.returnSinceTenure !== "—" ? UP_COLOR : "rgba(255,255,255,0.3)" }}>
+                      {manager.returnSinceTenure !== "—" ? `${parseFloat(manager.returnSinceTenure) >= 0 ? "+" : ""}${manager.returnSinceTenure}%` : "—"}
+                    </div>
+                    <div className="text-white/30 text-[10px]">任职回报</div>
+                  </div>
+                  <div className="liquid-glass-sm p-2 text-center">
+                    <div className="data-number text-sm font-medium" style={{ color: manager.annualizedReturn !== "—" ? ACCENT_INFO : "rgba(255,255,255,0.3)" }}>
+                      {manager.annualizedReturn !== "—" ? `${parseFloat(manager.annualizedReturn) >= 0 ? "+" : ""}${manager.annualizedReturn}%` : "—"}
+                    </div>
+                    <div className="text-white/30 text-[10px]">年化回报</div>
+                  </div>
+                  <div className="liquid-glass-sm p-2 text-center">
+                    <div className="data-number text-sm font-medium" style={{ color: manager.bestReturn !== "—" ? UP_COLOR : "rgba(255,255,255,0.3)" }}>
+                      {manager.bestReturn !== "—" ? `+${manager.bestReturn}%` : "—"}
                     </div>
                     <div className="text-white/30 text-[10px]">最佳年度</div>
                   </div>
                   <div className="liquid-glass-sm p-2 text-center">
-                    <div className="data-number text-sm font-medium" style={{ color: fund.manager.worstReturn !== "—" ? DOWN_COLOR : "rgba(255,255,255,0.3)" }}>
-                      {fund.manager.worstReturn !== "—" ? `${fund.manager.worstReturn}%` : "—"}
+                    <div className="data-number text-sm font-medium" style={{ color: manager.worstReturn !== "—" ? DOWN_COLOR : "rgba(255,255,255,0.3)" }}>
+                      {manager.worstReturn !== "—" ? `${manager.worstReturn}%` : "—"}
                     </div>
                     <div className="text-white/30 text-[10px]">最差年度</div>
                   </div>
                 </div>
 
+                {manager.investmentStyle && (
                 <div className="mt-3">
                   <div className="text-xs text-white/40 mb-2">投资风格标签</div>
                   <div className="flex gap-1 flex-wrap">
-                    {fund.manager.investmentStyle?.split(",").map((s: string) => (
+                    {manager.investmentStyle.split(",").map((s: string) => (
                       <span key={s} className="px-2 py-0.5 rounded text-[10px] bg-white/[0.05] text-white/60">{s.trim()}</span>
                     ))}
                   </div>
+                </div>
+                )}
+              </div>
+            ) : (
+              <div className="liquid-glass p-4 md:p-6">
+                <h2 className="text-base md:text-lg font-medium text-white mb-3 flex items-center gap-2">
+                  <User className="w-5 h-5" style={{ color: ACCENT_PRIMARY }} />基金经理
+                </h2>
+                <div className="rounded-lg border border-[#FFB800]/20 bg-[#FFB800]/[0.06] px-3 py-2 text-xs leading-relaxed" style={{ color: RISK_COLOR }}>
+                  当前数据源尚未返回基金经理详情，系统会在详情分析缓存刷新后自动补齐。
                 </div>
               </div>
             )}

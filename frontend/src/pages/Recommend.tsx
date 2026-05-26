@@ -120,6 +120,12 @@ function metricValue(value: unknown) {
   return Number.isFinite(num) ? num : 0;
 }
 
+function metricText(value: unknown, digits = 2) {
+  if (value === undefined || value === null || value === "" || value === "—") return "—";
+  const num = metricValue(value);
+  return Number.isFinite(num) ? num.toFixed(digits) : "—";
+}
+
 function yuan(value: number) {
   return Math.round(value).toLocaleString("zh-CN");
 }
@@ -151,8 +157,8 @@ export default function Recommend() {
   const [manualCode, setManualCode] = useState("");
 
   const { data: listData } = trpc.fund.list.useQuery(
-    { pageSize: 1000 },
-    { staleTime: 5 * 60 * 1000, refetchOnWindowFocus: false }
+    { pageSize: 1000, withMetrics: true },
+    { staleTime: 30 * 60 * 1000, refetchOnWindowFocus: false }
   );
   const { data: recommendationsData, isLoading, isFetching } = trpc.fund.recommendations.useQuery(
     applied,
@@ -649,7 +655,7 @@ export default function Recommend() {
                               {metricValue(perf?.return1y) >= 0 ? "+" : ""}{metricValue(perf?.return1y).toFixed(2)}%
                             </div>
                             <div className="hidden md:block data-number text-sm" style={{ color: RISK_COLOR }}>
-                              {metricValue(perf?.maxDrawdown).toFixed(2)}%
+                              {metricText(perf?.maxDrawdown)}{metricText(perf?.maxDrawdown) === "—" ? "" : "%"}
                             </div>
                             <div className="hidden md:flex items-center justify-end gap-2">
                               <span className="data-number text-sm" style={{ color: POSITIVE_METRIC_COLOR }}>{metricValue(perf?.sharpeRatio).toFixed(2)}</span>
@@ -660,7 +666,7 @@ export default function Recommend() {
                             <div className="border-t border-white/[0.05] px-3 py-3">
                               <div className="grid grid-cols-3 gap-2 md:hidden mb-3">
                                 <MetricTile label="近1年" value={`${metricValue(perf?.return1y) >= 0 ? "+" : ""}${metricValue(perf?.return1y).toFixed(2)}`} suffix="%" color={UP_COLOR} />
-                                <MetricTile label="回撤" value={metricValue(perf?.maxDrawdown).toFixed(2)} suffix="%" color={RISK_COLOR} />
+                                <MetricTile label="回撤" value={metricText(perf?.maxDrawdown)} suffix={metricText(perf?.maxDrawdown) === "—" ? "" : "%"} color={RISK_COLOR} />
                                 <MetricTile label="夏普" value={metricValue(perf?.sharpeRatio).toFixed(2)} color={POSITIVE_METRIC_COLOR} />
                               </div>
                               <p className="text-white/55 text-sm leading-relaxed">{fd.reason}</p>

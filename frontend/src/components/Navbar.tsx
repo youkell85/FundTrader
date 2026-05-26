@@ -1,5 +1,5 @@
 import { Link, useLocation } from "react-router";
-import { TrendingUp, BarChart3, Calculator, Lightbulb, LogIn, LogOut, User } from "lucide-react";
+import { TrendingUp, Calculator, Lightbulb, LogIn, LogOut, User } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useState } from "react";
 
@@ -7,7 +7,6 @@ const navItems = [
   { path: "/", label: "基金市场", icon: TrendingUp },
   { path: "/backtest", label: "智能定投", icon: Calculator },
   { path: "/recommend", label: "配置组合", icon: Lightbulb },
-  { path: "/analysis", label: "深度分析", icon: BarChart3 },
 ];
 
 export default function Navbar() {
@@ -69,7 +68,7 @@ export default function Navbar() {
               </button>
               {showUserMenu && (
                 <div className="absolute right-0 top-full mt-2 w-44 liquid-glass-sm py-2 z-50">
-                  <div className="px-3 py-2 text-xs text-white/40 border-b border-white/5">客户经理工作台</div>
+                  <div className="px-3 py-2 text-xs text-white/40 border-b border-white/5">个人数据已保存</div>
                   <button
                     onClick={() => { logout(); setShowUserMenu(false); }}
                     className="w-full flex items-center gap-2 px-3 py-2 text-sm text-white/70 hover:text-white hover:bg-white/5 transition-colors"
@@ -93,7 +92,7 @@ export default function Navbar() {
       </nav>
 
       <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 border-t border-white/[0.08] bg-[#050816]/92 backdrop-blur-xl">
-        <div className="grid grid-cols-4 px-1 py-1.5">
+        <div className="grid grid-cols-3 px-1 py-1.5">
           {navItems.map((item) => {
             const isActive = location.pathname === item.path;
             const Icon = item.icon;
