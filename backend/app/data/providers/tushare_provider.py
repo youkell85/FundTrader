@@ -151,12 +151,26 @@ class TushareProvider(DataProvider):
         pro = self._get_pro()
         if pro is None:
             return []
-        kwargs = {"ts_code": f"{code}.OF"}
-        if start_date:
-            kwargs["start_date"] = start_date
-        if end_date:
-            kwargs["end_date"] = end_date
-        df = self._safe_call(pro.fund_nav, **kwargs)
+
+        # 尝试多种后缀：.OF（场外默认）→ .SH → .SZ，解决部分基金代码不匹配问题
+        suffixes = [".OF"]
+        if code.startswith(("5", "508")):
+            suffixes.insert(0, ".SH")
+        elif code.startswith(("15", "16", "18")):
+            suffixes.insert(0, ".SZ")
+        else:
+            suffixes.extend([".SH", ".SZ"])
+
+        df = None
+        for suffix in suffixes:
+            kwargs = {"ts_code": f"{code}{suffix}"}
+            if start_date:
+                kwargs["start_date"] = start_date
+            if end_date:
+                kwargs["end_date"] = end_date
+            df = self._safe_call(pro.fund_nav, **kwargs)
+            if df is not None and not df.empty:
+                break
         if df is None or df.empty:
             return []
 

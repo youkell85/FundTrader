@@ -209,7 +209,8 @@ def _calc_period_returns(nav_data: List[Dict]) -> Dict[str, Any]:
 
 def _supplement_nav_with_efinance(code: str, current_navs: List[Dict]) -> List[Dict]:
     """优先使用 efinance 抓取长周期全量净值历史（东财涵盖从成立以来）。
-    若当前数据不足 365 点或起始日期不够早，从 efinance 补充。并使用文件缓存避免重复拉取。"""
+    若当前数据不足 365 点或起始日期不够早，从 efinance 补充。并使用文件缓存避免重复拉取。
+    若 efinance 也失败，尝试 akshare 作为第三层 fallback。"""
     nav_cache_key = f"fund_nav_full_{code}"
     cached = cache.get(nav_cache_key, CACHE_TTL_NAV * 6)  # 6小时缓存
     if cached and isinstance(cached, list) and len(cached) > 200:
@@ -217,12 +218,35 @@ def _supplement_nav_with_efinance(code: str, current_navs: List[Dict]) -> List[D
         if normalized != cached:
             cache.set(nav_cache_key, normalized)
         return normalized
+
+    ef_nav = []
     try:
         ef_nav = get_fund_nav_history(code)
     except Exception:
         ef_nav = []
+
+    # 若 efinance 失败，尝试 akshare 获取净值历史
+    if not ef_nav:
+        try:
+            import akshare as ak
+            df = ak.fund_open_fund_info_em(symbol=code, indicator="单位净值走势")
+            if df is not None and not df.empty:
+                records = []
+                for _, row in df.iterrows():
+                    date_val = row.get("净值日期")
+                    nav_val = row.get("单位净值")
+                    if date_val and nav_val:
+                        records.append({
+                            "date": str(date_val)[:10],
+                            "nav": float(nav_val),
+                        })
+                ef_nav = records
+        except Exception:
+            pass
+
     if not ef_nav:
         return current_navs
+
     # 按日期去重合并
     by_date: Dict[str, Dict] = {}
     for n in normalize_nav_data(current_navs):
@@ -343,6 +367,18 @@ def analyze_fund(code: str) -> Dict[str, Any]:
         except Exception:
             pass
 
+        # 从净值历史计算风控指标（Sharpe / 最大回撤）
+        sharpe_ratio = None
+        max_drawdown = None
+        if nav_data and len(nav_data) >= 2:
+            try:
+                from ..api.analysis import _calc_nav_risk_metrics
+                metrics = _calc_nav_risk_metrics(nav_data)
+                sharpe_ratio = metrics.get("sharpeRatio")
+                max_drawdown = metrics.get("maxDrawdown")
+            except Exception:
+                pass
+
         return {
             "code": code,
             "name": detail.name or code,
@@ -382,6 +418,8 @@ def analyze_fund(code: str) -> Dict[str, Any]:
             "total_scale": total_scale,
             "feeManage": fee_manage,
             "feeCustody": fee_custody,
+            "sharpe_ratio": sharpe_ratio,
+            "max_drawdown": max_drawdown,
         }
 
     # 融合层失败，回退到旧的数据源
