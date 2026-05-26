@@ -502,23 +502,56 @@ function parseBacktestDate(date: unknown): number {
   return Number.isFinite(time) ? time : 0;
 }
 
-function calcPortfolioDrawdown(curve: Array<{ value: number }>): number {
+function calcCashflowAdjustedReturns(curve: Array<{ value: number; invested?: number }>): number[] {
+  const returns: number[] = [];
+  let previousValue: number | null = null;
+  let previousInvested = 0;
+  curve.forEach((point) => {
+    const value = toFiniteBacktestNumber(point.value);
+    const invested = toFiniteBacktestNumber(point.invested);
+    if (value <= 0) return;
+    if (previousValue !== null && previousValue > 0) {
+      const flow = invested - previousInvested;
+      const periodReturn = (value - previousValue - flow) / previousValue;
+      if (Number.isFinite(periodReturn)) returns.push(periodReturn);
+    }
+    previousValue = value;
+    previousInvested = invested;
+  });
+  return returns;
+}
+
+function calcUnitizedValues(curve: Array<{ value: number; invested?: number }>): number[] {
+  if (curve.some((point) => point.invested !== undefined)) {
+    return calcCashflowAdjustedReturns(curve).reduce((values, periodReturn) => {
+      values.push(values[values.length - 1] * (1 + periodReturn));
+      return values;
+    }, [100]);
+  }
+  return curve.map((point) => point.value).filter((value) => value > 0);
+}
+
+function calcPortfolioDrawdown(curve: Array<{ value: number; invested?: number }>): number {
   let peak = 0;
   let maxDrawdown = 0;
-  curve.forEach((point) => {
-    if (point.value > peak) peak = point.value;
-    if (peak > 0) maxDrawdown = Math.max(maxDrawdown, (peak - point.value) / peak * 100);
+  calcUnitizedValues(curve).forEach((value) => {
+    if (value > peak) peak = value;
+    if (peak > 0) maxDrawdown = Math.max(maxDrawdown, (peak - value) / peak * 100);
   });
   return maxDrawdown;
 }
 
-function calcPortfolioSharpe(curve: Array<{ value: number }>): number {
-  const values = curve.map((point) => point.value).filter((value) => value > 0);
-  if (values.length < 3) return 0;
-  const returns: number[] = [];
-  for (let index = 1; index < values.length; index += 1) {
-    const prev = values[index - 1];
-    if (prev > 0) returns.push((values[index] - prev) / prev);
+function calcPortfolioSharpe(curve: Array<{ value: number; invested?: number }>): number {
+  let returns: number[] = [];
+  if (curve.some((point) => point.invested !== undefined)) {
+    returns = calcCashflowAdjustedReturns(curve);
+  } else {
+    const values = curve.map((point) => point.value).filter((value) => value > 0);
+    if (values.length < 3) return 0;
+    for (let index = 1; index < values.length; index += 1) {
+      const prev = values[index - 1];
+      if (prev > 0) returns.push((values[index] - prev) / prev);
+    }
   }
   if (returns.length < 2) return 0;
   const mean = returns.reduce((sum, value) => sum + value, 0) / returns.length;
@@ -634,9 +667,11 @@ function mergeWeightedCurves(
   };
 }
 
-function mergeWeightedBenchmark(individual: any[], weights: number[]) {
+function mergeWeightedBenchmark(individual: any[], weights: number[], strategyKey?: string) {
   const curves: BenchmarkCurvePoint[][] = individual.map((item) => {
-    const curve = Array.isArray(item?.benchmark?.curve) ? item.benchmark.curve : [];
+    const payload = strategyKey ? getStrategyPayload(item, strategyKey) : item;
+    const rawCurve = Array.isArray(payload?.benchmark?.curve) ? payload.benchmark.curve : item?.benchmark?.curve;
+    const curve = Array.isArray(rawCurve) ? rawCurve : [];
     return curve
       .map((point: any) => ({ date: String(point?.date || ""), value: toFiniteBacktestNumber(point?.value) }))
       .filter((point: BenchmarkCurvePoint) => point.date)
@@ -659,7 +694,10 @@ function mergeWeightedBenchmark(individual: any[], weights: number[]) {
     return { date, value: Math.round(value * 100) / 100 };
   }).filter((point) => point.value > 0);
   const totalInvested = individual.reduce((sum, item, index) => (
-    sum + toFiniteBacktestNumber(item?.benchmark?.total_invested) * (weights[index] || 0)
+    sum + toFiniteBacktestNumber(
+      (strategyKey ? getStrategyPayload(item, strategyKey)?.benchmark : item?.benchmark)?.total_invested
+      ?? (strategyKey ? getStrategyPayload(item, strategyKey)?.benchmark : item?.benchmark)?.totalInvested
+    ) * (weights[index] || 0)
   ), 0);
   const finalValue = curve[curve.length - 1]?.value || 0;
   const totalReturn = totalInvested > 0 ? (finalValue - totalInvested) / totalInvested * 100 : 0;
@@ -717,7 +755,7 @@ export function mapBacktestResult(result: any, options: BacktestMapOptions = {})
         feeCost: p.feeCost != null ? String(p.feeCost) : "0",
       }))
     : mapBacktestResultLegacy({ individual: [first] }).monthlyData;
-  const weightedBenchmark = individual.length > 0 ? mergeWeightedBenchmark(individual, weights) : null;
+  const weightedBenchmark = individual.length > 0 ? mergeWeightedBenchmark(individual, weights, selectedStrategyKey) : null;
   const benchmarkRaw = weightedBenchmark?.curve || first?.benchmark?.curve || strategyData?.benchmark?.curve || result?.benchmark?.curve || [];
   const benchmarkCurve = Array.isArray(benchmarkRaw)
     ? benchmarkRaw.map((p: any) => ({

@@ -856,6 +856,10 @@ export const fundRouter = createRouter({
           const num = parseFloat(String(value).replace("%", ""));
           return Number.isFinite(num) ? num : null;
         };
+        const fundFamilyKey = (fund: any) => {
+          const name = String(fund?.fundName || fund?.fundAbbr || fund?.name || "").replace(/\s+/g, "");
+          return name ? name.replace(/(?:A|B|C|D|E|I)$/i, "") : String(fund?.fundCode || fund?.code || "");
+        };
         const valueOrZero = (value: unknown) => parseMetric(value) ?? 0;
         const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
         const round = (value: number, digits = 2) => Number.isFinite(value) ? Number(value.toFixed(digits)) : 0;
@@ -1009,21 +1013,23 @@ export const fundRouter = createRouter({
         };
         const buildPortfolio = (variant: "defensive" | "balanced" | "growth", id: number) => {
           const usedCodes = new Set<string>();
+          const usedFamilies = new Set<string>();
           const slots = normalizeTemplate(variant);
           const allocations = slots.map((slot) => {
             const withinType = funds
-              .filter((fund: any) => fund.fundType === slot.type && !usedCodes.has(fund.fundCode))
+              .filter((fund: any) => fund.fundType === slot.type && !usedCodes.has(fund.fundCode) && !usedFamilies.has(fundFamilyKey(fund)))
               .filter((fund: any) => {
                 const stats = riskStats(fund);
                 return stats.drawdown === 0 || stats.drawdown <= maxDdLimit * (variant === "growth" ? 1.15 : 1);
               })
               .sort((a: any, b: any) => qualityScore(b, variant) - qualityScore(a, variant));
             const fallback = funds
-              .filter((fund: any) => !usedCodes.has(fund.fundCode))
+              .filter((fund: any) => !usedCodes.has(fund.fundCode) && !usedFamilies.has(fundFamilyKey(fund)))
               .sort((a: any, b: any) => qualityScore(b, variant) - qualityScore(a, variant));
             const fund = withinType[0] || fallback[0];
             if (!fund) return null;
             usedCodes.add(fund.fundCode);
+            usedFamilies.add(fundFamilyKey(fund));
             const stats = riskStats(fund);
             return {
               fundId: fund.id,

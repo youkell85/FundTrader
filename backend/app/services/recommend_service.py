@@ -1,4 +1,5 @@
 """智能推荐服务"""
+import re
 from typing import Dict, Any, List
 from ..data.akshare_fetcher import get_market_index, get_fund_industry_board
 from ..data.cache_manager import cache
@@ -12,9 +13,10 @@ def generate_recommendation(
     risk_level: str = "稳健",
     investment_horizon: str = "中期",
     amount: float = 100000,
-    preferences: List[str] = [],
+    preferences: List[str] = None,
 ) -> Dict[str, Any]:
     """生成智能推荐方案"""
+    preferences = preferences or []
     # 获取市场行情（带异常保护）
     market = None
     try:
@@ -40,7 +42,7 @@ def generate_recommendation(
         industries = []
 
     # 根据风险偏好配置方案
-    allocation = _get_risk_allocation(risk_level, amount, preferences)
+    allocation = _get_risk_allocation(risk_level, amount, preferences, investment_horizon)
 
     # 计算预期收益和风险
     expected_return = _estimate_return(allocation, risk_level)
@@ -59,7 +61,7 @@ def generate_recommendation(
 
 
 def _get_risk_allocation(
-    risk_level: str, amount: float, preferences: List[str]
+    risk_level: str, amount: float, preferences: List[str], investment_horizon: str = "中期"
 ) -> List[Dict[str, Any]]:
     """根据风险偏好生成配置方案"""
     # 风险配置模板
@@ -70,11 +72,12 @@ def _get_risk_allocation(
         "激进": {"股票": 0.4, "指数": 0.3, "QDII": 0.2, "混合": 0.1},
     }
 
-    template = templates.get(risk_level, templates["稳健"])
+    template = _adjust_template_by_horizon(templates.get(risk_level, templates["稳健"]), investment_horizon)
 
     # 优先从鑫基荟优选池中按类型匹配，回退到国元名单
     allocation = []
     used_codes = set()
+    used_families = set()
 
     type_to_fund_type = {
         "债券": ["债券型"], "货币": ["货币"], "混合": ["混合型", "股票型"],
@@ -87,7 +90,7 @@ def _get_risk_allocation(
     for asset_type, ratio in template.items():
         fund_types = type_to_fund_type.get(asset_type, [])
         candidates = [f for f in all_funds
-                      if f["type"] in fund_types and f["code"] not in used_codes]
+                      if f["type"] in fund_types and f["code"] not in used_codes and _fund_family_key(f) not in used_families]
 
         # 如果有偏好，优先匹配
         if preferences:
@@ -99,10 +102,12 @@ def _get_risk_allocation(
         if candidates:
             fund = candidates[0]
             used_codes.add(fund["code"])
+            used_families.add(_fund_family_key(fund))
             allocation.append({
                 "code": fund["code"],
                 "name": fund["name"],
                 "type": fund["type"],
+                "asset_type": asset_type,
                 "tags": fund["tags"],
                 "ratio": ratio,
                 "amount": round(amount * ratio, 2),
@@ -111,16 +116,47 @@ def _get_risk_allocation(
     return allocation
 
 
+def _adjust_template_by_horizon(template: Dict[str, float], investment_horizon: str) -> Dict[str, float]:
+    adjusted = dict(template)
+    horizon = investment_horizon or ""
+    if "短" in horizon or "6" in horizon:
+        adjusted["债券"] = adjusted.get("债券", 0) + 0.08
+        adjusted["货币"] = adjusted.get("货币", 0) + 0.05
+        for key in ("股票", "指数", "QDII"):
+            adjusted[key] = max(0, adjusted.get(key, 0) - 0.04)
+    elif "长" in horizon or "3" in horizon or "5" in horizon or "10" in horizon:
+        adjusted["股票"] = adjusted.get("股票", 0) + 0.05
+        adjusted["指数"] = adjusted.get("指数", 0) + 0.05
+        adjusted["货币"] = max(0, adjusted.get("货币", 0) - 0.05)
+        adjusted["债券"] = max(0, adjusted.get("债券", 0) - 0.05)
+
+    total = sum(adjusted.values()) or 1
+    return {key: value / total for key, value in adjusted.items() if value > 0}
+
+
+def _fund_family_key(fund: Dict[str, Any]) -> str:
+    name = re.sub(r"\s+", "", str(fund.get("name", "")))
+    if not name:
+        return str(fund.get("code", ""))
+    return re.sub(r"(?:A|B|C|D|E|I)$", "", name, flags=re.I)
+
+
 def _estimate_return(allocation: List[Dict], risk_level: str) -> float:
     """估算预期年化收益"""
-    return_map = {"保守": 4.0, "稳健": 8.0, "积极": 12.0, "激进": 18.0}
-    return return_map.get(risk_level, 8.0)
+    if not allocation:
+        return {"保守": 4.0, "稳健": 8.0, "积极": 12.0, "激进": 18.0}.get(risk_level, 8.0)
+    return_map = {"货币": 2.0, "债券": 4.0, "混合": 7.5, "股票": 11.0, "指数": 9.0, "QDII": 8.5}
+    return round(sum(return_map.get(item.get("asset_type"), 7.0) * item.get("ratio", 0) for item in allocation), 2)
 
 
 def _estimate_risk(allocation: List[Dict], risk_level: str) -> float:
     """估算预期风险（波动率）"""
-    risk_map = {"保守": 3.0, "稳健": 8.0, "积极": 15.0, "激进": 25.0}
-    return risk_map.get(risk_level, 8.0)
+    if not allocation:
+        return {"保守": 3.0, "稳健": 8.0, "积极": 15.0, "激进": 25.0}.get(risk_level, 8.0)
+    risk_map = {"货币": 1.0, "债券": 4.0, "混合": 12.0, "股票": 22.0, "指数": 18.0, "QDII": 20.0}
+    weighted = sum(risk_map.get(item.get("asset_type"), 10.0) * item.get("ratio", 0) for item in allocation)
+    diversification = 0.85 if len(allocation) >= 3 else 1.0
+    return round(weighted * diversification, 2)
 
 
 def _generate_summary(

@@ -358,7 +358,8 @@ def _calc_rule_dca(
             "profit_rate": round((current_value - total_invested) / total_invested * 100, 2) if total_invested > 0 else 0,
         })
 
-    final_value = total_shares * nav_data[-1]["nav"] if nav_data and total_shares > 0 else 0
+    final_nav = float(nav_data[-1].get("nav") or 0) if nav_data else 0
+    final_value = total_shares * final_nav if total_shares > 0 and final_nav > 0 else 0
     total_profit = final_value - total_invested
     profit_rate = (total_profit / total_invested * 100) if total_invested > 0 else 0
     max_drawdown = _calc_max_drawdown(curve)
@@ -419,14 +420,48 @@ def _calc_ma_dca(
     return result
 
 
+def _calc_cashflow_adjusted_returns(curve: List[Dict]) -> List[float]:
+    """Calculate period returns after removing external cash flows."""
+    returns = []
+    prev_value = None
+    prev_invested = 0.0
+    for point in curve:
+        try:
+            value = float(point.get("value") or 0)
+            invested = float(point.get("invested") or 0)
+        except (TypeError, ValueError):
+            continue
+        if value <= 0:
+            continue
+        if prev_value is not None and prev_value > 0:
+            flow = invested - prev_invested
+            period_return = (value - prev_value - flow) / prev_value
+            if math.isfinite(period_return):
+                returns.append(period_return)
+        prev_value = value
+        prev_invested = invested
+    return returns
+
+
+def _calc_unitized_values(curve: List[Dict]) -> List[float]:
+    if not curve:
+        return []
+    if any("invested" in point for point in curve):
+        values = [100.0]
+        for period_return in _calc_cashflow_adjusted_returns(curve):
+            values.append(values[-1] * (1 + period_return))
+        return [v for v in values if math.isfinite(v) and v > 0]
+    return [float(p.get("value") or 0) for p in curve if float(p.get("value") or 0) > 0]
+
+
 def _calc_max_drawdown(curve: List[Dict]) -> float:
     """计算最大回撤"""
-    if not curve:
+    values = _calc_unitized_values(curve)
+    if not values:
         return 0
     peak = 0
     max_dd = 0
-    for point in curve:
-        value = point.get("value", 0)
+    for value in values:
         if value > peak:
             peak = value
         if peak > 0:
@@ -437,13 +472,16 @@ def _calc_max_drawdown(curve: List[Dict]) -> float:
 
 
 def _calc_curve_sharpe(curve: List[Dict]) -> float:
-    values = [float(p.get("value") or 0) for p in curve if float(p.get("value") or 0) > 0]
-    if len(values) < 3:
-        return 0.0
-    returns = []
-    for prev, cur in zip(values, values[1:]):
-        if prev > 0:
-            returns.append((cur - prev) / prev)
+    if any("invested" in point for point in curve):
+        returns = _calc_cashflow_adjusted_returns(curve)
+    else:
+        values = [float(p.get("value") or 0) for p in curve if float(p.get("value") or 0) > 0]
+        if len(values) < 3:
+            return 0.0
+        returns = []
+        for prev, cur in zip(values, values[1:]):
+            if prev > 0:
+                returns.append((cur - prev) / prev)
     if len(returns) < 2:
         return 0.0
     mean = sum(returns) / len(returns)

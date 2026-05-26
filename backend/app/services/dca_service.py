@@ -103,10 +103,13 @@ def _calculate_dca_backtest(
     if strategy in ("martingale", "compare"):
         results["martingale"] = _calc_martingale_dca(nav_data, amount, frequency)
 
-    # 计算买入持有基准曲线（以定投总投入为一次性投入金额）
-    primary = results.get("fixed") or results.get("ma") or {}
-    total_invested = primary.get("total_invested", amount * 12)
-    benchmark = _calc_buy_and_hold_curve(nav_data, total_invested)
+    # 每个策略使用自身累计投入生成一次性买入基准，保证资金量可比。
+    for strategy_result in results.values():
+        total_invested = strategy_result.get("total_invested", 0)
+        strategy_result["benchmark"] = _calc_buy_and_hold_curve(nav_data, total_invested)
+
+    primary = results.get("fixed") or results.get("ma") or next(iter(results.values()), {})
+    benchmark = primary.get("benchmark", _calc_buy_and_hold_curve(nav_data, amount * 12))
 
     if strategy == "compare":
         return {
@@ -142,7 +145,8 @@ def run_dca_backtest(
 
     results = []
     for code in codes:
-        cache_key = f"dca_{code}_{strategy}_{frequency}_{start_date}_{end_date}"
+        amount_key = f"{float(amount):.6f}"
+        cache_key = f"dca_{code}_{strategy}_{frequency}_{amount_key}_{start_date}_{end_date}"
         result = cache.get(cache_key, CACHE_TTL_NAV)
         if result is None:
             result = _calculate_dca_backtest(
@@ -155,47 +159,146 @@ def run_dca_backtest(
 
     # 组合回测
     if len(codes) > 1:
-        combined = _calc_combined_backtest(results, len(codes))
+        combined = _calc_combined_backtest(results, len(codes), strategy)
         return {"individual": results, "combined": combined}
 
     return {"individual": results}
 
 
-def _calc_combined_backtest(results: List[Dict], fund_count: int) -> Dict[str, Any]:
-    """计算组合回测结果"""
-    # 展开 "compare" 策略结果中的 strategies 子结果
-    flat_results = []
-    for r in results:
-        if "error" in r:
-            continue
-        if "strategies" in r and isinstance(r["strategies"], dict):
-            # compare 模式，取各策略的平均
-            for strategy_name, strategy_result in r["strategies"].items():
-                if isinstance(strategy_result, dict) and "error" not in strategy_result:
-                    flat_results.append(strategy_result)
-        else:
-            flat_results.append(r)
+def _merge_curves(curves: List[List[Dict]]) -> List[Dict[str, Any]]:
+    dates = sorted({str(point.get("date", "")) for curve in curves for point in curve if point.get("date")})
+    cursors = [0 for _ in curves]
+    last_points = [None for _ in curves]
+    merged = []
 
-    valid = flat_results
-    if not valid:
-        return {"error": "无有效回测结果"}
+    for date in dates:
+        invested = 0.0
+        value = 0.0
+        for index, curve in enumerate(curves):
+            while cursors[index] < len(curve) and str(curve[cursors[index]].get("date", "")) <= date:
+                last_points[index] = curve[cursors[index]]
+                cursors[index] += 1
+            point = last_points[index]
+            if not point:
+                continue
+            invested += float(point.get("invested") or 0)
+            value += float(point.get("value") or 0)
+        if invested > 0 or value > 0:
+            merged.append({
+                "date": date,
+                "invested": round(invested, 2),
+                "value": round(value, 2),
+                "profit_rate": round((value - invested) / invested * 100, 2) if invested > 0 else 0,
+            })
+    return merged
 
-    # 简单平均
-    avg_profit_rate = sum(r.get("total_profit_rate", 0) for r in valid) / len(valid)
-    avg_annual = sum(r.get("annual_return", 0) for r in valid) / len(valid)
-    avg_drawdown = sum(r.get("max_drawdown", 0) for r in valid) / len(valid)
-    avg_invested = sum(r.get("total_invested", 0) for r in valid) / len(valid)
-    avg_value = sum(r.get("total_value", 0) for r in valid) / len(valid)
+
+def _merge_benchmarks(results: List[Dict]) -> Dict[str, Any]:
+    benchmark_curves = [
+        r.get("benchmark", {}).get("curve", [])
+        for r in results
+        if isinstance(r.get("benchmark", {}).get("curve"), list)
+    ]
+    dates = sorted({str(point.get("date", "")) for curve in benchmark_curves for point in curve if point.get("date")})
+    cursors = [0 for _ in benchmark_curves]
+    last_points = [None for _ in benchmark_curves]
+    curve = []
+
+    for date in dates:
+        value = 0.0
+        for index, fund_curve in enumerate(benchmark_curves):
+            while cursors[index] < len(fund_curve) and str(fund_curve[cursors[index]].get("date", "")) <= date:
+                last_points[index] = fund_curve[cursors[index]]
+                cursors[index] += 1
+            point = last_points[index]
+            if point:
+                value += float(point.get("value") or 0)
+        if value > 0:
+            curve.append({"date": date, "value": round(value, 2)})
+
+    total_invested = sum(float(r.get("benchmark", {}).get("total_invested") or 0) for r in results)
+    final_value = curve[-1]["value"] if curve else 0
+    cash_flows = []
+    if curve and total_invested > 0:
+        cash_flows = [(curve[0]["date"], -total_invested), (curve[-1]["date"], final_value)]
 
     return {
-        "strategy": "组合定投",
-        "fund_count": fund_count,
-        "total_invested": round(avg_invested, 2),
-        "total_value": round(avg_value, 2),
-        "total_profit_rate": round(avg_profit_rate, 2),
-        "annual_return": round(avg_annual, 2),
-        "max_drawdown": round(avg_drawdown, 2),
+        "curve": curve,
+        "final_value": round(final_value, 2),
+        "profit_rate": round((final_value - total_invested) / total_invested * 100, 2) if total_invested > 0 else 0,
+        "total_return": round((final_value - total_invested) / total_invested * 100, 2) if total_invested > 0 else 0,
+        "annual_return": round(_calc_xirr(cash_flows) * 100, 2) if cash_flows else 0,
+        "max_drawdown": round(_calc_max_drawdown(curve), 2),
+        "sharpe_ratio": round(_calc_curve_sharpe(curve), 2),
+        "total_invested": round(total_invested, 2),
     }
+
+
+def _combine_strategy_results(results: List[Dict], fund_count: int, strategy_name: str) -> Dict[str, Any]:
+    curves = [r.get("nav_curve", []) for r in results if isinstance(r.get("nav_curve"), list)]
+    curve = _merge_curves(curves)
+    if not curve:
+        return {"error": "无有效回测结果"}
+
+    total_invested = curve[-1]["invested"]
+    total_value = curve[-1]["value"]
+    total_profit = total_value - total_invested
+    cash_flows = []
+    previous_invested = 0.0
+    for point in curve:
+        added = point["invested"] - previous_invested
+        if added > 0:
+            cash_flows.append((point["date"], -added))
+        previous_invested = point["invested"]
+    if total_value > 0:
+        cash_flows.append((curve[-1]["date"], total_value))
+
+    return {
+        "strategy": strategy_name,
+        "fund_count": fund_count,
+        "start_date": curve[0]["date"],
+        "end_date": curve[-1]["date"],
+        "total_invested": round(total_invested, 2),
+        "total_value": round(total_value, 2),
+        "total_profit": round(total_profit, 2),
+        "total_profit_rate": round(total_profit / total_invested * 100, 2) if total_invested > 0 else 0,
+        "annual_return": round(_calc_xirr(cash_flows) * 100, 2) if cash_flows else 0,
+        "max_drawdown": round(_calc_max_drawdown(curve), 2),
+        "sharpe_ratio": round(_calc_curve_sharpe(curve), 2),
+        "trade_count": sum(int(r.get("trade_count") or 0) for r in results),
+        "nav_curve": curve,
+        "benchmark": _merge_benchmarks(results),
+    }
+
+
+def _calc_combined_backtest(results: List[Dict], fund_count: int, strategy: str = "compare") -> Dict[str, Any]:
+    """计算组合回测结果"""
+    valid_results = [r for r in results if isinstance(r, dict) and "error" not in r]
+    if strategy == "compare":
+        keys = [key for key in ("fixed", "ratio", "ma", "martingale") if any(key in r.get("strategies", {}) for r in valid_results)]
+        combined_strategies = {}
+        for key in keys:
+            strategy_results = [
+                r.get("strategies", {}).get(key)
+                for r in valid_results
+                if isinstance(r.get("strategies", {}).get(key), dict)
+            ]
+            combined = _combine_strategy_results(strategy_results, fund_count, f"组合{key}定投")
+            if "error" not in combined:
+                combined_strategies[key] = combined
+        if not combined_strategies:
+            return {"error": "无有效回测结果"}
+        primary = combined_strategies.get("fixed") or next(iter(combined_strategies.values()))
+        return {
+            **{k: v for k, v in primary.items() if k not in {"nav_curve"}},
+            "strategy": "组合定投",
+            "strategies": combined_strategies,
+        }
+
+    valid = valid_results
+    if not valid:
+        return {"error": "无有效回测结果"}
+    return _combine_strategy_results(valid, fund_count, "组合定投")
 
 
 def get_dca_suggestion(code: str) -> Dict[str, Any]:
@@ -214,7 +317,9 @@ def get_dca_suggestion(code: str) -> Dict[str, Any]:
     ma20 = sum(navs[-20:]) / 20
 
     # 位置评分
-    position = (current - min(navs[-60:])) / (max(navs[-60:]) - min(navs[-60:])) * 100
+    low_60 = min(navs[-60:])
+    high_60 = max(navs[-60:])
+    position = (current - low_60) / (high_60 - low_60) * 100 if high_60 > low_60 else 50
 
     score = 50
     suggestion = ""
