@@ -42,24 +42,24 @@ function wrapError(err: unknown, message: string): never {
   });
 }
 
-// ========== BFF 层内存缓?==========
+// ========== BFF 层内存缓存 ==========
 // 缓存分层设计（基于基金数据低频更新特性）
-// L0 快照: 代码/名称/费率/经理 ?24h TTL，每?5:30后刷?
-// L1 准静? 持仓/行业/回撤/Sharpe ?1h TTL，季报级?h
-// L2 日频: 净?日涨??15min TTL，交易时段实?
+// L0 快照: 代码/名称/费率/经理 ?24h TTL，每?5:30后刷新
+// L1 准静态 持仓/行业/回撤/Sharpe ?1h TTL，季报级 ?h
+// L2 日频: 净值日涨跌幅 ?15min TTL，交易时段实时
 
 const bffCache = new Map<string, { expiresAt: number; data: any }>();
 const MAX_BFF_CACHE_SIZE = 5000; // Maximum cache entries to prevent memory leak
 const BFF_CACHE_SIZE_LIMIT = 10000; // Hard limit before emergency cleanup
 const DETAIL_ANALYSIS_TIMEOUT_MS = Number(process.env.FUNDTRADER_DETAIL_TIMEOUT_MS ?? 12_000);
 
-/** 默认缓存TTL按数据层级分?*/
+/** 默认缓存TTL按数据层级分配*/
 const BFF_CACHE_TTL = 30 * 60 * 1000;                     // 默认 30分钟
 const DAILY_PREWARM_HOUR = Number(process.env.FUNDTRADER_PREWARM_HOUR ?? 6);
 const DAILY_PREWARM_MINUTE = Number(process.env.FUNDTRADER_PREWARM_MINUTE ?? 20);
 const DAILY_CACHE_FLOOR_TTL = 60 * 60 * 1000;
 const DAILY_CACHE_MAX_TTL = 24 * 60 * 60 * 1000;
-const ANALYSIS_TTL = DAILY_CACHE_MAX_TTL;                  // 风险指标/净值历史日频更?
+const ANALYSIS_TTL = DAILY_CACHE_MAX_TTL;                  // 风险指标/净值历史日频更新
 const HOLDINGS_TTL = 6 * 60 * 60 * 1000;                   // 持仓/行业 6小时（季报级别）
 
 function msUntilDailyPrewarm(now = new Date()): number {
@@ -232,7 +232,7 @@ function buildMarketOverview(mappedFunds: any[]) {
   };
 }
 
-// ========== 防并发锁（冷启动?list + marketOverview 竞态问题） ==========
+// ========== 防并发锁（冷启动 list + marketOverview 竞态问题） ==========
 const inflightRequests = new Map<string, Promise<any>>();
 let homeFundsPrewarmStartedAt = 0;
 
@@ -304,9 +304,9 @@ async function fetchAllFundList(params: Record<string, any>) {
 
 /**
  * 轻量首页摘要：仅拉取基金列表+排名业绩+实时报价，不调用 /analysis/batch?
- * 避免首屏同时背上 100+ 只基金的深度分析（净值历?持仓/经理/Sharpe）?
+ * 避免首屏同时背上 100+ 只基金的深度分析（净值历史持仓/经理/Sharpe）?
  * 首页表格需要的 净?日涨???均已在排名数据中 ?首屏秒开?
- * 缺失?夏普?最大回?展示?"?，由后台预热后刷新?
+ * 缺失?夏普?最大回撤?展示?"?，由后台预热后刷新?
  */
 async function fetchHomeFundSummaries() {
   return dedupe("homeFundSummaries", async () => {
@@ -321,7 +321,7 @@ async function fetchHomeFundSummaries() {
     const watchlistFunds = Array.isArray(watchlist?.funds) ? watchlist.funds : [];
     if (watchlistFunds.length > 0) {
       const watchlistResult = await fetchAllFundList({ use_watchlist: true }).catch((err) => {
-        console.error("[fetchHomeFundSummaries] 获取自选基金失败，跳过自选合?", err);
+        console.error("[fetchHomeFundSummaries] 获取自选基金失败，跳过自选合并", err);
         return [] as any[];
       });
       for (const fund of watchlistResult) {
@@ -339,7 +339,7 @@ async function fetchHomeFundSummaries() {
     }
 
     const funds = Array.from(fundsByCode.values());
-    // 补充基金名称（对仍然缺少名称的基金用实时报价补全?
+    // 补充基金名称（对仍然缺少名称的基金用实时报价补全
     const enriched = await Promise.all(funds.map(enrichFundSummary));
 
     // ?TTL?5min（净值日频，排名数据下一个交易日才更新）
@@ -349,15 +349,15 @@ async function fetchHomeFundSummaries() {
 }
 
 /**
- * 完整首页数据：含深度分析（Sharpe/最大回?持仓/经理）?
- * 用于 marketOverview 统计聚合与后台预热，不阻塞首屏渲染?
+ * 完整首页数据：含深度分析（Sharpe/最大回撤持仓/经理）?
+ * 用于 marketOverview 统计聚合与后台预热，不阻塞首屏渲染
  */
 async function fetchHomeFunds() {
   const cached = getCached<any[]>("homeFunds");
   if (cached) return cached;
 
   return dedupe("homeFunds", async () => {
-    // 从轻量摘要获取基金列?
+    // 从轻量摘要获取基金列表
     const summary = await fetchHomeFundSummaries();
     const fundsByCode = new Map<string, any>();
     const watchlistCodes = new Set<string>();
@@ -380,7 +380,7 @@ async function fetchHomeFunds() {
           }
         }
       } catch (e) {
-        console.error("[fetchHomeFunds] 批量获取分析数据失败，回退到单个请?", e);
+        console.error("[fetchHomeFunds] 批量获取分析数据失败，回退到单个请求", e);
         await Promise.all(
           codes.map(async (code) => {
             try {
@@ -394,7 +394,7 @@ async function fetchHomeFunds() {
       }
     }
 
-    // 合并分析数据到基金对?
+    // 合并分析数据到基金对象
     const withAnalysis = Array.from(fundsByCode.values()).map((fund) => {
       const analysis = analysisMap.get(fund.code);
       if (!analysis || analysis.error) return fund;
@@ -418,7 +418,7 @@ async function fetchHomeFunds() {
       };
     });
 
-    // L0+L1 快照?小时 TTL（净值日频，分析准静态）
+    // L0+L1 快照 ?小时 TTL（净值日频，分析准静态）
     setCache("homeFunds", withAnalysis, dailyCacheTtl());
     return withAnalysis;
   });
@@ -738,7 +738,7 @@ export const fundRouter = createRouter({
       }
     }),
 
-  // 全市场同类收益排?
+  // 全市场同类收益排名
   peerPerformanceRanking: publicQuery
     .input(z.object({ code: z.string().regex(/^\d{6}$/) }))
     .query(async ({ input }) => {
@@ -791,7 +791,7 @@ export const fundRouter = createRouter({
       }
     }),
 
-  // 移除自选基?
+  // 移除自选基金
   removeFromWatchlist: publicQuery
     .input(z.object({ code: z.string().regex(/^\d{6}$/) }))
     .mutation(async ({ input, ctx }) => {
@@ -872,7 +872,7 @@ export const fundRouter = createRouter({
     }
   }),
 
-  // 鑫基荟名?
+  // 鑫基荟名单
   continuousMarketing: publicQuery.query(async () => {
     try {
       const ftResult = await getFundList({ guoyuan_only: true, page_size: 100 });
@@ -1018,6 +1018,7 @@ export const fundRouter = createRouter({
             allocations.forEach((right) => {
               const leftWeight = Math.max(0, left.weight || 0) / totalWeight;
               const rightWeight = Math.max(0, right.weight || 0) / totalWeight;
+              // 对角线元素（同一基金与自身）相关系数为 1，符合投资组合理论
               const corr = left === right ? 1 : correlationByType(left.fund?.fundType || "", right.fund?.fundType || "");
               variance += leftWeight * rightWeight * pick(left) * pick(right) * corr;
             });
@@ -1117,12 +1118,12 @@ export const fundRouter = createRouter({
           const rawDrawdown = parseMetric(perf.maxDrawdown);
           const rawSharpe = parseMetric(perf.sharpeRatio);
           const rawVolatility = parseMetric(perf.annualizedVolatility);
-          // 回撤数据缺失时，根据基金类型赋予合理惩罚值，而非低估?
+          // 回撤数据缺失时，根据基金类型赋予合理惩罚值，而非低估
           const hasDrawdown = rawDrawdown !== null;
           const hasSharpe = rawSharpe !== null;
           const hasVolatility = rawVolatility !== null;
           const fundType = fund.fundType || "";
-          // 根据基金类型赋予默认回撤惩罚：股?混合 > 指数 > 债券 > 货币
+          // 根据基金类型赋予默认回撤惩罚：股票混合 > 指数 > 债券 > 货币
           const defaultDrawdownByType: Record<string, number> = {
             equity: 28, hybrid: 22, index: 18, etf: 18, qdii: 25, bond: 5, money: 0.5, fof: 12, reits: 15,
           };
@@ -1132,7 +1133,7 @@ export const fundRouter = createRouter({
           const defaultVolatility = hasDrawdown ? clamp(drawdown * 1.18 + 0.6, 1.2, 42) : Math.max(defaultDrawdown * 1.3, 3);
           const volatility = hasVolatility && rawVolatility > 0 ? rawVolatility : defaultVolatility;
           const expected = annualizedReturn(fund);
-          // 夏普：有真实值用真实值，否则用收?波动率估?
+          // 夏普：有真实值用真实值，否则用收益波动率估算
           const sharpe = hasSharpe && rawSharpe !== 0 ? rawSharpe : (volatility > 0 ? (expected - RISK_FREE_RATE * 100) / volatility : 0);
           const missingRisk = !hasDrawdown || !hasSharpe;
           return { expected, drawdown, volatility, sharpe, missingRisk };
@@ -1230,6 +1231,7 @@ export const fundRouter = createRouter({
           const totalWeight = allocations.reduce((sum: number, item: any) => sum + Math.max(0, item.weight || 0), 0) || 100;
           const weighted = (pick: (item: any) => number) => allocations.reduce((sum: number, item: any) => sum + pick(item) * Math.max(0, item.weight || 0), 0) / totalWeight;
           const navPortfolioStats = portfolioStatsFromNav(allocations, Math.max(0.5, horizonConfig.years));
+          if (!navPortfolioStats) console.warn("[recommendations] NAV-based portfolio stats unavailable for " + allocations.length + " funds, falling back to covariance estimate");
           const fallbackExpectedReturn = weighted((item: any) => riskStats(item.fund).expected);
           const fallbackVolatility = covariancePortfolioMetric(allocations, (item: any) => riskStats(item.fund).volatility);
           const fallbackDrawdown = covariancePortfolioMetric(allocations, (item: any) => riskStats(item.fund).drawdown);
@@ -1334,7 +1336,7 @@ export const fundRouter = createRouter({
     )
     .query(async ({ input, ctx }) => {
       try {
-        // 同时获取国元基金和自选基金，?list 查询保持一?
+        // 同时获取国元基金和自选基金，list 查询保持一致
         const [rawGuoyuan, rawWatchlist] = await Promise.all([
           fetchAllFundList({ guoyuan_only: true }),
           fetchAllFundList({ use_watchlist: true }).catch(() => [] as any[]),
@@ -1400,8 +1402,8 @@ export const fundRouter = createRouter({
       }
     }),
 
-  // 行业分布统计（基于基金持仓聚合，抽样?0只基金）
-  // 持仓数据季报级别更新?/6/9/12月），缓?6 小时
+  // 行业分布统计（基于基金持仓聚合，抽样 ?0只基金）
+  // 持仓数据季报级别更新 ?/6/9/12月），缓存 6 小时
   industryStats: publicQuery.query(async () => {
     try {
       const cacheKey = "industryStats";
@@ -1414,7 +1416,7 @@ export const fundRouter = createRouter({
       const industryMap = new Map<string, number>();
       let totalRatio = 0;
 
-      // 使用批量接口替代 N 次单独调用（30? 次HTTP请求?
+      // 使用批量接口替代 N 次单独调用（30? 次HTTP请求
       const codes = sample.map((f: any) => f.code).filter(Boolean);
       const batchResult = await getFundAnalysisBatch(codes);
       const results = batchResult?.results || {};
@@ -1470,7 +1472,7 @@ export const fundRouter = createRouter({
     }
   }),
 
-  // 基金评价 LLM 分析（详情页使用?
+  // 基金评价 LLM 分析（详情页使用
   analyzeFundLLM: publicQuery
     .input(z.object({ code: z.string().regex(/^\d{6}$/) }))
     .query(async ({ input }) => {
