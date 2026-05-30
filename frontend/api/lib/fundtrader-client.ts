@@ -1,6 +1,6 @@
 /**
  * FundTrader FastAPI Backend Client
- * ÓÃÓÚ BFF ²ãµ÷ÓÃ FundTrader REST API
+ * ï¿½ï¿½ï¿½ï¿½ BFF ï¿½ï¿½ï¿½ï¿½ï¿½ FundTrader REST API
  */
 
 const API_BASE = process.env.FUNDTRADER_API_BASE || "http://localhost:8766";
@@ -35,7 +35,7 @@ export async function ftFetch<T>(path: string, options?: RequestInit): Promise<T
   }
 }
 
-// »ù½ğÁĞ±í
+// ï¿½ï¿½ï¿½ï¿½ï¿½Ğ±ï¿½
 export async function getFundList(params: Record<string, unknown> = {}) {
   const qs = new URLSearchParams();
   Object.entries(params).forEach(([k, v]) => {
@@ -44,17 +44,17 @@ export async function getFundList(params: Record<string, unknown> = {}) {
   return ftFetch<Record<string, unknown>>(`/fund/list?${qs.toString()}`);
 }
 
-// »ù½ğ·ÖÀà
+// ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 export async function getCategories() {
   return ftFetch<Record<string, unknown>>("/fund/categories");
 }
 
-// »ù½ğ·ÖÎöÏêÇé
+// ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 export async function getFundAnalysis(code: string) {
   return ftFetch<Record<string, unknown>>(`/analysis/${code}`);
 }
 
-// ÅúÁ¿»ù½ğ·ÖÎö£¨¼õÉÙHTTPÍù·µ£©
+// ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½HTTPï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 export async function getFundAnalysisBatch(codes: string[]) {
   return ftFetch<{ results: Record<string, unknown> }>("/analysis/batch", {
     method: "POST",
@@ -62,12 +62,12 @@ export async function getFundAnalysisBatch(codes: string[]) {
   });
 }
 
-// ÊĞ³¡¸ÅÀÀ
+// ï¿½Ğ³ï¿½ï¿½ï¿½ï¿½ï¿½
 export async function getMarketIndex() {
   return ftFetch<Record<string, unknown>>("/recommend/market");
 }
 
-// ¶¨Í¶»Ø²â
+// ï¿½ï¿½Í¶ï¿½Ø²ï¿½
 export async function runDcaBacktest(params: Record<string, unknown>) {
   return ftFetch<Record<string, unknown>>("/dca/backtest", {
     method: "POST",
@@ -75,12 +75,12 @@ export async function runDcaBacktest(params: Record<string, unknown>) {
   });
 }
 
-// »Ø²â½¨Òé
+// ï¿½Ø²â½¨ï¿½ï¿½
 export async function getDcaSuggestion(code: string) {
   return ftFetch<Record<string, unknown>>(`/dca/suggestion/${code}`);
 }
 
-// ÖÇÄÜÍÆ¼ö
+// ï¿½ï¿½ï¿½ï¿½ï¿½Æ¼ï¿½
 export async function getRecommendations(params: Record<string, unknown>) {
   return ftFetch<Record<string, unknown>>("/recommend", {
     method: "POST",
@@ -88,12 +88,12 @@ export async function getRecommendations(params: Record<string, unknown>) {
   });
 }
 
-// ×¨Òµ·ÖÎö
+// ×¨Òµï¿½ï¿½ï¿½ï¿½
 export async function getProfessionalAnalysis(code: string) {
   return ftFetch<Record<string, unknown>>(`/professional/${code}`);
 }
 
-// Ïà¹ØĞÔ¾ØÕó
+// ï¿½ï¿½ï¿½ï¿½Ô¾ï¿½ï¿½ï¿½
 export async function getCorrelationMatrix(codes: string[]) {
   const qs = new URLSearchParams();
   codes.forEach((c) => qs.append("codes", c));
@@ -102,7 +102,7 @@ export async function getCorrelationMatrix(codes: string[]) {
   });
 }
 
-// ×ÔÑ¡ÁĞ±í
+// ï¿½ï¿½Ñ¡ï¿½Ğ±ï¿½
 export async function getWatchlist() {
   return ftFetch<Record<string, unknown>>("/settings/watchlist");
 }
@@ -114,24 +114,24 @@ export async function addToWatchlist(code: string, name = "", type = "", tags: s
   });
 }
 
-// ÒÆ³ı×ÔÑ¡»ù½ğ
+// ï¿½Æ³ï¿½ï¿½ï¿½Ñ¡ï¿½ï¿½ï¿½ï¿½
 export async function removeFromWatchlist(code: string) {
   return ftFetch<Record<string, unknown>>(`/settings/watchlist/${code}`, {
     method: "DELETE",
   });
 }
 
-// ½¡¿µ¼ì²é
+// ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 export async function healthCheck() {
   return ftFetch<Record<string, unknown>>("/health");
 }
 
-// »ù½ğÆÀ¼Û LLM ·ÖÎö
+// ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ LLM ï¿½ï¿½ï¿½ï¿½
 export async function getFundLLMReview(code: string) {
   return ftFetch<Record<string, unknown>>(`/analysis/${code}/llm_review`);
 }
 
-// ¶¨Í¶ LLM ÆÀ¼Û
+// ï¿½ï¿½Í¶ LLM ï¿½ï¿½ï¿½ï¿½
 export async function getDcaLLMReview(payload: Record<string, unknown>) {
   return ftFetch<Record<string, unknown>>(`/dca/llm_review`, {
     method: "POST",
@@ -139,7 +139,7 @@ export async function getDcaLLMReview(payload: Record<string, unknown>) {
   });
 }
 
-// Í¼Æ¬Ê¶±ğ»ù½ğ
+// Í¼Æ¬Ê¶ï¿½ï¿½ï¿½ï¿½ï¿½
 export async function imageSearchFund(file: File) {
   const url = `${API_BASE}/fund/image-search`;
   const formData = new FormData();
@@ -168,4 +168,23 @@ export async function imageSearchFund(file: File) {
     clearTimeout(timer);
     throw err;
   }
+}
+
+// èµ„äº§é…ç½®ç”Ÿæˆ
+export interface AllocationParams {
+  age: number;
+  goal_type: string;
+  investment_horizon: string;
+  amount: number;
+  risk_tolerance: string;
+  max_drawdown: number;
+  preferred_tags: string[];
+  behavior_answers: Record<string, string>;
+}
+
+export async function generateAllocation(params: AllocationParams) {
+  return ftFetch<any>("/allocation/generate", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
 }

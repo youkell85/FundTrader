@@ -53,7 +53,7 @@ async def dca_llm_review(payload: dict):
     cached = cache.get(cache_key, CACHE_TTL_INFO * 6)
     if cached:
         return cached
-    review = analyze_dca_strategy(code, name, dca_metrics, bench)
+    review = await analyze_dca_strategy(code, name, dca_metrics, bench)
     out = {"code": code, "review": review or {"raw": "LLM 服务未配置或调用失败"}}
     if review:
         cache.set(cache_key, out)

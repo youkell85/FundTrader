@@ -145,7 +145,7 @@ function typeDistribution(groups: ReturnType<typeof buildGroups>, total: number)
 
 function LoadingScreen() {
   return (
-    <div className="flex flex-col items-center justify-center py-24 text-white/35">
+    <div className="flex flex-col items-center justify-center py-24 text-white/55">
       <Loader2 className="w-8 h-8 animate-spin mb-3" />
       <span className="text-sm">正在加载深度指标...</span>
     </div>
@@ -325,7 +325,7 @@ export default function Analysis() {
             {groups.map((group) => (
               <button key={group.label} onClick={() => { setSelectedType(group.label); setOpenPicker(null); setPickerAnchor(null); }} className="w-full text-left rounded-lg px-3 py-2 text-xs hover:bg-white/[0.06]">
                 <span className="text-white/80">{group.label}</span>
-                <span className="data-number float-right text-white/35">{group.funds.length} 只</span>
+                <span className="data-number float-right text-white/55">{group.funds.length} 只</span>
               </button>
             ))}
           </div>
@@ -340,7 +340,7 @@ export default function Analysis() {
             {managers.slice(0, 120).map((manager: any) => (
               <button key={manager.id} onClick={() => { setSelectedManagerId(manager.id); setOpenPicker(null); setPickerAnchor(null); }} className="w-full text-left rounded-lg px-3 py-2 hover:bg-white/[0.06]">
                 <span className="block text-white/80 text-xs truncate">{manager.name}</span>
-                <span className="block text-white/35 text-[10px] truncate">{manager.company} · {manager.funds.length} 只 · 近1年 {fmt(manager.stats.avgReturn1y, 1, "%")}</span>
+                <span className="block text-white/55 text-[10px] truncate">{manager.company} · {manager.funds.length} 只 · 近1年 {fmt(manager.stats.avgReturn1y, 1, "%")}</span>
               </button>
             ))}
           </div>
@@ -355,8 +355,8 @@ export default function Analysis() {
             { label: "平均最大回撤", value: fmt(scopeStats.avgMaxDD, 2), suffix: scopeStats.avgMaxDD == null ? "" : "%", color: RISK_COLOR },
           ].map((item) => (
             <div key={item.label} className="liquid-glass-sm p-3 md:p-4">
-              <div className="text-white/30 text-xs">{item.label}</div>
-              <div className="data-number text-lg md:text-xl font-medium mt-1" style={{ color: item.color }}>{item.value}<span className="text-xs text-white/35 ml-0.5">{item.suffix}</span></div>
+              <div className="text-white/50 text-xs">{item.label}</div>
+              <div className="data-number text-lg md:text-xl font-medium mt-1" style={{ color: item.color }}>{item.value}<span className="text-xs text-white/55 ml-0.5">{item.suffix}</span></div>
             </div>
           ))}
         </div>
@@ -382,7 +382,7 @@ export default function Analysis() {
                 <div className="grid grid-cols-2 gap-2 mt-3">
                   {radarRows.map((item) => (
                     <div key={item.metric} className="rounded-lg bg-white/[0.03] border border-white/[0.05] px-3 py-2">
-                      <div className="text-white/30 text-[10px]">{item.metric}</div>
+                      <div className="text-white/50 text-[10px]">{item.metric}</div>
                       <div className="data-number text-sm text-white/80">{fmt(item.raw, item.metric.includes("率") || item.metric.includes("覆盖") ? 0 : 2, item.suffix)}</div>
                     </div>
                   ))}
@@ -417,7 +417,7 @@ export default function Analysis() {
                     </div>
                   </div>
                 ) : (
-                  <div className="py-16 text-center text-white/35 text-sm">暂无可用于配置分布的数据</div>
+                  <div className="py-16 text-center text-white/55 text-sm">暂无可用于配置分布的数据</div>
                 )}
               </section>
             </div>
@@ -445,14 +445,14 @@ export default function Analysis() {
                     {diagnostics.slice(0, 6).map((item, index) => (
                       <button key={item.name} onClick={() => { setMode("type"); setSelectedType(item.name); }} className="w-full rounded-lg border border-white/[0.06] bg-white/[0.03] p-3 text-left hover:bg-white/[0.06]">
                         <div className="flex items-center gap-2">
-                          <span className="data-number text-white/35 text-xs">{index + 1}</span>
+                          <span className="data-number text-white/55 text-xs">{index + 1}</span>
                           <span className="text-white/75 text-sm flex-1">{item.name}</span>
-                          <span className="data-number text-white/35 text-xs">{item.count}只</span>
+                          <span className="data-number text-white/55 text-xs">{item.count}只</span>
                         </div>
                         <div className="grid grid-cols-3 gap-2 mt-2 text-[11px]">
-                          <span className="text-white/35">年化 <b className="data-number text-white/75">{item.avgAnnual.toFixed(1)}%</b></span>
-                          <span className="text-white/35">回撤 <b className="data-number" style={{ color: RISK_COLOR }}>{item.avgMaxDD.toFixed(1)}%</b></span>
-                          <span className="text-white/35">夏普 <b className="data-number" style={{ color: POSITIVE_METRIC_COLOR }}>{item.avgSharpe.toFixed(2)}</b></span>
+                          <span className="text-white/55">年化 <b className="data-number text-white/75">{item.avgAnnual.toFixed(1)}%</b></span>
+                          <span className="text-white/55">回撤 <b className="data-number" style={{ color: RISK_COLOR }}>{item.avgMaxDD.toFixed(1)}%</b></span>
+                          <span className="text-white/55">夏普 <b className="data-number" style={{ color: POSITIVE_METRIC_COLOR }}>{item.avgSharpe.toFixed(2)}</b></span>
                         </div>
                       </button>
                     ))}
@@ -467,13 +467,13 @@ export default function Analysis() {
               </h2>
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <div>
-                  <div className="text-xs text-white/35 mb-2">综合表现靠前</div>
+                  <div className="text-xs text-white/55 mb-2">综合表现靠前</div>
                   <div className="space-y-1.5">
                     {ranked.best.map((fund: any, index: number) => {
                       const ret = metric(fund, "annualizedReturn") ?? metric(fund, "return1y") ?? 0;
                       return (
                         <Link key={fund.fundCode} to={`/${fund.fundCode}`} className="grid grid-cols-[24px_1fr_64px_54px] gap-2 items-center rounded-lg px-2 py-2 hover:bg-white/[0.04] transition-all">
-                          <span className="data-number text-xs text-white/35">{index + 1}</span>
+                          <span className="data-number text-xs text-white/55">{index + 1}</span>
                           <span className="text-white/75 text-xs truncate">{fundName(fund)}</span>
                           <span className={`data-number text-xs text-right ${getChangeTextClass(ret)}`}>{ret >= 0 ? "+" : ""}{ret.toFixed(2)}%</span>
                           <span className="data-number text-xs text-right" style={{ color: POSITIVE_METRIC_COLOR }}>{fmt(metric(fund, "sharpeRatio"), 2)}</span>
@@ -483,14 +483,14 @@ export default function Analysis() {
                   </div>
                 </div>
                 <div>
-                  <div className="text-xs text-white/35 mb-2">回撤风险靠前</div>
+                  <div className="text-xs text-white/55 mb-2">回撤风险靠前</div>
                   <div className="space-y-1.5">
                     {ranked.risk.map((fund: any, index: number) => (
                       <Link key={fund.fundCode} to={`/${fund.fundCode}`} className="grid grid-cols-[24px_1fr_64px_54px] gap-2 items-center rounded-lg px-2 py-2 hover:bg-white/[0.04] transition-all">
-                        <span className="data-number text-xs text-white/35">{index + 1}</span>
+                        <span className="data-number text-xs text-white/55">{index + 1}</span>
                         <span className="text-white/75 text-xs truncate">{fundName(fund)}</span>
                         <span className="data-number text-xs text-right" style={{ color: RISK_COLOR }}>{fmt(metric(fund, "maxDrawdown"), 2, "%")}</span>
-                        <span className="data-number text-xs text-right text-white/35">{fmt(metric(fund, "annualizedReturn"), 1, "%")}</span>
+                        <span className="data-number text-xs text-right text-white/55">{fmt(metric(fund, "annualizedReturn"), 1, "%")}</span>
                       </Link>
                     ))}
                   </div>
@@ -506,7 +506,7 @@ export default function Analysis() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                   {managers.slice(0, 10).map((manager: any, index: number) => (
                     <button key={manager.id} onClick={() => { setMode("manager"); setSelectedManagerId(manager.id); }} className="grid grid-cols-[24px_1fr_68px_50px] gap-2 items-center rounded-lg px-3 py-2 bg-white/[0.03] hover:bg-white/[0.06] transition-all text-left">
-                      <span className="data-number text-xs text-white/35">{index + 1}</span>
+                      <span className="data-number text-xs text-white/55">{index + 1}</span>
                       <span className="text-white/75 text-xs truncate">{manager.name}</span>
                       <span className={`data-number text-xs text-right ${getChangeTextClass(manager.stats.avgReturn1y ?? 0)}`}>{fmt(manager.stats.avgReturn1y, 1, "%")}</span>
                       <span className="data-number text-xs text-right" style={{ color: POSITIVE_METRIC_COLOR }}>{fmt(manager.stats.avgSharpe, 2)}</span>
@@ -535,7 +535,7 @@ export default function Analysis() {
                     <div className="w-12 h-12 rounded-full bg-gradient-to-br from-[#3B6CFF] to-[#00F0FF] flex items-center justify-center text-white font-semibold">{activeManager.name?.[0] ?? "?"}</div>
                     <div className="min-w-0">
                       <div className="text-white font-medium truncate">{activeManager.name ?? "未知"}</div>
-                      <div className="text-white/35 text-xs truncate">{activeManager.company || "基金公司待补充"}</div>
+                      <div className="text-white/55 text-xs truncate">{activeManager.company || "基金公司待补充"}</div>
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2 mb-3">
@@ -546,7 +546,7 @@ export default function Analysis() {
                       { label: "平均回撤", value: `${activeManager.avgMaxDrawdown ?? activeManager.stats?.avgMaxDD?.toFixed?.(2) ?? "—"}%` },
                     ].map((item) => (
                       <div key={item.label} className="liquid-glass-sm p-2 text-center">
-                        <div className="text-white/28 text-[10px]">{item.label}</div>
+                        <div className="text-white/50 text-[10px]">{item.label}</div>
                         <div className="data-number text-sm text-white/80">{item.value}</div>
                       </div>
                     ))}
@@ -571,7 +571,7 @@ export default function Analysis() {
                 {ranked.best.slice(0, 4).map((fund: any) => (
                   <Link key={fund.fundCode} to={`/${fund.fundCode}`} className="flex items-center justify-between gap-2 rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-2 hover:bg-white/[0.06] transition-all">
                     <span className="text-white/70 text-xs truncate">{fundName(fund)}</span>
-                    <ArrowRight className="w-3.5 h-3.5 text-white/25" />
+                    <ArrowRight className="w-3.5 h-3.5 text-white/50" />
                   </Link>
                 ))}
               </div>

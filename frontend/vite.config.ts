@@ -7,7 +7,7 @@ import { defineConfig } from "vite"
 export default defineConfig({
   base: "/fund/",
   plugins: [
-    devServer({ entry: "api/boot.ts", exclude: [/^\/(?!api\/).*$/] }),
+    devServer({ entry: "api/boot.ts", exclude: [/^\/(?!api\/|fund\/api\/).*$/] }),
     react(),
   ],
   server: {
@@ -31,19 +31,35 @@ export default defineConfig({
     chunkSizeWarningLimit: 500,
     rollupOptions: {
       output: {
-        manualChunks: {
-          "react-vendor": ["react", "react-dom", "react-router"],
-          "trpc-vendor": ["@trpc/client", "@trpc/react-query", "@trpc/server", "@tanstack/react-query", "superjson"],
-          "charts-vendor": ["recharts"],
-          "motion-vendor": ["framer-motion"],
-          "utils-vendor": ["date-fns", "zod", "clsx", "class-variance-authority", "tailwind-merge"],
-          "radix-common": [
-            "@radix-ui/react-dialog",
-            "@radix-ui/react-dropdown-menu",
-            "@radix-ui/react-select",
-            "@radix-ui/react-tooltip",
-            "@radix-ui/react-tabs",
-          ],
+        manualChunks(id) {
+          // React ecosystem
+          if (id.includes('node_modules/react') || id.includes('node_modules/react-dom') || id.includes('node_modules/react-router')) {
+            return 'react-vendor';
+          }
+          // tRPC and query
+          if (id.includes('@trpc') || id.includes('@tanstack/react-query') || id.includes('superjson')) {
+            return 'trpc-vendor';
+          }
+          // Charts - split by library
+          if (id.includes('recharts')) {
+            return 'charts-vendor';
+          }
+          // Three.js - separate chunk (only loaded on 3D pages)
+          if (id.includes('three') || id.includes('@react-three')) {
+            return 'three-vendor';
+          }
+          // Framer Motion
+          if (id.includes('framer-motion')) {
+            return 'motion-vendor';
+          }
+          // Radix UI
+          if (id.includes('@radix-ui')) {
+            return 'radix-vendor';
+          }
+          // Utils
+          if (id.includes('date-fns') || id.includes('zod') || id.includes('clsx') || id.includes('tailwind-merge')) {
+            return 'utils-vendor';
+          }
         },
       },
     },

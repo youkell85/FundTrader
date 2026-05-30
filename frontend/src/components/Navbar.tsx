@@ -1,35 +1,38 @@
 import { Link, useLocation } from "react-router";
-import { TrendingUp, Calculator, Lightbulb, LogIn, LogOut, User } from "lucide-react";
+import { TrendingUp, Calculator, Lightbulb, PieChart, Bell, LogIn, LogOut, User } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import { useAlertNotifications } from "@/hooks/useAlertNotifications";
 import { useState } from "react";
 
 const navItems = [
   { path: "/", label: "基金市场", icon: TrendingUp },
   { path: "/backtest", label: "智能定投", icon: Calculator },
   { path: "/recommend", label: "配置组合", icon: Lightbulb },
+  { path: "/allocation", label: "智能配置", icon: PieChart },
 ];
 
 export default function Navbar() {
   const location = useLocation();
   const { user, logout, isLoading } = useAuth();
+  const { unreadCount, criticalCount } = useAlertNotifications({ enabled: !!user });
   const [showUserMenu, setShowUserMenu] = useState(false);
 
   return (
     <>
-      <nav className="liquid-glass-nav fixed top-0 left-0 right-0 z-50 h-14 flex items-center justify-between px-3 md:px-6">
+      <nav className="liquid-glass-nav fixed top-0 left-0 right-0 z-50 h-12 flex items-center justify-between px-3 md:px-6">
         <div className="flex items-center gap-8 min-w-0">
           <Link to="/" className="flex items-center gap-2 group shrink-0">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-[#3B6CFF] to-[#00F0FF] flex items-center justify-center">
-              <span className="text-white font-bold text-sm">基</span>
+            <div className="w-6 h-6 rounded bg-[#3B6CFF] flex items-center justify-center">
+              <span className="text-white font-bold text-[10px]">基</span>
             </div>
-            <span className="text-white font-semibold text-base tracking-tight group-hover:text-[#00F0FF] transition-colors">
-              鑫基荟<span className="hidden sm:inline text-white/40 font-normal text-sm"> FundTrader</span>
+            <span className="text-white/90 font-semibold text-sm tracking-tight group-hover:text-white transition-colors">
+              鑫基荟<span className="hidden sm:inline text-white/30 font-normal text-xs ml-1">FundTrader</span>
             </span>
           </Link>
 
           <div className="hidden md:flex items-center gap-1">
             {navItems.map((item) => {
-              const isActive = location.pathname === item.path;
+              const isActive = location.pathname === item.path || location.pathname.startsWith(item.path + "/");
               const Icon = item.icon;
               return (
                 <Link
@@ -37,14 +40,14 @@ export default function Navbar() {
                   to={item.path}
                   className={`relative flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-300 ${
                     isActive
-                      ? "text-[#00F0FF] bg-white/5"
-                      : "text-white/60 hover:text-white/90 hover:bg-white/[0.03]"
+                      ? "text-white/95"
+                      : "text-white/45 hover:text-white/70 hover:bg-white/[0.03]"
                   }`}
                 >
                   <Icon className="w-3.5 h-3.5" />
                   {item.label}
                   {isActive && (
-                    <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-8 h-0.5 bg-gradient-to-r from-[#3B6CFF] to-[#00F0FF] rounded-full" />
+                    <div className="absolute bottom-0 left-3 right-3 h-px bg-[#3B6CFF]" />
                   )}
                 </Link>
               );
@@ -53,27 +56,51 @@ export default function Navbar() {
         </div>
 
         <div className="flex items-center gap-2 md:gap-3">
+          {/* Alert bell icon (desktop) */}
+          {user && unreadCount > 0 && (
+            <div className="relative hidden md:block">
+              <button
+                aria-label={`通知 ${unreadCount} 条未读`}
+                className="relative p-1 rounded-lg hover:bg-white/5 transition-colors"
+              >
+                <Bell className="w-4 h-4 text-white/60" aria-hidden="true" />
+                <span className={`absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 rounded-full text-[10px] font-bold flex items-center justify-center ${
+                  criticalCount > 0
+                    ? "bg-red-500 text-white"
+                    : "bg-amber-500 text-white"
+                }`}>
+                  {unreadCount > 99 ? "99+" : unreadCount}
+                </span>
+              </button>
+            </div>
+          )}
+
           {isLoading ? (
             <div className="w-6 h-6 rounded-full border border-white/20 border-t-white/60 animate-spin" />
           ) : user ? (
             <div className="relative">
               <button
+                aria-label="用户菜单"
+                aria-expanded={showUserMenu}
+                aria-haspopup="menu"
                 onClick={() => setShowUserMenu(!showUserMenu)}
-                className="flex items-center gap-2 px-2 md:px-3 py-1.5 rounded-lg hover:bg-white/5 transition-colors"
+                onKeyDown={(e) => { if (e.key === 'Escape') setShowUserMenu(false); }}
+                className="flex items-center gap-2 px-2 md:px-3 py-1.5 rounded-lg hover:bg-white/5 transition-colors focus-visible:ring-2 focus-visible:ring-[#3B6CFF]/50"
               >
-                <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[#3B6CFF] to-[#00F0FF] flex items-center justify-center">
-                  <User className="w-3.5 h-3.5 text-white" />
+                <div className="w-6 h-6 rounded-full bg-[#3B6CFF] flex items-center justify-center">
+                  <User className="w-3.5 h-3.5 text-white" aria-hidden="true" />
                 </div>
                 <span className="hidden sm:inline text-white/80 text-sm">{user.name || "用户"}</span>
               </button>
               {showUserMenu && (
-                <div className="absolute right-0 top-full mt-2 w-44 liquid-glass-sm py-2 z-50">
+                <div role="menu" className="absolute right-0 top-full mt-2 w-44 liquid-glass-sm py-2 z-50">
                   <div className="px-3 py-2 text-xs text-white/40 border-b border-white/5">个人数据已保存</div>
                   <button
+                    role="menuitem"
                     onClick={() => { logout(); setShowUserMenu(false); }}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-white/70 hover:text-white hover:bg-white/5 transition-colors"
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-white/70 hover:text-white hover:bg-white/5 transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#3B6CFF]/50"
                   >
-                    <LogOut className="w-3.5 h-3.5" />
+                    <LogOut className="w-3.5 h-3.5" aria-hidden="true" />
                     退出登录
                   </button>
                 </div>
@@ -91,20 +118,30 @@ export default function Navbar() {
         </div>
       </nav>
 
-      <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 border-t border-white/[0.08] bg-[#050816]/92 backdrop-blur-xl">
-        <div className="grid grid-cols-3 px-1 py-1.5">
+      {/* Mobile bottom navigation — 4 items + safe area */}
+      <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 border-t border-white/[0.04] bg-[#000110]/92 backdrop-blur-xl pb-[env(safe-area-inset-bottom)]">
+        <div className="grid grid-cols-4 px-1 py-1.5">
           {navItems.map((item) => {
-            const isActive = location.pathname === item.path;
+            const isActive = location.pathname === item.path || location.pathname.startsWith(item.path + "/");
             const Icon = item.icon;
             return (
               <Link
                 key={item.path}
                 to={item.path}
                 className={`h-12 rounded-lg flex flex-col items-center justify-center gap-0.5 text-[11px] transition-all ${
-                  isActive ? "text-[#00F0FF] bg-white/[0.06]" : "text-white/45 active:bg-white/[0.05]"
+                  isActive ? "text-white/90 bg-white/[0.04]" : "text-white/40 active:bg-white/[0.04]"
                 }`}
               >
-                <Icon className="w-4 h-4" />
+                <div className="relative">
+                  <Icon className="w-4 h-4" />
+                  {item.path === "/allocation" && unreadCount > 0 && (
+                    <span className={`absolute -top-1 -right-2 min-w-[12px] h-3 px-0.5 rounded-full text-[8px] font-bold flex items-center justify-center ${
+                      criticalCount > 0 ? "bg-red-500 text-white" : "bg-amber-500 text-white"
+                    }`}>
+                      {unreadCount}
+                    </span>
+                  )}
+                </div>
                 <span>{item.label}</span>
               </Link>
             );

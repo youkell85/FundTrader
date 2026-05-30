@@ -38,3 +38,7 @@ LLM_MODEL = os.getenv("LLM_MODEL", "MiniMax-M2.7")
 
 # CORS
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", "")
+
+# Market data refresh intervals (seconds)
+MARKET_DATA_REFRESH_INTERVAL = int(os.getenv("MARKET_DATA_REFRESH_INTERVAL", "14400"))  # 4h
+MACRO_REFRESH_INTERVAL = int(os.getenv("MACRO_REFRESH_INTERVAL", "86400"))  # 24h

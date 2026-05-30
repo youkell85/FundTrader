@@ -180,8 +180,7 @@ async def manager_style_analysis(code: str):
     if not manager:
         return {"error": "manager info not found"}
 
-    style = await run_in_threadpool(
-        analyze_manager_style,
+    style = await analyze_manager_style(
         manager.get("name", "unknown"),
         code,
         fund_data.get("name", code),
@@ -219,8 +218,7 @@ async def fund_llm_review(code: str):
         "maxDrawdown": nav_metrics.get("maxDrawdown"),
     }
     try:
-        review = await run_in_threadpool(
-            analyze_fund_comprehensive,
+        review = await analyze_fund_comprehensive(
             code,
             fund_data.get("name", code),
             perf,

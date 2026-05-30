@@ -18,13 +18,20 @@ const API_BASE = process.env.FUNDTRADER_API_BASE || "http://localhost:8766";
 app.post("/api/image-search", async (c) => {
   try {
     const body = await c.req.json();
-    const res = await fetch(`${API_BASE}/fund/image-search`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const data = await res.json();
-    return c.json(data);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30_000);
+    try {
+      const res = await fetch(`${API_BASE}/fund/image-search`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+      const data = await res.json();
+      return c.json(data);
+    } finally {
+      clearTimeout(timeout);
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : "识别服务异常";
     return c.json({ success: false, error: message }, 500);
@@ -39,6 +46,36 @@ app.use("/fund/api/trpc/*", async (c) => {
     router: appRouter,
     createContext,
   });
+});
+
+// REST API proxy: forward non-tRPC /fund/api/* requests to FastAPI backend
+app.all("/fund/api/*", async (c) => {
+  try {
+    const url = new URL(c.req.url);
+    const backendPath = url.pathname.replace(/^\/fund\/api/, "");
+    const targetUrl = `${API_BASE}${backendPath}${url.search}`;
+    const headers: Record<string, string> = {};
+    if (c.req.method !== "GET" && c.req.method !== "HEAD") {
+      headers["Content-Type"] = "application/json";
+    }
+    const method = c.req.method;
+    let body: string | undefined;
+    if (method !== "GET" && method !== "HEAD") {
+      try { body = await c.req.text(); } catch { body = undefined; }
+    }
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30_000);
+    try {
+      const res = await fetch(targetUrl, { method, headers, body, signal: controller.signal });
+      const data = await res.text();
+      return c.body(data, res.status as any, { "Content-Type": "application/json" });
+    } finally {
+      clearTimeout(timeout);
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "API proxy error";
+    return c.json({ error: message }, 502);
+  }
 });
 
 // Static files - MUST be before SPA fallback

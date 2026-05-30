@@ -14,6 +14,7 @@ import {
   POSITIVE_METRIC_COLOR,
   getChangeTextClass,
 } from "@/lib/colors";
+import { normalizeReview, isJsonLikeText } from "@/utils/llm-review";
 
 const typeLabels: Record<string, string> = {
   equity: "股票型", hybrid: "混合型", bond: "债券型",
@@ -37,47 +38,6 @@ const riskMetricDescriptions: Record<string, string> = {
   日胜率: "历史交易日中上涨天数占比，反映短期上涨频率。",
   回撤修复: "从回撤低点恢复到前高大致经历的交易日数，越短说明修复效率越高。",
 };
-
-function parseReviewText(text: string): any | null {
-  const trimmed = String(text || "").trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
-  const jsonText = trimmed.match(/\{[\s\S]*\}/)?.[0] || trimmed;
-  try {
-    return JSON.parse(jsonText);
-  } catch {
-    const review: Record<string, any> = {};
-    ["performance_review", "risk_review", "manager_review", "holdings_review", "investment_advice"].forEach((key) => {
-      const match = jsonText.match(new RegExp(`"${key}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"`));
-      if (!match) return;
-      try {
-        review[key] = JSON.parse(`"${match[1]}"`);
-      } catch {
-        review[key] = match[1];
-      }
-    });
-    ["risk_warnings", "strengths"].forEach((key) => {
-      const match = jsonText.match(new RegExp(`"${key}"\\s*:\\s*(\\[[\\s\\S]*?\\])`));
-      if (!match) return;
-      try {
-        const parsed = JSON.parse(match[1]);
-        if (Array.isArray(parsed)) review[key] = parsed;
-      } catch {
-        // LLM 偶尔会在数组处截断，此时展示前面已识别出的段落。
-      }
-    });
-    return Object.keys(review).length ? { ...review, parseWarning: "AI 返回内容不完整，已展示可识别部分。可点击刷新重新生成。" } : null;
-  }
-}
-
-function normalizeReview(review: any): any {
-  if (typeof review === "string") return parseReviewText(review) || { raw: review };
-  if (review?.raw && typeof review.raw === "string") return parseReviewText(review.raw) || review;
-  return review || {};
-}
-
-function isJsonLikeText(value: unknown) {
-  const text = String(value || "").trim();
-  return text.startsWith("{") || text.startsWith("```json") || text.includes('"performance_review"');
-}
 
 function metricNumber(value: unknown): number | null {
   if (value === undefined || value === null || value === "" || value === "—" || value === "暂无") return null;
@@ -185,7 +145,7 @@ export default function FundDetail() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen pt-20 text-center text-white/30 flex items-center justify-center gap-2">
+      <div className="min-h-screen pt-20 text-center text-white/50 flex items-center justify-center gap-2">
         <Loader2 className="w-4 h-4 animate-spin" />
         正在获取基金详情...
       </div>
@@ -218,7 +178,7 @@ export default function FundDetail() {
     );
   }
 
-  if (!fund) return <div className="min-h-screen pt-20 text-center text-white/30">基金不存在</div>;
+  if (!fund) return <div className="min-h-screen pt-20 text-center text-white/50">基金不存在</div>;
 
   const perf = fund.performance;
   const feeFallback = fund.fundType === "index" || /ETF|LOF/i.test(String(fund.fundName || fund.fundAbbr || ""))
@@ -231,7 +191,7 @@ export default function FundDetail() {
     <div className="min-h-screen pt-14 pb-12">
       <div className="max-w-7xl mx-auto px-4 md:px-6">
         <div className="flex items-center gap-2 py-4 text-sm">
-          <Link to={backTo} className="text-white/30 hover:text-white/60 flex items-center gap-1 transition-colors">
+          <Link to={backTo} className="text-white/50 hover:text-white/60 flex items-center gap-1 transition-colors">
             <ArrowLeft className="w-3.5 h-3.5" />{backTo === "/recommend" ? "返回配置组合" : "返回列表"}
           </Link>
           <span className="text-white/10">/</span>
@@ -291,7 +251,7 @@ export default function FundDetail() {
                   const val = parseFloat(r.value || "0");
                   return (
                     <div key={r.label} className="liquid-glass-sm p-2 md:p-3 text-center">
-                      <div className="text-white/30 text-[10px] md:text-xs mb-1">{r.label}</div>
+                      <div className="text-white/50 text-[10px] md:text-xs mb-1">{r.label}</div>
                       <div className={`data-number text-sm md:text-base font-medium ${getChangeTextClass(val)}`}>
                         {val >= 0 ? "+" : ""}{r.value}%
                       </div>
@@ -305,21 +265,21 @@ export default function FundDetail() {
                   <span>周期</span><span className="text-right">本基金</span><span className="text-right">同类平均</span><span className="text-right">同类排名</span>
                 </div>
                 {peerRankingQuery.isLoading && (
-                  <div className="px-3 py-3 text-xs text-white/35 border-t border-white/[0.04]">正在计算全市场同类排名...</div>
+                  <div className="px-3 py-3 text-xs text-white/55 border-t border-white/[0.04]">正在计算全市场同类排名...</div>
                 )}
                 {!peerRankingQuery.isLoading && performanceRows.length === 0 && (
-                  <div className="px-3 py-3 text-xs text-white/35 border-t border-white/[0.04]">暂无全市场同类排名数据</div>
+                  <div className="px-3 py-3 text-xs text-white/55 border-t border-white/[0.04]">暂无全市场同类排名数据</div>
                 )}
                 {performanceRows.map((row: any) => (
                   <div key={row.label} className="grid grid-cols-[1fr_1fr_1fr_1fr] px-3 py-2 text-xs border-t border-white/[0.04]">
                     <span className="text-white/55">{row.label}</span>
-                    <span className={`data-number text-right ${row.value == null ? "text-white/30" : getChangeTextClass(row.value)}`}>{row.value == null ? "—" : `${row.value >= 0 ? "+" : ""}${row.value.toFixed(2)}%`}</span>
-                    <span className={`data-number text-right ${row.peerAverage == null ? "text-white/30" : getChangeTextClass(row.peerAverage)}`}>{row.peerAverage == null ? "—" : `${row.peerAverage >= 0 ? "+" : ""}${row.peerAverage.toFixed(2)}%`}</span>
+                    <span className={`data-number text-right ${row.value == null ? "text-white/50" : getChangeTextClass(row.value)}`}>{row.value == null ? "—" : `${row.value >= 0 ? "+" : ""}${row.value.toFixed(2)}%`}</span>
+                    <span className={`data-number text-right ${row.peerAverage == null ? "text-white/50" : getChangeTextClass(row.peerAverage)}`}>{row.peerAverage == null ? "—" : `${row.peerAverage >= 0 ? "+" : ""}${row.peerAverage.toFixed(2)}%`}</span>
                     <span className="data-number text-right text-white/55">{row.rank == null || row.total === 0 ? "—" : `${row.rank}/${row.total}`}</span>
                   </div>
                 ))}
                 {peerRankingQuery.data && (
-                  <div className="px-3 py-2 text-[11px] text-white/30 border-t border-white/[0.04]">
+                  <div className="px-3 py-2 text-[11px] text-white/50 border-t border-white/[0.04]">
                     口径：{peerRankingQuery.data.peerType} / {peerRankingQuery.data.source}
                   </div>
                 )}
@@ -340,7 +300,7 @@ export default function FundDetail() {
                       ].map((p) => (
                         <button key={p.key}
                           onClick={() => setNavPeriod(p.key)}
-                          className={`px-2 py-1 rounded-md text-xs font-medium transition-all ${navPeriod === p.key ? "bg-[#3B6CFF]/15 text-[#5AA9FF]" : "text-white/30 hover:text-white/60 hover:bg-white/[0.04]"}`}
+                          className={`px-2 py-1 rounded-md text-xs font-medium transition-all ${navPeriod === p.key ? "bg-[#3B6CFF]/15 text-[#5AA9FF]" : "text-white/50 hover:text-white/60 hover:bg-white/[0.04]"}`}
                         >
                           {p.label}
                         </button>
@@ -396,7 +356,7 @@ export default function FundDetail() {
                         aria-label={`${m.label}：${riskMetricDescriptions[m.label]}`}
                         className="liquid-glass-sm p-2 md:p-3 text-center group hover:bg-white/[0.06] focus-visible:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-white/20 transition-all cursor-help"
                       >
-                        <div className="text-white/30 text-[10px] md:text-xs mb-1">{m.label}</div>
+                        <div className="text-white/50 text-[10px] md:text-xs mb-1">{m.label}</div>
                         <div className="data-number text-base md:text-lg font-medium" style={{ color: m.color }}>{m.value}{m.suffix}</div>
                       </div>
                     </TooltipTrigger>
@@ -566,7 +526,7 @@ export default function FundDetail() {
                     </div>
                   ))}
                 </div>
-                <div className="mt-2 text-[11px] text-white/30">报告期：{assetChartData[0]?.reportDate || "未标明"}</div>
+                <div className="mt-2 text-[11px] text-white/50">报告期：{assetChartData[0]?.reportDate || "未标明"}</div>
               </div>
             )}
 
@@ -628,25 +588,25 @@ export default function FundDetail() {
                     <div className="data-number text-sm font-medium" style={{ color: manager.returnSinceTenure !== "—" ? UP_COLOR : "rgba(255,255,255,0.3)" }}>
                       {manager.returnSinceTenure !== "—" ? `${parseFloat(manager.returnSinceTenure) >= 0 ? "+" : ""}${manager.returnSinceTenure}%` : "—"}
                     </div>
-                    <div className="text-white/30 text-[10px]">任职回报</div>
+                    <div className="text-white/50 text-[10px]">任职回报</div>
                   </div>
                   <div className="liquid-glass-sm p-2 text-center">
                     <div className="data-number text-sm font-medium" style={{ color: manager.annualizedReturn !== "—" ? ACCENT_INFO : "rgba(255,255,255,0.3)" }}>
                       {manager.annualizedReturn !== "—" ? `${parseFloat(manager.annualizedReturn) >= 0 ? "+" : ""}${manager.annualizedReturn}%` : "—"}
                     </div>
-                    <div className="text-white/30 text-[10px]">年化回报</div>
+                    <div className="text-white/50 text-[10px]">年化回报</div>
                   </div>
                   <div className="liquid-glass-sm p-2 text-center">
                     <div className="data-number text-sm font-medium" style={{ color: manager.bestReturn !== "—" ? UP_COLOR : "rgba(255,255,255,0.3)" }}>
                       {manager.bestReturn !== "—" ? `+${manager.bestReturn}%` : "—"}
                     </div>
-                    <div className="text-white/30 text-[10px]">最佳年度</div>
+                    <div className="text-white/50 text-[10px]">最佳年度</div>
                   </div>
                   <div className="liquid-glass-sm p-2 text-center">
                     <div className="data-number text-sm font-medium" style={{ color: manager.worstReturn !== "—" ? DOWN_COLOR : "rgba(255,255,255,0.3)" }}>
                       {manager.worstReturn !== "—" ? `${manager.worstReturn}%` : "—"}
                     </div>
-                    <div className="text-white/30 text-[10px]">最差年度</div>
+                    <div className="text-white/50 text-[10px]">最差年度</div>
                   </div>
                 </div>
 
@@ -690,7 +650,7 @@ export default function FundDetail() {
                     <div key={`${item.exDate || item.annDate}-${index}`} className="grid grid-cols-[1fr_auto] gap-3 rounded-lg border border-white/[0.05] bg-white/[0.025] px-3 py-2 text-xs">
                       <div>
                         <div className="text-white/65">除息日 {item.exDate || "—"}</div>
-                        <div className="text-white/30 mt-0.5">派息日 {item.payDate || "—"} / 公告 {item.annDate || "—"}</div>
+                        <div className="text-white/50 mt-0.5">派息日 {item.payDate || "—"} / 公告 {item.annDate || "—"}</div>
                       </div>
                       <div className="data-number text-white/75">{item.cash ? `${item.cash}元/份` : "—"}</div>
                     </div>
@@ -713,9 +673,9 @@ export default function FundDetail() {
                   return (
                     <div className="mb-3 rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-2 text-xs text-white/50 leading-relaxed">
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5 mb-1.5">
-                        <div><span className="text-white/30">数据源：</span>{source}</div>
-                        <div><span className="text-white/30">报告期：</span>{quarter}</div>
-                        <div><span className="text-white/30">更新：</span>{updatedAt}</div>
+                        <div><span className="text-white/50">数据源：</span>{source}</div>
+                        <div><span className="text-white/50">报告期：</span>{quarter}</div>
+                        <div><span className="text-white/50">更新：</span>{updatedAt}</div>
                       </div>
                       重仓持股属于公开披露的季度/定期报告数据，不是实时仓位；日涨跌为按股票代码额外匹配的最新行情。
                       {missingDailyCount > 0 && <span style={{ color: RISK_COLOR }}> 其中 {missingDailyCount} 只暂未匹配到当日涨跌幅。</span>}
@@ -728,17 +688,17 @@ export default function FundDetail() {
                     const dailyChange = h.dailyChange == null ? null : parseFloat(h.dailyChange);
                     return (
                       <div key={i} className="flex items-center gap-2 md:gap-3 py-2 border-b border-white/[0.03]">
-                        <span className="data-number text-white/30 text-xs w-4">{i + 1}</span>
+                        <span className="data-number text-white/50 text-xs w-4">{i + 1}</span>
                         <div className="flex-1 min-w-0">
                           <div className="text-white text-sm truncate">{h.stockName}</div>
-                          <div className="text-white/30 text-xs data-number truncate">{h.stockCode}{h.quoteCode ? ` / ${h.quoteCode}` : ""} · {h.industry}</div>
+                          <div className="text-white/50 text-xs data-number truncate">{h.stockCode}{h.quoteCode ? ` / ${h.quoteCode}` : ""} · {h.industry}</div>
                         </div>
                         <div className="hidden md:block w-24 h-1.5 rounded-full bg-white/[0.05] overflow-hidden">
                           <div className="h-full rounded-full" style={{ width: `${Math.min(ratio * 3, 100)}%`, background: `linear-gradient(90deg, ${ACCENT_PRIMARY}, ${ACCENT_INFO})` }} />
                         </div>
                         <div className="text-right w-20 md:w-24 shrink-0">
                           <div className="data-number text-white/70 text-sm">{ratio.toFixed(2)}%</div>
-                          <div className={`data-number text-[10px] ${dailyChange == null || Number.isNaN(dailyChange) ? "text-white/30" : getChangeTextClass(dailyChange)}`}>
+                          <div className={`data-number text-[10px] ${dailyChange == null || Number.isNaN(dailyChange) ? "text-white/50" : getChangeTextClass(dailyChange)}`}>
                             {dailyChange == null || Number.isNaN(dailyChange) ? "未取到行情" : `${dailyChange >= 0 ? "+" : ""}${dailyChange.toFixed(2)}%`}
                           </div>
                         </div>

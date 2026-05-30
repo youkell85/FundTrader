@@ -19,7 +19,7 @@ async def recommend(request: RecommendRequest):
 
     # LLM增强分析
     if result.get("funds"):
-        llm_summary = generate_recommendation_analysis(
+        llm_summary = await generate_recommendation_analysis(
             risk_level=request.risk_level,
             funds=result["funds"],
             market_summary=str(result.get("market_overview", "")),

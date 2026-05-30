@@ -1,3 +1,4 @@
+import { parseReviewText } from "@/utils/llm-review";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { createRouter, publicQuery } from "./middleware";
@@ -13,6 +14,7 @@ import {
   getFundLLMReview,
   getDcaLLMReview,
   ftFetch,
+  generateAllocation,
 } from "./lib/fundtrader-client";
 import {
   mapFundItem,
@@ -52,6 +54,8 @@ const bffCache = new Map<string, { expiresAt: number; data: any }>();
 const MAX_BFF_CACHE_SIZE = 5000; // Maximum cache entries to prevent memory leak
 const BFF_CACHE_SIZE_LIMIT = 10000; // Hard limit before emergency cleanup
 const DETAIL_ANALYSIS_TIMEOUT_MS = Number(process.env.FUNDTRADER_DETAIL_TIMEOUT_MS ?? 12_000);
+/** LLM 分析超时独立配置 — MiniMax 等第三方模型需 30-60s，不能与数据查询共享 12s 限制 */
+const LLM_ANALYSIS_TIMEOUT_MS = Number(process.env.FUNDTRADER_LLM_TIMEOUT_MS ?? 60_000);
 
 /** 默认缓存TTL按数据层级分配*/
 const BFF_CACHE_TTL = 30 * 60 * 1000;                     // 默认 30分钟
@@ -95,37 +99,6 @@ function setCache<T>(key: string, data: T, ttlMs = BFF_CACHE_TTL): void {
   bffCache.set(key, { expiresAt: Date.now() + ttlMs, data });
 }
 
-function parseReviewText(text: string): any | null {
-  const trimmed = String(text || "").trim().replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "").trim();
-  const jsonText = trimmed.match(/\{[\s\S]*\}/)?.[0] || trimmed;
-  try {
-    return JSON.parse(jsonText);
-  } catch {
-    const review: Record<string, any> = {};
-    const stringKeys = ["performance_review", "risk_review", "manager_review", "holdings_review", "investment_advice"];
-    stringKeys.forEach((key) => {
-      const match = jsonText.match(new RegExp(`"${key}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"`));
-      if (!match) return;
-      try {
-        review[key] = JSON.parse(`"${match[1]}"`);
-      } catch {
-        review[key] = match[1];
-      }
-    });
-    ["risk_warnings", "strengths"].forEach((key) => {
-      const match = jsonText.match(new RegExp(`"${key}"\\s*:\\s*(\\[[\\s\\S]*?\\])`));
-      if (!match) return;
-      try {
-        const parsed = JSON.parse(match[1]);
-        if (Array.isArray(parsed)) review[key] = parsed;
-      } catch {
-        // 保留已提取的文本字段，数组缺失时不展示原?JSON?
-      }
-    });
-    return Object.keys(review).length ? { ...review, parseWarning: "AI 返回内容不完整，已展示可识别部分" } : null;
-  }
-}
-
 function normalizeLlmReview(data: any): any {
   const review = data?.review;
   if (typeof review === "string") {
@@ -150,6 +123,19 @@ async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, fallback: 
   } finally {
     if (timer) clearTimeout(timer);
   }
+}
+
+async function concurrentMap<T, R>(items: T[], fn: (item: T, index: number) => Promise<R>, limit = 6): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const i = next++;
+      try { results[i] = await fn(items[i], i); } catch { results[i] = undefined as unknown as R; }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => worker()));
+  return results;
 }
 
 function invalidateCache(prefix: string): void {
@@ -340,7 +326,7 @@ async function fetchHomeFundSummaries() {
 
     const funds = Array.from(fundsByCode.values());
     // 补充基金名称（对仍然缺少名称的基金用实时报价补全
-    const enriched = await Promise.all(funds.map(enrichFundSummary));
+    const enriched = await concurrentMap(funds, enrichFundSummary, 6);
 
     // ?TTL?5min（净值日频，排名数据下一个交易日才更新）
     setCache("homeFundSummaries", enriched, dailyCacheTtl());
@@ -381,15 +367,17 @@ async function fetchHomeFunds() {
         }
       } catch (e) {
         console.error("[fetchHomeFunds] 批量获取分析数据失败，回退到单个请求", e);
-        await Promise.all(
-          codes.map(async (code) => {
+        await concurrentMap(
+          codes,
+          async (code) => {
             try {
               const analysis = await getFundAnalysis(code);
               if (analysis) analysisMap.set(code, analysis);
             } catch (err) {
               console.error(`[fetchHomeFunds] 获取 ${code} 分析数据失败:`, err);
             }
-          })
+          },
+          6,
         );
       }
     }
@@ -1472,7 +1460,7 @@ export const fundRouter = createRouter({
     }
   }),
 
-  // 基金评价 LLM 分析（详情页使用
+  // 基金评价 LLM 分析（详情页使用）— 使用独立 LLM 超时避免被 12s 数据超时截断
   analyzeFundLLM: publicQuery
     .input(z.object({ code: z.string().regex(/^\d{6}$/) }))
     .query(async ({ input }) => {
@@ -1480,16 +1468,24 @@ export const fundRouter = createRouter({
         const cacheKey = `llm_review_v4_${input.code}`;
         const cached = getCached<any>(cacheKey);
         if (cached) return cached;
-        const data = normalizeLlmReview(await getFundLLMReview(input.code));
-        // BFF 缓存 30 分钟（后端同时有 12 小时文件缓存?
-        if (data && (data as any).review) setCache(cacheKey, data, 30 * 60 * 1000);
+        // 使用独立的 LLM 超时 (60s)，超时后返回 generating 占位而非抛错
+        const data = await withTimeout(
+          getFundLLMReview(input.code).then(normalizeLlmReview),
+          LLM_ANALYSIS_TIMEOUT_MS,
+          () => ({ code: input.code, review: { raw: "分析生成中，请稍后刷新..." }, _generating: true })
+        );
+        if (data && (data as any).review && !(data as any)._generating) {
+          setCache(cacheKey, data, 30 * 60 * 1000);
+        }
         return data;
       } catch (err) {
-        wrapError(err, "获取基金 LLM 分析失败");
+        console.error(`[fundRouter] LLM review failed for ${input.code}:`, err);
+        // 不抛 TRPCError — 前端优雅降级为 "分析暂不可用"
+        return { code: input.code, review: { raw: "LLM 分析暂不可用，请稍后重试" } };
       }
     }),
 
-  // 定投回测 LLM 评价
+  // 定投回测 LLM 评价 — 使用独立 LLM 超时避免被截断
   analyzeDcaLLM: publicQuery
     .input(
       z.object({
@@ -1504,16 +1500,23 @@ export const fundRouter = createRouter({
         const cacheKey = `llm_dca_${input.code}_${JSON.stringify(input.dca || {}).slice(0, 50)}`;
         const cached = getCached<any>(cacheKey);
         if (cached) return cached;
-        const data = await getDcaLLMReview({
-          code: input.code,
-          name: input.name || input.code,
-          dca: input.dca,
-          benchmark: input.benchmark || {},
-        });
-        if (data && (data as any).review) setCache(cacheKey, data, 30 * 60 * 1000);
+        const data = await withTimeout(
+          getDcaLLMReview({
+            code: input.code,
+            name: input.name || input.code,
+            dca: input.dca,
+            benchmark: input.benchmark || {},
+          }),
+          LLM_ANALYSIS_TIMEOUT_MS,
+          () => ({ review: { raw: "分析生成中，请稍后刷新..." }, _generating: true })
+        );
+        if (data && (data as any).review && !(data as any)._generating) {
+          setCache(cacheKey, data, 30 * 60 * 1000);
+        }
         return data;
       } catch (err) {
-        wrapError(err, "获取定投 LLM 评价失败");
+        console.error(`[fundRouter] DCA LLM review failed:`, err);
+        return { review: { raw: "LLM 分析暂不可用，请稍后重试" } };
       }
     }),
 
@@ -1540,6 +1543,34 @@ export const fundRouter = createRouter({
         };
       } catch (err) {
         wrapError(err, "图片识别基金失败");
+      }
+    }),
+
+  // 资产配置生成
+  allocate: publicQuery
+    .input(
+      z.object({
+        age: z.number().min(18).max(80),
+        goal_type: z.string(),
+        investment_horizon: z.string(),
+        amount: z.number().min(1000),
+        risk_tolerance: z.string(),
+        max_drawdown: z.number().min(5).max(45),
+        preferred_tags: z.array(z.string()),
+        behavior_answers: z.record(z.string(), z.string()),
+      })
+    )
+    .mutation(async ({ input }) => {
+      try {
+        const cacheKey = `alloc_${input.risk_tolerance}_${input.age}_${input.amount}_${input.investment_horizon}`;
+        const cached = getCached<any>(cacheKey);
+        if (cached) return cached;
+
+        const result = await generateAllocation(input);
+        setCache(cacheKey, result, 5 * 60 * 1000); // 5min cache
+        return result;
+      } catch (err) {
+        wrapError(err, "资产配置生成失败");
       }
     }),
 });

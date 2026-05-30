@@ -31,6 +31,10 @@ export function useAuth(options?: UseAuthOptions) {
       await utils.invalidate();
       navigate(redirectPath);
     },
+    onError: (error) => {
+      console.error('Logout failed:', error);
+      navigate(redirectPath);
+    },
   });
 
   const logout = useCallback(() => logoutMutation.mutate(), [logoutMutation]);

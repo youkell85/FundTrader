@@ -308,7 +308,7 @@ export default function Home() {
                 <span className="text-[#00F0FF] text-sm font-medium">返回全部列表</span>
                 <span className="data-number text-white/45 text-xs">{overview.totalFunds || allFunds.length}只</span>
               </div>
-              <div className="text-white/42 text-[11px]">清除当前类别、风险和搜索条件</div>
+              <div className="text-white/50 text-[11px]">清除当前类别、风险和搜索条件</div>
             </button>
           )}
           {categoryStats.map((item) => (
@@ -328,19 +328,19 @@ export default function Home() {
             >
               <div className="flex items-center justify-between gap-2 mb-2">
                 <span className="text-white/80 text-sm font-medium">{item.label}</span>
-                <span className="data-number text-white/35 text-xs">{item.count}只</span>
+                <span className="data-number text-white/55 text-xs">{item.count}只</span>
               </div>
               <div className="grid grid-cols-3 gap-2 text-[11px]">
                 <div>
-                  <div className="text-white/28">平均年化</div>
+                  <div className="text-white/50">平均年化</div>
                   <div className={`data-number font-medium ${getChangeTextClass(parseFloat(item.avgReturn || "0"))}`}>{item.avgReturn === "—" ? "—" : `${item.avgReturn}%`}</div>
                 </div>
                 <div>
-                  <div className="text-white/28">最大回撤</div>
+                  <div className="text-white/50">最大回撤</div>
                   <div className="data-number font-medium" style={{ color: RISK_COLOR }}>{item.avgMaxDrawdown === "—" ? "—" : `${item.avgMaxDrawdown}%`}</div>
                 </div>
                 <div>
-                  <div className="text-white/28">夏普</div>
+                  <div className="text-white/50">夏普</div>
                   <div className="data-number font-medium" style={{ color: POSITIVE_METRIC_COLOR }}>{item.avgSharpe}</div>
                 </div>
               </div>
@@ -353,7 +353,7 @@ export default function Home() {
             <button
               type="submit"
               disabled={addFundByCode.isPending}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60 transition-colors disabled:opacity-50"
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-white/50 hover:text-white/60 transition-colors disabled:opacity-50"
               title="搜索基金"
             >
               {addFundByCode.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
@@ -363,6 +363,7 @@ export default function Home() {
               value={search}
               onChange={(e) => { setSearch(e.target.value); setSearchError(null); setPage(1); }}
               placeholder="输入基金代码 / 名称 / 基金经理..."
+              aria-label="搜索基金"
               className="w-full h-11 pl-10 pr-4 rounded-xl bg-white/[0.03] border border-white/[0.06] text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-[#3B6CFF]/50 focus:bg-white/[0.05] transition-all"
             />
             {searchError && <div className="absolute left-0 top-full mt-1 text-xs text-[#FF3366]">{searchError}</div>}
@@ -385,22 +386,26 @@ export default function Home() {
           />
           */}
           <div className="flex gap-2 flex-wrap">
-            <select value={fundType} onChange={(e) => { setFundType(e.target.value); setPage(1); }}
+            <label className="sr-only" htmlFor="filter-type">基金类型</label>
+            <select id="filter-type" value={fundType} onChange={(e) => { setFundType(e.target.value); setPage(1); }}
               className="h-11 px-3 rounded-xl bg-[#0B1021] border border-white/[0.08] text-white text-sm focus:outline-none focus:border-[#3B6CFF]/50">
               <option value="" className="bg-[#0B1021] text-white">全部类型</option>
               {Object.entries(typeLabels).map(([k, v]) => (<option key={k} value={k} className="bg-[#0B1021] text-white">{v}</option>))}
             </select>
-            <select value={riskLevel} onChange={(e) => { setRiskLevel(e.target.value); setPage(1); }}
+            <label className="sr-only" htmlFor="filter-risk">风险等级</label>
+            <select id="filter-risk" value={riskLevel} onChange={(e) => { setRiskLevel(e.target.value); setPage(1); }}
               className="h-11 px-3 rounded-xl bg-[#0B1021] border border-white/[0.08] text-white text-sm focus:outline-none focus:border-[#3B6CFF]/50">
               <option value="" className="bg-[#0B1021] text-white">全部风险</option>
               {Object.entries(riskLabels).map(([k, v]) => (<option key={k} value={k} className="bg-[#0B1021] text-white">{v}</option>))}
             </select>
-            <select value={category} onChange={(e) => { setCategory(e.target.value); setPage(1); }}
+            <label className="sr-only" htmlFor="filter-category">基金分类</label>
+            <select id="filter-category" value={category} onChange={(e) => { setCategory(e.target.value); setPage(1); }}
               className="h-11 px-3 rounded-xl bg-[#0B1021] border border-white/[0.08] text-white text-sm focus:outline-none focus:border-[#3B6CFF]/50">
               <option value="" className="bg-[#0B1021] text-white">全部分类</option>
               {filterOpts.categories?.map((c: string) => (<option key={c} value={c} className="bg-[#0B1021] text-white">{c}</option>))}
             </select>
-            <select value={company} onChange={(e) => { setCompany(e.target.value); setPage(1); }}
+            <label className="sr-only" htmlFor="filter-company">基金公司</label>
+            <select id="filter-company" value={company} onChange={(e) => { setCompany(e.target.value); setPage(1); }}
               className="h-11 px-3 rounded-xl bg-[#0B1021] border border-white/[0.08] text-white text-sm focus:outline-none focus:border-[#3B6CFF]/50">
               <option value="" className="bg-[#0B1021] text-white">全部公司</option>
               {filterOpts.companies?.map((c: string) => (<option key={c} value={c} className="bg-[#0B1021] text-white">{c}</option>))}
@@ -418,7 +423,7 @@ export default function Home() {
           <div className="mt-4 liquid-glass-sm p-4 relative">
             <button
               onClick={clearImageSearch}
-              className="absolute top-3 right-3 text-white/30 hover:text-white/60 transition-colors"
+              className="absolute top-3 right-3 text-white/50 hover:text-white/60 transition-colors"
             >
               <X className="w-4 h-4" />
             </button>
@@ -458,14 +463,14 @@ export default function Home() {
                           >
                             <div>
                               <div className="text-white text-sm font-medium">{fund.fundAbbr || fund.fundName}</div>
-                              <div className="text-white/30 text-xs">{fund.fundCode}</div>
+                              <div className="text-white/50 text-xs">{fund.fundCode}</div>
                             </div>
                             <TrendingUp className="w-3 h-3 text-[#A3FF12]" />
                           </Link>
                         ))}
                       </div>
                     ) : (
-                      <p className="text-white/30 text-sm">未在基金库中匹配到相关产品</p>
+                      <p className="text-white/50 text-sm">未在基金库中匹配到相关产品</p>
                     )}
                   </div>
                 )}
@@ -476,7 +481,7 @@ export default function Home() {
         */}
 
         <div className="mt-4 flex items-center gap-2 flex-wrap">
-          <span className="text-white/30 text-xs">排序:</span>
+          <span className="text-white/50 text-xs">排序:</span>
           {[
             { key: "dailyChange", label: "日涨跌" },
             { key: "return1y", label: "近1年收益" },
@@ -495,7 +500,7 @@ export default function Home() {
       <section className="px-4 md:px-6 max-w-7xl mx-auto">
         <div className="liquid-glass overflow-hidden">
           {/* 桌面端表头（仅 md+ 显示） */}
-          <div className="hidden md:grid md:grid-cols-[minmax(260px,2fr)_repeat(5,minmax(92px,1fr))_minmax(150px,1fr)] gap-3 px-5 py-3 text-xs text-white/30 font-medium border-b border-white/[0.06] items-center"
+          <div className="hidden md:grid md:grid-cols-[minmax(260px,2fr)_repeat(5,minmax(92px,1fr))_minmax(150px,1fr)] gap-3 px-5 py-3 text-xs text-white/50 font-medium border-b border-white/[0.06] items-center"
             style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.04) 0%, transparent 100%)" }}>
             <div>基金产品</div>
             <div className="text-right">净值</div>
@@ -507,11 +512,11 @@ export default function Home() {
           </div>
 
           {listLoading ? (
-            <div className="p-8 text-center text-white/30 flex items-center justify-center gap-2">
+            <div className="p-8 text-center text-white/50 flex items-center justify-center gap-2">
               <Loader2 className="w-4 h-4 animate-spin" />加载中...
             </div>
           ) : paginatedFunds.length === 0 ? (
-            <div className="p-8 text-center text-white/30">{showXinjihui ? "暂无鑫基荟产品" : "暂无自选基金"}</div>
+            <div className="p-8 text-center text-white/50">{showXinjihui ? "暂无鑫基荟产品" : "暂无自选基金"}</div>
           ) : (
             paginatedFunds.map((fund: any) => {
               const perf = fund.performance;
@@ -533,7 +538,7 @@ export default function Home() {
                         {fund.fundAbbr || fund.fundName}
                         {isWatchlistFund && <Star className="w-3 h-3 text-[#FFB800] fill-[#FFB800]" />}
                       </div>
-                      <div className="text-white/25 text-xs mt-0.5 flex items-center gap-1.5">
+                      <div className="text-white/50 text-xs mt-0.5 flex items-center gap-1.5">
                         <span className="data-number">{fund.fundCode}</span>
                         <span>{fund.manager?.name}</span>
                         <span>{fund.company}</span>
@@ -567,7 +572,7 @@ export default function Home() {
                           {fund.fundAbbr || fund.fundName}
                           {isWatchlistFund && <Star className="w-3.5 h-3.5 text-[#FFB800] fill-[#FFB800] shrink-0" />}
                         </div>
-                        <div className="text-white/30 text-xs mt-1 flex items-center gap-2 flex-wrap">
+                        <div className="text-white/50 text-xs mt-1 flex items-center gap-2 flex-wrap">
                           <span className="data-number">{fund.fundCode}</span>
                           <span className="px-1.5 py-0.5 rounded bg-white/[0.05]">{typeLabels[fund.fundType] || fund.fundType}</span>
                           <span>{fund.manager?.name}</span>
@@ -582,15 +587,15 @@ export default function Home() {
                     </div>
                     <div className="grid grid-cols-3 gap-2 pt-1 text-[11px]">
                       <div>
-                        <div className="text-white/30">近1年</div>
+                        <div className="text-white/50">近1年</div>
                         <div className={`data-number font-medium ${return1yClass}`}>{return1y >= 0 ? "+" : ""}{perf?.return1y}%</div>
                       </div>
                       <div>
-                        <div className="text-white/30">夏普比</div>
+                        <div className="text-white/50">夏普比</div>
                         <div className="data-number font-medium" style={{ color: POSITIVE_METRIC_COLOR }}>{sharpe !== null ? sharpe.toFixed(2) : "—"}</div>
                       </div>
                       <div>
-                        <div className="text-white/30">最大回撤</div>
+                        <div className="text-white/50">最大回撤</div>
                         <div className="data-number font-medium" style={{ color: RISK_COLOR }}>{maxDD !== null ? maxDD.toFixed(2) + "%" : "—"}</div>
                       </div>
                     </div>

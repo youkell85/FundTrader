@@ -38,7 +38,7 @@ export default function Login() {
       <div className="w-full max-w-sm liquid-glass p-5 md:p-6">
         <div className="mb-5">
           <h1 className="text-xl font-semibold text-white">{mode === "login" ? "登录 FundTrader" : "注册 FundTrader"}</h1>
-          <p className="mt-2 text-sm leading-relaxed text-white/42">
+          <p className="mt-2 text-sm leading-relaxed text-white/50">
             登录后会保存自选基金、智能定投方案、回测历史和组合配置记录。
           </p>
         </div>

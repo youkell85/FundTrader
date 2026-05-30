@@ -33,7 +33,7 @@ export class ErrorBoundary extends Component<Props, State> {
       return (
         <div className="min-h-screen flex items-center justify-center px-4">
           <div className="max-w-md w-full text-center">
-            <AlertCircle className="mx-auto h-12 w-12 text-red-400 mb-4" />
+            <AlertCircle className="mx-auto h-12 w-12 text-red-400 mb-4" aria-hidden="true" />
             <h2 className="text-xl font-semibold text-white mb-2">
               页面出现错误
             </h2>
@@ -41,8 +41,9 @@ export class ErrorBoundary extends Component<Props, State> {
               抱歉，页面加载时遇到了问题。请尝试刷新页面或稍后重试。
             </p>
             <button
+              type="button"
               onClick={() => window.location.reload()}
-              className="inline-flex items-center justify-center rounded-lg bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/20 transition-colors"
+              className="inline-flex items-center justify-center rounded-lg bg-white/10 px-4 py-2 text-sm font-medium text-white hover:bg-white/20 transition-colors focus-visible:ring-2 focus-visible:ring-[#3B6CFF]/50"
             >
               刷新页面
             </button>

@@ -26,6 +26,12 @@ import {
   BarChart,
   CartesianGrid,
   Legend,
+  Line,
+  LineChart,
+  PolarAngleAxis,
+  PolarGrid,
+  Radar,
+  RadarChart,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -199,7 +205,7 @@ function buildAdvice(result: any, maxDrawdownLimit: string, targetAnnualReturn: 
 function MetricCard({ label, value, color, icon: Icon }: { label: string; value: string; color: string; icon: typeof Activity }) {
   return (
     <div className="rounded-lg border border-white/[0.06] bg-white/[0.035] p-3 min-h-[92px]">
-      <div className="flex items-center justify-between gap-2 text-white/35 text-xs">
+      <div className="flex items-center justify-between gap-2 text-white/55 text-xs">
         <span>{label}</span>
         <Icon className="h-4 w-4" style={{ color }} />
       </div>
@@ -416,7 +422,7 @@ export default function Backtest() {
               { label: "目标年化", value: `${targetAnnualReturn}%` },
             ].map((item) => (
               <div key={item.label} className="rounded-lg border border-white/[0.06] bg-white/[0.035] px-3 py-2">
-                <div className="text-[11px] text-white/35">{item.label}</div>
+                <div className="text-[11px] text-white/55">{item.label}</div>
                 <div className="data-number mt-1 text-sm font-semibold text-white/80">{item.value}</div>
               </div>
             ))}
@@ -432,7 +438,7 @@ export default function Backtest() {
               </h2>
 
               <div className="relative">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/25" />
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-white/50" />
                 <input
                   value={fundSearch}
                   onChange={(event) => setFundSearch(event.target.value)}
@@ -451,7 +457,7 @@ export default function Backtest() {
               </div>
 
               <div className="mt-3 flex flex-wrap items-center gap-1.5">
-                <span className="text-[11px] text-white/30">排序</span>
+                <span className="text-[11px] text-white/50">排序</span>
                 {[
                   { key: "annualizedReturn", label: "年化" },
                   { key: "maxDrawdown", label: "回撤" },
@@ -486,7 +492,7 @@ export default function Backtest() {
                           <Plus className="h-3.5 w-3.5 shrink-0 text-[#5AA9FF]" />
                           <div className="min-w-0 flex-1">
                             <div className="truncate text-sm text-white/85">{fund.fundAbbr || fund.fundName}</div>
-                            <div className="data-number text-xs text-white/35">{fund.fundCode} · {fund.category}</div>
+                            <div className="data-number text-xs text-white/55">{fund.fundCode} · {fund.category}</div>
                             <div className="mt-1 flex items-center gap-2 text-[10px]">
                               <span className={`data-number ${getChangeTextClass(metricValue(fund, "annualizedReturn"))}`}>年化 {metricValue(fund, "annualizedReturn").toFixed(2)}%</span>
                               <span className="data-number" style={{ color: RISK_COLOR }}>回撤 {metricValue(fund, "maxDrawdown").toFixed(2)}%</span>
@@ -502,7 +508,7 @@ export default function Backtest() {
 
               {selectedFundDetails.length > 0 && (
                 <div className="mt-4 space-y-2">
-                  <div className="flex items-center justify-between px-1 text-[11px] text-white/35">
+                  <div className="flex items-center justify-between px-1 text-[11px] text-white/55">
                     <span>组合权重合计</span>
                     <span className={`data-number ${weightTotal === 100 ? "text-[#00F0FF]" : "text-[#F5384B]"}`}>{weightTotal}%</span>
                   </div>
@@ -511,7 +517,7 @@ export default function Backtest() {
                       <div className="flex items-center gap-2">
                         <CheckCircle2 className="h-3.5 w-3.5 text-[#00F0FF]" />
                         <span className="min-w-0 flex-1 truncate text-sm text-white">{fund.fundAbbr || fund.fundName}</span>
-                        <button onClick={() => handleRemoveFund(index)} className="rounded-md p-1 text-white/35 hover:bg-white/[0.06] hover:text-white">
+                        <button onClick={() => handleRemoveFund(index)} className="rounded-md p-1 text-white/55 hover:bg-white/[0.06] hover:text-white">
                           <X className="h-3.5 w-3.5" />
                         </button>
                       </div>
@@ -551,7 +557,7 @@ export default function Backtest() {
                     {strategies.map((item) => (
                       <button key={item.value} onClick={() => setStrategy(item.value)} className={`w-full rounded-lg border px-3 py-2.5 text-left text-sm transition-all ${strategy === item.value ? "border-[#3B6CFF]/25 bg-[#3B6CFF]/15 text-[#5AA9FF]" : "border-transparent text-white/55 hover:bg-white/[0.03] hover:text-white/75"}`}>
                         <div className="font-medium">{item.label}</div>
-                        <div className="mt-0.5 text-[11px] leading-relaxed text-white/35">{item.desc}</div>
+                        <div className="mt-0.5 text-[11px] leading-relaxed text-white/55">{item.desc}</div>
                       </button>
                     ))}
                   </div>
@@ -634,7 +640,7 @@ export default function Backtest() {
                       </p>
                     </div>
                     <div className="rounded-lg border border-white/[0.06] bg-white/[0.035] px-3 py-2 text-right">
-                      <div className="text-[11px] text-white/35">建议状态</div>
+                      <div className="text-[11px] text-white/55">建议状态</div>
                       <div className="mt-1 text-sm font-semibold" style={{ color: advice?.verdict === "可执行" ? UP_COLOR : advice?.verdict === "谨慎执行" ? ACCENT_HIGHLIGHT : RISK_COLOR }}>
                         {advice?.verdict}
                       </div>
@@ -655,22 +661,22 @@ export default function Backtest() {
                   <div className="mb-4 flex items-center justify-between gap-3">
                     <div>
                       <h2 className="text-base font-medium text-white">资金曲线</h2>
-                      <p className="mt-1 text-xs text-white/35">本金、定投账户市值和同等总本金一次性买入的市值对比</p>
+                      <p className="mt-1 text-xs text-white/55">本金、定投账户市值和同等总本金一次性买入的市值对比</p>
                     </div>
-                    <div className="data-number text-xs text-white/35">费率成本 {money(result.feeCost)}</div>
+                    <div className="data-number text-xs text-white/55">费率成本 {money(result.feeCost)}</div>
                   </div>
                   {curveSummary && (
                     <div className="mb-4 grid grid-cols-3 gap-2 text-xs">
                       <div className="rounded-lg border border-white/[0.06] bg-white/[0.025] p-3">
-                        <div className="text-white/35">定投盈亏</div>
+                        <div className="text-white/55">定投盈亏</div>
                         <div className="data-number mt-1 text-sm font-semibold" style={{ color: curveSummary.dcaProfit >= 0 ? UP_COLOR : DOWN_COLOR }}>{money(curveSummary.dcaProfit)}</div>
                       </div>
                       <div className="rounded-lg border border-white/[0.06] bg-white/[0.025] p-3">
-                        <div className="text-white/35">一次性盈亏</div>
+                        <div className="text-white/55">一次性盈亏</div>
                         <div className="data-number mt-1 text-sm font-semibold" style={{ color: curveSummary.benchmarkProfit >= 0 ? UP_COLOR : DOWN_COLOR }}>{money(curveSummary.benchmarkProfit)}</div>
                       </div>
                       <div className="rounded-lg border border-white/[0.06] bg-white/[0.025] p-3">
-                        <div className="text-white/35">定投差额</div>
+                        <div className="text-white/55">定投差额</div>
                         <div className="data-number mt-1 text-sm font-semibold" style={{ color: curveSummary.gap >= 0 ? UP_COLOR : DOWN_COLOR }}>{money(curveSummary.gap)}</div>
                       </div>
                     </div>
@@ -733,7 +739,7 @@ export default function Backtest() {
                         </BarChart>
                       </ResponsiveContainer>
                     </div>
-                    <div className="mt-2 text-[11px] text-white/30">柱状图按 0-100 归一化：收益和夏普越高越好，回撤控制越高代表回撤越小。</div>
+                    <div className="mt-2 text-[11px] text-white/50">柱状图按 0-100 归一化：收益和夏普越高越好，回撤控制越高代表回撤越小。</div>
                     <div className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">
                       {(result.strategyResults || []).map((item: any) => (
                         <div key={item.key} className="rounded-lg border border-white/[0.06] bg-white/[0.035] p-3">
@@ -759,7 +765,7 @@ export default function Backtest() {
                     {advice && (
                       <div className="space-y-3">
                         <div className="rounded-lg border border-white/[0.06] bg-white/[0.035] p-3">
-                          <div className="text-xs text-white/35">执行建议</div>
+                          <div className="text-xs text-white/55">执行建议</div>
                           <div className="mt-2 text-sm leading-relaxed text-white/80">{advice.action}</div>
                         </div>
                         {advice.points.map((point) => (
@@ -770,11 +776,11 @@ export default function Backtest() {
                         ))}
                         <div className="grid grid-cols-2 gap-2">
                           <div className="rounded-lg border border-white/[0.06] bg-white/[0.035] p-3">
-                            <div className="text-[11px] text-white/35">定投 vs 买入持有</div>
+                            <div className="text-[11px] text-white/55">定投 vs 买入持有</div>
                             <div className="data-number mt-2 text-lg font-semibold" style={{ color: excessReturn >= 0 ? UP_COLOR : DOWN_COLOR }}>{pct(excessReturn)}</div>
                           </div>
                           <div className="rounded-lg border border-white/[0.06] bg-white/[0.035] p-3">
-                            <div className="text-[11px] text-white/35">买入持有回撤</div>
+                            <div className="text-[11px] text-white/55">买入持有回撤</div>
                             <div className="data-number mt-2 text-lg font-semibold" style={{ color: RISK_COLOR }}>{pct(result.benchmark?.maxDrawdown, false)}</div>
                           </div>
                         </div>
@@ -787,7 +793,7 @@ export default function Backtest() {
                   <h2 className="mb-4 text-base font-medium text-white">组合拆解</h2>
                   <div className="overflow-x-auto">
                     <table className="w-full min-w-[680px] text-left text-sm">
-                      <thead className="text-xs text-white/35">
+                      <thead className="text-xs text-white/55">
                         <tr className="border-b border-white/[0.06]">
                           <th className="py-2 font-normal">基金</th>
                           <th className="py-2 font-normal">权重</th>
@@ -802,7 +808,7 @@ export default function Backtest() {
                           <tr key={item.code} className="border-b border-white/[0.04] text-white/70">
                             <td className="py-3">
                               <div className="max-w-[260px] truncate text-white/85">{item.name}</div>
-                              <div className="data-number text-xs text-white/35">{item.code}</div>
+                              <div className="data-number text-xs text-white/55">{item.code}</div>
                             </td>
                             <td className="data-number py-3">{item.weight}%</td>
                             <td className={`data-number py-3 ${getChangeTextClass(item.strategyReturn)}`}>{pct(item.strategyReturn)}</td>
@@ -839,7 +845,38 @@ export default function Backtest() {
                   )}
                 </div>
 
-                <button onClick={() => { setResult(null); setLlmReview(null); }} className="flex items-center gap-2 text-sm text-white/35 transition-colors hover:text-white/65">
+                {/* DCA 增强可视化 */}
+                {result.monthlyData && result.monthlyData.length > 0 && (
+                  <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+                    {/* 月度收益热力图 */}
+                    <div className="liquid-glass p-4 md:p-6">
+                      <h2 className="mb-4 text-base font-medium text-white">月度收益热力图</h2>
+                      <div className="overflow-x-auto">
+                        <MonthlyHeatmap monthlyData={result.monthlyData} />
+                      </div>
+                    </div>
+
+                    {/* 滚动夏普比率 */}
+                    <div className="liquid-glass p-4 md:p-6">
+                      <h2 className="mb-4 text-base font-medium text-white">滚动夏普比率 (6月窗口)</h2>
+                      <div className="h-52">
+                        <RollingSharpeChart monthlyData={result.monthlyData} />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* 策略雷达图 */}
+                {result.strategyResults && result.strategyResults.length > 1 && (
+                  <div className="liquid-glass p-4 md:p-6">
+                    <h2 className="mb-4 text-base font-medium text-white">策略维度雷达图</h2>
+                    <div className="h-72">
+                      <StrategyRadarChart strategyResults={result.strategyResults} />
+                    </div>
+                  </div>
+                )}
+
+                <button onClick={() => { setResult(null); setLlmReview(null); }} className="flex items-center gap-2 text-sm text-white/55 transition-colors hover:text-white/65">
                   <RotateCcw className="h-4 w-4" />重新配置参数
                 </button>
               </>
@@ -858,5 +895,146 @@ export default function Backtest() {
         </div>
       </div>
     </div>
+  );
+}
+
+// ==================== DCA 增强组件 ====================
+
+const MONTH_LABELS = ['1月','2月','3月','4月','5月','6月','7月','8月','9月','10月','11月','12月'];
+
+function MonthlyHeatmap({ monthlyData }: { monthlyData: any[] }) {
+  const monthlyReturns: Record<string, Record<number, number>> = {};
+  let prevValue = 0;
+  monthlyData.forEach((pt: any, i: number) => {
+    const date = pt.date || pt.month || '';
+    const value = toNum(pt.value);
+    if (i === 0) { prevValue = value; return; }
+    const ret = prevValue > 0 ? (value - prevValue) / prevValue * 100 : 0;
+    prevValue = value;
+    const [y, m] = date.split('-');
+    if (!y || !m) return;
+    if (!monthlyReturns[y]) monthlyReturns[y] = {};
+    monthlyReturns[y][parseInt(m) - 1] = ret;
+  });
+
+  const years = Object.keys(monthlyReturns).sort();
+  if (years.length === 0) return <div className="text-xs text-white/50">数据不足</div>;
+
+  const getColor = (v: number) => {
+    if (v > 5) return 'bg-red-500/70';
+    if (v > 2) return 'bg-red-500/40';
+    if (v > 0) return 'bg-red-500/20';
+    if (v > -2) return 'bg-green-500/20';
+    if (v > -5) return 'bg-green-500/40';
+    return 'bg-green-500/70';
+  };
+
+  return (
+    <table className="w-full text-[10px]">
+      <thead>
+        <tr>
+          <th className="py-1 text-left text-white/50 font-normal">年份</th>
+          {MONTH_LABELS.map(m => <th key={m} className="py-1 text-center text-white/50 font-normal">{m}</th>)}
+        </tr>
+      </thead>
+      <tbody>
+        {years.map(y => (
+          <tr key={y}>
+            <td className="py-1 text-white/50">{y}</td>
+            {Array.from({ length: 12 }, (_, i) => {
+              const v = monthlyReturns[y]?.[i];
+              return (
+                <td key={i} className="py-1 px-0.5 text-center">
+                  {v !== undefined ? (
+                    <div className={`rounded px-1 py-0.5 ${getColor(v)} text-white/80`} title={`${y}-${String(i+1).padStart(2,'0')}: ${v.toFixed(1)}%`}>
+                      {v.toFixed(1)}
+                    </div>
+                  ) : <div className="text-white/10">-</div>}
+                </td>
+              );
+            })}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function RollingSharpeChart({ monthlyData }: { monthlyData: any[] }) {
+  const WINDOW = 6;
+  const returns: { date: string; ret: number }[] = [];
+  let prevVal = 0;
+  monthlyData.forEach((pt: any, i: number) => {
+    const value = toNum(pt.value);
+    if (i === 0) { prevVal = value; return; }
+    const ret = prevVal > 0 ? (value - prevVal) / prevVal : 0;
+    prevVal = value;
+    returns.push({ date: pt.date || pt.month || '', ret });
+  });
+
+  const rollingData: { date: string; sharpe: number }[] = [];
+  for (let i = WINDOW - 1; i < returns.length; i++) {
+    const window = returns.slice(i - WINDOW + 1, i + 1);
+    const mean = window.reduce((s, r) => s + r.ret, 0) / WINDOW;
+    const std = Math.sqrt(window.reduce((s, r) => s + (r.ret - mean) ** 2, 0) / WINDOW);
+    const sharpe = std > 0 ? (mean / std) * Math.sqrt(12) : 0;
+    rollingData.push({ date: returns[i].date, sharpe: parseFloat(sharpe.toFixed(3)) });
+  }
+
+  if (rollingData.length < 3) return <div className="text-xs text-white/50">数据窗口不足</div>;
+
+  return (
+    <ResponsiveContainer width="100%" height="100%">
+      <LineChart data={rollingData} margin={{ top: 5, right: 10, bottom: 5, left: 0 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+        <XAxis dataKey="date" tick={{ fill: 'rgba(255,255,255,0.35)', fontSize: 10 }} tickFormatter={d => d.slice(0, 7)} interval="preserveStartEnd" />
+        <YAxis tick={{ fill: 'rgba(255,255,255,0.35)', fontSize: 10 }} />
+        <Tooltip contentStyle={{ background: 'rgba(5,8,26,0.98)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 12 }}
+          labelStyle={{ color: 'rgba(255,255,255,0.5)' }} formatter={(v: number) => [v.toFixed(3), '滚动Sharpe']} />
+        <ReferenceLine y={0} stroke="rgba(255,255,255,0.2)" strokeDasharray="3 3" />
+        <Line type="monotone" dataKey="sharpe" stroke="#5AA9FF" strokeWidth={1.5} dot={false} />
+      </LineChart>
+    </ResponsiveContainer>
+  );
+}
+
+const RADAR_COLORS = ['#5470C6', '#EE6666', '#FAC858', '#91CC75', '#73C0DE'];
+
+function StrategyRadarChart({ strategyResults }: { strategyResults: any[] }) {
+  const maxReturn = Math.max(0.01, ...strategyResults.map(s => Math.abs(toNum(s.annualizedReturn))));
+  const maxSharpe = Math.max(0.01, ...strategyResults.map(s => Math.abs(toNum(s.sharpeRatio))));
+  const maxDrawdown = Math.max(0.01, ...strategyResults.map(s => Math.abs(toNum(s.maxDrawdown))));
+
+  const dimensions = ['收益', '夏普', '回撤控制', '稳定性', '综合'];
+  const radarData = dimensions.map((dim, idx) => {
+    const entry: Record<string, any> = { dimension: dim };
+    strategyResults.forEach((s: any) => {
+      const key = strategyLabels[s.key] || s.key;
+      let val = 0;
+      if (idx === 0) val = (toNum(s.annualizedReturn) / maxReturn) * 100;
+      else if (idx === 1) val = (toNum(s.sharpeRatio) / maxSharpe) * 100;
+      else if (idx === 2) val = (1 - Math.abs(toNum(s.maxDrawdown)) / maxDrawdown) * 100;
+      else if (idx === 3) val = toNum(s.sharpeRatio) > 0 ? Math.min(100, toNum(s.sharpeRatio) / maxSharpe * 80 + 20) : 20;
+      else val = ((toNum(s.annualizedReturn) / maxReturn) * 40 + (toNum(s.sharpeRatio) / maxSharpe) * 35 + (1 - Math.abs(toNum(s.maxDrawdown)) / maxDrawdown) * 25);
+      entry[key] = Math.max(0, Math.min(100, val));
+    });
+    return entry;
+  });
+
+  const strategyNames = strategyResults.map(s => strategyLabels[s.key] || s.key);
+
+  return (
+    <ResponsiveContainer width="100%" height="100%">
+      <RadarChart cx="50%" cy="50%" outerRadius="75%" data={radarData}>
+        <PolarGrid stroke="rgba(255,255,255,0.1)" />
+        <PolarAngleAxis dataKey="dimension" tick={{ fill: 'rgba(255,255,255,0.55)', fontSize: 11 }} />
+        {strategyNames.map((name, i) => (
+          <Radar key={name} name={name} dataKey={name} stroke={RADAR_COLORS[i % RADAR_COLORS.length]} fill={RADAR_COLORS[i % RADAR_COLORS.length]} fillOpacity={0.15} strokeWidth={1.5} />
+        ))}
+        <Legend wrapperStyle={{ fontSize: 11 }} />
+        <Tooltip contentStyle={{ background: 'rgba(5,8,26,0.98)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 12 }}
+          formatter={(v: number, name: string) => [`${v.toFixed(0)}分`, name]} />
+      </RadarChart>
+    </ResponsiveContainer>
   );
 }

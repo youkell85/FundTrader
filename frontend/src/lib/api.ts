@@ -7,15 +7,24 @@
 const API_BASE = import.meta.env.VITE_API_BASE || "/fund/api";
 
 async function fetchJson<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(options?.headers || {}),
-    },
-  });
-  if (!res.ok) throw new Error(`API ${path} error: ${res.status}`);
-  return res.json();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 30_000);
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      ...options,
+      signal: options?.signal
+        ? AbortSignal.any([options.signal, controller.signal])
+        : controller.signal,
+      headers: {
+        "Content-Type": "application/json",
+        ...(options?.headers || {}),
+      },
+    });
+    if (!res.ok) throw new Error(`API ${path} error: ${res.status}`);
+    return res.json();
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 // ==================== 基金列表 ====================
@@ -116,7 +125,233 @@ export async function removeFromWatchlist(code: string) {
   return fetchJson<any>(`/settings/watchlist/${code}`, { method: "DELETE" });
 }
 
+// ==================== 市场数据状态 ====================
+export async function getMarketDataStatus() {
+  return fetchJson<import("@/types/allocation").MarketDataStatus>("/market-data/status");
+}
+
+// ==================== 配置回测 ====================
+export async function runAllocationBacktest(params: import("@/types/backtest").BacktestRequest) {
+  return fetchJson<import("@/types/backtest").BacktestResponse>("/allocation/backtest", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
+
+// ==================== 基金选优排名 ====================
+export async function getFundRanking(preferred_tags: string[] = [], signal?: AbortSignal) {
+  return fetchJson<import("@/types/allocation").FundRankingResponse>("/allocation/fund-ranking", {
+    method: "POST",
+    body: JSON.stringify({ preferred_tags }),
+    signal,
+  });
+}
+
+// ==================== 资产配置生成 ====================
+export async function generateAllocation(params: import("@/types/allocation").AllocationRequest) {
+  return fetchJson<import("@/types/allocation").AllocationResponse>("/allocation/generate", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
+
+// ==================== 三方案输出 ====================
+export async function generateVariants(params: import("@/types/allocation").AllocationRequest) {
+  return fetchJson<import("@/types/allocation").VariantsResponse>("/allocation/variants", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
+
+// ==================== 可解释性报告 ====================
+export async function getExplainReport(params: import("@/types/allocation").AllocationRequest) {
+  return fetchJson<import("@/types/allocation").ExplainReportModel>("/allocation/explain", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
+
+// ==================== What-If模拟器 ====================
+export async function runWhatIfSimulation(params: import("@/types/allocation").WhatIfRequest) {
+  return fetchJson<import("@/types/allocation").WhatIfResponse>("/allocation/what-if", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
+
+// ==================== A/C份额选择 ====================
+export async function selectShareClass(params: import("@/types/allocation").ShareSelectorRequest) {
+  return fetchJson<import("@/types/allocation").ShareSelectorResponse>("/allocation/share-selector", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
+
+// ==================== 相关性约束检查 ====================
+export async function checkCorrelation(params: import("@/types/allocation").CorrelationCheckRequest) {
+  return fetchJson<import("@/types/allocation").CorrelationCheckResponse>("/allocation/correlation-check", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
+
+// ==================== 费率评分分析 ====================
+export async function analyzeFees(params: import("@/types/allocation").FeeAnalysisRequest) {
+  return fetchJson<import("@/types/allocation").FeeAnalysisResponse>("/allocation/fee-analysis", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
+
+// ==================== 再平衡检查 ====================
+export async function checkRebalance(params: import("@/types/allocation").RebalanceCheckRequest) {
+  return fetchJson<import("@/types/allocation").RebalanceCheckResponse>("/allocation/rebalance-check", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
+
+export async function getRebalanceHistory() {
+  return fetchJson<import("@/types/allocation").RebalanceHistoryResponse>("/allocation/rebalance-history");
+}
+
+// ==================== 数据存储 ====================
+export async function savePlan(params: import("@/types/allocation").SavePlanRequest) {
+  return fetchJson<import("@/types/allocation").SavedPlanItem>("/storage/plans", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
+
+export async function listPlans(params?: { risk_profile?: string; favorite_only?: boolean; limit?: number }) {
+  const qs = new URLSearchParams();
+  if (params?.risk_profile) qs.append("risk_profile", params.risk_profile);
+  if (params?.favorite_only) qs.append("favorite_only", "true");
+  if (params?.limit) qs.append("limit", String(params.limit));
+  return fetchJson<import("@/types/allocation").PlanListResponse>(`/storage/plans?${qs.toString()}`);
+}
+
+export async function getPlan(planId: string) {
+  return fetchJson<import("@/types/allocation").SavedPlanItem>(`/storage/plans/${planId}`);
+}
+
+export async function deletePlan(planId: string) {
+  return fetchJson<{ success: boolean }>(`/storage/plans/${planId}`, { method: "DELETE" });
+}
+
+export async function updatePlan(planId: string, updates: { name?: string; is_favorite?: boolean; is_archived?: boolean }) {
+  return fetchJson<import("@/types/allocation").SavedPlanItem>(`/storage/plans/${planId}`, {
+    method: "PATCH",
+    body: JSON.stringify(updates),
+  });
+}
+
+export async function addRebalanceRecord(record: {
+  risk_profile: string;
+  trigger_type: string;
+  actions: Record<string, any>[];
+  total_turnover: number;
+  estimated_cost: number;
+  status: string;
+  summary: string;
+  plan_id?: string;
+}) {
+  return fetchJson<{ id: string }>("/storage/rebalance", {
+    method: "POST",
+    body: JSON.stringify(record),
+  });
+}
+
+export async function getRebalanceStats() {
+  return fetchJson<import("@/types/allocation").RebalanceStatsResponse>("/storage/rebalance/stats");
+}
+
+// ==================== 预警通知 ====================
+export interface AlertItem {
+  id: string;
+  type: "deviation" | "drawdown" | "vol_spike" | "rebalance_due";
+  severity: "info" | "warning" | "critical";
+  title: string;
+  message: string;
+  asset_class?: string;
+  value?: number;
+  threshold?: number;
+  created_at: string;
+  read: boolean;
+}
+
+export interface AlertCheckResult {
+  alerts: AlertItem[];
+  count: number;
+  thresholds_used: Record<string, number>;
+}
+
+export interface AlertListResult {
+  alerts: AlertItem[];
+  count: number;
+  unread_critical: number;
+  unread_warning: number;
+}
+
+export async function checkPortfolioAlerts(params: {
+  target_weights: Record<string, number>;
+  current_weights?: Record<string, number>;
+  portfolio_return?: number;
+  vol_ratio?: number;
+  last_rebalance_date?: string;
+  thresholds?: Record<string, number>;
+}) {
+  return fetchJson<AlertCheckResult>("/storage/alerts/check", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
+
+export async function checkPlanAlerts(planId: string, thresholds?: Record<string, number>) {
+  return fetchJson<{
+    plan_id: string;
+    plan_name: string;
+    alerts: AlertItem[];
+    count: number;
+    portfolio_return: number | null;
+  }>(`/storage/alerts/check/${planId}`, {
+    method: "POST",
+    body: JSON.stringify({ thresholds }),
+  });
+}
+
+export async function getActiveAlerts() {
+  return fetchJson<AlertListResult>("/storage/alerts");
+}
+
+export async function markAlertRead(alertId: string) {
+  return fetchJson<{ success: boolean; alert_id: string }>(`/storage/alerts/${alertId}/read`, {
+    method: "POST",
+  });
+}
+
+export async function clearAllAlerts() {
+  return fetchJson<{ success: boolean }>("/storage/alerts/clear", { method: "POST" });
+}
+
+export async function getAlertThresholds() {
+  return fetchJson<{ thresholds: Record<string, number> }>("/storage/alerts/thresholds");
+}
+
 // ==================== 健康检查 ====================
 export async function healthCheck() {
   return fetchJson<{ status: string }>("/health");
+}
+
+// ==================== 管线健康报告 ====================
+export async function getPipelineHealth(signal?: AbortSignal) {
+  return fetchJson<import("@/types/allocation").PipelineHealthResponse>("/allocation/pipeline-health", { signal });
+}
+
+// ==================== 双引擎对比 ====================
+export async function runDualEngine(params: import("@/types/allocation").AllocationRequest) {
+  return fetchJson<import("@/types/allocation").DualEngineResponse>("/allocation/dual-engine", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
 }

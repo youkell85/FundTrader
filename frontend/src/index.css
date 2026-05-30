@@ -29,12 +29,17 @@
 
 @layer base {
   body {
-    background: #000212;
+    background: #000110;
     color: #ffffff;
     font-family: "PingFang SC", "Noto Sans SC", -apple-system, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     overflow-x: hidden;
+    /* Mobile: prevent overscroll bounce and tap highlight */
+    overscroll-behavior-y: contain;
+    -webkit-tap-highlight-color: transparent;
+    /* iPhone notch safe area */
+    padding-top: env(safe-area-inset-top);
   }
 
   * {
@@ -51,21 +56,21 @@
   }
 
   *::-webkit-scrollbar-thumb {
-    background: rgba(59, 108, 255, 0.3);
+    background: rgba(59, 108, 255, 0.15);
     border-radius: 4px;
   }
 }
 
 @layer components {
   .liquid-glass {
-    background: rgba(255, 255, 255, 0.03);
-    backdrop-filter: blur(16px) saturate(180%);
-    -webkit-backdrop-filter: blur(16px) saturate(180%);
-    border: none;
-    box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.1), 0 8px 32px rgba(0, 0, 0, 0.3);
+    background: rgba(255, 255, 255, 0.025);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.04);
+    box-shadow: none;
     position: relative;
     overflow: hidden;
-    border-radius: 24px;
+    border-radius: 16px;
   }
 
   .liquid-glass::before {
@@ -75,21 +80,20 @@
     left: 0;
     right: 0;
     height: 1px;
-    background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.25) 50%, transparent 100%);
+    background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.12) 50%, transparent 100%);
     pointer-events: none;
   }
 
   .liquid-glass:hover {
-    background: rgba(255, 255, 255, 0.05);
-    box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.15), 0 12px 48px rgba(0, 0, 0, 0.4);
+    background: rgba(255, 255, 255, 0.04);
   }
 
   .liquid-glass-sm {
-    background: rgba(255, 255, 255, 0.03);
-    backdrop-filter: blur(16px) saturate(180%);
-    -webkit-backdrop-filter: blur(16px) saturate(180%);
-    border: none;
-    box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.1), 0 4px 16px rgba(0, 0, 0, 0.3);
+    background: rgba(255, 255, 255, 0.025);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.04);
+    box-shadow: none;
     position: relative;
     overflow: hidden;
     border-radius: 8px;
@@ -102,28 +106,28 @@
     left: 0;
     right: 0;
     height: 1px;
-    background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.2) 50%, transparent 100%);
+    background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, 0.08) 50%, transparent 100%);
     pointer-events: none;
   }
 
   .liquid-glass-nav {
-    background: rgba(0, 2, 18, 0.6);
-    backdrop-filter: blur(24px) saturate(180%);
-    -webkit-backdrop-filter: blur(24px) saturate(180%);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-    box-shadow: 0 1px 20px rgba(0, 0, 0, 0.3);
+    background: rgba(0, 2, 18, 0.8);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    box-shadow: none;
   }
 
   .glow-text-blue {
-    text-shadow: 0 0 20px rgba(59, 108, 255, 0.5), 0 0 40px rgba(59, 108, 255, 0.2);
+    text-shadow: 0 0 12px rgba(59, 108, 255, 0.3);
   }
 
   .glow-text-cyan {
-    text-shadow: 0 0 20px rgba(0, 240, 255, 0.4);
+    text-shadow: 0 0 12px rgba(0, 240, 255, 0.25);
   }
 
   .glow-text-red {
-    text-shadow: 0 0 20px rgba(255, 51, 102, 0.4);
+    text-shadow: 0 0 12px rgba(255, 51, 102, 0.25);
   }
 
   .data-number {
@@ -144,5 +148,16 @@
 
   .scan-line-active {
     left: 150%;
+  }
+
+  /* Mobile: ensure Recharts containers are touch-scrollable */
+  .recharts-wrapper {
+    touch-action: pan-y;
+  }
+
+  /* Mobile: prevent text selection on interactive elements */
+  button, a, [role="button"] {
+    user-select: none;
+    -webkit-user-select: none;
   }
 }

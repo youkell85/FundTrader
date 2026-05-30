@@ -108,7 +108,7 @@ const barColors = [ACCENT_PRIMARY, ACCENT_INFO, POSITIVE_METRIC_COLOR, ACCENT_HI
 
 function LoadingScreen() {
   return (
-    <div className="flex flex-col items-center justify-center py-16 text-white/35">
+    <div className="flex flex-col items-center justify-center py-16 text-white/55">
       <Loader2 className="w-8 h-8 animate-spin mb-3" />
       <span className="text-sm">正在生成配置...</span>
     </div>
@@ -142,7 +142,7 @@ function PanelTitle({ icon: Icon, title }: { icon: any; title: string }) {
 function MetricTile({ label, value, color, suffix = "" }: { label: string; value: string | number; color?: string; suffix?: string }) {
   return (
     <div className="rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-3">
-      <div className="text-white/35 text-xs">{label}</div>
+      <div className="text-white/55 text-xs">{label}</div>
       <div className="data-number mt-1 text-lg font-medium" style={{ color }}>{value}{suffix}</div>
     </div>
   );
@@ -254,7 +254,7 @@ export default function Recommend() {
           <aside className="liquid-glass p-4 md:p-5 xl:sticky xl:top-20">
             <div className="flex items-center justify-between gap-3 mb-4">
               <PanelTitle icon={SlidersHorizontal} title="组合设置" />
-              <span className="text-[11px] text-white/35 data-number">{draft.preferredTypes.length}类已选</span>
+              <span className="text-[11px] text-white/55 data-number">{draft.preferredTypes.length}类已选</span>
             </div>
 
             <div className="space-y-5">
@@ -273,7 +273,7 @@ export default function Recommend() {
               </section>
 
               <section>
-                <div className="text-xs text-white/35 mb-2">产品来源</div>
+                <div className="text-xs text-white/55 mb-2">产品来源</div>
                 <div className="grid grid-cols-3 gap-2">
                   {sourceModes.map((item) => (
                     <button
@@ -288,7 +288,7 @@ export default function Recommend() {
                       }`}
                     >
                       <div className="text-sm">{item.label}</div>
-                      <div className="mt-1 text-[10px] text-white/35 leading-tight">{item.desc}</div>
+                      <div className="mt-1 text-[10px] text-white/55 leading-tight">{item.desc}</div>
                     </button>
                   ))}
                 </div>
@@ -306,7 +306,7 @@ export default function Recommend() {
                 <section className="rounded-lg border border-white/[0.06] bg-white/[0.025] p-3">
                   <div className="flex items-center justify-between gap-2 mb-2">
                     <div className="text-xs text-white/45">指定候选基金</div>
-                    <button onClick={() => updateDraft({ selectedFundCodes: [], manualFundCodes: [] })} className="text-[11px] text-white/35 hover:text-white/65">清空</button>
+                    <button onClick={() => updateDraft({ selectedFundCodes: [], manualFundCodes: [] })} className="text-[11px] text-white/55 hover:text-white/65">清空</button>
                   </div>
                   <div className="flex gap-2 mb-2">
                     <input
@@ -321,7 +321,7 @@ export default function Recommend() {
                     </button>
                   </div>
                   <div className="relative mb-2">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/25" />
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/50" />
                     <input
                       value={fundSearch}
                       onChange={(event) => setFundSearch(event.target.value)}
@@ -367,7 +367,7 @@ export default function Recommend() {
               )}
 
               <section>
-                <div className="text-xs text-white/35 mb-2">风险承受能力</div>
+                <div className="text-xs text-white/55 mb-2">风险承受能力</div>
                 <div className="space-y-2">
                   {riskProfiles.map((rp) => {
                     const Icon = rp.icon;
@@ -384,7 +384,7 @@ export default function Recommend() {
                           <div className="flex items-center gap-2 text-sm">
                             <Icon className="w-4 h-4" />{rp.label}
                           </div>
-                          <div className="text-[11px] text-white/42 data-number">回撤{rp.maxDrawdown}% · 权益{rp.equityCap}</div>
+                          <div className="text-[11px] text-white/50 data-number">回撤{rp.maxDrawdown}% · 权益{rp.equityCap}</div>
                         </div>
                         <div className="mt-1 text-[11px] text-white/38 leading-relaxed">{rp.desc}</div>
                       </button>
@@ -394,7 +394,7 @@ export default function Recommend() {
               </section>
 
               <section>
-                <div className="text-xs text-white/35 mb-2">投资周期</div>
+                <div className="text-xs text-white/55 mb-2">投资周期</div>
                 <div className="grid grid-cols-5 gap-2">
                   {horizons.map((item) => (
                     <button
@@ -412,7 +412,7 @@ export default function Recommend() {
 
               <section>
                 <div className="flex justify-between text-xs mb-2">
-                  <span className="text-white/35">最大回撤约束</span>
+                  <span className="text-white/55">最大回撤约束</span>
                   <span className="data-number" style={{ color: RISK_COLOR }}>{draft.maxDrawdown}%</span>
                 </div>
                 <input
@@ -427,7 +427,7 @@ export default function Recommend() {
               </section>
 
               <section>
-                <div className="text-xs text-white/35 mb-2">优化目标</div>
+                <div className="text-xs text-white/55 mb-2">优化目标</div>
                 <div className="grid grid-cols-3 gap-2">
                   {optimizationGoals.map((item) => (
                     <button
@@ -445,14 +445,14 @@ export default function Recommend() {
               </section>
 
               <section>
-                <div className="text-xs text-white/35 mb-2">投资方向</div>
+                <div className="text-xs text-white/55 mb-2">投资方向</div>
                 <div className="flex flex-wrap gap-2">
                   {focusThemes.map((item) => (
                     <button
                       key={item.value}
                       onClick={() => updateDraft({ focusTheme: item.value })}
                       className={`h-8 px-3 rounded-lg text-xs border transition-all ${
-                        draft.focusTheme === item.value ? "bg-[#00F0FF]/12 border-[#00F0FF]/30 text-[#00F0FF]" : "bg-white/[0.03] border-white/[0.06] text-white/42 hover:text-white/70"
+                        draft.focusTheme === item.value ? "bg-[#00F0FF]/12 border-[#00F0FF]/30 text-[#00F0FF]" : "bg-white/[0.03] border-white/[0.06] text-white/50 hover:text-white/70"
                       }`}
                     >
                       {item.label}
@@ -462,7 +462,7 @@ export default function Recommend() {
               </section>
 
               <section>
-                <div className="text-xs text-white/35 mb-2">基金大类</div>
+                <div className="text-xs text-white/55 mb-2">基金大类</div>
                 <div className="flex flex-wrap gap-2">
                   {fundTypes.map((item) => {
                     const active = draft.preferredTypes.includes(item.value);
@@ -471,7 +471,7 @@ export default function Recommend() {
                         key={item.value}
                         onClick={() => toggleType(item.value)}
                         className={`h-8 px-3 rounded-lg text-xs border flex items-center gap-1.5 transition-all ${
-                          active ? "bg-white/[0.08] border-white/[0.16] text-white" : "bg-white/[0.02] border-white/[0.06] text-white/35"
+                          active ? "bg-white/[0.08] border-white/[0.16] text-white" : "bg-white/[0.02] border-white/[0.06] text-white/55"
                         }`}
                       >
                         {active && <Check className="w-3 h-3" />}{item.label}
@@ -515,20 +515,20 @@ export default function Recommend() {
                           </div>
                           <div className="text-right">
                             <div className="data-number text-sm" style={{ color: active ? ACCENT_INFO : "rgba(255,255,255,0.38)" }}>{rec.score}</div>
-                            <div className="text-[10px] text-white/28">综合分</div>
+                            <div className="text-[10px] text-white/50">综合分</div>
                           </div>
                         </div>
                         <div className="mt-4 grid grid-cols-3 gap-2">
                           <div>
-                            <div className="text-[10px] text-white/30">年化</div>
+                            <div className="text-[10px] text-white/50">年化</div>
                             <div className={`data-number text-sm ${getChangeTextClass(rec.expectedReturn)}`}>{Number(rec.expectedReturn) >= 0 ? "+" : ""}{rec.expectedReturn}%</div>
                           </div>
                           <div>
-                            <div className="text-[10px] text-white/30">回撤</div>
+                            <div className="text-[10px] text-white/50">回撤</div>
                             <div className="data-number text-sm" style={{ color: RISK_COLOR }}>{rec.expectedRisk}%</div>
                           </div>
                           <div>
-                            <div className="text-[10px] text-white/30">夏普</div>
+                            <div className="text-[10px] text-white/50">夏普</div>
                             <div className="data-number text-sm" style={{ color: POSITIVE_METRIC_COLOR }}>{rec.sharpe}</div>
                           </div>
                         </div>
@@ -556,7 +556,7 @@ export default function Recommend() {
                     <div className="rounded-lg border border-white/[0.06] bg-white/[0.025] p-4">
                       <div className="flex items-center justify-between gap-3 mb-3">
                         <div className="text-sm text-white/70">资金分布</div>
-                        <div className="text-xs text-white/35 data-number">{yuan(applied.amount)}</div>
+                        <div className="text-xs text-white/55 data-number">{yuan(applied.amount)}</div>
                       </div>
                       <div className="flex items-center gap-1 h-3 rounded-full overflow-hidden bg-white/[0.04]">
                         {allocations.map((fd: any, index: number) => (
@@ -614,7 +614,7 @@ export default function Recommend() {
                               <span className="text-sm text-white/65">{item.label}</span>
                               <span className="data-number text-sm" style={{ color: RISK_COLOR }}>{item.loss}%</span>
                             </div>
-                            <div className="mt-1 text-[11px] text-white/35 leading-relaxed">{item.note}</div>
+                            <div className="mt-1 text-[11px] text-white/55 leading-relaxed">{item.note}</div>
                           </div>
                         ))}
                       </div>
@@ -625,7 +625,7 @@ export default function Recommend() {
                 <section className="liquid-glass p-4 md:p-6">
                   <div className="flex items-center justify-between gap-3 mb-4">
                     <PanelTitle icon={Layers3} title="产品明细" />
-                    <span className="text-xs text-white/35">配置金额 {yuan(applied.amount)}</span>
+                    <span className="text-xs text-white/55">配置金额 {yuan(applied.amount)}</span>
                   </div>
 
                   <div className="space-y-2">
@@ -644,12 +644,12 @@ export default function Recommend() {
                               <div className="w-2.5 h-10 rounded-full shrink-0" style={{ backgroundColor: barColors[index % barColors.length] }} />
                               <div className="min-w-0">
                                 <div className="text-white text-sm truncate">{fund.fundAbbr || fund.fundName}</div>
-                                <div className="text-white/35 text-xs data-number truncate">{fund.fundCode} · {fund.category} · {fd.role}</div>
+                                <div className="text-white/55 text-xs data-number truncate">{fund.fundCode} · {fund.category} · {fd.role}</div>
                               </div>
                             </div>
                             <div className="text-right">
                               <div className="data-number text-white text-sm">{fd.weight}%</div>
-                              <div className="data-number text-white/35 text-xs">{yuan(applied.amount * fd.weight / 100)}</div>
+                              <div className="data-number text-white/55 text-xs">{yuan(applied.amount * fd.weight / 100)}</div>
                             </div>
                             <div className={`hidden md:block data-number text-sm ${getChangeTextClass(perf?.return1y)}`}>
                               {metricValue(perf?.return1y) >= 0 ? "+" : ""}{metricValue(perf?.return1y).toFixed(2)}%
@@ -659,7 +659,7 @@ export default function Recommend() {
                             </div>
                             <div className="hidden md:flex items-center justify-end gap-2">
                               <span className="data-number text-sm" style={{ color: POSITIVE_METRIC_COLOR }}>{metricValue(perf?.sharpeRatio).toFixed(2)}</span>
-                              <ArrowRight className={`w-4 h-4 text-white/25 transition-transform ${expanded ? "rotate-90" : ""}`} />
+                              <ArrowRight className={`w-4 h-4 text-white/50 transition-transform ${expanded ? "rotate-90" : ""}`} />
                             </div>
                           </button>
                           {expanded && (
