@@ -40,7 +40,7 @@ function requireUser(ctx: { user?: { id: string } }) {
 
 const credentialsSchema = z.object({
   username: z.string().min(3, "用户名至少3位").max(32, "用户名最多32位"),
-  password: z.string().min(6, "密码至少6位").max(128, "密码过长"),
+  password: z.string().min(3, "密码至少3位").max(128, "密码过长"),
 });
 
 export const authRouter = createRouter({
