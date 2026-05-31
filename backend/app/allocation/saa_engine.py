@@ -17,7 +17,6 @@ from .config import (
     ASSET_TO_GROUP,
     FALLBACK_TEMPLATES,
     GROUP_MAP,
-    N_ASSETS,
     RISK_BUDGETS,
 )
 from .matrix_utils import (

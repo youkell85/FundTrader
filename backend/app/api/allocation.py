@@ -1,6 +1,10 @@
 """资产配置API"""
-from fastapi import APIRouter
+import logging
+
+from fastapi import APIRouter, HTTPException
 from starlette.concurrency import run_in_threadpool
+
+logger = logging.getLogger(__name__)
 
 from ..allocation.models import (
     AllocationRequest, AllocationResponse,
@@ -32,8 +36,22 @@ router = APIRouter(prefix="/allocation", tags=["资产配置"])
 @router.post("/generate", response_model=AllocationResponse)
 async def generate_allocation(request: AllocationRequest):
     """生成资产配置方案 — 14步量化管线"""
-    result = await run_in_threadpool(run_allocation, request)
-    return result
+    try:
+        result = await run_in_threadpool(run_allocation, request)
+        return result
+    except Exception as e:
+        logger.exception("Allocation pipeline crashed")
+        health = get_pipeline_health()
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": "配置生成失败",
+                "message": str(e)[:200],
+                "pipeline_health": health.get("health", "unknown"),
+                "failed_steps": health.get("failed_steps", []),
+                "degraded_steps": health.get("degraded_steps", []),
+            },
+        )
 
 
 @router.post("/variants", response_model=VariantsResponse)
@@ -93,8 +111,15 @@ async def run_what_if_simulation(request: WhatIfRequest):
 @router.post("/backtest", response_model=BacktestResponse)
 async def run_allocation_backtest(request: BacktestRequest):
     """配置回测 — 回放SAA→TAA→熔断管线"""
-    result = await run_in_threadpool(run_backtest, request)
-    return result
+    import asyncio
+    try:
+        result = await asyncio.wait_for(
+            run_in_threadpool(run_backtest, request),
+            timeout=180.0,  # 3分钟硬超时
+        )
+        return result
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="回测计算超时（3分钟），请缩小回测区间后重试")
 
 
 @router.post("/fund-ranking", response_model=FundRankingResponse)

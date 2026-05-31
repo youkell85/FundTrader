@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback, useEffect } from "react";
 import { Link } from "react-router";
 import { Search, TrendingUp, TrendingDown, Star, PieChart, Shield, Loader2, Trash2 } from "lucide-react";
 import { trpc } from "@/providers/trpc";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { UP_COLOR, DOWN_COLOR, ACCENT_PRIMARY, RISK_COLOR, POSITIVE_METRIC_COLOR, getChangeTextClass } from "@/lib/colors";
 
 const typeLabels: Record<string, string> = {
@@ -60,10 +61,10 @@ export default function Home() {
   const overview = overviewData ?? { totalFunds: 0, avgReturn: "0", avgSharpe: "0", avgMaxDD: "0", marketingCount: 0 };
 
   const [search, setSearch] = useState("");
-  const [fundType, setFundType] = useState("");
-  const [category, setCategory] = useState("");
-  const [company, setCompany] = useState("");
-  const [riskLevel, setRiskLevel] = useState("");
+  const [fundType, setFundType] = useState("__all__");
+  const [category, setCategory] = useState("__all__");
+  const [company, setCompany] = useState("__all__");
+  const [riskLevel, setRiskLevel] = useState("__all__");
   const [showXinjihui, setShowXinjihui] = useState(true);
   const [sortBy, setSortBy] = useState("dailyChange");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
@@ -88,10 +89,10 @@ export default function Home() {
 
   const filteredFunds = useMemo(() => {
     let result = [...allFunds];
-    if (fundType) result = result.filter((f: any) => f.fundType === fundType);
-    if (category) result = result.filter((f: any) => f.category?.includes(category));
-    if (company) result = result.filter((f: any) => f.company?.includes(company));
-    if (riskLevel) result = result.filter((f: any) => f.riskLevel === riskLevel);
+    if (fundType && fundType !== "__all__") result = result.filter((f: any) => f.fundType === fundType);
+    if (category && category !== "__all__") result = result.filter((f: any) => f.category?.includes(category));
+    if (company && company !== "__all__") result = result.filter((f: any) => f.company?.includes(company));
+    if (riskLevel && riskLevel !== "__all__") result = result.filter((f: any) => f.riskLevel === riskLevel);
     result = showXinjihui
       ? result.filter((f: any) => f.isXinjihui || f.source === "xinjihui")
       : result.filter((f: any) => f.source === "watchlist");
@@ -299,9 +300,9 @@ export default function Home() {
         </div>
 
         <div className="mt-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
-          {(category || fundType || company || riskLevel || search) && (
+          {((category && category !== "__all__") || (fundType && fundType !== "__all__") || (company && company !== "__all__") || (riskLevel && riskLevel !== "__all__") || search) && (
             <button
-              onClick={() => { setFundType(""); setCategory(""); setCompany(""); setRiskLevel(""); setSearch(""); setPage(1); }}
+              onClick={() => { setFundType("__all__"); setCategory("__all__"); setCompany("__all__"); setRiskLevel("__all__"); setSearch(""); setPage(1); }}
               className="rounded-lg border border-[#00F0FF]/20 bg-[#00F0FF]/[0.06] px-3 py-3 text-left hover:bg-[#00F0FF]/[0.09] transition-colors"
             >
               <div className="flex items-center justify-between gap-2 mb-2">
@@ -315,7 +316,7 @@ export default function Home() {
             <button
               key={item.label}
               onClick={() => {
-                const nextCategory = category === item.label ? "" : item.label;
+                const nextCategory = category === item.label ? "__all__" : item.label;
                 setFundType("");
                 setCategory(nextCategory);
                 setPage(1);
@@ -386,30 +387,54 @@ export default function Home() {
           />
           */}
           <div className="flex gap-2 flex-wrap">
-            <label className="sr-only" htmlFor="filter-type">基金类型</label>
-            <select id="filter-type" value={fundType} onChange={(e) => { setFundType(e.target.value); setPage(1); }}
-              className="h-11 px-3 rounded-xl bg-[#0B1021] border border-white/[0.08] text-white text-sm focus:outline-none focus:border-[#3B6CFF]/50">
-              <option value="" className="bg-[#0B1021] text-white">全部类型</option>
-              {Object.entries(typeLabels).map(([k, v]) => (<option key={k} value={k} className="bg-[#0B1021] text-white">{v}</option>))}
-            </select>
-            <label className="sr-only" htmlFor="filter-risk">风险等级</label>
-            <select id="filter-risk" value={riskLevel} onChange={(e) => { setRiskLevel(e.target.value); setPage(1); }}
-              className="h-11 px-3 rounded-xl bg-[#0B1021] border border-white/[0.08] text-white text-sm focus:outline-none focus:border-[#3B6CFF]/50">
-              <option value="" className="bg-[#0B1021] text-white">全部风险</option>
-              {Object.entries(riskLabels).map(([k, v]) => (<option key={k} value={k} className="bg-[#0B1021] text-white">{v}</option>))}
-            </select>
-            <label className="sr-only" htmlFor="filter-category">基金分类</label>
-            <select id="filter-category" value={category} onChange={(e) => { setCategory(e.target.value); setPage(1); }}
-              className="h-11 px-3 rounded-xl bg-[#0B1021] border border-white/[0.08] text-white text-sm focus:outline-none focus:border-[#3B6CFF]/50">
-              <option value="" className="bg-[#0B1021] text-white">全部分类</option>
-              {filterOpts.categories?.map((c: string) => (<option key={c} value={c} className="bg-[#0B1021] text-white">{c}</option>))}
-            </select>
-            <label className="sr-only" htmlFor="filter-company">基金公司</label>
-            <select id="filter-company" value={company} onChange={(e) => { setCompany(e.target.value); setPage(1); }}
-              className="h-11 px-3 rounded-xl bg-[#0B1021] border border-white/[0.08] text-white text-sm focus:outline-none focus:border-[#3B6CFF]/50">
-              <option value="" className="bg-[#0B1021] text-white">全部公司</option>
-              {filterOpts.companies?.map((c: string) => (<option key={c} value={c} className="bg-[#0B1021] text-white">{c}</option>))}
-            </select>
+            {/* 基金类型 */}
+            <Select value={fundType} onValueChange={(v) => { setFundType(v); setPage(1); }}>
+              <SelectTrigger className="h-11 w-auto min-w-[110px] px-3 rounded-xl bg-[#0B1021] border border-white/[0.08] text-white text-sm focus:outline-none focus:border-[#3B6CFF]/50 data-[placeholder]:text-white/50">
+                <SelectValue placeholder="全部类型" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">全部类型</SelectItem>
+                {Object.entries(typeLabels).map(([k, v]) => (
+                  <SelectItem key={k} value={k}>{v}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {/* 风险等级 */}
+            <Select value={riskLevel} onValueChange={(v) => { setRiskLevel(v); setPage(1); }}>
+              <SelectTrigger className="h-11 w-auto min-w-[110px] px-3 rounded-xl bg-[#0B1021] border border-white/[0.08] text-white text-sm focus:outline-none focus:border-[#3B6CFF]/50 data-[placeholder]:text-white/50">
+                <SelectValue placeholder="全部风险" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">全部风险</SelectItem>
+                {Object.entries(riskLabels).map(([k, v]) => (
+                  <SelectItem key={k} value={k}>{v}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {/* 基金分类 */}
+            <Select value={category} onValueChange={(v) => { setCategory(v); setPage(1); }}>
+              <SelectTrigger className="h-11 w-auto min-w-[110px] px-3 rounded-xl bg-[#0B1021] border border-white/[0.08] text-white text-sm focus:outline-none focus:border-[#3B6CFF]/50 data-[placeholder]:text-white/50">
+                <SelectValue placeholder="全部分类" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">全部分类</SelectItem>
+                {filterOpts.categories?.map((c: string) => (
+                  <SelectItem key={c} value={c}>{c}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {/* 基金公司 */}
+            <Select value={company} onValueChange={(v) => { setCompany(v); setPage(1); }}>
+              <SelectTrigger className="h-11 w-auto min-w-[110px] px-3 rounded-xl bg-[#0B1021] border border-white/[0.08] text-white text-sm focus:outline-none focus:border-[#3B6CFF]/50 data-[placeholder]:text-white/50">
+                <SelectValue placeholder="全部公司" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">全部公司</SelectItem>
+                {filterOpts.companies?.map((c: string) => (
+                  <SelectItem key={c} value={c}>{c}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <button onClick={() => { setShowXinjihui(!showXinjihui); setPage(1); }}
               className={`h-11 px-4 rounded-xl text-sm font-medium transition-all ${showXinjihui ? "bg-[#3B6CFF]/20 text-[#00F0FF] border border-[#3B6CFF]/30" : "bg-white/[0.03] text-white/50 border border-white/[0.06] hover:bg-white/[0.06]"}`}>
               鑫基荟

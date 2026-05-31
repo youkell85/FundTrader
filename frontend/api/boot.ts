@@ -54,6 +54,12 @@ app.all("/fund/api/*", async (c) => {
     const url = new URL(c.req.url);
     const backendPath = url.pathname.replace(/^\/fund\/api/, "");
     const targetUrl = `${API_BASE}${backendPath}${url.search}`;
+
+    // 长耗时路径（配置生成/回测）使用120s，其余30s
+    const longPaths = ["/allocation/", "/dca/backtest"];
+    const isLong = longPaths.some(p => backendPath.startsWith(p));
+    const timeoutMs = isLong ? 120_000 : 30_000;
+
     const headers: Record<string, string> = {};
     if (c.req.method !== "GET" && c.req.method !== "HEAD") {
       headers["Content-Type"] = "application/json";
@@ -63,8 +69,12 @@ app.all("/fund/api/*", async (c) => {
     if (method !== "GET" && method !== "HEAD") {
       try { body = await c.req.text(); } catch { body = undefined; }
     }
+
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30_000);
+    const timeout = setTimeout(
+      () => controller.abort(new Error(`代理超时(${timeoutMs / 1000}s)`)),
+      timeoutMs,
+    );
     try {
       const res = await fetch(targetUrl, { method, headers, body, signal: controller.signal });
       const data = await res.text();

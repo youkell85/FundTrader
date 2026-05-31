@@ -36,10 +36,11 @@ const strategyMap: Record<string, string> = {
 };
 
 function wrapError(err: unknown, message: string): never {
+  const causeMessage = err instanceof Error ? err.message : String(err);
   console.error(`[fundRouter] ${message}:`, err);
   throw new TRPCError({
     code: "INTERNAL_SERVER_ERROR",
-    message,
+    message: `${message}（${causeMessage}）`,
     cause: err,
   });
 }
@@ -1562,7 +1563,7 @@ export const fundRouter = createRouter({
     )
     .mutation(async ({ input }) => {
       try {
-        const cacheKey = `alloc_${input.risk_tolerance}_${input.age}_${input.amount}_${input.investment_horizon}`;
+        const cacheKey = `alloc_${input.risk_tolerance}_${input.age}_${input.amount}_${input.investment_horizon}_${input.goal_type}_${input.max_drawdown}_${input.preferred_tags.join(",")}_${JSON.stringify(input.behavior_answers)}`;
         const cached = getCached<any>(cacheKey);
         if (cached) return cached;
 

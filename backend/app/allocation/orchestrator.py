@@ -15,6 +15,7 @@ from .models import (
     AllocationMeta,
     AllocationRequest,
     AllocationResponse,
+    CMAResult,
     SAASummary,
     UserProfileSummary,
     VariantComparison,
@@ -134,10 +135,17 @@ def run(request: AllocationRequest) -> AllocationResponse:
         cma = estimate_cma(regime)
         d.elapsed_ms = (time.monotonic() - t0) * 1000
     except Exception as e:
-        d.status = "error"
-        d.detail = str(e)[:100]
+        d.status = "degraded"
+        d.detail = f"降级至均衡CMA: {str(e)[:80]}"
         d.elapsed_ms = (time.monotonic() - t0) * 1000
-        raise
+        warnings.append(f"CMA估计失败，已降级使用均衡配置")
+        logger.exception("CMA estimation failed, falling back to equilibrium")
+        from .config import DEFAULT_CORR, EQUILIBRIUM_RETURNS, EQUILIBRIUM_VOLS
+        cma = CMAResult(
+            expected_returns=EQUILIBRIUM_RETURNS,
+            volatilities=EQUILIBRIUM_VOLS,
+            covariance_matrix=DEFAULT_CORR,
+        )
 
     # ─── Step 3: SAA Optimization ───
     d = _step("saa_optimization")
@@ -248,10 +256,12 @@ def run(request: AllocationRequest) -> AllocationResponse:
         stress_results = run_stress_tests(final_alloc)
         d.elapsed_ms = (time.monotonic() - t0) * 1000
     except Exception as e:
-        d.status = "error"
-        d.detail = str(e)[:100]
+        stress_results = []
+        d.status = "degraded"
+        d.detail = f"压力测试跳过: {str(e)[:80]}"
         d.elapsed_ms = (time.monotonic() - t0) * 1000
-        raise
+        warnings.append("压力测试不可用，已跳过")
+        logger.exception("Stress test failed, skipping")
 
     # Convert stress results: fractions → percentages + currency
     amount = request.amount
@@ -475,15 +485,24 @@ def generate_variants(request: AllocationRequest) -> VariantsResponse:
     }
 
     variants: Dict[str, VariantItem] = {}
+    errors: Dict[str, str] = {}
     for label, idx in shift_map.items():
-        variant_req = request.model_copy(update={"risk_tolerance": _RISK_LEVELS[idx]})
-        resp = run(variant_req)
-        variants[label] = VariantItem(
-            label=label,
-            label_cn=_VARIANT_LABELS[label],
-            risk_tolerance=_RISK_LEVELS[idx],
-            response=resp,
-        )
+        try:
+            variant_req = request.model_copy(update={"risk_tolerance": _RISK_LEVELS[idx]})
+            resp = run(variant_req)
+            variants[label] = VariantItem(
+                label=label,
+                label_cn=_VARIANT_LABELS[label],
+                risk_tolerance=_RISK_LEVELS[idx],
+                response=resp,
+            )
+        except Exception as e:
+            logger.exception(f"Variant {label} generation failed")
+            errors[label] = str(e)[:200]
+
+    # 全部失败才报错
+    if not variants and errors:
+        raise RuntimeError(f"所有变体生成失败: {errors}")
 
     # Build comparison summary
     def _metric(key: str) -> Dict[str, float]:

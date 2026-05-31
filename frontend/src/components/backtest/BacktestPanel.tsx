@@ -22,7 +22,11 @@ export default function BacktestPanel() {
       const res = await runAllocationBacktest(req);
       setResult(res);
     } catch (e: any) {
-      setError(e?.message || '回测失败');
+      if (e?.name === "AbortError") {
+        setError("回测请求超时（2分钟），数据量较大请缩小回测区间后重试");
+      } else {
+        setError(e?.message || "回测失败");
+      }
     } finally {
       setLoading(false);
     }

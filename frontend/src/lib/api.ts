@@ -6,22 +6,56 @@
 
 const API_BASE = import.meta.env.VITE_API_BASE || "/fund/api";
 
+/** 长耗时路径（配置生成/回测/压力测试等）使用120s，其余30s */
+const LONG_TIMEOUT_PATHS = [
+  "/allocation/generate", "/allocation/backtest", "/allocation/variants",
+  "/dca/backtest", "/allocation/explain", "/allocation/what-if",
+  "/allocation/dual-engine",
+];
+
 async function fetchJson<T>(path: string, options?: RequestInit): Promise<T> {
+  const isLongRequest = LONG_TIMEOUT_PATHS.some(p => path.startsWith(p));
+  const timeoutMs = isLongRequest ? 120_000 : 30_000;
+
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 30_000);
+  const timeout = setTimeout(
+    () => controller.abort(new Error(`请求超时(${timeoutMs / 1000}s)`)),
+    timeoutMs,
+  );
+
+  // 兼容方案替代 AbortSignal.any()（2024年3月才 Baseline）
+  if (options?.signal) {
+    const external = options.signal;
+    if (external.aborted) {
+      controller.abort(external.reason);
+    } else {
+      external.addEventListener("abort", () => controller.abort(external.reason), { once: true });
+    }
+  }
+
   try {
     const res = await fetch(`${API_BASE}${path}`, {
       ...options,
-      signal: options?.signal
-        ? AbortSignal.any([options.signal, controller.signal])
-        : controller.signal,
+      signal: controller.signal,
       headers: {
         "Content-Type": "application/json",
         ...(options?.headers || {}),
       },
     });
-    if (!res.ok) throw new Error(`API ${path} error: ${res.status}`);
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`API ${path} error: ${res.status} ${text.slice(0, 200)}`);
+    }
     return res.json();
+  } catch (e: any) {
+    if (e?.name === "AbortError") {
+      throw new Error(
+        isLongRequest
+          ? "请求超时（2分钟），数据量较大请缩小范围后重试"
+          : "请求超时（30秒），请检查网络后重试",
+      );
+    }
+    throw e;
   } finally {
     clearTimeout(timeout);
   }
