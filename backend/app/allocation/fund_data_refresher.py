@@ -28,19 +28,29 @@ def refresh_fund_profile(profile: FundProfile) -> FundProfile:
     Returns a new FundProfile with updated return_1y, sharpe_1y, and tracking_error.
     If data fetch fails, returns the original profile unchanged.
     """
+    # 0. Try SQLite cache first (survives restarts)
+    metrics = _get_sqlite_metrics(profile.code)
+    if metrics is not None:
+        return _build_updated_profile(profile, metrics)
+
+    # 1. Try in-memory cache
     metrics = _get_cached_metrics(profile.code)
     if metrics is None:
         return profile
 
-    # Create updated copy
-    updated = FundProfile(
-        code=profile.code,
-        name=profile.name,
-        fund_type=profile.fund_type,
-        asset_class=profile.asset_class,
+    # Save to SQLite for cross-restart persistence
+    _save_sqlite_metrics(profile.code, metrics)
+
+    return _build_updated_profile(profile, metrics)
+
+
+def _build_updated_profile(profile: FundProfile, metrics: dict) -> FundProfile:
+    """Construct updated FundProfile from metrics dict."""
+    return FundProfile(
+        code=profile.code, name=profile.name,
+        fund_type=profile.fund_type, asset_class=profile.asset_class,
         company=profile.company,
-        management_fee=profile.management_fee,
-        custody_fee=profile.custody_fee,
+        management_fee=profile.management_fee, custody_fee=profile.custody_fee,
         aum=metrics.get("aum") or profile.aum,
         daily_turnover=metrics.get("daily_turnover") or profile.daily_turnover,
         tracking_error=metrics.get("tracking_error") or profile.tracking_error,
@@ -48,7 +58,33 @@ def refresh_fund_profile(profile: FundProfile) -> FundProfile:
         sharpe_1y=metrics.get("sharpe_1y", profile.sharpe_1y),
         base_quality=profile.base_quality,
     )
-    return updated
+
+
+def _get_sqlite_metrics(code: str) -> Optional[dict]:
+    """Try to load metrics from SQLite cache."""
+    try:
+        from app.storage.database import FundNAVCache
+        ret = FundNAVCache.get(code, "return_1y")
+        if ret is None:
+            return None
+        return {
+            "return_1y": ret,
+            "sharpe_1y": FundNAVCache.get(code, "sharpe_1y"),
+            "tracking_error": FundNAVCache.get(code, "tracking_error"),
+            "daily_turnover": FundNAVCache.get(code, "daily_turnover"),
+            "data_points": FundNAVCache.get(code, "data_points"),
+        }
+    except Exception:
+        return None
+
+
+def _save_sqlite_metrics(code: str, metrics: dict) -> None:
+    """Save metrics to SQLite cache."""
+    try:
+        from app.storage.database import FundNAVCache
+        FundNAVCache.save(code, metrics)
+    except Exception:
+        pass
 
 
 def refresh_fund_pool(profiles: Dict[str, FundProfile]) -> Dict[str, FundProfile]:

@@ -102,6 +102,9 @@ class MarketDataService:
         self._last_refresh = datetime.now().isoformat()
         logger.info(f"MarketDataService: Refresh complete at {self._last_refresh}")
 
+        # Save stats snapshots to SQLite for cross-restart persistence
+        self._save_stats_to_db()
+
     # ─── Public Read Methods (instant, from cache) ─────────────────────────────
 
     def get_macro_snapshot(self) -> Optional[MacroSnapshot]:
@@ -262,6 +265,24 @@ class MarketDataService:
                 logger.info(f"Loaded {len(cached)} macro indicators from SQLite cache")
         except Exception as e:
             logger.debug(f"Failed to load macro from SQLite: {e}")
+
+    def _save_stats_to_db(self) -> None:
+        """Save rolling stats and vol snapshot to SQLite."""
+        try:
+            from app.storage.database import StatsSnapshotCache
+            if self._vol_snapshot:
+                StatsSnapshotCache.save("volatility", {
+                    "vol_ratio": self._vol_snapshot.vol_ratio,
+                    "current_vol_20d": self._vol_snapshot.current_vol_20d,
+                    "long_term_vol_252d": self._vol_snapshot.long_term_vol_252d,
+                })
+            if self._rolling_stats:
+                rets, vols, _ = self._rolling_stats
+                StatsSnapshotCache.save("rolling_stats", {
+                    "returns": rets, "vols": vols,
+                })
+        except Exception as e:
+            logger.debug(f"Failed to save stats to SQLite: {e}")
 
 
 # Module-level singleton

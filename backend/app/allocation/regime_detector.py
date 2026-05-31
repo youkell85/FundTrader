@@ -92,6 +92,9 @@ def detect_regime() -> RegimeState:
         confidence *= (0.3 + 0.7 * (pending / 2.0))
         confidence = min(confidence, 0.6)
 
+    # Log regime to SQLite history
+    _log_regime_to_db(confirmed_regime, growth_score, inflation_score, confidence)
+
     return RegimeState(
         regime=confirmed_regime,
         regime_label=REGIME_LABELS.get(confirmed_regime, "基准"),
@@ -101,6 +104,21 @@ def detect_regime() -> RegimeState:
         pending_count=pending,
         is_confirmed=is_confirmed,
     )
+
+
+def _log_regime_to_db(regime: str, growth: float, inflation: float, confidence: float):
+    """Log detected regime to SQLite for trend tracking."""
+    try:
+        from app.storage.database import RegimeHistoryCache
+        RegimeHistoryCache.log(
+            regime=regime,
+            label=REGIME_LABELS.get(regime, "基准"),
+            growth_score=round(growth, 3),
+            inflation_score=round(inflation, 3),
+            confidence=round(confidence, 2),
+        )
+    except Exception:
+        pass
 
 
 def _get_macro_snapshot():

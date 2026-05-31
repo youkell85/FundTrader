@@ -155,31 +155,57 @@ def load_macro_history(start_date: str, end_date: str) -> Dict[str, pd.Series]:
 def _fetch_etf_prices_with_dates(code: str) -> Optional[pd.Series]:
     """Fetch full ETF price history as a date-indexed Series.
 
-    Three-tier fallback chain:
-      1. efinance  (ef.fund.get_quote_history) — fast, no token required
-      2. tushare   (TushareProvider)           — requires API token
-      3. akshare   (ak.fund_etf_hist_em)       — slow but most reliable
+    SQLite cache → efinance → tushare → akshare fallback chain.
     """
-    # Try efinance first (fastest, no auth needed)
+    # 0. SQLite cache — check if we have recent data (within 1 day)
+    try:
+        from app.storage.database import ETFPriceCache
+        latest = ETFPriceCache.get_latest_date(code)
+        today = pd.Timestamp.now().strftime("%Y-%m-%d")
+        if latest and latest >= today:
+            cached = ETFPriceCache.get_range(code, "2000-01-01", today)
+            if len(cached) >= 20:
+                s = pd.Series(cached, name=code)
+                s.index = pd.to_datetime(s.index)
+                s = s.sort_index()
+                logger.debug(f"ETF {code}: loaded {len(s)} rows from SQLite cache")
+                return s
+    except Exception as e:
+        logger.debug(f"ETF {code}: SQLite cache miss — {e}")
+
+    # 1. Try efinance first (fastest, no auth needed)
     series = _try_efinance_full(code)
     if series is not None and len(series) >= 20:
         logger.debug(f"ETF {code}: loaded {len(series)} rows from efinance")
+        _cache_etf_prices(code, series)
         return series
 
     # Fallback to tushare (needs API token)
     series = _try_tushare_full(code)
     if series is not None and len(series) >= 20:
         logger.debug(f"ETF {code}: loaded {len(series)} rows from tushare")
+        _cache_etf_prices(code, series)
         return series
 
     # Final fallback: akshare (fund_etf_hist_em)
     series = _try_akshare_etf(code)
     if series is not None and len(series) >= 20:
         logger.debug(f"ETF {code}: loaded {len(series)} rows from akshare")
+        _cache_etf_prices(code, series)
         return series
 
     logger.warning(f"ETF {code}: all 3 data sources failed")
     return None
+
+
+def _cache_etf_prices(code: str, series: pd.Series) -> None:
+    """Save ETF prices to SQLite cache in background."""
+    try:
+        from app.storage.database import ETFPriceCache
+        prices = {d.strftime("%Y-%m-%d"): float(v) for d, v in series.items() if not pd.isna(v)}
+        ETFPriceCache.save_batch(code, prices)
+    except Exception:
+        pass  # Cache save failure is non-fatal
 
 
 def _try_efinance_full(code: str) -> Optional[pd.Series]:

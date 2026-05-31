@@ -99,12 +99,69 @@ class Database:
                     PRIMARY KEY (indicator, date)
                 );
 
+                -- ETF日线价格缓存表 (回测加速, 仅存close)
+                CREATE TABLE IF NOT EXISTS etf_daily_prices (
+                    code TEXT NOT NULL,
+                    trade_date TEXT NOT NULL,
+                    close REAL NOT NULL,
+                    source TEXT DEFAULT 'api',
+                    fetched_at TEXT NOT NULL,
+                    PRIMARY KEY (code, trade_date)
+                );
+
+                -- 基金池元数据表 (替代硬编码_FUND_POOL)
+                CREATE TABLE IF NOT EXISTS fund_pool (
+                    code TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    fund_type TEXT NOT NULL,
+                    asset_class TEXT NOT NULL,
+                    company TEXT DEFAULT '',
+                    management_fee REAL DEFAULT 0.005,
+                    custody_fee REAL DEFAULT 0.001,
+                    aum REAL DEFAULT 10.0,
+                    daily_turnover REAL DEFAULT 5000.0,
+                    tracking_error REAL DEFAULT 0.02,
+                    base_quality REAL DEFAULT 85.0,
+                    is_active INTEGER DEFAULT 1
+                );
+
+                -- 基金NAV计算缓存表 (return_1y/sharpe_1y等)
+                CREATE TABLE IF NOT EXISTS fund_nav_cache (
+                    code TEXT NOT NULL,
+                    metric TEXT NOT NULL,
+                    value REAL NOT NULL,
+                    data_points INTEGER,
+                    computed_at TEXT NOT NULL,
+                    PRIMARY KEY (code, metric)
+                );
+
+                -- 统计快照表 (rolling_stats/vol_snapshot/ic_decay)
+                CREATE TABLE IF NOT EXISTS stats_snapshot (
+                    snapshot_type TEXT PRIMARY KEY,
+                    data_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+
+                -- 市场体制历史表
+                CREATE TABLE IF NOT EXISTS regime_history (
+                    detected_at TEXT PRIMARY KEY,
+                    regime TEXT NOT NULL,
+                    label TEXT NOT NULL,
+                    growth_score REAL DEFAULT 0,
+                    inflation_score REAL DEFAULT 0,
+                    confidence REAL DEFAULT 0,
+                    source TEXT DEFAULT 'auto'
+                );
+
                 -- 索引
                 CREATE INDEX IF NOT EXISTS idx_plans_created ON allocation_plans(created_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_plans_risk ON allocation_plans(risk_profile);
                 CREATE INDEX IF NOT EXISTS idx_rebalance_date ON rebalance_history(executed_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_rebalance_plan ON rebalance_history(plan_id);
                 CREATE INDEX IF NOT EXISTS idx_macro_indicator ON macro_history(indicator, date DESC);
+                CREATE INDEX IF NOT EXISTS idx_etf_code_date ON etf_daily_prices(code, trade_date);
+                CREATE INDEX IF NOT EXISTS idx_fund_nav_code ON fund_nav_cache(code);
+                CREATE INDEX IF NOT EXISTS idx_regime_date ON regime_history(detected_at DESC);
             """)
 
     # ─── Allocation Plans ───
@@ -475,3 +532,174 @@ class MacroCache:
                 (indicator, limit)
             ).fetchall()
             return [(r["date"], r["value"], r["source"]) for r in rows]
+
+
+# ─── ETF Price Cache ──────────────────────────────────────────────────────────
+
+class ETFPriceCache:
+    """SQLite-backed cache for ETF daily close prices. Used by backtest engine."""
+
+    @staticmethod
+    def save_batch(code: str, prices: dict) -> None:
+        """Save {date: close} for one ETF code. Uses INSERT OR IGNORE (idempotent)."""
+        from datetime import datetime
+        now = datetime.now().isoformat()
+        with get_db() as conn:
+            conn.executemany(
+                """INSERT OR IGNORE INTO etf_daily_prices (code, trade_date, close, source, fetched_at)
+                   VALUES (?, ?, ?, 'api', ?)""",
+                [(code, date, close, now) for date, close in prices.items()]
+            )
+
+    @staticmethod
+    def get_range(code: str, start: str, end: str) -> dict:
+        """Get cached prices for date range. Returns {date: close}."""
+        with get_db() as conn:
+            rows = conn.execute(
+                """SELECT trade_date, close FROM etf_daily_prices
+                   WHERE code = ? AND trade_date >= ? AND trade_date <= ?
+                   ORDER BY trade_date""",
+                (code, start, end)
+            ).fetchall()
+            return {r["trade_date"]: r["close"] for r in rows}
+
+    @staticmethod
+    def get_latest_date(code: str) -> str | None:
+        """Get the most recent cached date for an ETF."""
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT MAX(trade_date) as d FROM etf_daily_prices WHERE code = ?", (code,)
+            ).fetchone()
+            return row["d"] if row else None
+
+
+# ─── Fund Pool Cache ──────────────────────────────────────────────────────────
+
+class FundPoolCache:
+    """SQLite-backed fund pool. Seeds from hardcoded _FUND_POOL on first init."""
+
+    @staticmethod
+    def seed_from_dict(pool: dict) -> None:
+        """One-time seed from hardcoded pool. Only inserts if table is empty."""
+        with get_db() as conn:
+            count = conn.execute("SELECT COUNT(*) as c FROM fund_pool").fetchone()["c"]
+            if count > 0:
+                return
+            now = __import__('datetime').datetime.now().isoformat()
+            for code, p in pool.items():
+                conn.execute(
+                    """INSERT OR IGNORE INTO fund_pool
+                       (code, name, fund_type, asset_class, company, management_fee, custody_fee,
+                        aum, daily_turnover, tracking_error, base_quality)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (code, p.name, p.fund_type, p.asset_class, p.company,
+                     p.management_fee, p.custody_fee, p.aum, p.daily_turnover,
+                     p.tracking_error, p.base_quality)
+                )
+
+    @staticmethod
+    def get_all() -> list:
+        """Get all active fund pool entries."""
+        with get_db() as conn:
+            rows = conn.execute(
+                "SELECT * FROM fund_pool WHERE is_active = 1"
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+
+# ─── Fund NAV Cache ───────────────────────────────────────────────────────────
+
+class FundNAVCache:
+    """SQLite-backed cache for computed fund metrics (return_1y, sharpe_1y, etc.)."""
+    TTL_SECONDS = 14400  # 4 hours
+
+    @staticmethod
+    def get(code: str, metric: str) -> float | None:
+        """Get cached metric value if not expired."""
+        from datetime import datetime, timedelta
+        cutoff = (datetime.now() - timedelta(seconds=FundNAVCache.TTL_SECONDS)).isoformat()
+        with get_db() as conn:
+            row = conn.execute(
+                """SELECT value FROM fund_nav_cache
+                   WHERE code = ? AND metric = ? AND computed_at > ?""",
+                (code, metric, cutoff)
+            ).fetchone()
+            return row["value"] if row else None
+
+    @staticmethod
+    def save(code: str, metrics: dict) -> None:
+        """Save multiple computed metrics for one fund."""
+        from datetime import datetime
+        now = datetime.now().isoformat()
+        with get_db() as conn:
+            conn.executemany(
+                """INSERT OR REPLACE INTO fund_nav_cache (code, metric, value, data_points, computed_at)
+                   VALUES (?, ?, ?, ?, ?)""",
+                [(code, k, v, metrics.get("data_points"), now) for k, v in metrics.items()
+                 if k != "data_points"]
+            )
+
+    @staticmethod
+    def clear_expired() -> None:
+        """Remove entries older than TTL."""
+        from datetime import datetime, timedelta
+        cutoff = (datetime.now() - timedelta(seconds=FundNAVCache.TTL_SECONDS)).isoformat()
+        with get_db() as conn:
+            conn.execute("DELETE FROM fund_nav_cache WHERE computed_at < ?", (cutoff,))
+
+
+# ─── Stats Snapshot Cache ─────────────────────────────────────────────────────
+
+class StatsSnapshotCache:
+    """SQLite-backed cache for rolling stats / vol snapshots / IC decay."""
+
+    @staticmethod
+    def save(snapshot_type: str, data: dict) -> None:
+        """Save a stats snapshot as JSON."""
+        import json
+        from datetime import datetime
+        with get_db() as conn:
+            conn.execute(
+                """INSERT OR REPLACE INTO stats_snapshot (snapshot_type, data_json, created_at)
+                   VALUES (?, ?, ?)""",
+                (snapshot_type, json.dumps(data, ensure_ascii=False), datetime.now().isoformat())
+            )
+
+    @staticmethod
+    def get(snapshot_type: str) -> dict | None:
+        """Load a stats snapshot."""
+        import json
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT data_json FROM stats_snapshot WHERE snapshot_type = ?", (snapshot_type,)
+            ).fetchone()
+            return json.loads(row["data_json"]) if row else None
+
+
+# ─── Regime History ───────────────────────────────────────────────────────────
+
+class RegimeHistoryCache:
+    """SQLite-backed log of market regime changes."""
+
+    @staticmethod
+    def log(regime: str, label: str, growth_score: float, inflation_score: float,
+            confidence: float, source: str = "auto") -> None:
+        """Record a regime detection event."""
+        from datetime import datetime
+        with get_db() as conn:
+            conn.execute(
+                """INSERT OR REPLACE INTO regime_history
+                   (detected_at, regime, label, growth_score, inflation_score, confidence, source)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (datetime.now().isoformat(), regime, label, growth_score, inflation_score,
+                 confidence, source)
+            )
+
+    @staticmethod
+    def get_recent(limit: int = 10) -> list:
+        """Get most recent regime history entries."""
+        with get_db() as conn:
+            rows = conn.execute(
+                "SELECT * FROM regime_history ORDER BY detected_at DESC LIMIT ?", (limit,)
+            ).fetchall()
+            return [dict(r) for r in rows]
