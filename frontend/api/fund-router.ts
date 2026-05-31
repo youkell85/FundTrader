@@ -274,25 +274,14 @@ function scheduleDailyHomePrewarm() {
 }
 
 async function fetchAllFundList(params: Record<string, any>) {
-  const allFunds: any[] = [];
-  let backendPage = 1;
-  let backendTotal = Infinity;
-
-  while (allFunds.length < backendTotal) {
-    const pageResult = await getFundList({
-      ...params,
-      page: backendPage,
-      page_size: 100,
-    });
-    const batch = Array.isArray(pageResult?.funds) ? pageResult.funds : [];
-    if (batch.length === 0) break;
-    allFunds.push(...batch);
-    backendTotal = typeof pageResult?.total === "number" ? pageResult.total : allFunds.length;
-    backendPage++;
-    if (backendPage > 100) break;
-  }
-
-  return allFunds;
+  // 后端 page_size 上限已提升到 5000，一次拉取全部 ~4084 只基金，避免 41 次分页请求
+  const pageResult = await getFundList({
+    ...params,
+    page: 1,
+    page_size: 5000,
+  });
+  return Array.isArray(pageResult?.funds) ? pageResult.funds : [];
+}
 }
 
 /**
