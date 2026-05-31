@@ -898,7 +898,9 @@ export const fundRouter = createRouter({
     .query(async ({ input, ctx }) => {
       try {
         const opts = input || {};
-        const rawFunds = getCached<any[]>("homeFunds") || await fetchHomeFunds();
+        // 优先用已预热的 homeFunds 缓存（含风险指标）；冷启动时用轻量摘要，
+        // 避免 fetchHomeFunds 的批量分析请求超时导致整个推荐卡住
+        const rawFunds = getCached<any[]>("homeFunds") || await fetchHomeFundSummaries();
         const parseMetric = (value: unknown) => {
           if (value === null || value === undefined || value === "" || value === "—") return null;
           const num = parseFloat(String(value).replace("%", ""));
