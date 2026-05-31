@@ -35,11 +35,16 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Database initialization failed: {e}")
 
-    # Startup: initial data refresh (non-blocking via thread)
+    # Startup: initial data refresh (non-blocking via thread, 30s timeout)
     try:
         from .allocation.data import market_data_service
-        logger.info("Initial market data refresh on startup...")
-        await asyncio.to_thread(market_data_service.refresh)
+        logger.info("Initial market data refresh on startup (30s timeout)...")
+        await asyncio.wait_for(
+            asyncio.to_thread(market_data_service.refresh),
+            timeout=30.0,
+        )
+    except asyncio.TimeoutError:
+        logger.warning("Startup data refresh timed out (will retry in background)")
     except Exception as e:
         logger.warning(f"Startup data refresh failed (will retry later): {e}")
 
