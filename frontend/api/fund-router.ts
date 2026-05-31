@@ -282,7 +282,6 @@ async function fetchAllFundList(params: Record<string, any>) {
   });
   return Array.isArray(pageResult?.funds) ? pageResult.funds : [];
 }
-}
 
 /**
  * 轻量首页摘要：仅拉取基金列表+排名业绩+实时报价，不调用 /analysis/batch?
