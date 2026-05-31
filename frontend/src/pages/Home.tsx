@@ -32,7 +32,7 @@ function average(values: Array<number | null>) {
 export default function Home() {
   const utils = trpc.useUtils();
   const { data: listData, isLoading: listLoading, refetch: refetchList } = trpc.fund.list.useQuery(
-    { pageSize: 1000, withMetrics: true },
+    { pageSize: 5000, withMetrics: true },
     { staleTime: 30 * 60 * 1000, refetchOnWindowFocus: false }
   );
   const { data: filterOptsData } = trpc.fund.filterOptions.useQuery(
