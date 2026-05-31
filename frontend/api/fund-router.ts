@@ -560,17 +560,15 @@ export const fundRouter = createRouter({
         // 首页优先返回已预热的完整缓存；冷启动时先返回轻量列表，后台继续预热风险指标?
         let rawFunds = getCached<any[]>("homeFunds");
         if (opts.withMetrics) {
-          // Fast path: paginated query direct to backend (SQLite-backed, sub-100ms)
+          // Fast path: pageSize=1000 fetches enough for home page; backend handles pagination
           if (!rawFunds) {
-            const pageResult = await getFundList({ guoyuan_only: true, page: 1, page_size: pageSize });
-            const funds = Array.isArray(pageResult?.funds) ? pageResult.funds : [];
-            rawFunds = funds.map((f: any) => ({ ...f, _source: "xinjihui", is_xinjihui: true }));
+            const pageResult = await getFundList({ guoyuan_only: true, page: 1, page_size: 1000 });
+            rawFunds = (pageResult?.funds || []).map((f: any) => ({ ...f, _source: "xinjihui", is_xinjihui: true }));
             setCache("homeFunds", rawFunds, 300_000);
           }
         } else if (!rawFunds) {
-          const pageResult = await getFundList({ guoyuan_only: true, page: 1, page_size: pageSize });
-          const funds = Array.isArray(pageResult?.funds) ? pageResult.funds : [];
-          rawFunds = funds.map((f: any) => ({ ...f, _source: "xinjihui", is_xinjihui: true }));
+          const pageResult = await getFundList({ guoyuan_only: true, page: 1, page_size: 1000 });
+          rawFunds = (pageResult?.funds || []).map((f: any) => ({ ...f, _source: "xinjihui", is_xinjihui: true }));
           setCache("homeFunds", rawFunds, 300_000);
         }
         let result = rawFunds.map(mapFundItem).filter(Boolean);
