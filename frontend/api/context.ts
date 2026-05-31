@@ -10,9 +10,9 @@ export type TrpcContext = {
   sessionToken?: string;
 };
 
-export async function createContext(
+export function createContext(
   opts: FetchCreateContextFnOptions,
-): Promise<TrpcContext> {
+): TrpcContext {
   const cookies = cookie.parse(opts.req.headers.get("cookie") || "");
   const sessionToken = cookies[Session.cookieName];
   const user = getUserBySession(sessionToken) || undefined;
