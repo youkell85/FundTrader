@@ -160,18 +160,23 @@ def _fetch_bond_yield_10y() -> Optional[float]:
 # ─── 6. DR007 ───────────────────────────────────────────────────────────────────
 
 def _fetch_dr007() -> Optional[float]:
-    """DR007 银行间回购利率. Try bond_repo_yield then LPR as fallback."""
+    """DR007 银行间回购利率 (FR007 定盘利率)."""
     import akshare as ak
-    # Primary: try bond repo
+    # Primary: repo_rate_hist → FR007 column (银行间7天回购定盘利率)
     try:
-        end = datetime.now().strftime("%Y%m%d")
-        start = (datetime.now() - timedelta(days=5)).strftime("%Y%m%d")
-        df = ak.bond_repo_yield(start_date=start, end_date=end)
-        if df is not None and not df.empty and "DR007" in df.columns:
-            return _latest_numeric(df, "DR007")
+        df = ak.repo_rate_hist()
+        if df is not None and not df.empty and "FR007" in df.columns:
+            return _latest_numeric(df, "FR007")
     except Exception:
         pass
-    # Fallback: LPR 1Y as proxy for short-term rate
+    # Fallback: Shibor 1W as proxy
+    try:
+        df = ak.macro_china_shibor_all()
+        if df is not None and not df.empty and "1W-定价" in df.columns:
+            return _latest_numeric(df, "1W-定价")
+    except Exception:
+        pass
+    # Last resort: LPR 1Y
     try:
         df = ak.macro_china_lpr()
         if df is not None and not df.empty:
@@ -325,15 +330,18 @@ def _fetch_usd_index() -> Optional[float]:
             sek = rates.get("SEK")
             chf = rates.get("CHF")
             if eur and jpy:
-                # Simplified DXY formula: weighted geometric mean of 6 currencies
+                # DXY formula using USD-based rates from open.er-api.com
+                # API returns: 1 USD = X foreign_currency
+                # DXY needs: EURUSD (1 EUR = ? USD) = 1/eur, etc.
+                # After conversion: all exponents become positive for open.er-api format
                 dxy_proxy = (
                     50.14348112
-                    * (eur ** -0.576)
-                    * (jpy ** 0.136)
-                    * (gbp ** -0.119)
-                    * (cad ** 0.091)
-                    * (sek ** 0.042)
-                    * (chf ** 0.036)
+                    * (eur ** 0.576)     # EURUSD^-0.576 → (1/eur)^-0.576 = eur^0.576
+                    * (jpy ** 0.136)     # USDJPY^0.136 → correct as-is
+                    * (gbp ** 0.119)     # GBPUSD^-0.119 → (1/gbp)^-0.119 = gbp^0.119
+                    * (cad ** 0.091)     # USDCAD^0.091 → correct as-is
+                    * (sek ** 0.042)     # USDSEK^0.042 → correct as-is
+                    * (chf ** 0.036)     # USDCHF^0.036 → correct as-is
                 )
                 return round(dxy_proxy, 2)
     except Exception as e:
