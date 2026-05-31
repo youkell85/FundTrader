@@ -1,5 +1,5 @@
 import { Link, useLocation } from "react-router";
-import { TrendingUp, Calculator, Lightbulb, PieChart, Bell, LogIn, LogOut, User } from "lucide-react";
+import { TrendingUp, Calculator, Lightbulb, PieChart, Bell, LogIn, LogOut, User, Shield } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useAlertNotifications } from "@/hooks/useAlertNotifications";
 import { useState } from "react";
@@ -52,6 +52,12 @@ export default function Navbar() {
                 </Link>
               );
             })}
+            {user?.role === "admin" && (
+              <Link to="/admin" className={`relative flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-300 ${location.pathname.startsWith("/admin") ? "text-[#FFB800]/95" : "text-[#FFB800]/50 hover:text-[#FFB800]/70 hover:bg-white/[0.03]"}`}>
+                <Shield className="w-3.5 h-3.5" />管理
+                {location.pathname.startsWith("/admin") && <div className="absolute bottom-0 left-3 right-3 h-px bg-[#FFB800]" />}
+              </Link>
+            )}
           </div>
         </div>
 

@@ -33,6 +33,7 @@ const BacktestPage = lazy(() => import('./pages/allocation/BacktestPage'))
 
 // 兼容旧路由：/allocation/result 重定向到新的配置中心
 const LegacyAllocationDashboard = lazy(() => import('./pages/LegacyAllocationDashboard'))
+const AdminDashboard = lazy(() => import('./pages/Admin'))
 
 function PageLoader() {
   return (
@@ -78,6 +79,9 @@ export default function App() {
             <Route path="/" element={<Home />} />
             <Route path="/:id" element={<FundDetail />} />
             <Route path="/login" element={<Login />} />
+
+            {/* 管理员 */}
+            <Route path="/admin" element={<RequireAuth><AdminDashboard /></RequireAuth>} />
 
             {/* 需登录 */}
             <Route path="/backtest" element={<RequireAuth><Backtest /></RequireAuth>} />
