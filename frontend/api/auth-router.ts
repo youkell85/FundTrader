@@ -4,6 +4,7 @@ import { TRPCError } from "@trpc/server";
 import { Session } from "@contracts/constants";
 import { createRouter, publicQuery } from "./middleware";
 import { loginViaBackend, registerViaBackend, syncSession, deleteSession } from "./lib/user-store";
+import { ftFetch } from "./lib/fundtrader-client";
 
 function cookieOptions(headers: Headers, maxAge?: number) {
   const host = headers.get("host") || "";
@@ -49,7 +50,7 @@ export const authRouter = createRouter({
   register: publicQuery
     .input(credentialsSchema.extend({
       displayName: z.string().max(64).optional(),
-      email: z.string().email().optional().or(z.literal("")),
+      email: z.string().email("请输入有效邮箱"),
     }))
     .mutation(async ({ input, ctx }) => {
       try {
@@ -72,6 +73,19 @@ export const authRouter = createRouter({
         return { id: res.user.id, name: res.user.displayName, username: res.user.username, role: res.user.role || "user", avatar: null };
       } catch (err: any) {
         throw new TRPCError({ code: "UNAUTHORIZED", message: err?.message || "登录失败" });
+      }
+    }),
+
+  forgotPassword: publicQuery
+    .input(z.object({ username: z.string(), email: z.string().email() }))
+    .mutation(async ({ input }) => {
+      try {
+        const res = await ftFetch<{ message: string }>("/auth/forgot-password", {
+          method: "POST", body: JSON.stringify(input),
+        });
+        return res;
+      } catch (err: any) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: err?.message || "发送失败" });
       }
     }),
 

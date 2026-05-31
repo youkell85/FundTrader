@@ -117,7 +117,7 @@ export async function loginViaBackend(username: string, password: string) {
   return res;
 }
 
-export async function registerViaBackend(input: { username: string; password: string; displayName?: string }) {
+export async function registerViaBackend(input: { username: string; password: string; email: string; displayName?: string }) {
   const res = await ftFetch<{ user: any; token: string }>("/auth/register", {
     method: "POST",
     body: JSON.stringify(input),

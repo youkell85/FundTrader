@@ -60,9 +60,33 @@ class Database:
                     password_salt TEXT NOT NULL,
                     display_name TEXT NOT NULL DEFAULT '',
                     email TEXT DEFAULT '',
+                    email_verified INTEGER DEFAULT 0,
+                    avatar_url TEXT DEFAULT '',
                     role TEXT NOT NULL DEFAULT 'user',
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
+                );
+
+                -- 邮箱验证令牌表
+                CREATE TABLE IF NOT EXISTS email_tokens (
+                    token_hash TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    email TEXT NOT NULL,
+                    token_type TEXT NOT NULL DEFAULT 'verify',
+                    created_at TEXT NOT NULL,
+                    expires_at TEXT NOT NULL,
+                    used INTEGER DEFAULT 0,
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                );
+
+                -- 密码重置令牌表
+                CREATE TABLE IF NOT EXISTS password_reset_tokens (
+                    token_hash TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    expires_at TEXT NOT NULL,
+                    used INTEGER DEFAULT 0,
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
                 );
 
                 -- 会话表
@@ -760,7 +784,7 @@ class UserStore:
             print("[UserStore] Seeded admin user")
 
     @staticmethod
-    def register(username: str, password: str, display_name: str = "") -> dict | None:
+    def register(username: str, password: str, display_name: str = "", email: str = "") -> dict | None:
         """Create a new user. Returns user dict or None if username taken."""
         import hashlib, os, uuid
         from datetime import datetime
@@ -771,13 +795,13 @@ class UserStore:
         try:
             with get_db() as conn:
                 conn.execute(
-                    """INSERT INTO users (id, username, password_hash, password_salt, display_name, role, created_at, updated_at)
-                       VALUES (?, ?, ?, ?, ?, 'user', ?, ?)""",
-                    (uid, username, pw_hash.hex(), salt.hex(), display_name or username, now, now)
+                    """INSERT INTO users (id, username, password_hash, password_salt, display_name, email, role, created_at, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, 'user', ?, ?)""",
+                    (uid, username, pw_hash.hex(), salt.hex(), display_name or username, email, now, now)
                 )
-            return {"id": uid, "username": username, "displayName": display_name or username, "role": "user"}
+            return {"id": uid, "username": username, "displayName": display_name or username, "email": email, "role": "user"}
         except Exception:
-            return None  # Username already taken
+            return None
 
     @staticmethod
     def login(username: str, password: str) -> dict | None:
@@ -848,3 +872,95 @@ class UserStore:
         token_hash = hashlib.sha256(token.encode()).hexdigest()
         with get_db() as conn:
             conn.execute("DELETE FROM sessions WHERE token_hash = ?", (token_hash,))
+
+    @staticmethod
+    def create_email_token(user_id: str, email: str, token_type: str = "verify") -> None:
+        """Create an email verification token and send the email."""
+        import hashlib, secrets
+        from datetime import datetime, timedelta
+        token = secrets.token_urlsafe(32)
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        now = datetime.now()
+        expires = now + timedelta(hours=1)
+        with get_db() as conn:
+            conn.execute(
+                """INSERT INTO email_tokens (token_hash, user_id, email, token_type, created_at, expires_at)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (token_hash, user_id, email, token_type, now.isoformat(), expires.isoformat())
+            )
+        # Send email async
+        try:
+            from app.api.email_util import send_verification_email
+            send_verification_email(email, user_id[:8], token)
+        except Exception:
+            pass
+
+    @staticmethod
+    def verify_email_token(token: str) -> dict | None:
+        """Validate email verification token. Returns user dict or None."""
+        import hashlib
+        from datetime import datetime
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        with get_db() as conn:
+            row = conn.execute(
+                """SELECT user_id, email FROM email_tokens
+                   WHERE token_hash = ? AND expires_at > ? AND used = 0""",
+                (token_hash, datetime.now().isoformat())
+            ).fetchone()
+            if not row:
+                return None
+            conn.execute("UPDATE email_tokens SET used = 1 WHERE token_hash = ?", (token_hash,))
+            conn.execute("UPDATE users SET email_verified = 1, email = ? WHERE id = ?",
+                         (row["email"], row["user_id"]))
+            return UserStore.get_by_id(row["user_id"])
+
+    @staticmethod
+    def reset_password_send(username: str, email: str) -> bool:
+        """Validate user+email match, generate new password, send via email. Returns bool."""
+        import hashlib, os, secrets
+        from datetime import datetime
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT id, email FROM users WHERE username = ? AND email = ?", (username, email)
+            ).fetchone()
+            if not row:
+                return False
+            # Generate new random password
+            new_pw = secrets.token_urlsafe(8)[:12]
+            salt = os.urandom(16)
+            pw_hash = hashlib.pbkdf2_hmac("sha256", new_pw.encode(), salt, 120000)
+            conn.execute(
+                "UPDATE users SET password_hash = ?, password_salt = ?, updated_at = ? WHERE id = ?",
+                (pw_hash.hex(), salt.hex(), datetime.now().isoformat(), row["id"])
+            )
+            # Invalidate all sessions
+            conn.execute("DELETE FROM sessions WHERE user_id = ?", (row["id"],))
+        try:
+            from app.api.email_util import send_password_reset_email
+            send_password_reset_email(email, username, new_pw)
+        except Exception:
+            pass
+        return True
+
+    @staticmethod
+    def update_profile(user_id: str, display_name: str = "", email: str = "", avatar_url: str = "") -> None:
+        """Update user profile fields."""
+        from datetime import datetime
+        updates = []
+        params = []
+        if display_name:
+            updates.append("display_name = ?")
+            params.append(display_name)
+        if email:
+            updates.append("email = ?")
+            params.append(email)
+        if avatar_url:
+            updates.append("avatar_url = ?")
+            params.append(avatar_url)
+        if not updates:
+            return
+        updates.append("updated_at = ?")
+        params.append(datetime.now().isoformat())
+        params.append(user_id)
+        with get_db() as conn:
+            conn.execute(f"UPDATE users SET {', '.join(updates)} WHERE id = ?", params)
