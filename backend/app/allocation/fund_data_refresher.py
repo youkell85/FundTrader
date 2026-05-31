@@ -38,6 +38,7 @@ def refresh_fund_profile(profile: FundProfile) -> FundProfile:
         name=profile.name,
         fund_type=profile.fund_type,
         asset_class=profile.asset_class,
+        company=profile.company,
         management_fee=profile.management_fee,
         custody_fee=profile.custody_fee,
         aum=metrics.get("aum") or profile.aum,
