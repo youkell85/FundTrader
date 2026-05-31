@@ -7,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import API_PREFIX, CORS_ORIGINS, MARKET_DATA_REFRESH_INTERVAL
-from .api import fund, analysis, recommend, dca, professional, settings, allocation, storage
+from .api import fund, analysis, recommend, dca, professional, settings, allocation, storage, auth
 from .storage.database import init_db
 
 logger = logging.getLogger(__name__)
@@ -89,6 +89,7 @@ app.include_router(professional.router)
 app.include_router(settings.router)
 app.include_router(allocation.router)
 app.include_router(storage.router)
+app.include_router(auth.router)
 
 
 @app.get("/health")

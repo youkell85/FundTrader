@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import fs from "fs";
 import path from "path";
+import { ftFetch } from "./fundtrader-client";
 
 type StoredUser = {
   id: string;
@@ -114,14 +115,19 @@ export function deleteSession(token: string) {
   writeStore(data);
 }
 
-export function getUserBySession(token?: string): PublicUser | null {
+export async function getUserBySession(token?: string): Promise<PublicUser | null> {
   if (!token) return null;
-  const data = readStore();
-  const tokenHash = hashToken(token);
-  const session = data.sessions.find((item) => item.tokenHash === tokenHash);
-  if (!session || new Date(session.expiresAt).getTime() <= Date.now()) return null;
-  const user = data.users.find((item) => item.id === session.userId);
-  return user ? toPublicUser(user) : null;
+  try {
+    const res = await ftFetch<{ user: any }>("/auth/me", {
+      headers: { Cookie: `kimi_sid=${token}` },
+    });
+    return {
+      id: res.user.id, name: res.user.displayName, username: res.user.username,
+      role: res.user.role, avatar: null,
+    };
+  } catch {
+    return null;
+  }
 }
 
 export function registerUser(input: { username: string; password: string; displayName?: string; email?: string }) {

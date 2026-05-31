@@ -52,6 +52,28 @@ class Database:
         """Create tables if they don't exist."""
         with get_db() as conn:
             conn.executescript("""
+                -- 用户表
+                CREATE TABLE IF NOT EXISTS users (
+                    id TEXT PRIMARY KEY,
+                    username TEXT UNIQUE NOT NULL,
+                    password_hash TEXT NOT NULL,
+                    password_salt TEXT NOT NULL,
+                    display_name TEXT NOT NULL DEFAULT '',
+                    email TEXT DEFAULT '',
+                    role TEXT NOT NULL DEFAULT 'user',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+
+                -- 会话表
+                CREATE TABLE IF NOT EXISTS sessions (
+                    token_hash TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    expires_at TEXT NOT NULL,
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                );
+
                 -- 配置方案表
                 CREATE TABLE IF NOT EXISTS allocation_plans (
                     id TEXT PRIMARY KEY,
@@ -703,3 +725,118 @@ class RegimeHistoryCache:
                 "SELECT * FROM regime_history ORDER BY detected_at DESC LIMIT ?", (limit,)
             ).fetchall()
             return [dict(r) for r in rows]
+
+
+# ─── User Store ───────────────────────────────────────────────────────────────
+
+class UserStore:
+    """SQLite-backed user & session management. Replaces JSON file store."""
+
+    @staticmethod
+    def seed_admin() -> None:
+        """Create default admin user if no users exist."""
+        import hashlib, os, uuid
+        from datetime import datetime
+        with get_db() as conn:
+            count = conn.execute("SELECT COUNT(*) as c FROM users").fetchone()["c"]
+            if count > 0:
+                return
+            salt = os.urandom(16)
+            pw = hashlib.pbkdf2_hmac("sha256", b"admin", salt, 120000)
+            now = datetime.now().isoformat()
+            conn.execute(
+                """INSERT INTO users (id, username, password_hash, password_salt, display_name, role, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (str(uuid.uuid4()), "admin", pw.hex(), salt.hex(), "管理员", "admin", now, now)
+            )
+            print("[UserStore] Seeded admin user (admin/admin)")
+
+    @staticmethod
+    def register(username: str, password: str, display_name: str = "") -> dict | None:
+        """Create a new user. Returns user dict or None if username taken."""
+        import hashlib, os, uuid
+        from datetime import datetime
+        uid = str(uuid.uuid4())
+        salt = os.urandom(16)
+        pw_hash = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 120000)
+        now = datetime.now().isoformat()
+        try:
+            with get_db() as conn:
+                conn.execute(
+                    """INSERT INTO users (id, username, password_hash, password_salt, display_name, role, created_at, updated_at)
+                       VALUES (?, ?, ?, ?, ?, 'user', ?, ?)""",
+                    (uid, username, pw_hash.hex(), salt.hex(), display_name or username, now, now)
+                )
+            return {"id": uid, "username": username, "displayName": display_name or username, "role": "user"}
+        except Exception:
+            return None  # Username already taken
+
+    @staticmethod
+    def login(username: str, password: str) -> dict | None:
+        """Validate credentials. Returns user dict or None."""
+        import hashlib, hmac
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT * FROM users WHERE username = ?", (username,)
+            ).fetchone()
+            if not row:
+                return None
+            salt = bytes.fromhex(row["password_salt"])
+            expected = bytes.fromhex(row["password_hash"])
+            actual = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 120000)
+            if not hmac.compare_digest(expected, actual):
+                return None
+            return {"id": row["id"], "username": row["username"],
+                    "displayName": row["display_name"], "role": row["role"]}
+
+    @staticmethod
+    def get_by_id(user_id: str) -> dict | None:
+        """Get user by ID."""
+        with get_db() as conn:
+            row = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+            if not row:
+                return None
+            return {"id": row["id"], "username": row["username"],
+                    "displayName": row["display_name"], "role": row["role"]}
+
+    @staticmethod
+    def create_session(user_id: str) -> str:
+        """Create a session, return token (plaintext)."""
+        import hashlib, os, secrets
+        from datetime import datetime, timedelta
+        token = secrets.token_urlsafe(32)
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        now = datetime.now()
+        expires = now + timedelta(days=30)
+        with get_db() as conn:
+            conn.execute(
+                "INSERT INTO sessions (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
+                (token_hash, user_id, now.isoformat(), expires.isoformat())
+            )
+        return token
+
+    @staticmethod
+    def get_user_by_session(token: str) -> dict | None:
+        """Look up user from session token. Returns user dict or None if invalid/expired."""
+        import hashlib
+        from datetime import datetime
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        with get_db() as conn:
+            row = conn.execute(
+                """SELECT u.id, u.username, u.display_name, u.role
+                   FROM sessions s JOIN users u ON s.user_id = u.id
+                   WHERE s.token_hash = ? AND s.expires_at > ?""",
+                (token_hash, datetime.now().isoformat())
+            ).fetchone()
+            if not row:
+                return None
+            return {"id": row["id"], "username": row["username"],
+                    "displayName": row["display_name"], "role": row["role"]}
+
+    @staticmethod
+    def delete_session(token: str) -> None:
+        """Delete a session (logout)."""
+        import hashlib
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        with get_db() as conn:
+            conn.execute("DELETE FROM sessions WHERE token_hash = ?", (token_hash,))

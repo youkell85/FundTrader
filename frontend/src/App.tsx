@@ -1,6 +1,7 @@
-import { lazy, Suspense, useEffect } from 'react'
+import React, { lazy, Suspense, useEffect } from 'react'
 import { AllocationProvider } from './store/allocationStore'
-import { Routes, Route, useLocation } from 'react-router'
+import { Routes, Route, useLocation, Navigate } from 'react-router'
+import { trpc } from './providers/trpc'
 import Home from './pages/Home'
 import Login from './pages/Login'
 import NotFound from './pages/NotFound'
@@ -51,6 +52,18 @@ function ScrollToTop() {
   return null
 }
 
+function RequireAuth({ children }: { children: React.ReactNode }) {
+  const { data: user, isLoading } = trpc.auth.me.useQuery(undefined, {
+    staleTime: 30_000,
+    retry: false,
+  });
+  const location = useLocation();
+
+  if (isLoading) return <PageLoader />;
+  if (!user) return <Navigate to="/login" state={{ from: location.pathname }} replace />;
+  return <>{children}</>;
+}
+
 export default function App() {
   return (
     <div className="relative min-h-screen">
@@ -67,16 +80,18 @@ export default function App() {
           <Routes>
             <Route path="/" element={<Home />} />
             <Route path="/:id" element={<FundDetail />} />
-            <Route path="/backtest" element={<Backtest />} />
-            <Route path="/recommend" element={<Recommend />} />
-            <Route path="/analysis" element={<Analysis />} />
             <Route path="/login" element={<Login />} />
 
+            {/* 需登录的路由 */}
+            <Route path="/backtest" element={<RequireAuth><Backtest /></RequireAuth>} />
+            <Route path="/recommend" element={<RequireAuth><Recommend /></RequireAuth>} />
+            <Route path="/analysis" element={<RequireAuth><Analysis /></RequireAuth>} />
+
             {/* 资产配置向导 */}
-            <Route path="/allocation" element={<AllocationProvider><AllocationWizard /></AllocationProvider>} />
+            <Route path="/allocation" element={<AllocationProvider><RequireAuth><AllocationWizard /></RequireAuth></AllocationProvider>} />
 
             {/* 智能配置 — 侧边导航常驻 + 子路由 */}
-            <Route path="/allocation/result" element={<AllocationProvider><AllocationLayout /></AllocationProvider>}>
+            <Route path="/allocation/result" element={<AllocationProvider><RequireAuth><AllocationLayout /></RequireAuth></AllocationProvider>}>
               <Route index element={<OverviewPage />} />
               <Route path="market" element={<MarketPage />} />
               <Route path="strategy" element={<StrategyPage />} />
@@ -89,7 +104,7 @@ export default function App() {
             </Route>
 
             {/* 兼容旧路由 */}
-            <Route path="/allocation/:id" element={<LegacyAllocationDashboard />} />
+            <Route path="/allocation/:id" element={<RequireAuth><LegacyAllocationDashboard /></RequireAuth>} />
 
             <Route path="*" element={<NotFound />} />
           </Routes>

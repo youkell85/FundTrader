@@ -3,14 +3,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { Session } from "@contracts/constants";
 import { createRouter, publicQuery } from "./middleware";
-import {
-  createSession,
-  deleteSession,
-  getUserState,
-  loginUser,
-  registerUser,
-  updateUserState,
-} from "./lib/user-store";
+import { ftFetch } from "./lib/fundtrader-client";
 
 function cookieOptions(headers: Headers, maxAge?: number) {
   const host = headers.get("host") || "";
@@ -58,51 +51,54 @@ export const authRouter = createRouter({
       displayName: z.string().max(64).optional(),
       email: z.string().email().optional().or(z.literal("")),
     }))
-    .mutation(({ input, ctx }) => {
+    .mutation(async ({ input, ctx }) => {
       try {
-        const user = registerUser(input);
-        const token = createSession(user.id, Session.maxAgeMs);
-        setSessionCookie(ctx.resHeaders, token);
-        return user;
-      } catch (err) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: err instanceof Error ? err.message : "注册失败",
+        const res = await ftFetch<{ user: any; token: string }>("/auth/register", {
+          method: "POST",
+          body: JSON.stringify(input),
         });
+        setSessionCookie(ctx.resHeaders, res.token);
+        return { id: res.user.id, name: res.user.displayName, username: res.user.username, role: res.user.role, avatar: null };
+      } catch (err: any) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: err?.message || "注册失败" });
       }
     }),
 
   login: publicQuery
     .input(credentialsSchema)
-    .mutation(({ input, ctx }) => {
+    .mutation(async ({ input, ctx }) => {
       try {
-        const user = loginUser(input.username, input.password);
-        const token = createSession(user.id, Session.maxAgeMs);
-        setSessionCookie(ctx.resHeaders, token);
-        return user;
-      } catch (err) {
-        throw new TRPCError({
-          code: "UNAUTHORIZED",
-          message: err instanceof Error ? err.message : "登录失败",
+        const res = await ftFetch<{ user: any; token: string }>("/auth/login", {
+          method: "POST",
+          body: JSON.stringify(input),
         });
+        setSessionCookie(ctx.resHeaders, res.token);
+        return { id: res.user.id, name: res.user.displayName, username: res.user.username, role: res.user.role, avatar: null };
+      } catch (err: any) {
+        throw new TRPCError({ code: "UNAUTHORIZED", message: err?.message || "登录失败" });
       }
     }),
 
-  logout: publicQuery.mutation(({ ctx }) => {
-    if (ctx.sessionToken) deleteSession(ctx.sessionToken);
+  logout: publicQuery.mutation(async ({ ctx }) => {
+    if (ctx.sessionToken) {
+      await ftFetch("/auth/logout", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${ctx.sessionToken}` },
+      }).catch(() => {});
+    }
     clearSessionCookie(ctx.resHeaders);
     return { success: true };
   }),
 
   state: publicQuery.query(({ ctx }) => {
-    const user = requireUser(ctx);
-    return getUserState(user.id);
+    requireUser(ctx);
+    return { watchlistCodes: [], backtestRecords: [], recommendationRecords: [], preferences: {}, recentFunds: [] };
   }),
 
   savePreferences: publicQuery
     .input(z.record(z.string(), z.unknown()))
     .mutation(({ input, ctx }) => {
-      const user = requireUser(ctx);
-      return updateUserState(user.id, { preferences: input });
+      requireUser(ctx);
+      return { preferences: input };
     }),
 });
