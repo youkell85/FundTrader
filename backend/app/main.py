@@ -116,7 +116,17 @@ async def market_data_refresh():
     """Force refresh market data immediately (async, returns immediately)."""
     from .allocation.data import market_data_service
     import asyncio
-    asyncio.create_task(asyncio.to_thread(market_data_service.refresh))
+
+    async def _safe_refresh():
+        try:
+            await asyncio.to_thread(market_data_service.refresh)
+            logger.info("Manual refresh completed successfully")
+            s = market_data_service.get_status()
+            logger.info(f"Status after refresh: macro={s['macro_available']}, vol={s['vol_ratio']}")
+        except Exception as e:
+            logger.error(f"Manual refresh failed: {e}", exc_info=True)
+
+    asyncio.create_task(_safe_refresh())
     return {"status": "refresh_started"}
 
 
