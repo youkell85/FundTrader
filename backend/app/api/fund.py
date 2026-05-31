@@ -24,7 +24,7 @@ async def fund_list(
     sort_by: str = Query("今年来", description="排序字段"),
     sort_order: str = Query("desc", description="排序方向"),
     page: int = Query(1, ge=1, description="页码"),
-    page_size: int = Query(20, ge=1, le=100, description="每页数量"),
+    page_size: int = Query(20, ge=1, le=5000, description="每页数量"),
     guoyuan_only: bool = Query(True, description="仅国元名单"),
     use_watchlist: bool = Query(False, description="使用自选基金列表"),
 ):

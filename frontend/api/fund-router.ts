@@ -560,14 +560,14 @@ export const fundRouter = createRouter({
         // 首页优先返回已预热的完整缓存；冷启动时先返回轻量列表，后台继续预热风险指标?
         let rawFunds = getCached<any[]>("homeFunds");
         if (opts.withMetrics) {
-          // Fast path: pageSize=1000 fetches enough for home page; backend handles pagination
+          // Fetch all funds for home page (page_size=5000 covers the full ~4500 fund pool)
           if (!rawFunds) {
-            const pageResult = await getFundList({ guoyuan_only: true, page: 1, page_size: 1000 });
+            const pageResult = await getFundList({ guoyuan_only: true, page: 1, page_size: 5000 });
             rawFunds = (pageResult?.funds || []).map((f: any) => ({ ...f, _source: "xinjihui", is_xinjihui: true }));
             setCache("homeFunds", rawFunds, 300_000);
           }
         } else if (!rawFunds) {
-          const pageResult = await getFundList({ guoyuan_only: true, page: 1, page_size: 1000 });
+          const pageResult = await getFundList({ guoyuan_only: true, page: 1, page_size: 5000 });
           rawFunds = (pageResult?.funds || []).map((f: any) => ({ ...f, _source: "xinjihui", is_xinjihui: true }));
           setCache("homeFunds", rawFunds, 300_000);
         }
