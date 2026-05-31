@@ -6,7 +6,7 @@ import Login from './pages/Login'
 import NotFound from './pages/NotFound'
 import Navbar from './components/Navbar'
 import LuminousBackground from './components/LuminousBackground'
-import ErrorBoundary from './components/ErrorBoundary'
+import { ErrorBoundary } from './components/ErrorBoundary'
 
 // 路由级代码分割：详情/回测/分析/推荐页依赖 recharts（charts-vendor 428KB），
 // 懒加载可避免首页首屏预加载这些重型图表库
