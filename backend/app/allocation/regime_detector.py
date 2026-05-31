@@ -74,6 +74,11 @@ def detect_regime() -> RegimeState:
     if os.environ.get("FUNDTRADER_NO_REGIME_PERSISTENCE"):
         confirmed_regime = raw_regime
         is_confirmed = True
+        with _regime_lock:
+            global _previous_regime, _pending_regime, _pending_count
+            _previous_regime = raw_regime
+            _pending_regime = None
+            _pending_count = 0
     else:
         confirmed_regime = _apply_persistence(raw_regime)
         is_confirmed = confirmed_regime == raw_regime
