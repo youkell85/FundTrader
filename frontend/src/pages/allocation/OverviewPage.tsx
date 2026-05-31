@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
-import { PieChart as PieIcon, Gauge, List, ChevronDown, ChevronRight, Play, Loader2, AlertCircle } from 'lucide-react';
+import { PieChart as PieIcon, Gauge, List, ChevronDown, ChevronRight, Play, AlertCircle } from 'lucide-react';
 import { GROUP_COLORS, REGIME_LABELS } from '@/types/allocation';
 import { useAllocationData } from '@/hooks/useAllocationData';
 import { useAllocationStore } from '@/store/allocationStore';
-import { generateAllocation } from '@/lib/api';
+import { generateAllocationStream } from '@/lib/api';
+import AllocationProgress, { type StepState, STEP_LABELS } from '@/components/allocation/AllocationProgress';
 import PageHeader from '@/components/ui/PageHeader';
 import MetricCard from '@/components/ui/MetricCard';
 import MarketRegimeCard from '@/components/allocation/MarketRegimeCard';
@@ -18,18 +19,48 @@ export default function OverviewPage() {
   const [expandLog, setExpandLog] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState<string | null>(null);
+  const [streamSteps, setStreamSteps] = useState<StepState[]>(() =>
+    Object.keys(STEP_LABELS).map(name => ({ name, status: "running" as const, detail: "" }))
+  );
+  const [currentStep, setCurrentStep] = useState(0);
+  const [elapsed, setElapsed] = useState(0);
+  const startTime = useRef(0);
+  const timerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
+  const streamCancelRef = useRef<{ cancel: () => void } | null>(null);
 
-  const handleGenerate = async () => {
+  useEffect(() => { return () => { if (timerRef.current) clearInterval(timerRef.current); }; }, []);
+
+  const startTimer = useCallback(() => {
+    startTime.current = Date.now();
+    timerRef.current = setInterval(() => setElapsed(Math.floor((Date.now() - startTime.current) / 1000)), 200);
+  }, []);
+  const stopTimer = useCallback(() => {
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = undefined; }
+  }, []);
+
+  const handleGenerate = () => {
     setGenerating(true);
     setGenError(null);
-    try {
-      const result = await generateAllocation(storeState.config);
-      dispatch({ type: 'SET_OUTPUT', output: result });
-    } catch (err: any) {
-      setGenError(err?.message || '生成失败，请重试');
-    } finally {
-      setGenerating(false);
-    }
+    setCurrentStep(0);
+    setStreamSteps(Object.keys(STEP_LABELS).map(name => ({ name, status: "running" as const, detail: "" })));
+    startTimer();
+
+    streamCancelRef.current = generateAllocationStream(
+      storeState.config,
+      (step, _total, name, status, detail) => {
+        setCurrentStep(step);
+        setStreamSteps(prev => prev.map(s => s.name === name ? { ...s, status: status as StepState["status"], detail } : s));
+      },
+      (result) => { stopTimer(); setGenerating(false); dispatch({ type: 'SET_OUTPUT', output: result }); },
+      (msg) => { stopTimer(); setGenerating(false); setGenError(msg); },
+      () => { stopTimer(); setGenerating(false); },
+    );
+  };
+
+  const handleCancelGenerate = () => {
+    streamCancelRef.current?.cancel();
+    stopTimer();
+    setGenerating(false);
   };
 
   const pieData = Object.entries(saa.group_allocations)
@@ -61,28 +92,26 @@ export default function OverviewPage() {
                 </p>
               )}
             </div>
-            <button
-              onClick={handleGenerate}
-              disabled={generating}
-              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[#3B6CFF] text-white text-sm font-medium hover:bg-[#3B6CFF]/80 disabled:opacity-50 transition-colors focus-visible:ring-2 focus-visible:ring-[#3B6CFF]/50"
-            >
-              {generating ? <Loader2 className="w-4 h-4 motion-safe:animate-spin" aria-hidden="true" /> : <Play className="w-4 h-4" aria-hidden="true" />}
-              {generating ? '生成中...' : '生成配置'}
-            </button>
+            {generating ? (
+              <AllocationProgress steps={streamSteps} currentStep={currentStep} totalSteps={14} elapsed={elapsed} onCancel={handleCancelGenerate} />
+            ) : (
+              <button onClick={handleGenerate} disabled={generating} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[#3B6CFF] text-white text-sm font-medium hover:bg-[#3B6CFF]/80 disabled:opacity-50 transition-colors focus-visible:ring-2 focus-visible:ring-[#3B6CFF]/50">
+                <Play className="w-4 h-4" aria-hidden="true" /> 生成配置
+              </button>
+            )}
           </div>
         </div>
       )}
 
       {!isMock && (
         <div className="flex items-center gap-3">
-          <button
-            onClick={handleGenerate}
-            disabled={generating}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#3B6CFF]/10 text-[#5AA9FF] text-xs font-medium hover:bg-[#3B6CFF]/20 disabled:opacity-50 transition-colors focus-visible:ring-2 focus-visible:ring-[#3B6CFF]/50"
-          >
-            {generating ? <Loader2 className="w-3.5 h-3.5 motion-safe:animate-spin" aria-hidden="true" /> : <Play className="w-3.5 h-3.5" aria-hidden="true" />}
-            重新生成
-          </button>
+          {generating ? (
+            <div className="flex-1"><AllocationProgress steps={streamSteps} currentStep={currentStep} totalSteps={14} elapsed={elapsed} onCancel={handleCancelGenerate} /></div>
+          ) : (
+            <button onClick={handleGenerate} disabled={generating} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#3B6CFF]/10 text-[#5AA9FF] text-xs font-medium hover:bg-[#3B6CFF]/20 disabled:opacity-50 transition-colors focus-visible:ring-2 focus-visible:ring-[#3B6CFF]/50">
+              <Play className="w-3.5 h-3.5" aria-hidden="true" /> 重新生成
+            </button>
+          )}
           {genError && (
             <p className="text-xs text-red-400 flex items-center gap-1">
               <AlertCircle className="w-3 h-3" aria-hidden="true" /> {genError}

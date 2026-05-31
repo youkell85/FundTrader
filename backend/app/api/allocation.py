@@ -1,7 +1,13 @@
 """资产配置API"""
+import asyncio
+import json
 import logging
+import queue
+import threading
+from typing import AsyncGenerator
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from starlette.concurrency import run_in_threadpool
 
 logger = logging.getLogger(__name__)
@@ -19,7 +25,7 @@ from ..allocation.models import (
     FeeAnalysisRequest, FeeAnalysisResponse, FeeAnalysisItem,
 )
 from ..allocation.orchestrator import run as run_allocation
-from ..allocation.orchestrator import generate_variants, get_pipeline_health
+from ..allocation.orchestrator import TaskCancelledError, generate_variants, get_pipeline_health
 from ..allocation.dual_engine import run_dual_comparison
 from ..allocation.explainability import generate_explain_report
 from ..allocation.what_if import WhatIfParams, run_what_if
@@ -75,6 +81,58 @@ async def explain_allocation(request: AllocationRequest):
         ],
         overall_summary=report.overall_summary,
         confidence_score=report.confidence_score,
+    )
+
+
+@router.post("/generate/stream")
+async def generate_allocation_stream(request: AllocationRequest) -> StreamingResponse:
+    """生成资产配置方案（SSE 流式） — 实时推送每步进度 + 支持取消"""
+
+    progress_queue: queue.Queue = queue.Queue()
+    cancel_event = threading.Event()
+
+    def _progress_callback(step: int, total: int, name: str, status: str, detail: str):
+        progress_queue.put({
+            "type": "progress",
+            "step": step, "total": total,
+            "name": name, "status": status, "detail": detail,
+        })
+
+    def _run_pipeline():
+        try:
+            result = run_allocation(request, _progress_callback, cancel_event)
+            progress_queue.put({"type": "result", "data": result.model_dump()})
+        except TaskCancelledError:
+            progress_queue.put({"type": "cancelled", "message": "任务已取消"})
+        except Exception as e:
+            logger.exception("Stream allocation failed")
+            progress_queue.put({"type": "error", "message": str(e)[:300]})
+
+    thread = threading.Thread(target=_run_pipeline, daemon=True)
+    thread.start()
+
+    async def _event_stream() -> AsyncGenerator[str, None]:
+        try:
+            while thread.is_alive() or not progress_queue.empty():
+                try:
+                    msg = progress_queue.get(timeout=0.1)
+                    yield f"data: {json.dumps(msg, ensure_ascii=False)}\n\n"
+                except queue.Empty:
+                    await asyncio.sleep(0.05)
+            yield "data: {\"type\": \"done\"}\n\n"
+        except asyncio.CancelledError:
+            cancel_event.set()
+        finally:
+            cancel_event.set()  # 确保客户端断开时取消后台线程
+
+    return StreamingResponse(
+        _event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
     )
 
 

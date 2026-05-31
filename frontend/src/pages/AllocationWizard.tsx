@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router';
-import { ArrowLeft, ArrowRight, Check, Shield, Target, TrendingUp, Users, Zap, Wallet, Loader2 } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, Shield, Target, TrendingUp, Users, Zap, Wallet } from 'lucide-react';
 import { useAllocationStore } from '@/store/allocationStore';
-import { trpc } from '@/providers/trpc';
+import { generateAllocationStream } from '@/lib/api';
+import AllocationProgress, { type StepState, STEP_LABELS } from '@/components/allocation/AllocationProgress';
 import { RISK_LABELS, GOAL_LABELS, HORIZON_LABELS } from '@/types/allocation';
 import type { GoalType, InvestmentHorizon, RiskTolerance } from '@/types/allocation';
 
@@ -60,24 +61,83 @@ export default function AllocationWizard() {
   const prev = () => dispatch({ type: "SET_STEP", step: Math.max(wizardStep - 1, 1) });
   const update = (patch: Partial<typeof config>) => dispatch({ type: "UPDATE_CONFIG", patch });
 
-  const allocateMutation = trpc.fund.allocate.useMutation({
-    onSuccess(data) {
-      dispatch({ type: "SET_OUTPUT", output: data });
-      navigate("/allocation/result");
-    },
-  });
+  // ─── 流式生成状态 ───
+  const [generating, setGenerating] = useState(false);
+  const [genError, setGenError] = useState<string | null>(null);
+  const [streamSteps, setStreamSteps] = useState<StepState[]>(() =>
+    Object.keys(STEP_LABELS).map(name => ({ name, status: "running" as const, detail: "" }))
+  );
+  const [currentStep, setCurrentStep] = useState(0);
+  const [elapsed, setElapsed] = useState(0);
+  const startTime = useRef(0);
+  const timerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
+  const streamCancelRef = useRef<{ cancel: () => void } | null>(null);
+
+  useEffect(() => {
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, []);
+
+  const startTimer = useCallback(() => {
+    startTime.current = Date.now();
+    timerRef.current = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - startTime.current) / 1000));
+    }, 200);
+  }, []);
+
+  const stopTimer = useCallback(() => {
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = undefined; }
+  }, []);
 
   const handleGenerate = () => {
-    allocateMutation.mutate({
-      age: config.age,
-      goal_type: config.goal_type || "wealth",
-      investment_horizon: config.investment_horizon || "medium",
-      amount: config.amount || 500000,
-      risk_tolerance: config.risk_tolerance,
-      max_drawdown: config.max_drawdown || 24,
-      preferred_tags: config.preferred_tags,
-      behavior_answers: config.behavior_answers || {},
-    });
+    setGenerating(true);
+    setGenError(null);
+    setCurrentStep(0);
+    setStreamSteps(Object.keys(STEP_LABELS).map(name => ({ name, status: "running" as const, detail: "" })));
+    startTimer();
+
+    streamCancelRef.current = generateAllocationStream(
+      {
+        age: config.age,
+        goal_type: config.goal_type || "wealth",
+        investment_horizon: config.investment_horizon || "medium",
+        amount: config.amount || 500000,
+        risk_tolerance: config.risk_tolerance,
+        max_drawdown: config.max_drawdown || 24,
+        preferred_tags: config.preferred_tags,
+        behavior_answers: config.behavior_answers || {},
+      },
+      // onProgress
+      (step, _total, name, status, detail) => {
+        setCurrentStep(step);
+        setStreamSteps(prev => prev.map(s =>
+          s.name === name ? { ...s, status: status as StepState["status"], detail } : s
+        ));
+      },
+      // onDone
+      (result) => {
+        stopTimer();
+        setGenerating(false);
+        dispatch({ type: "SET_OUTPUT", output: result });
+        navigate("/allocation/result");
+      },
+      // onError
+      (msg) => {
+        stopTimer();
+        setGenerating(false);
+        setGenError(msg);
+      },
+      // onCancelled
+      () => {
+        stopTimer();
+        setGenerating(false);
+      },
+    );
+  };
+
+  const handleCancelGenerate = () => {
+    streamCancelRef.current?.cancel();
+    stopTimer();
+    setGenerating(false);
   };
 
   const behaviorAvg = config.behavior_answers ? (() => {
@@ -156,8 +216,22 @@ export default function AllocationWizard() {
             <div className="space-y-6">
               <h2 className="text-lg text-white font-medium flex items-center gap-2"><Check className="w-5 h-5" style={{color:"#16C784"}} />确认配置</h2>
               <div className="rounded-lg border border-white/[0.06] bg-white/[0.025] p-5 space-y-3">{[["年龄", `${config.age}岁`],["投资目标", GOAL_LABELS[config.goal_type||"wealth"]],["投资金额", `${(config.amount||0).toLocaleString()}元`],["投资期限", HORIZON_LABELS[config.investment_horizon||"medium"]],["风险偏好", `${RISK_LABELS[config.risk_tolerance]}${behaviorAvg !== null && calibratedRisk !== config.risk_tolerance ? ' → 建议'+RISK_LABELS[calibratedRisk] : ''}`],["最大回撤", `${config.max_drawdown}%`],["资产偏好", config.preferred_tags.length > 0 ? config.preferred_tags.map(t => TAG_OPTIONS.find(o=>o.key===t)?.label).join("、") : "无特殊偏好"]].map(([l,v]) => (<div key={l} className="flex justify-between text-sm"><span className="text-white/45">{l}</span><span className="text-white/80">{v}</span></div>))}</div>
-              <button onClick={handleGenerate} disabled={allocateMutation.isPending} className="w-full h-12 rounded-lg bg-gradient-to-r from-[#3B6CFF] to-[#2A52CC] text-white font-medium text-sm flex items-center justify-center gap-2 hover:from-[#4B7CFF] hover:to-[#3A62DC] transition-all disabled:opacity-60 disabled:cursor-wait">{allocateMutation.isPending ? <><Loader2 className="w-4 h-4 animate-spin" /> 引擎计算中...</> : <><Zap className="w-4 h-4" /> 生成配置方案</>}</button>
-              {allocateMutation.isError && <p className="text-xs text-[#EE6666] mt-2">生成失败: {allocateMutation.error?.message || '请稍后重试'}</p>}
+
+              {generating ? (
+                <AllocationProgress
+                  steps={streamSteps}
+                  currentStep={currentStep}
+                  totalSteps={14}
+                  elapsed={elapsed}
+                  onCancel={handleCancelGenerate}
+                />
+              ) : (
+                <button onClick={handleGenerate} className="w-full h-12 rounded-lg bg-gradient-to-r from-[#3B6CFF] to-[#2A52CC] text-white font-medium text-sm flex items-center justify-center gap-2 hover:from-[#4B7CFF] hover:to-[#3A62DC] transition-all">
+                  <Zap className="w-4 h-4" /> 生成配置方案
+                </button>
+              )}
+
+              {genError && <p className="text-xs text-[#EE6666] mt-2">生成失败: {genError}</p>}
             </div>
           )}
 

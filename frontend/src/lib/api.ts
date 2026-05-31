@@ -189,6 +189,75 @@ export async function generateAllocation(params: import("@/types/allocation").Al
   });
 }
 
+/** SSE 流式生成配置 — 返回 { cancel } 用于取消 */
+export function generateAllocationStream(
+  params: import("@/types/allocation").AllocationRequest,
+  onProgress?: (step: number, total: number, name: string, status: string, detail: string) => void,
+  onDone?: (result: import("@/types/allocation").AllocationResponse) => void,
+  onError?: (message: string) => void,
+  onCancelled?: () => void,
+): { cancel: () => void } {
+  const controller = new AbortController();
+
+  (async () => {
+    try {
+      const res = await fetch(`${API_BASE}/allocation/generate/stream`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(params),
+        signal: controller.signal,
+      });
+
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error("Stream not supported");
+
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            try {
+              const msg = JSON.parse(line.slice(6));
+              switch (msg.type) {
+                case "progress":
+                  onProgress?.(msg.step, msg.total, msg.name, msg.status, msg.detail);
+                  break;
+                case "result":
+                  onDone?.(msg.data);
+                  break;
+                case "error":
+                  onError?.(msg.message);
+                  break;
+                case "cancelled":
+                  onCancelled?.();
+                  break;
+              }
+            } catch { /* skip parse errors */ }
+          }
+        }
+      }
+    } catch (e: any) {
+      if (e?.name === "AbortError") {
+        onCancelled?.();
+      } else {
+        onError?.(e?.message || "流式请求失败");
+      }
+    }
+  })();
+
+  return { cancel: () => controller.abort() };
+}
+
 // ==================== 三方案输出 ====================
 export async function generateVariants(params: import("@/types/allocation").AllocationRequest) {
   return fetchJson<import("@/types/allocation").VariantsResponse>("/allocation/variants", {

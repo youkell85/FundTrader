@@ -1,9 +1,10 @@
 """Orchestrator — 14-step allocation pipeline controller with per-step diagnostics."""
 import logging
+import threading
 import time
 from copy import deepcopy
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from .circuit_breaker import evaluate_breaker, get_breaker_status
 from .cma_manager import estimate_cma
@@ -31,6 +32,11 @@ from .stress_test import run_stress_tests
 from .taa_engine import adjust_taa
 
 logger = logging.getLogger(__name__)
+
+
+class TaskCancelledError(Exception):
+    """Raised when a pipeline task is cancelled by the user."""
+    pass
 
 # ─── Pipeline Diagnostics ───
 _STEP_NAMES = [
@@ -86,7 +92,11 @@ def _record_run(diags: List[_StepDiag], warnings: List[str], total_ms: float):
     return record
 
 
-def run(request: AllocationRequest) -> AllocationResponse:
+def run(
+    request: AllocationRequest,
+    progress_callback: Optional[Callable[[int, int, str, str, str], None]] = None,
+    cancel_event: Optional[threading.Event] = None,
+) -> AllocationResponse:
     """Execute the full 14-step allocation pipeline with per-step diagnostics.
 
     Steps:
@@ -104,15 +114,31 @@ def run(request: AllocationRequest) -> AllocationResponse:
       12. Scenario Analysis
       13. Portfolio Metrics
       14. Output Assembly
+
+    Args:
+        request: Allocation request parameters.
+        progress_callback: Called after each step: (step_num, total, name, status, detail).
+        cancel_event: If set, raises TaskCancelledError before next step.
     """
+    TOTAL_STEPS = 14
+
+    def _check_cancel():
+        if cancel_event and cancel_event.is_set():
+            raise TaskCancelledError("任务已被用户取消")
+
     warnings: List[str] = []
     diags: List[_StepDiag] = []
     t_total = time.monotonic()
 
     def _step(name: str) -> _StepDiag:
+        _check_cancel()
         d = _StepDiag(name)
         diags.append(d)
         return d
+
+    def _notify(step_num: int, diag: _StepDiag):
+        if progress_callback:
+            progress_callback(step_num, TOTAL_STEPS, diag.name, diag.status, diag.detail or "")
 
     # ─── Step 1: Risk Profiling ───
     d = _step("risk_profiling")
@@ -124,7 +150,9 @@ def run(request: AllocationRequest) -> AllocationResponse:
         d.status = "error"
         d.detail = str(e)[:100]
         d.elapsed_ms = (time.monotonic() - t0) * 1000
+        _notify(1, d)
         raise
+    _notify(1, d)
 
     # ─── Step 2: CMA Estimation ───
     d = _step("cma_estimation")
@@ -146,6 +174,7 @@ def run(request: AllocationRequest) -> AllocationResponse:
             volatilities=EQUILIBRIUM_VOLS,
             covariance_matrix=DEFAULT_CORR,
         )
+    _notify(2, d)
 
     # ─── Step 3: SAA Optimization ───
     d = _step("saa_optimization")
@@ -161,7 +190,9 @@ def run(request: AllocationRequest) -> AllocationResponse:
         d.status = "error"
         d.detail = str(e)[:100]
         d.elapsed_ms = (time.monotonic() - t0) * 1000
+        _notify(3, d)
         raise
+    _notify(3, d)
 
     allocations = saa_result["allocations"]
 
@@ -172,6 +203,7 @@ def run(request: AllocationRequest) -> AllocationResponse:
     if not regime.is_confirmed:
         d.status = "degraded"
         d.detail += f" pending={regime.pending_regime}"
+    _notify(4, d)
 
     # ─── Step 5: TAA Adjustment ───
     d = _step("taa_adjustment")
@@ -183,7 +215,9 @@ def run(request: AllocationRequest) -> AllocationResponse:
         d.status = "error"
         d.detail = str(e)[:100]
         d.elapsed_ms = (time.monotonic() - t0) * 1000
+        _notify(5, d)
         raise
+    _notify(5, d)
 
     taa_allocations = taa_result.taa_adjusted
     taa_skipped = all(abs(v) < 0.001 for v in taa_result.adjustments.values())
@@ -202,7 +236,9 @@ def run(request: AllocationRequest) -> AllocationResponse:
         d.status = "error"
         d.detail = str(e)[:100]
         d.elapsed_ms = (time.monotonic() - t0) * 1000
+        _notify(6, d)
         raise
+    _notify(6, d)
 
     # ─── Step 7: Constraint Check ───
     d = _step("constraint_check")
@@ -218,7 +254,9 @@ def run(request: AllocationRequest) -> AllocationResponse:
         d.status = "error"
         d.detail = str(e)[:100]
         d.elapsed_ms = (time.monotonic() - t0) * 1000
+        _notify(7, d)
         raise
+    _notify(7, d)
 
     # ─── Step 8: Fund Mapping ───
     d = _step("fund_mapping")
@@ -234,7 +272,9 @@ def run(request: AllocationRequest) -> AllocationResponse:
         d.status = "error"
         d.detail = str(e)[:100]
         d.elapsed_ms = (time.monotonic() - t0) * 1000
+        _notify(8, d)
         raise
+    _notify(8, d)
 
     # ─── Step 9: Monte Carlo ───
     d = _step("monte_carlo")
@@ -248,6 +288,7 @@ def run(request: AllocationRequest) -> AllocationResponse:
         d.detail = str(e)[:100]
         d.elapsed_ms = (time.monotonic() - t0) * 1000
         warnings.append(f"蒙特卡洛模拟异常: {str(e)[:50]}")
+    _notify(9, d)
 
     # ─── Step 10: Stress Test ───
     d = _step("stress_test")
@@ -262,6 +303,7 @@ def run(request: AllocationRequest) -> AllocationResponse:
         d.elapsed_ms = (time.monotonic() - t0) * 1000
         warnings.append("压力测试不可用，已跳过")
         logger.exception("Stress test failed, skipping")
+    _notify(10, d)
 
     # Convert stress results: fractions → percentages + currency
     amount = request.amount
@@ -279,7 +321,9 @@ def run(request: AllocationRequest) -> AllocationResponse:
         d.status = "error"
         d.detail = str(e)[:100]
         d.elapsed_ms = (time.monotonic() - t0) * 1000
+        _notify(11, d)
         raise
+    _notify(11, d)
 
     # ─── Step 12: Scenario Analysis ───
     d = _step("scenario_analysis")
@@ -295,13 +339,16 @@ def run(request: AllocationRequest) -> AllocationResponse:
         d.status = "error"
         d.detail = str(e)[:100]
         d.elapsed_ms = (time.monotonic() - t0) * 1000
+        _notify(12, d)
         raise
+    _notify(12, d)
 
     # ─── Step 13: Portfolio Metrics ───
     d = _step("portfolio_metrics")
     t0 = time.monotonic()
     portfolio_metrics = _compute_portfolio_metrics(saa_result, mc_result, fund_list)
     d.elapsed_ms = (time.monotonic() - t0) * 1000
+    _notify(13, d)
 
     # Convert fund weights: fractions → percentages
     for f in fund_list:
@@ -363,6 +410,7 @@ def run(request: AllocationRequest) -> AllocationResponse:
     )
 
     d.elapsed_ms = (time.monotonic() - t0) * 1000
+    _notify(14, d)
 
     # Record diagnostics
     total_ms = (time.monotonic() - t_total) * 1000
