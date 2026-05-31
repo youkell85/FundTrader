@@ -199,6 +199,24 @@ class Database:
                     source TEXT DEFAULT 'auto'
                 );
 
+                -- 基金快照表（每个交易日收盘后批量更新）
+                CREATE TABLE IF NOT EXISTS fund_snapshot (
+                    code TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    type TEXT NOT NULL DEFAULT '',
+                    nav REAL DEFAULT 0,
+                    day_growth REAL DEFAULT 0,
+                    near_1m REAL DEFAULT 0,
+                    near_3m REAL DEFAULT 0,
+                    near_6m REAL DEFAULT 0,
+                    near_1y REAL DEFAULT 0,
+                    near_3y REAL DEFAULT 0,
+                    ytd REAL DEFAULT 0,
+                    tags_json TEXT DEFAULT '[]',
+                    company TEXT DEFAULT '',
+                    updated_at TEXT NOT NULL
+                );
+
                 -- 索引
                 CREATE INDEX IF NOT EXISTS idx_plans_created ON allocation_plans(created_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_plans_risk ON allocation_plans(risk_profile);
@@ -964,3 +982,43 @@ class UserStore:
         params.append(user_id)
         with get_db() as conn:
             conn.execute(f"UPDATE users SET {', '.join(updates)} WHERE id = ?", params)
+
+
+# ─── Fund Snapshot Cache ─────────────────────────────────────────────────────
+
+class FundSnapshotCache:
+    """SQLite-backed fund data snapshot. Updated once per trading day."""
+
+    @staticmethod
+    def save_batch(rows: list) -> None:
+        """Save fund snapshots. rows: [(code, name, type, nav, day_growth, near_1m, near_3m, near_6m, near_1y, near_3y, ytd, tags_json, company, updated_at), ...]"""
+        with get_db() as conn:
+            conn.executemany(
+                """INSERT OR REPLACE INTO fund_snapshot
+                   (code, name, type, nav, day_growth, near_1m, near_3m, near_6m, near_1y, near_3y, ytd, tags_json, company, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                rows
+            )
+
+    @staticmethod
+    def get_all() -> list:
+        """Get all cached fund snapshots."""
+        with get_db() as conn:
+            rows = conn.execute(
+                "SELECT * FROM fund_snapshot ORDER BY code"
+            ).fetchall()
+            return [dict(r) for r in rows]
+
+    @staticmethod
+    def get_codes() -> set:
+        """Get all cached fund codes."""
+        with get_db() as conn:
+            rows = conn.execute("SELECT code FROM fund_snapshot").fetchall()
+            return {r["code"] for r in rows}
+
+    @staticmethod
+    def get_last_update() -> str | None:
+        """Get the timestamp of the most recent snapshot update."""
+        with get_db() as conn:
+            row = conn.execute("SELECT MAX(updated_at) as t FROM fund_snapshot").fetchone()
+            return row["t"] if row else None

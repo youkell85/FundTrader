@@ -8,6 +8,7 @@
 - 基金费率 → efinance（Tushare 不提供费率字段）
 - 持仓/经理 → Tushare fund_portfolio / fund_manager → akshare 补充学历信息
 """
+import json
 import math
 import os
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
@@ -186,15 +187,37 @@ def _get_watchlist_with_performance(watchlist: List[Dict[str, Any]]) -> List[Dic
 
 
 def _get_guoyuan_funds_with_performance() -> List[Dict[str, Any]]:
-    """获取国元证券基金名单及业绩数据（批量模式）"""
+    """获取国元证券基金名单及业绩数据（SQLite优先，API回退）"""
+    # 1. Try SQLite snapshot (updated once per trading day)
+    try:
+        from app.storage.database import FundSnapshotCache
+        cached = FundSnapshotCache.get_all()
+        if cached and len(cached) >= 100:
+            result = []
+            for row in cached:
+                fund_data = {
+                    "code": row["code"], "name": row["name"], "type": row["type"],
+                    "nav": row["nav"], "day_growth": row["day_growth"],
+                    "near_1m": row["near_1m"], "near_3m": row["near_3m"],
+                    "near_6m": row["near_6m"], "near_1y": row["near_1y"],
+                    "near_3y": row["near_3y"], "ytd": row["ytd"],
+                    "tags": json.loads(row.get("tags_json", "[]")),
+                    "company": row.get("company", ""),
+                    "is_xinjihui": True,
+                }
+                result.append(fund_data)
+            return result
+    except Exception:
+        pass
+
+    # 2. Fallback to in-memory cache
     cache_key = "guoyuan_funds_performance"
     result = cache.get(cache_key, CACHE_TTL_RANKING)
     if result is not None:
         return result
 
-    # 一次akshare调用获取全市场业绩，然后按需匹配；冷启动超时时先返回基础名单，避免首页被外部数据源卡死。
+    # 3. API fetch
     all_perf = _fetch_all_fund_performance_with_timeout()
-
     result = []
     for fund in GUOYUAN_FUND_LIST:
         fund_data = dict(fund)
@@ -202,7 +225,6 @@ def _get_guoyuan_funds_with_performance() -> List[Dict[str, Any]]:
         if perf:
             fund_data.update(perf)
         result.append(fund_data)
-
     cache.set(cache_key, result)
     return result
 
