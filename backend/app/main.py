@@ -111,6 +111,15 @@ async def market_data_status():
     return market_data_service.get_status()
 
 
+@app.post("/market-data/refresh")
+async def market_data_refresh():
+    """Force refresh market data immediately (async, returns immediately)."""
+    from .allocation.data import market_data_service
+    import asyncio
+    asyncio.create_task(asyncio.to_thread(market_data_service.refresh))
+    return {"status": "refresh_started"}
+
+
 if __name__ == "__main__":
     import uvicorn
     from .config import API_HOST, API_PORT
