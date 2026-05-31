@@ -9,12 +9,11 @@ import { ftFetch } from "./lib/fundtrader-client";
 function cookieOptions(headers: Headers, maxAge?: number) {
   const host = headers.get("host") || "";
   const localhost = host.startsWith("localhost:") || host.startsWith("127.0.0.1:");
-  const proto = headers.get("x-forwarded-proto") || "https";
   return {
     httpOnly: true,
     path: "/",
     sameSite: "lax" as const,
-    secure: proto === "https" && !localhost,
+    secure: !localhost && (headers.get("x-forwarded-proto") || "http") === "https",
     maxAge,
   };
 }
