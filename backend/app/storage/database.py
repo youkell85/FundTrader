@@ -89,11 +89,22 @@ class Database:
                     updated_at TEXT NOT NULL
                 );
 
+                -- 宏观数据历史表 (月频/季频经济指标缓存)
+                CREATE TABLE IF NOT EXISTS macro_history (
+                    indicator TEXT NOT NULL,
+                    value REAL NOT NULL,
+                    date TEXT NOT NULL,
+                    source TEXT NOT NULL DEFAULT 'api',
+                    fetched_at TEXT NOT NULL,
+                    PRIMARY KEY (indicator, date)
+                );
+
                 -- 索引
                 CREATE INDEX IF NOT EXISTS idx_plans_created ON allocation_plans(created_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_plans_risk ON allocation_plans(risk_profile);
                 CREATE INDEX IF NOT EXISTS idx_rebalance_date ON rebalance_history(executed_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_rebalance_plan ON rebalance_history(plan_id);
+                CREATE INDEX IF NOT EXISTS idx_macro_indicator ON macro_history(indicator, date DESC);
             """)
 
     # ─── Allocation Plans ───
@@ -362,3 +373,105 @@ def init_db():
 def get_db_context():
     """Alias for get_db context manager."""
     return get_db()
+
+
+# ─── Macro History Cache ───────────────────────────────────────────────────────
+
+class MacroCache:
+    """SQLite-backed cache for macroeconomic indicator time series.
+
+    TTL-aware: daily indicators expire after 4h, monthly after 24h, quarterly after 7d.
+    """
+
+    # TTL in seconds by data frequency
+    TTL = {
+        "daily": 14400,      # 4 hours
+        "monthly": 86400,    # 24 hours
+        "quarterly": 604800, # 7 days
+    }
+
+    # Indicator frequency mapping
+    FREQ = {
+        "PMI制造业": "monthly", "GDP同比": "quarterly",
+        "CPI同比": "monthly", "PPI同比": "monthly",
+        "10Y国债收益率": "daily", "DR007": "daily",
+        "社融增量": "monthly", "M2增速": "monthly",
+        "融资余额变化": "daily", "北向资金净流入": "daily",
+        "财政赤字率": "quarterly", "美联储利率": "monthly",
+        "美元指数": "daily",
+    }
+
+    @staticmethod
+    def save(indicator: str, value: float, date: str, source: str = "api"):
+        """Save a macro indicator value. Uses INSERT OR REPLACE."""
+        from datetime import datetime
+        with get_db() as conn:
+            conn.execute(
+                """INSERT OR REPLACE INTO macro_history
+                   (indicator, value, date, source, fetched_at)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (indicator, value, date, source, datetime.now().isoformat())
+            )
+
+    @staticmethod
+    def save_batch(rows: list):
+        """Save multiple indicators at once. rows: [(indicator, value, date, source), ...]"""
+        from datetime import datetime
+        now = datetime.now().isoformat()
+        with get_db() as conn:
+            conn.executemany(
+                """INSERT OR REPLACE INTO macro_history
+                   (indicator, value, date, source, fetched_at)
+                   VALUES (?, ?, ?, ?, ?)""",
+                [(r[0], r[1], r[2], r[3] if len(r) > 3 else "api", now) for r in rows]
+            )
+
+    @staticmethod
+    def get(indicator: str) -> Optional[float]:
+        """Get the latest cached value for an indicator. Returns None if expired or missing."""
+        from datetime import datetime, timedelta
+        freq = MacroCache.FREQ.get(indicator, "monthly")
+        ttl = MacroCache.TTL.get(freq, 86400)
+        cutoff = (datetime.now() - timedelta(seconds=ttl)).isoformat()
+
+        with get_db() as conn:
+            row = conn.execute(
+                """SELECT value, date, source, fetched_at FROM macro_history
+                   WHERE indicator = ? AND fetched_at > ?
+                   ORDER BY date DESC LIMIT 1""",
+                (indicator, cutoff)
+            ).fetchone()
+            if row:
+                return row["value"]
+        return None
+
+    @staticmethod
+    def get_all() -> dict:
+        """Get all non-expired cached values. Returns {indicator: value}."""
+        from datetime import datetime, timedelta
+        with get_db() as conn:
+            result = {}
+            for indicator, freq in MacroCache.FREQ.items():
+                ttl = MacroCache.TTL.get(freq, 86400)
+                cutoff = (datetime.now() - timedelta(seconds=ttl)).isoformat()
+                row = conn.execute(
+                    """SELECT value FROM macro_history
+                       WHERE indicator = ? AND fetched_at > ?
+                       ORDER BY date DESC LIMIT 1""",
+                    (indicator, cutoff)
+                ).fetchone()
+                if row:
+                    result[indicator] = row["value"]
+            return result
+
+    @staticmethod
+    def get_history(indicator: str, limit: int = 24) -> list:
+        """Get historical time series for an indicator. Returns [(date, value, source), ...]"""
+        with get_db() as conn:
+            rows = conn.execute(
+                """SELECT date, value, source FROM macro_history
+                   WHERE indicator = ?
+                   ORDER BY date DESC LIMIT ?""",
+                (indicator, limit)
+            ).fetchall()
+            return [(r["date"], r["value"], r["source"]) for r in rows]

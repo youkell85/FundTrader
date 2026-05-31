@@ -42,10 +42,14 @@ class MarketDataService:
             snapshot = macro_fetcher.fetch_all()
             with self._lock:
                 self._macro_snapshot = snapshot
+            # Save to SQLite for persistence across restarts
+            self._save_macro_to_db(snapshot)
             valid_count = sum(1 for ind in snapshot.indicators.values() if ind.value is not None)
             logger.info(f"  Macro: {valid_count}/13 indicators fetched (confidence={snapshot.overall_confidence:.2f})")
         except Exception as e:
             logger.error(f"  Macro fetch failed: {e}")
+            # Try loading from SQLite cache
+            self._load_macro_from_db()
 
         # 2. Rolling ETF statistics (basic + extended multi-window)
         try:
@@ -219,6 +223,45 @@ class MarketDataService:
                 "rolling_stats_available": self._rolling_stats is not None,
                 "vol_ratio": self._vol_snapshot.vol_ratio if self._vol_snapshot else None,
             }
+
+    def _save_macro_to_db(self, snapshot) -> None:
+        """Persist macro indicators to SQLite for cross-restart survival."""
+        try:
+            from app.storage.database import MacroCache
+            today = datetime.now().strftime("%Y-%m")
+            rows = []
+            for name, ind in snapshot.indicators.items():
+                if ind.value is not None:
+                    rows.append((name, ind.value, today, ind.source if hasattr(ind, 'source') else "api"))
+            if rows:
+                MacroCache.save_batch(rows)
+                logger.debug(f"Saved {len(rows)} macro indicators to SQLite")
+        except Exception as e:
+            logger.debug(f"Failed to save macro to SQLite: {e}")
+
+    def _load_macro_from_db(self) -> None:
+        """Load macro indicators from SQLite cache (used when API fetch fails)."""
+        try:
+            from app.storage.database import MacroCache
+            cached = MacroCache.get_all()
+            if cached:
+                from .models import MacroIndicator, MacroSnapshot
+                indicators = {}
+                for name, value in cached.items():
+                    indicators[name] = MacroIndicator(
+                        name=name, value=value, source="sqlite_cache",
+                        confidence=0.7, fetch_time=datetime.now().isoformat(),
+                    )
+                snapshot = MacroSnapshot(
+                    indicators=indicators,
+                    overall_confidence=0.7,
+                )
+                with self._lock:
+                    self._macro_snapshot = snapshot
+                    self._last_refresh = datetime.now().isoformat()
+                logger.info(f"Loaded {len(cached)} macro indicators from SQLite cache")
+        except Exception as e:
+            logger.debug(f"Failed to load macro from SQLite: {e}")
 
 
 # Module-level singleton
