@@ -1,6 +1,7 @@
 """FundTrader FastAPI 主入口"""
 import asyncio
 import logging
+from datetime import datetime
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -23,6 +24,111 @@ async def _background_refresh_loop():
             await asyncio.to_thread(market_data_service.refresh)
         except Exception as e:
             logger.error(f"Background refresh failed: {e}")
+
+
+async def _fund_snapshot_scheduler():
+    """Background task: refresh fund snapshots on trading days after market close."""
+    while True:
+        await asyncio.sleep(1800)  # Check every 30 minutes
+        try:
+            if not _is_trading_day():
+                continue
+            now = datetime.now()
+            # Market close 15:00 CST = 07:00 UTC (Singapore = UTC+8)
+            close_hour = 15
+            if now.hour < close_hour:
+                continue
+            # Only refresh if not already refreshed today
+            last = _get_last_snapshot_date()
+            today = now.strftime("%Y-%m-%d")
+            if last == today:
+                continue
+            logger.info(f"Trading day {today}: refreshing fund snapshots...")
+            _do_fund_snapshot_refresh()
+        except Exception as e:
+            logger.error(f"Fund snapshot scheduler error: {e}")
+
+
+def _is_trading_day() -> bool:
+    """Check if today is a Chinese A-share trading day. Uses Tushare if available, falls back to weekday check."""
+    from datetime import date, timedelta
+    today = date.today()
+    # Quick check: weekend
+    if today.weekday() >= 5:
+        return False
+    # Try Tushare
+    try:
+        from .config import TUSHARE_TOKEN
+        if TUSHARE_TOKEN:
+            import tushare as ts
+            ts.set_token(TUSHARE_TOKEN)
+            pro = ts.pro_api()
+            df = pro.trade_cal(exchange="SSE", start_date=today.strftime("%Y%m%d"), end_date=today.strftime("%Y%m%d"))
+            if df is not None and not df.empty:
+                return int(df.iloc[0]["is_open"]) == 1
+    except Exception:
+        pass
+    return True  # Fallback: assume it's a trading day
+
+
+def _get_last_snapshot_date() -> str | None:
+    """Get the date of the most recent fund snapshot."""
+    try:
+        from .storage.database import FundSnapshotCache
+        ts = FundSnapshotCache.get_last_update()
+        if ts:
+            return ts[:10]
+    except Exception:
+        pass
+    return None
+
+
+def _do_fund_snapshot_refresh():
+    """Execute fund snapshot refresh synchronously."""
+    import akshare as ak
+    import json as _json
+    from .storage.database import FundSnapshotCache
+    from .constants.guoyuan_funds import GUOYUAN_FUND_LIST
+
+    codes = {f["code"] for f in GUOYUAN_FUND_LIST}
+    cached = FundSnapshotCache.get_codes()
+
+    df = ak.fund_open_fund_rank_em(symbol="全部")
+    if df is None or df.empty:
+        logger.warning("Fund snapshot: akshare returned empty")
+        return
+
+    now_str = datetime.now().isoformat()
+    rows = []
+    for _, row in df.iterrows():
+        code = str(row.get("基金代码", "")).strip()
+        if code not in codes and code not in cached:
+            continue
+        try:
+            rows.append((
+                code,
+                str(row.get("基金简称", "")),
+                str(row.get("基金类型", "")),
+                float(row.get("单位净值", 0) or 0),
+                float(row.get("日增长率", 0) or 0),
+                float(row.get("近1月", 0) or 0),
+                float(row.get("近3月", 0) or 0),
+                float(row.get("近6月", 0) or 0),
+                float(row.get("近1年", 0) or 0),
+                float(row.get("近3年", 0) or 0),
+                float(row.get("今年以来", 0) or 0),
+                _json.dumps(["鑫基荟"], ensure_ascii=False),
+                "",
+                now_str,
+            ))
+        except (ValueError, TypeError):
+            continue
+
+    if rows:
+        FundSnapshotCache.save_batch(rows)
+        logger.info(f"Fund snapshot refreshed: {len(rows)} funds")
+    else:
+        logger.warning("Fund snapshot: no matching funds found")
 
 
 @asynccontextmanager
@@ -52,11 +158,13 @@ async def lifespan(app: FastAPI):
         from .allocation.data.market_data_service import market_data_service as mds
         mds._load_macro_from_db()
 
-    # Spawn background refresh task
+    # Spawn background refresh tasks
     task = asyncio.create_task(_background_refresh_loop())
+    fund_task = asyncio.create_task(_fund_snapshot_scheduler())
     yield
-    # Shutdown: cancel background task
+    # Shutdown: cancel background tasks
     task.cancel()
+    fund_task.cancel()
     try:
         await task
     except asyncio.CancelledError:
