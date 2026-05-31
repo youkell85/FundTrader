@@ -243,7 +243,7 @@ function scheduleHomeFundsPrewarm() {
   }, 100);
 }
 
-function refreshHomeCaches(reason: string) {
+function refreshHomeCaches(reason: string, retries = 3) {
   invalidateCache("homeFunds");
   invalidateCache("homeFundSummaries");
   invalidateCache("marketOverview");
@@ -254,7 +254,13 @@ function refreshHomeCaches(reason: string) {
       setCache("marketOverview", overview, dailyCacheTtl());
     })
     .catch((err) => {
-      console.error(`[fundRouter] 首页缓存刷新失败(${reason}):`, err);
+      if (retries > 0) {
+        const delay = reason === "startup" ? 5000 : 30000;
+        console.warn(`[fundRouter] 首页缓存刷新失败(${reason}), ${retries}次重试剩余, ${delay / 1000}s后重试:`, err.message || err);
+        setTimeout(() => refreshHomeCaches(reason, retries - 1), delay);
+      } else {
+        console.error(`[fundRouter] 首页缓存刷新失败(${reason}), 已耗尽重试:`, err);
+      }
     });
 }
 
@@ -520,7 +526,7 @@ async function fetchPeerMarketRanking(category: string) {
 }
 
 if (process.env.FUNDTRADER_DISABLE_AUTO_PREWARM !== "true") {
-  const startupTimer = setTimeout(() => refreshHomeCaches("startup"), 1000);
+  const startupTimer = setTimeout(() => refreshHomeCaches("startup"), 5000);
   startupTimer.unref?.();
   scheduleDailyHomePrewarm();
 }
@@ -554,15 +560,16 @@ export const fundRouter = createRouter({
         // 首页优先返回已预热的完整缓存；冷启动时先返回轻量列表，后台继续预热风险指标?
         let rawFunds = getCached<any[]>("homeFunds");
         if (opts.withMetrics) {
-          if (!rawFunds || !hasAnyRiskMetrics(rawFunds)) {
-            rawFunds = await withTimeout(fetchHomeFunds(), 85 * 1000, async () => {
-              scheduleHomeFundsPrewarm();
-              return getCached<any[]>("homeFunds") || await fetchHomeFundSummaries();
-            });
+          // Fast path: use backend's SQLite-cached fund list directly
+          if (!rawFunds) {
+            const backendFunds = await fetchAllFundList({ guoyuan_only: true });
+            rawFunds = backendFunds.map((f: any) => ({ ...f, _source: "xinjihui", is_xinjihui: true }));
+            setCache("homeFunds", rawFunds, 300_000);
           }
-        } else if (!rawFunds || !hasAnyRiskMetrics(rawFunds)) {
-          rawFunds = await fetchHomeFundSummaries();
-          scheduleHomeFundsPrewarm();
+        } else if (!rawFunds) {
+          const backendFunds = await fetchAllFundList({ guoyuan_only: true });
+          rawFunds = backendFunds.map((f: any) => ({ ...f, _source: "xinjihui", is_xinjihui: true }));
+          setCache("homeFunds", rawFunds, 300_000);
         }
         let result = rawFunds.map(mapFundItem).filter(Boolean);
         if (ctx.user) {
