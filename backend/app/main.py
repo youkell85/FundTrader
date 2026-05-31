@@ -99,7 +99,7 @@ async def full_path_health():
     return {"status": "ok", "service": "FundTrader"}
 
 
-@app.get("/api/market-data/status")
+@app.get("/market-data/status")
 async def market_data_status():
     """Check market data service status."""
     from .allocation.data import market_data_service

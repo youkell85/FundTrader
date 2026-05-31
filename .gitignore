@@ -27,5 +27,6 @@ tmp/
 temp/
 .qoder/
 backend/data/
-data/
+/data/
+!backend/app/allocation/data/
 Qoder_Lighthouse_MCP_*.md
