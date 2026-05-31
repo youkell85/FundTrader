@@ -108,6 +108,7 @@ class FundItem(BaseModel):
     name: str
     type: str
     asset_class: str
+    company: str = ""
     weight: float
     amount: float
     role: str

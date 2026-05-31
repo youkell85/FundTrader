@@ -55,6 +55,7 @@ export interface BusinessCycle {
 }
 export interface FundItem {
   code: string; name: string; type: string; asset_class: string;
+  company: string;
   weight: number; amount: number; role: string; reason: string; score: number;
 }
 export interface StressScenarioItem { scenario: string; impact: number; max_loss: number; }

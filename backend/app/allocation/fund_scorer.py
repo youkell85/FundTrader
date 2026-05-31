@@ -22,6 +22,7 @@ class FundProfile:
     name: str
     fund_type: str
     asset_class: str
+    company: str = ""              # 基金公司
     # 费率
     management_fee: float = 0.005  # 年管理费率
     custody_fee: float = 0.001    # 年托管费率
@@ -46,6 +47,7 @@ class FundScore:
     name: str
     fund_type: str
     asset_class: str
+    company: str = ""
     # 五维度归一化分 (0-100)
     tracking_score: float = 0.0
     liquidity_score: float = 0.0
@@ -81,6 +83,7 @@ def score_fund(profile: FundProfile, peers: List[FundProfile]) -> FundScore:
         name=profile.name,
         fund_type=profile.fund_type,
         asset_class=profile.asset_class,
+        company=profile.company,
     )
 
     # 1. 跟踪质量 — 跟踪误差越小越好
