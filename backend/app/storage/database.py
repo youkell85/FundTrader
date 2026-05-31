@@ -727,7 +727,15 @@ class RegimeHistoryCache:
             return [dict(r) for r in rows]
 
 
-# ─── User Store ───────────────────────────────────────────────────────────────
+# ─── User Store ───
+    @staticmethod
+    def cleanup_expired_sessions() -> int:
+        """Delete expired sessions. Returns count of deleted rows."""
+        from datetime import datetime
+        with get_db() as conn:
+            cur = conn.execute("DELETE FROM sessions WHERE expires_at < ?", (datetime.now().isoformat(),))
+            return cur.rowcount
+
 
 class UserStore:
     """SQLite-backed user & session management. Replaces JSON file store."""
@@ -742,14 +750,14 @@ class UserStore:
             if count > 0:
                 return
             salt = os.urandom(16)
-            pw = hashlib.pbkdf2_hmac("sha256", b"admin", salt, 120000)
+            pw = hashlib.pbkdf2_hmac("sha256", b"admin123", salt, 120000)
             now = datetime.now().isoformat()
             conn.execute(
                 """INSERT INTO users (id, username, password_hash, password_salt, display_name, role, created_at, updated_at)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 (str(uuid.uuid4()), "admin", pw.hex(), salt.hex(), "管理员", "admin", now, now)
             )
-            print("[UserStore] Seeded admin user (admin/admin)")
+            print("[UserStore] Seeded admin user")
 
     @staticmethod
     def register(username: str, password: str, display_name: str = "") -> dict | None:

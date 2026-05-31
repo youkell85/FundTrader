@@ -6,9 +6,11 @@ import queue
 import threading
 from typing import AsyncGenerator
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from starlette.concurrency import run_in_threadpool
+
+from .auth_middleware import get_current_user
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +42,7 @@ router = APIRouter(prefix="/allocation", tags=["资产配置"])
 
 
 @router.post("/generate", response_model=AllocationResponse)
-async def generate_allocation(request: AllocationRequest):
+async def generate_allocation(request: AllocationRequest, user: dict = Depends(get_current_user)):
     """生成资产配置方案 — 14步量化管线"""
     try:
         result = await run_in_threadpool(run_allocation, request)
@@ -61,7 +63,7 @@ async def generate_allocation(request: AllocationRequest):
 
 
 @router.post("/variants", response_model=VariantsResponse)
-async def generate_allocation_variants(request: AllocationRequest):
+async def generate_allocation_variants(request: AllocationRequest, user: dict = Depends(get_current_user)):
     """三方案输出 — 防御型/均衡型/进取型，风险等级±1偏移"""
     result = await run_in_threadpool(generate_variants, request)
     return result
@@ -85,7 +87,7 @@ async def explain_allocation(request: AllocationRequest):
 
 
 @router.post("/generate/stream")
-async def generate_allocation_stream(request: AllocationRequest) -> StreamingResponse:
+async def generate_allocation_stream(request: AllocationRequest, user: dict = Depends(get_current_user)) -> StreamingResponse:
     """生成资产配置方案（SSE 流式） — 实时推送每步进度 + 支持取消"""
 
     progress_queue: queue.Queue = queue.Queue()
@@ -167,7 +169,7 @@ async def run_what_if_simulation(request: WhatIfRequest):
 
 
 @router.post("/backtest", response_model=BacktestResponse)
-async def run_allocation_backtest(request: BacktestRequest):
+async def run_allocation_backtest(request: BacktestRequest, user: dict = Depends(get_current_user)):
     """配置回测 — 回放SAA→TAA→熔断管线"""
     import asyncio
     try:

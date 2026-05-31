@@ -27,8 +27,8 @@ class LoginBody(BaseModel):
 @router.post("/register")
 async def register(body: RegisterBody, request: Request):
     """Register a new user."""
-    if len(body.username) < 2 or len(body.password) < 3:
-        raise HTTPException(400, "用户名至少2字符，密码至少3字符")
+    if len(body.username) < 2 or len(body.password) < 8:
+        raise HTTPException(400, "用户名至少2字符，密码至少8字符")
     user = UserStore.register(body.username.strip().lower(), body.password, body.displayName)
     if not user:
         raise HTTPException(409, "用户名已存在")

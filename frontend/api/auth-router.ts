@@ -12,7 +12,7 @@ function cookieOptions(headers: Headers, maxAge?: number) {
     httpOnly: true,
     path: "/",
     sameSite: "lax" as const,
-    secure: !localhost,
+    secure: proto === "https" && !localhost,
     maxAge,
   };
 }
@@ -40,7 +40,7 @@ function requireUser(ctx: { user?: { id: string } }) {
 
 const credentialsSchema = z.object({
   username: z.string().min(3, "用户名至少3位").max(32, "用户名最多32位"),
-  password: z.string().min(3, "密码至少3位").max(128, "密码过长"),
+  password: z.string().min(8, "密码至少8位").max(128, "密码过长"),
 });
 
 export const authRouter = createRouter({
@@ -75,8 +75,11 @@ export const authRouter = createRouter({
       }
     }),
 
-  logout: publicQuery.mutation(({ ctx }) => {
-    if (ctx.sessionToken) deleteSession(ctx.sessionToken);
+  logout: publicQuery.mutation(async ({ ctx }) => {
+    if (ctx.sessionToken) {
+      deleteSession(ctx.sessionToken);
+      await ftFetch("/auth/logout", { method: "POST", headers: { Authorization: `Bearer ${ctx.sessionToken}` } }).catch(() => {});
+    }
     clearSessionCookie(ctx.resHeaders);
     return { success: true };
   }),

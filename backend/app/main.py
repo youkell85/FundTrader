@@ -74,8 +74,8 @@ app = FastAPI(
 # CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=CORS_ORIGINS.split(",") if CORS_ORIGINS != "*" else ["*"],
-    allow_credentials=True,
+    allow_origins=CORS_ORIGINS if CORS_ORIGINS != ["*"] else ["https://fundtrader.example.com"].split(",") if CORS_ORIGINS != "*" else ["*"],
+    allow_credentials=True if CORS_ORIGINS != ["*"] else False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
