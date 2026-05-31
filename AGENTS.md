@@ -1,0 +1,144 @@
+# AGENTS.md — FundTrader 项目上下文（多 IDE 共享）
+
+> 任何 AI 编码助手（Claude Code、CodeBuddy、Cursor、Kimi、Qwen Code 等）在编辑本项目文件后，
+> 请参考本文档提交和部署。**修改代码后务必推送 + 部署，不要只停在本地。**
+
+---
+
+## 项目概况
+
+公募基金智能分析与资产配置 H5 平台。前后端分离，部署在新加坡 43.160.226.62。
+
+| 项目 | 值 |
+|------|-----|
+| 本地路径（Desktop） | `C:\Users\youke\CodeBuddy\FundTrader` |
+| 本地路径（XPS） | `D:\Workspace\Fundtrader` |
+| 生产服务器 | `root@43.160.226.62:22222` |
+| 线上地址 | http://43.160.226.62/fund/ |
+| Gitee | https://gitee.com/youkell/FundTrader |
+| GitHub | https://github.com/youkell85/FundTrader |
+
+## 技术栈
+
+- **前端**: React 19 + TypeScript + Vite + TailwindCSS + shadcn/ui (Radix) + Recharts + tRPC
+- **BFF 层**: Hono (Node.js，端口 3000)，提供 tRPC 路由 + REST 代理
+- **后端**: Python FastAPI + Uvicorn（端口 8766）
+- **数据库**: SQLite (`backend/data/fundtrader.db`)
+- **数据源**: iFinD MCP / Tushare / AkShare / 东方财富 / efinance
+- **部署**: Nginx 反向代理，Systemd 管理服务
+
+## 端口与架构
+
+```
+浏览器 → :80 Nginx
+  ├── /fund/       → localhost:3000  (Hono BFF → 前端静态文件)
+  └── /fund/api/*  → localhost:3000  (Hono BFF)
+                       ├── /fund/api/trpc/*    → tRPC handler
+                       └── /fund/api/* (其他)   → REST proxy → localhost:8766 (FastAPI)
+```
+
+## 目录结构
+
+```
+Fundtrader/
+├── backend/
+│   ├── app/
+│   │   ├── api/          # FastAPI 路由 (allocation.py, dca.py, fund.py, ...)
+│   │   ├── allocation/   # 资产配置引擎 (orchestrator, saa, taa, backtest, ...)
+│   │   ├── data/         # 数据层 (akshare, eastmoney, efinance, cache)
+│   │   ├── services/     # 业务服务 (llm, analysis, recommend, watchlist, ...)
+│   │   ├── models/       # Pydantic 模型
+│   │   ├── storage/      # SQLite 数据库层
+│   │   └── main.py       # FastAPI 入口
+│   ├── requirements.txt
+│   └── start.sh
+├── frontend/
+│   ├── api/              # Hono BFF (boot.ts, fund-router.ts, tRPC routes)
+│   ├── src/
+│   │   ├── components/ui/       # shadcn/ui 组件 (select, dropdown-menu, ...)
+│   │   ├── components/allocation/ # 资产配置组件
+│   │   ├── components/backtest/   # 回测组件
+│   │   ├── pages/           # 页面 (Home, Backtest, AllocationWizard, ...)
+│   │   ├── lib/api.ts       # 前端 REST API 客户端 (fetchJson)
+│   │   └── index.css        # Tailwind + CSS 变量 (深色主题)
+│   ├── package.json
+│   └── vite.config.ts
+├── deploy/               # Nginx 配置 + Systemd 服务文件
+├── scripts/              # 部署脚本 (deploy-auto.sh, webhook-listener.py)
+└── docs/                 # 文档和诊断报告
+```
+
+---
+
+## ⚠️ 提交与部署（必读）
+
+### 提交并推送
+
+```bash
+git -C Fundtrader add <修改的文件>
+git -C Fundtrader commit -m "<描述>"
+git -C Fundtrader push origin master   # GitHub
+git -C Fundtrader push gitee master    # Gitee（服务器从此拉取）
+```
+
+### 部署到生产服务器
+
+SSH 密钥：`C:\Users\youke\.ssh\id_ed25519_nopass`（已授权，无密码）
+
+**一步部署（推荐）：**
+```bash
+ssh -o StrictHostKeyChecking=no -i C:\Users\youke\.ssh\id_ed25519_nopass -p 22222 root@43.160.226.62 "cd /opt/fundtrader && git pull gitee master && systemctl restart fundtrader && cd /opt/fundtrader/frontend && npm ci && npm run build && systemctl restart fundtrader-frontend && echo DEPLOY_OK"
+```
+
+**分步部署（调试用）：**
+```bash
+# 1. 服务器拉取代码
+ssh -i C:\Users\youke\.ssh\id_ed25519_nopass -p 22222 root@43.160.226.62 "cd /opt/fundtrader && git pull gitee master"
+
+# 2. 重启后端
+ssh -i C:\Users\youke\.ssh\id_ed25519_nopass -p 22222 root@43.160.226.62 "systemctl restart fundtrader"
+
+# 3. 构建前端 + 重启
+ssh -i C:\Users\youke\.ssh\id_ed25519_nopass -p 22222 root@43.160.226.62 "cd /opt/fundtrader/frontend && npm ci && npm run build && systemctl restart fundtrader-frontend"
+```
+
+### 验证部署
+
+```bash
+curl http://43.160.226.62/fund/api/health                    # 后端 (期望 {"status":"ok"})
+curl -o /dev/null -w "%{http_code}" http://43.160.226.62/fund/  # 前端 (期望 200)
+```
+
+### 只改前端时（跳过 Python 依赖安装）
+```bash
+ssh -i C:\Users\youke\.ssh\id_ed25519_nopass -p 22222 root@43.160.226.62 "cd /opt/fundtrader && git pull gitee master && cd /opt/fundtrader/frontend && npm ci && npm run build && systemctl restart fundtrader-frontend && echo DEPLOY_OK"
+```
+
+### 只改后端时（跳过前端构建）
+```bash
+ssh -i C:\Users\youke\.ssh\id_ed25519_nopass -p 22222 root@43.160.226.62 "cd /opt/fundtrader && git pull gitee master && systemctl restart fundtrader && echo DEPLOY_OK"
+```
+
+---
+
+## 关键约定
+
+1. **CSS 变量是深色主题**：`index.css` 的 `:root` 已设为深色值（`--popover: 228 50% 8%` 等），body 背景 `#000110`。新增 UI 组件必须使用 `bg-popover text-popover-foreground` 等语义变量，不要硬编码颜色。
+
+2. **下拉选择框用 Radix Select**：项目已有 `@/components/ui/select`，不要用原生 `<select>`。Radix Select 通过 Portal 渲染，自动继承 `:root` CSS 变量。
+
+3. **超时策略**：`api.ts` 的 `fetchJson` 对 `/allocation/*` 和 `/dca/backtest` 路径自动使用 120s 超时，其余 30s。`boot.ts` 的 BFF 代理同理。不要再随意加新的 AbortController。
+
+4. **编排器降级优先**：`orchestrator.py` 的 14 步管线中，CMA 和应力测试已支持降级（失败不崩溃）。新增步骤应遵循相同模式：`except → 记录 warning → 降级继续`。
+
+5. **线程安全**：`circuit_breaker.py`、`regime_detector.py`、`alert_engine.py` 已有 `threading.Lock`。修改这些模块时不要删除锁或引入新的模块级可变状态。
+
+6. **tRPC 缓存键**：`fund-router.ts` 的 `allocate` mutation 缓存键已包含所有关键字段（risk_tolerance, age, amount, horizon, goal_type, max_drawdown, preferred_tags, behavior_answers）。新增字段时记得同步更新缓存键。
+
+---
+
+## 已知问题（待后续修复）
+
+1. **TypeScript 严格模式**：项目存在 ~49 个 TS 错误（未使用的 import、缺失类型等），非阻塞性问题
+2. **原生 select 残留**：`BacktestConfig.tsx`、`Backtest.tsx`、`ShareSelectorPanel.tsx` 中仍有原生 `<select>`，待逐步迁移到 Radix Select
+3. **`AbortSignal.any()` 残留**：`api.ts` 已替换为兼容方案，但 BFF 层 `fundtrader-client.ts` 中仍使用 `AbortSignal.any()`（tRPC 直连路径用）
