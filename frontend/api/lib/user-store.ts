@@ -125,3 +125,27 @@ export async function registerViaBackend(input: { username: string; password: st
   syncUserFromBackend(res.user);
   return res;
 }
+
+
+type UserState = { watchlistCodes: string[]; backtestRecords: unknown[]; recommendationRecords: unknown[]; preferences: Record<string, unknown>; recentFunds: string[] };
+
+export function getUserState(userId: string): UserState {
+  const data = readStore();
+  const key = 'state_' + userId;
+  try {
+    const raw = fs.readFileSync(STORE_PATH.replace('.json', '_states.json'), 'utf-8');
+    const states = JSON.parse(raw);
+    return { watchlistCodes: [], backtestRecords: [], recommendationRecords: [], preferences: {}, recentFunds: [], ...(states[key] || {}) };
+  } catch {
+    return { watchlistCodes: [], backtestRecords: [], recommendationRecords: [], preferences: {}, recentFunds: [] };
+  }
+}
+
+export function updateUserState(userId: string, patch: Partial<UserState>) {
+  const statesPath = STORE_PATH.replace('.json', '_states.json');
+  let states: Record<string, UserState> = {};
+  try { states = JSON.parse(fs.readFileSync(statesPath, 'utf-8')); } catch {}
+  states['state_' + userId] = { ...getUserState(userId), ...patch };
+  fs.writeFileSync(statesPath, JSON.stringify(states, null, 2), 'utf-8');
+  return states['state_' + userId];
+}
