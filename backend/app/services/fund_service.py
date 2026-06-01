@@ -8,22 +8,20 @@
 - 基金费率 → efinance（Tushare 不提供费率字段）
 - 持仓/经理 → Tushare fund_portfolio / fund_manager → akshare 补充学历信息
 """
-import json
 import math
 import os
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from datetime import date, datetime
-from typing import List, Dict, Any, Optional
-from ..utils import console_error
-from ..data.akshare_fetcher import get_fund_ranking, get_fund_info
-from ..data.eastmoney_fetcher import get_fund_ranking_em
-from ..data.cache_manager import cache
-from ..constants.guoyuan_funds import GUOYUAN_FUND_LIST, FUND_CATEGORIES, FUND_TYPES
+from typing import Any
+
 from ..config import CACHE_TTL_RANKING
+from ..constants.guoyuan_funds import FUND_CATEGORIES, FUND_TYPES, GUOYUAN_FUND_LIST
+from ..data.cache_manager import cache
 from ..storage.database import get_db_context
+from ..utils import console_error
 
 # 排序字段映射（提取为模块级常量，避免重复定义）
-SORT_FIELD_MAP: Dict[str, str] = {
+SORT_FIELD_MAP: dict[str, str] = {
     "近1月": "near_1m", "近3月": "near_3m", "近6月": "near_6m",
     "近1年": "near_1y", "近3年": "near_3y", "今年来": "ytd",
 }
@@ -55,13 +53,13 @@ def _json_safe(value: Any) -> Any:
 
 
 def _apply_filters_and_sort(
-    funds: List[Dict[str, Any]],
+    funds: list[dict[str, Any]],
     category: str,
-    tag: Optional[str],
-    keyword: Optional[str],
+    tag: str | None,
+    keyword: str | None,
     sort_by: str,
     sort_order: str,
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """通用筛选、排序逻辑（提取公共代码）"""
     # 按标签筛选
     if tag:
@@ -85,14 +83,14 @@ def _apply_filters_and_sort(
 
 def get_fund_list(
     category: str = "全部",
-    tag: Optional[str] = None,
-    keyword: Optional[str] = None,
+    tag: str | None = None,
+    keyword: str | None = None,
     sort_by: str = "今年来",
     sort_order: str = "desc",
     page: int = 1,
     page_size: int = 20,
     guoyuan_only: bool = True,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Get fund list from local snapshots only."""
     funds = _get_snapshot_funds(guoyuan_only=guoyuan_only)
     if not funds and guoyuan_only:
@@ -119,13 +117,13 @@ def get_fund_list(
 
 def get_fund_list_from_watchlist(
     category: str = "全部",
-    tag: Optional[str] = None,
-    keyword: Optional[str] = None,
+    tag: str | None = None,
+    keyword: str | None = None,
     sort_by: str = "今年来",
     sort_order: str = "desc",
     page: int = 1,
     page_size: int = 20,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """从自选基金列表获取基金数据"""
     from ..services.watchlist_service import get_watchlist
     watchlist = get_watchlist()
@@ -162,7 +160,7 @@ def get_fund_list_from_watchlist(
     }
 
 
-def _get_watchlist_with_performance(watchlist: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _get_watchlist_with_performance(watchlist: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """为自选基金获取业绩数据（批量模式）"""
     result = []
     for fund in watchlist:
@@ -174,7 +172,7 @@ def _get_watchlist_with_performance(watchlist: List[Dict[str, Any]]) -> List[Dic
     return result
 
 
-def _get_snapshot_by_code(code: str) -> Dict[str, Any] | None:
+def _get_snapshot_by_code(code: str) -> dict[str, Any] | None:
     try:
         from app.storage.database import FundDataStore
         return FundDataStore.get_snapshot(code)
@@ -182,7 +180,7 @@ def _get_snapshot_by_code(code: str) -> Dict[str, Any] | None:
         return None
 
 
-def _get_snapshot_funds(guoyuan_only: bool = True) -> List[Dict[str, Any]]:
+def _get_snapshot_funds(guoyuan_only: bool = True) -> list[dict[str, Any]]:
     try:
         from app.storage.database import FundDataStore
         result = FundDataStore.list_snapshots(xinjihui_only=guoyuan_only, limit=5000, offset=0)
@@ -194,7 +192,7 @@ def _get_snapshot_funds(guoyuan_only: bool = True) -> List[Dict[str, Any]]:
     return []
 
 
-def _get_guoyuan_funds_with_performance() -> List[Dict[str, Any]]:
+def _get_guoyuan_funds_with_performance() -> list[dict[str, Any]]:
     """获取国元证券基金名单及业绩数据（SQLite优先，API回退）"""
     snapshot = _get_snapshot_funds(guoyuan_only=True)
     if snapshot:
@@ -213,11 +211,22 @@ def _get_guoyuan_funds_with_performance() -> List[Dict[str, Any]]:
     return result
 
 
-def _get_static_guoyuan_funds() -> List[Dict[str, Any]]:
+def _get_static_guoyuan_funds() -> list[dict[str, Any]]:
     """Return the local fund pool with JSON-safe default metrics."""
+    # 批量从 fund_master 表读取基金公司信息作为补充
+    master_companies = {}
+    try:
+        from app.storage.database import get_db
+        with get_db() as conn:
+            rows = conn.execute("SELECT code, company FROM fund_master WHERE company != ''").fetchall()
+            master_companies = {r["code"]: r["company"] for r in rows}
+    except Exception:
+        pass
+
     result = []
     for fund in GUOYUAN_FUND_LIST:
         fund_data = dict(fund)
+        code = str(fund_data.get("code", ""))
         fund_data.setdefault("nav", 0.0)
         fund_data.setdefault("day_growth", 0.0)
         fund_data.setdefault("near_1m", 0.0)
@@ -226,13 +235,13 @@ def _get_static_guoyuan_funds() -> List[Dict[str, Any]]:
         fund_data.setdefault("near_1y", 0.0)
         fund_data.setdefault("near_3y", 0.0)
         fund_data.setdefault("ytd", 0.0)
-        fund_data.setdefault("company", "")
+        fund_data.setdefault("company", master_companies.get(code, ""))
         fund_data["is_xinjihui"] = True
         result.append(fund_data)
     return _json_safe(result)
 
 
-def _fetch_all_fund_performance_with_timeout() -> Dict[str, Dict[str, Any]]:
+def _fetch_all_fund_performance_with_timeout() -> dict[str, dict[str, Any]]:
     cached = cache.get("bulk_fund_performance", CACHE_TTL_RANKING)
     if cached is not None:
         return cached
@@ -247,7 +256,7 @@ def _fetch_all_fund_performance_with_timeout() -> Dict[str, Dict[str, Any]]:
         return {}
 
 
-def _fetch_all_fund_performance() -> Dict[str, Dict[str, Any]]:
+def _fetch_all_fund_performance() -> dict[str, dict[str, Any]]:
     """批量获取全市场基金业绩数据（一次akshare调用，避免N次重复请求）
     
     基金业绩数据日频更新，单个交易日收盘后统一公布。
@@ -258,7 +267,7 @@ def _fetch_all_fund_performance() -> Dict[str, Dict[str, Any]]:
     if cached is not None:
         return cached
 
-    perf_map: Dict[str, Dict[str, Any]] = {}
+    perf_map: dict[str, dict[str, Any]] = {}
     try:
         import akshare as ak
         df = ak.fund_open_fund_rank_em(symbol="全部")
@@ -283,12 +292,13 @@ def _fetch_all_fund_performance() -> Dict[str, Dict[str, Any]]:
     return perf_map
 
 
-def _compute_single_fund_metrics(code: str, RISK_FREE_RATE: float) -> Optional[Dict[str, Any]]:
+def _compute_single_fund_metrics(code: str, RISK_FREE_RATE: float) -> dict[str, Any] | None:
     """Compute risk metrics for a single fund from NAV history.
 
     Returns a metrics dict or None if skipped/failed.
     """
     import numpy as np
+
     from ..data.efinance_fetcher import get_fund_nav_history
 
     try:
@@ -340,12 +350,12 @@ def _compute_single_fund_metrics(code: str, RISK_FREE_RATE: float) -> Optional[D
 
 
 def compute_and_save_metrics(
-    codes: Optional[List[str]] = None,
+    codes: list[str] | None = None,
     limit: int = 0,
     skip_existing: bool = True,
     batch_size: int = 100,
     max_workers: int = 8,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Compute risk metrics (sharpe, max_drawdown, volatility) from NAV history
     and save to fund_metrics_snapshot table.
 

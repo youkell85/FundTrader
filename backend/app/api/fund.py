@@ -1,15 +1,13 @@
 """基金排名筛选API"""
-import asyncio
 import json
 import logging
 from datetime import datetime
 
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from starlette.concurrency import run_in_threadpool
-from typing import Optional
 
+from ..constants.guoyuan_funds import FUND_CATEGORIES, FUND_TYPES, GUOYUAN_FUND_LIST
 from ..services.fund_service import get_fund_list, get_fund_list_from_watchlist
-from ..constants.guoyuan_funds import GUOYUAN_FUND_LIST, FUND_CATEGORIES, FUND_TYPES
 
 logger = logging.getLogger(__name__)
 
@@ -32,8 +30,8 @@ DEFAULT_TAG = "鑫基荟"
 @router.get("/list")
 async def fund_list(
     category: str = Query(DEFAULT_CATEGORY, description="基金类型"),
-    tag: Optional[str] = Query(None, description="标签筛选"),
-    keyword: Optional[str] = Query(None, description="关键词搜索"),
+    tag: str | None = Query(None, description="标签筛选"),
+    keyword: str | None = Query(None, description="关键词搜索"),
     sort_by: str = Query(DEFAULT_SORT_BY, description="排序字段"),
     sort_order: str = Query(DEFAULT_SORT_ORDER, description="排序方向"),
     page: int = Query(1, ge=1, description="页码"),
@@ -77,7 +75,7 @@ async def fund_categories():
 @router.get("/snapshot/list")
 async def fund_snapshot_list(
     category: str = Query(DEFAULT_CATEGORY),
-    keyword: Optional[str] = Query(None),
+    keyword: str | None = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=5000),
     xinjihui_only: bool = Query(True),
@@ -165,6 +163,73 @@ async def fund_data_status():
     return await run_in_threadpool(FundDataStore.data_status)
 
 
+def _sync_fund_companies_to_master(codes: list[str]) -> int:
+    """通过 Tushare fund_basic 批量获取基金公司信息，写入 fund_master 表。
+
+    返回成功更新的记录数。
+    """
+    try:
+        from ..data.providers.tushare_provider import TushareProvider
+        from ..storage.database import get_db
+
+        provider = TushareProvider()
+        if not provider.is_available():
+            logger.warning("Tushare not available, skipping fund company sync")
+            return 0
+
+        # 批量获取 fund_basic（全市场场外基金），使用分页获取全量数据
+        fund_list = provider.get_fund_list(market="O", fetch_all=True)
+        if not fund_list:
+            logger.warning("Tushare fund_basic returned empty, skipping fund company sync")
+            return 0
+
+        # 构建 code -> management 映射
+        company_map = {}
+        for fb in fund_list:
+            code = fb.code.replace(".OF", "").replace(".SH", "").replace(".SZ", "")
+            mgmt = fb.management or ""
+            if code and mgmt:
+                company_map[code] = mgmt
+
+        # 同时获取 ETF/LOF（场内）
+        etf_list = provider.get_fund_list(market="E")
+        for fb in etf_list:
+            code = fb.code.replace(".OF", "").replace(".SH", "").replace(".SZ", "")
+            mgmt = fb.management or ""
+            if code and mgmt:
+                company_map[code] = mgmt
+
+        # 从 GUOYUAN_FUND_LIST 构建 code -> name 映射
+        name_map = {str(f["code"]): str(f.get("name", "")) for f in GUOYUAN_FUND_LIST}
+
+        # 写入 fund_master 表
+        updated = 0
+        now = datetime.now().isoformat()
+        with get_db() as conn:
+            for code in codes:
+                company = company_map.get(code, "")
+                if not company:
+                    continue
+                name = name_map.get(code, code)
+                conn.execute(
+                    """INSERT INTO fund_master
+                       (code, name, fund_type, company, tags_json, is_xinjihui, is_preferred,
+                        is_active, data_quality, created_at, updated_at)
+                       VALUES (?, ?, ?, ?, ?, 1, 1, 1, 'synced', ?, ?)
+                       ON CONFLICT(code) DO UPDATE SET
+                         company = COALESCE(NULLIF(excluded.company, ''), fund_master.company),
+                         updated_at = excluded.updated_at""",
+                    (code, name, "", company, "[]", now, now),
+                )
+                updated += 1
+
+        logger.info(f"Fund company sync: {updated} funds updated")
+        return updated
+    except Exception as e:
+        logger.error(f"Fund company sync failed: {e}")
+        return 0
+
+
 def _build_snapshot_rows(df, codes, cached, now):
     """Build SQLite row tuples and quote dicts from akshare DataFrame.
 
@@ -172,6 +237,16 @@ def _build_snapshot_rows(df, codes, cached, now):
     FundSnapshotCache.save_batch signature and quote_dicts feeds
     FundDataStore.save_quote_batch.
     """
+    # 批量从 fund_master 表读取基金公司信息作为补充
+    master_companies = {}
+    try:
+        from ..storage.database import get_db
+        with get_db() as conn:
+            rows_db = conn.execute("SELECT code, company FROM fund_master WHERE company != ''").fetchall()
+            master_companies = {r["code"]: r["company"] for r in rows_db}
+    except Exception:
+        pass
+
     rows = []
     quote_rows = []
     for _, row in df.iterrows():
@@ -179,6 +254,7 @@ def _build_snapshot_rows(df, codes, cached, now):
         if code not in codes and code not in cached:
             continue
         try:
+            company = master_companies.get(code, "")
             item = {
                 "code": code,
                 "name": str(row.get("基金简称", "")),
@@ -192,7 +268,7 @@ def _build_snapshot_rows(df, codes, cached, now):
                 "near_3y": float(row.get("近3年", 0) or 0),
                 "ytd": float(row.get("今年以来", 0) or 0),
                 "tags": [DEFAULT_TAG],
-                "company": "",
+                "company": company,
                 "is_xinjihui": True,
                 "is_preferred": True,
                 "updated_at": now,
@@ -211,7 +287,7 @@ def _build_snapshot_rows(df, codes, cached, now):
                 item["near_3y"],
                 item["ytd"],
                 json.dumps([DEFAULT_TAG], ensure_ascii=False),
-                "",
+                company,
                 now,
             ))
         except (ValueError, TypeError):
@@ -248,6 +324,10 @@ async def refresh_fund_snapshot():
             return {"status": "error", "message": "akshare返回空数据"}
 
         now = datetime.now().isoformat()
+
+        # 先通过 Tushare 批量获取基金公司信息并写入 fund_master
+        _sync_fund_companies_to_master(codes)
+
         rows, quote_rows = _build_snapshot_rows(df, codes, cached, now)
 
         if rows:

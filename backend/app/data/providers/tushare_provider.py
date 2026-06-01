@@ -1,13 +1,23 @@
 """Tushare Pro 数据适配器"""
 import os
 import time
-from typing import Optional, List, Dict, Any
-from .base import (
-    DataProvider, FundBasic, FundNav, FundHolding, FundDetail,
-    FundPerformance, FundRisk, FundDividend, FundScale, AdjFactor,
-    FundCompany, TradeCal, IndexDaily,
-)
+from typing import Any
+
 from ...utils import console_error
+from .base import (
+    AdjFactor,
+    DataProvider,
+    FundBasic,
+    FundCompany,
+    FundDetail,
+    FundDividend,
+    FundHolding,
+    FundNav,
+    FundPerformance,
+    FundScale,
+    IndexDaily,
+    TradeCal,
+)
 
 
 class TushareProvider(DataProvider):
@@ -54,29 +64,50 @@ class TushareProvider(DataProvider):
             console_error(f"Tushare call error: {e}")
             return None
 
-    def get_fund_list(self, market: str = "O") -> List[FundBasic]:
+    def get_fund_list(self, market: str = "O", fetch_all: bool = False) -> list[FundBasic]:
         pro = self._get_pro()
         if pro is None:
             return []
-        df = self._safe_call(pro.fund_basic, market=market)
-        if df is None or df.empty:
-            return []
-        result = []
-        for _, row in df.iterrows():
-            result.append(FundBasic(
-                code=str(row.get("ts_code", "")).replace(".OF", "").replace(".SH", "").replace(".SZ", ""),
-                name=row.get("name", ""),
-                type=row.get("fund_type", ""),
-                management=row.get("management", ""),
-                custodian=row.get("custodian", ""),
-                manager=row.get("manager", ""),
-                found_date=str(row.get("found_date", "")),
-                benchmark=row.get("benchmark", ""),
-                status=row.get("status", ""),
-            ))
-        return result
 
-    def get_fund_detail(self, code: str) -> Optional[FundDetail]:
+        if not fetch_all:
+            # 单页模式（向后兼容）
+            df = self._safe_call(pro.fund_basic, market=market)
+            if df is None or df.empty:
+                return []
+            result = []
+            for _, row in df.iterrows():
+                result.append(self._row_to_fund_basic(row))
+            return result
+
+        # 全量分页模式
+        all_rows = []
+        offset = 0
+        limit = 15000
+        while True:
+            df = self._safe_call(pro.fund_basic, market=market, offset=offset, limit=limit)
+            if df is None or df.empty:
+                break
+            for _, row in df.iterrows():
+                all_rows.append(self._row_to_fund_basic(row))
+            if len(df) < limit:
+                break
+            offset += limit
+        return all_rows
+
+    def _row_to_fund_basic(self, row) -> FundBasic:
+        return FundBasic(
+            code=str(row.get("ts_code", "")).replace(".OF", "").replace(".SH", "").replace(".SZ", ""),
+            name=row.get("name", ""),
+            type=row.get("fund_type", ""),
+            management=row.get("management", ""),
+            custodian=row.get("custodian", ""),
+            manager=row.get("manager", ""),
+            found_date=str(row.get("found_date", "")),
+            benchmark=row.get("benchmark", ""),
+            status=row.get("status", ""),
+        )
+
+    def get_fund_detail(self, code: str) -> FundDetail | None:
         pro = self._get_pro()
         if pro is None:
             return None
@@ -153,7 +184,7 @@ class TushareProvider(DataProvider):
             company=company,
         )
 
-    def get_fund_nav(self, code: str, start_date: str = "", end_date: str = "") -> List[FundNav]:
+    def get_fund_nav(self, code: str, start_date: str = "", end_date: str = "") -> list[FundNav]:
         pro = self._get_pro()
         if pro is None:
             return []
@@ -201,7 +232,7 @@ class TushareProvider(DataProvider):
                 prev_nav = nav
         return result
 
-    def _fund_portfolio_codes(self, code: str) -> List[str]:
+    def _fund_portfolio_codes(self, code: str) -> list[str]:
         raw = str(code or "").strip()
         codes = [f"{raw}.OF"]
         if raw.startswith(("5", "508")):
@@ -210,7 +241,7 @@ class TushareProvider(DataProvider):
             codes.append(f"{raw}.SZ")
         return list(dict.fromkeys(codes))
 
-    def get_fund_holdings(self, code: str) -> List[FundHolding]:
+    def get_fund_holdings(self, code: str) -> list[FundHolding]:
         pro = self._get_pro()
         if pro is None:
             return []
@@ -277,7 +308,7 @@ class TushareProvider(DataProvider):
             ))
         return result
 
-    def get_fund_performance(self, code: str) -> Optional[FundPerformance]:
+    def get_fund_performance(self, code: str) -> FundPerformance | None:
         """基于净值历史本地计算阶段收益"""
         nav_list = self.get_fund_nav(code)
         if not nav_list or len(nav_list) < 30:
@@ -285,7 +316,7 @@ class TushareProvider(DataProvider):
 
         from datetime import datetime, timedelta
 
-        def _find_nav(target_date: datetime) -> Optional[float]:
+        def _find_nav(target_date: datetime) -> float | None:
             """找到最接近target_date且不晚于它的净值"""
             best = None
             best_diff = None
@@ -308,7 +339,7 @@ class TushareProvider(DataProvider):
 
         today = datetime.now()
 
-        def _calc(start_dt: datetime) -> Optional[float]:
+        def _calc(start_dt: datetime) -> float | None:
             start_nav = _find_nav(start_dt)
             if start_nav and start_nav > 0:
                 return round((latest - start_nav) / start_nav * 100, 2)
@@ -323,7 +354,7 @@ class TushareProvider(DataProvider):
         perf.ytd = _calc(datetime(today.year, 1, 1))
         return perf
 
-    def get_fund_manager(self, code: str) -> Dict[str, Any]:
+    def get_fund_manager(self, code: str) -> dict[str, Any]:
         """获取基金经理详细信息"""
         pro = self._get_pro()
         if pro is None:
@@ -344,7 +375,7 @@ class TushareProvider(DataProvider):
 
     # ========== Tushare 增强接口（付费账户高频可用） ==========
 
-    def get_fund_dividend(self, code: str) -> List[FundDividend]:
+    def get_fund_dividend(self, code: str) -> list[FundDividend]:
         """获取基金分红记录（替代 efinance 缺失的分红数据）"""
         pro = self._get_pro()
         if pro is None:
@@ -365,7 +396,7 @@ class TushareProvider(DataProvider):
             ))
         return result
 
-    def get_fund_scale(self, code: str) -> Optional[FundScale]:
+    def get_fund_scale(self, code: str) -> FundScale | None:
         """获取基金最新规模 — fund_share × unit_nav 精确计算（替代 efinance 不可靠接口）"""
         pro = self._get_pro()
         if pro is None:
@@ -390,7 +421,7 @@ class TushareProvider(DataProvider):
             fd_share=fd_share,
         )
 
-    def get_fund_adj(self, code: str) -> List[AdjFactor]:
+    def get_fund_adj(self, code: str) -> list[AdjFactor]:
         """获取基金复权因子（用于精确收益计算）"""
         pro = self._get_pro()
         if pro is None:
@@ -406,7 +437,7 @@ class TushareProvider(DataProvider):
             ))
         return result
 
-    def get_fund_company(self, code: str) -> Optional[FundCompany]:
+    def get_fund_company(self, code: str) -> FundCompany | None:
         """获取基金公司信息（经理人数/基金数/管理总规模）"""
         pro = self._get_pro()
         if pro is None:
@@ -434,7 +465,7 @@ class TushareProvider(DataProvider):
             total_scale=self._safe_float(row.get("total_scale")),
         )
 
-    def get_trade_cal(self, exchange: str = "SSE", start_date: str = "", end_date: str = "") -> List[TradeCal]:
+    def get_trade_cal(self, exchange: str = "SSE", start_date: str = "", end_date: str = "") -> list[TradeCal]:
         """获取交易日历"""
         pro = self._get_pro()
         if pro is None:
@@ -455,7 +486,7 @@ class TushareProvider(DataProvider):
             ))
         return result
 
-    def get_index_daily(self, ts_code: str = "000001.SH", start_date: str = "", end_date: str = "") -> List[IndexDaily]:
+    def get_index_daily(self, ts_code: str = "000001.SH", start_date: str = "", end_date: str = "") -> list[IndexDaily]:
         """获取指数日线行情（替代 akshare 市场指数接口）"""
         pro = self._get_pro()
         if pro is None:
