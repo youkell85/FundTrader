@@ -211,6 +211,27 @@ function finiteAverage(values: Array<number | null>, options: { excludeZero?: bo
     : "—";
 }
 
+function calcNearReturnFromNav(navData: any[], days: number): number | null {
+  const points = (navData || [])
+    .map((item) => ({
+      date: String(item?.date || item?.navDate || "").slice(0, 10),
+      nav: parseMetric(item?.nav ?? item?.nav_value ?? item?.单位净值),
+    }))
+    .filter((item) => item.date && item.nav !== null && item.nav > 0)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  if (points.length < 2) return null;
+  const latest = points[points.length - 1];
+  const latestTime = new Date(latest.date).getTime();
+  const targetTime = latestTime - days * 24 * 60 * 60 * 1000;
+  let start = points[0];
+  for (const point of points) {
+    if (new Date(point.date).getTime() <= targetTime) start = point;
+    else break;
+  }
+  if (!start || start.nav <= 0 || start.date === latest.date) return null;
+  return Number((((latest.nav - start.nav) / start.nav) * 100).toFixed(2));
+}
+
 function buildMarketOverview(mappedFunds: any[]) {
   const totalFunds = mappedFunds.length;
   return {
@@ -755,7 +776,11 @@ export const fundRouter = createRouter({
           code: input.code,
           type: peerCategory || marketFund?.type || cachedFund?.type || mergedTarget?.type || mapped?.category,
           mappedType: mapped?.fundType,
-          near_1w: marketFund?.near_1w ?? mergedTarget?.return1w ?? mapped?.performance?.return1w,
+          near_1w:
+            marketFund?.near_1w ??
+            mergedTarget?.return1w ??
+            calcNearReturnFromNav(mergedTarget?.nav_data, 7) ??
+            mapped?.performance?.return1w,
           near_1m: marketFund?.near_1m ?? mergedTarget?.return1m ?? mapped?.performance?.return1m,
           near_3m: marketFund?.near_3m ?? mergedTarget?.return3m ?? mapped?.performance?.return3m,
           near_6m: marketFund?.near_6m ?? mergedTarget?.return6m ?? mapped?.performance?.return6m,
