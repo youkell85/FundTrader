@@ -1,4 +1,4 @@
-/**
+﻿**
  * FundTrader 后端数据 → 前端数据格式映射
  */
 
@@ -357,6 +357,11 @@ export function mapFundDetail(analysis: any): any {
     industryHistory: analysis.industry_history || analysis.industryHistory || industries,
     assetAllocation,
     dividends,
+    establishDate: analysis.establishDate || analysis.establish_date || analysis.found_date || null,
+    stars: (analysis.stars || analysis.rating) ? Math.min(5, Math.max(1, Number(analysis.stars || analysis.rating))) : null,
+    benchmark: analysis.benchmark || null,
+    accumNav: analysis.accum_nav ?? analysis.accumNav ?? null,
+    companyInfo: analysis.company_info || null,
   };
 }
 

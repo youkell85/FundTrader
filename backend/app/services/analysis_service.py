@@ -1,9 +1,9 @@
-"""深度产品分析服务 - 多数据源融合版"""
+﻿""深度产品分析服务 - 多数据源融合版"""
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timedelta
 from ..data.akshare_fetcher import get_fund_info, get_fund_manager_info, get_fund_portfolio, get_fund_bond_portfolio
 from ..data.efinance_fetcher import get_fund_nav_history
-from ..data.providers.fusion import get_fusion
+from ..data.providers.fusion import get_fusion`nfrom ..data.providers.tushare_provider import TushareProvider
 from ..data.cache_manager import cache
 from ..config import CACHE_TTL_NAV, CACHE_TTL_INFO
 
@@ -137,6 +137,124 @@ def _build_asset_allocation(holdings: List[Dict], fund_type: str, report_date: s
         {"name": "其他", "ratio": round(other_ratio, 2), "report_date": report_date, "source": source},
     ]
     return [item for item in rows if item["ratio"] > 0]
+
+def _enrich_holdings_industry(holdings: List[Dict]) -> List[Dict]:
+    """Fill missing industry field in holdings from Tushare stock_basic."""
+    if not holdings:
+        return holdings
+    if all(h.get("industry") and h["industry"] not in ("", "--") for h in holdings):
+        return holdings
+    try:
+        provider = TushareProvider()
+        if not provider.is_available():
+            return holdings
+        pro = provider._get_pro()
+        if not pro:
+            return holdings
+        symbols = [h.get("code", "") for h in holdings if h.get("code")]
+        if not symbols:
+            return holdings
+        stock_df = provider._safe_call(pro.stock_basic, ts_code=",".join(symbols))
+        industry_map = {}
+        if stock_df is not None and not stock_df.empty:
+            for _, row in stock_df.iterrows():
+                industry_map[str(row.get("ts_code", ""))] = row.get("industry", "")
+        if not industry_map:
+            return holdings
+        enriched = []
+        for h in holdings:
+            code = h.get("code", "")
+            ind = industry_map.get(code, h.get("industry", ""))
+            enriched.append({**h, "industry": ind or h.get("industry", "")})
+        return enriched
+    except Exception:
+        return holdings
+
+
+def _fetch_industry_history(code: str) -> List[Dict]:
+    """Fetch historical industry allocation from Tushare fund_portfolio across quarters."""
+    try:
+        provider = TushareProvider()
+        if not provider.is_available():
+            return []
+        pro = provider._get_pro()
+        if not pro:
+            return []
+        ts_code = f"{code}.OF"
+        df = provider._safe_call(pro.fund_portfolio, ts_code=ts_code)
+        if df is None or df.empty:
+            return []
+        all_symbols = list(set(str(row.get("symbol", "")) for _, row in df.iterrows() if row.get("symbol")))
+        industry_map = {}
+        if all_symbols:
+            stock_df = provider._safe_call(pro.stock_basic, ts_code=",".join(all_symbols[:100]))
+            if stock_df is not None and not stock_df.empty:
+                for _, row in stock_df.iterrows():
+                    industry_map[str(row.get("ts_code", ""))] = row.get("industry", "")
+        report_col = "end_date" if "end_date" in df.columns else "ann_date" if "ann_date" in df.columns else ""
+        if not report_col:
+            return []
+        result = []
+        for quarter in sorted(df[report_col].unique(), reverse=True)[:8]:
+            qdf = df[df[report_col] == quarter]
+            industry_agg: Dict[str, float] = {}
+            for _, row in qdf.iterrows():
+                symbol = str(row.get("symbol", ""))
+                ratio = _normalize_holding_ratio(row.get("stk_mkv_ratio", 0))
+                industry = industry_map.get(symbol, "\u5176\u4ed6")
+                industry_agg[industry] = industry_agg.get(industry, 0) + ratio
+            for industry, ratio in industry_agg.items():
+                result.append({
+                    "quarter": str(quarter),
+                    "industry": industry,
+                    "ratio": round(ratio, 4),
+                })
+        return result
+    except Exception:
+        return []
+
+
+def _fetch_real_asset_allocation(code: str, fund_type: str, holdings: List[Dict], source: str) -> List[Dict]:
+    """Fetch real asset allocation from Tushare, fallback to estimation."""
+    try:
+        provider = TushareProvider()
+        if not provider.is_available():
+            raise ValueError("tushare unavailable")
+        pro = provider._get_pro()
+        if not pro:
+            raise ValueError("tushare pro unavailable")
+        ts_code = f"{code}.OF"
+        for candidate in provider._fund_portfolio_codes(code):
+            df = provider._safe_call(pro.fund_asset_allocation_cp, ts_code=candidate)
+            if df is not None and not df.empty:
+                break
+        else:
+            df = None
+        if df is not None and not df.empty:
+            df = df.sort_values("end_date", ascending=False)
+            latest_period = df.iloc[0].get("end_date", "")
+            if latest_period:
+                df_latest = df[df["end_date"] == latest_period]
+                result = []
+                type_map = {"1": "\u80a1\u7968", "2": "\u503a\u5238", "3": "\u73b0\u91d1", "4": "\u5176\u4ed6"}
+                for _, row in df_latest.iterrows():
+                    asset_type = str(row.get("asset_type", ""))
+                    ratio = _normalize_holding_ratio(row.get("ratio", 0))
+                    if asset_type and ratio > 0:
+                        name = type_map.get(asset_type, asset_type)
+                        result.append({
+                            "name": name,
+                            "ratio": round(ratio, 2),
+                            "report_date": str(latest_period),
+                            "source": "tushare_asset_allocation",
+                        })
+                if result:
+                    return result
+    except Exception:
+        pass
+    report_date = holdings[0].get("quarter") if holdings else ""
+    return _build_asset_allocation(holdings, fund_type, report_date, source)
+
 
 
 def _calc_period_returns(nav_data: List[Dict]) -> Dict[str, Any]:
@@ -307,6 +425,7 @@ def analyze_fund(code: str) -> Dict[str, Any]:
             key=lambda item: _normalize_holding_ratio(item.get("ratio")),
             reverse=True,
         )
+        holdings = _enrich_holdings_industry(holdings)
         manager = detail.manager_info or {}
         if not manager and detail.basic and detail.basic.manager:
             manager = {"name": detail.basic.manager, "tenure_days": 0}
@@ -339,7 +458,7 @@ def analyze_fund(code: str) -> Dict[str, Any]:
         # 计算区间收益率
         period = _calc_period_returns(nav_data or [])
         report_date = holdings[0].get("quarter") if holdings else ""
-        asset_allocation = _build_asset_allocation(holdings, detail.type or "", report_date, detail.source)
+        asset_allocation = _fetch_real_asset_allocation(code, detail.type or "", holdings, detail.source)
 
         # 从净值历史计算最佳/最差年度收益（用于经理面板）
         best_return, worst_return = _calc_best_worst_annual(nav_data or [])
@@ -420,6 +539,17 @@ def analyze_fund(code: str) -> Dict[str, Any]:
             "feeCustody": fee_custody,
             "sharpe_ratio": sharpe_ratio,
             "max_drawdown": max_drawdown,
+            "establishDate": detail.basic.found_date if detail.basic and detail.basic.found_date else None,
+            "stars": detail.rating if detail.rating else None,
+            "benchmark": detail.basic.benchmark if detail.basic and detail.basic.benchmark else None,
+            "accum_nav": next((p.get("accum_nav") for p in reversed(nav_data or []) if p.get("accum_nav") and p["accum_nav"] > 0), None),
+            "industry_history": _fetch_industry_history(code),
+            "company_info": {
+                "name": detail.company.name if detail.company else None,
+                "fund_count": detail.company.fund_count if detail.company else None,
+                "manager_count": detail.company.manager_count if detail.company else None,
+                "total_scale": detail.company.total_scale if detail.company else None,
+            } if detail.company else None,
         }
 
     # 融合层失败，回退到旧的数据源
@@ -554,6 +684,12 @@ def _analyze_fund_legacy(code: str) -> Dict[str, Any]:
         "total_scale": total_scale,
         "feeManage": fee_manage,
         "feeCustody": fee_custody,
+        "establishDate": None,
+        "stars": None,
+        "benchmark": None,
+        "accum_nav": None,
+        "industry_history": [],
+        "company_info": None,
     }
 
 
@@ -757,28 +893,30 @@ def _calc_radar_scores_fusion(detail) -> Dict[str, float]:
     }
 
     navs = [n.nav for n in detail.nav_history if n.nav] if detail.nav_history else []
-    if len(navs) > 60:
+    if len(navs) > 20:
         total_return = (navs[-1] - navs[0]) / navs[0] * 100
-        scores["profitability"] = min(100, max(0, 50 + total_return))
+        scores["profitability"] = min(100, max(5, 50 + total_return))
 
-        import numpy as np
-        returns = np.diff(navs) / navs[:-1]
-        vol = np.std(returns) * np.sqrt(252) * 100
-        scores["stability"] = min(100, max(0, 100 - vol * 10))
-        scores["risk_control"] = min(100, max(0, 100 - vol * 8))
+        try:
+            import numpy as np
+            returns = np.diff(navs) / navs[:-1]
+            vol = np.std(returns) * np.sqrt(252) * 100
+            scores["stability"] = min(100, max(5, 100 - vol * 4))
+            scores["risk_control"] = min(100, max(5, 100 - vol * 3))
 
-        if vol > 0:
-            sharpe = (total_return / max(1, len(navs) / 252)) / vol
-            scores["stock_picking"] = min(100, max(0, 50 + sharpe * 20))
+            if vol > 0:
+                sharpe = (total_return / max(1, len(navs) / 252)) / vol
+                scores["stock_picking"] = min(100, max(5, 50 + sharpe * 20))
+        except Exception:
+            pass
 
     if detail.risk:
         if detail.risk.sharpe:
-            scores["stock_picking"] = min(100, max(0, 50 + detail.risk.sharpe * 15))
+            scores["stock_picking"] = min(100, max(5, 50 + detail.risk.sharpe * 15))
         if detail.risk.max_drawdown:
-            scores["risk_control"] = min(100, max(0, 100 - detail.risk.max_drawdown * 3))
+            scores["risk_control"] = min(100, max(5, 100 - detail.risk.max_drawdown * 3))
 
     return scores
-
 
 def _enrich_manager_from_akshare(code: str, manager: Dict) -> Dict:
     """用 akshare + efinance 补充基金经理详细信息"""
