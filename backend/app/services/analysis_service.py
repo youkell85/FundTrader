@@ -1,4 +1,4 @@
-﻿""深度产品分析服务 - 多数据源融合版"""
+"""深度产品分析服务 - 多数据源融合版"""
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timedelta
 from ..data.akshare_fetcher import get_fund_info, get_fund_manager_info, get_fund_portfolio, get_fund_bond_portfolio
