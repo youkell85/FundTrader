@@ -93,7 +93,6 @@ def compute_category_metrics_1y(
     force_refresh: bool = False,
 ) -> dict[str, Any]:
     """Compute 1Y category average annual return/max drawdown/sharpe and snapshot to SQLite."""
-    from ..data.efinance_fetcher import get_fund_nav_history
     from ..storage.database import FundDataStore
 
     as_of = datetime.now().date()
@@ -111,7 +110,12 @@ def compute_category_metrics_1y(
         if xinjihui_only:
             where += " AND (is_xinjihui = 1 OR is_preferred = 1)"
         masters = conn.execute(
-            f"SELECT code, fund_type FROM fund_master {where} ORDER BY code",
+            f"""SELECT m.code, m.fund_type,
+                       ms.annualized_return, ms.max_drawdown, ms.sharpe_ratio, ms.nav_points
+                FROM fund_master m
+                LEFT JOIN fund_metrics_snapshot ms ON ms.code = m.code
+                {where.replace('is_active', 'm.is_active')}
+                ORDER BY m.code""",
             params,
         ).fetchall()
         nav_map: dict[str, list[dict[str, Any]]] = {}
@@ -136,23 +140,25 @@ def compute_category_metrics_1y(
         bucket["total_count"] += 1
 
         nav_rows = nav_map.get(code) or []
-        if len(nav_rows) < 200:
-            fetched = get_fund_nav_history(code)
-            if fetched:
-                nav_rows = fetched
-
         metrics = _calc_window_metrics_from_nav(
             nav_rows,
             as_of=as_of,
             window_days=window_days,
             risk_free_rate=risk_free_rate,
         )
-        if not metrics:
+        if metrics:
+            bucket["sample_count"] += 1
+            bucket["annualized_returns"].append(metrics["annualized_return"])
+            bucket["max_drawdowns"].append(metrics["max_drawdown"])
+            bucket["sharpes"].append(metrics["sharpe_ratio"])
             continue
-        bucket["sample_count"] += 1
-        bucket["annualized_returns"].append(metrics["annualized_return"])
-        bucket["max_drawdowns"].append(metrics["max_drawdown"])
-        bucket["sharpes"].append(metrics["sharpe_ratio"])
+
+        # Fast fallback: local computed metrics snapshot (still local-only, no external API)
+        if int(row["nav_points"] or 0) >= 200 and row["annualized_return"] is not None and row["max_drawdown"] is not None and row["sharpe_ratio"] is not None:
+            bucket["sample_count"] += 1
+            bucket["annualized_returns"].append(float(row["annualized_return"]))
+            bucket["max_drawdowns"].append(float(row["max_drawdown"]))
+            bucket["sharpes"].append(float(row["sharpe_ratio"]))
 
     rows: list[dict[str, Any]] = []
     for category, bucket in category_bucket.items():
