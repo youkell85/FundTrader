@@ -731,7 +731,7 @@ export const fundRouter = createRouter({
           getFundAnalysis(input.code).catch(() => null),
         ]);
         const mergedTarget = { ...(analysis || {}), ...(analysisDetail || {}) };
-        const mapped = mapFundItem(cachedFund || mergedTarget || { code: input.code });
+        const mapped = mapFundItem(mergedTarget || cachedFund || { code: input.code });
         const preferredCategory = resolvePeerCategory(cachedFund?.type, mergedTarget?.type, mapped?.category, mapped?.fundType, mapped?.fundName);
         const categories = preferredCategory
           ? [preferredCategory, ...PEER_RANKING_CATEGORIES.filter((item) => item !== preferredCategory)]
