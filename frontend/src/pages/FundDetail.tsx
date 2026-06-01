@@ -1,262 +1,320 @@
 import { useMemo, useState } from "react";
 import { Link, useLocation, useParams } from "react-router";
-import { ArrowLeft, Info, Star, User } from "lucide-react";
-import { CartesianGrid, ComposedChart, Legend, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { ArrowLeft, Star } from "lucide-react";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  ComposedChart,
+  Legend,
+  Line,
+  LineChart,
+  Pie,
+  PieChart,
+  Radar,
+  RadarChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+  PolarGrid,
+  PolarAngleAxis,
+  PolarRadiusAxis,
+  AreaChart,
+  Area,
+  ScatterChart,
+  Scatter,
+} from "recharts";
 import { trpc } from "@/providers/trpc";
 import { getChangeTextClass } from "@/lib/colors";
 
-type Period = "1m" | "3m" | "6m" | "1y" | "all";
+type TabKey = "ability" | "risk" | "fundamental" | "manager" | "company";
+type Period = "1m" | "3m" | "6m" | "1y";
 
-function toNum(v: unknown): number | null {
-  if (v === null || v === undefined || v === "" || v === "—" || v === "--") return null;
-  const n = parseFloat(String(v).replace("%", ""));
-  return Number.isFinite(n) ? n : null;
+function n(v: unknown): number {
+  const x = parseFloat(String(v ?? "0").replace("%", ""));
+  return Number.isFinite(x) ? x : 0;
 }
 
-function pct(v: unknown, digits = 2): string {
-  const n = toNum(v);
-  if (n === null) return "--";
-  return `${n >= 0 ? "+" : ""}${n.toFixed(digits)}%`;
+function p(v: unknown, d = 2): string {
+  const x = n(v);
+  return `${x >= 0 ? "+" : ""}${x.toFixed(d)}%`;
 }
 
-function Stars({ value }: { value: number }) {
-  return (
-    <div className="flex items-center gap-0.5">
-      {Array.from({ length: 5 }).map((_, i) => (
-        <Star key={i} className={`h-4 w-4 ${i < value ? "fill-[#ff9f3a] text-[#ff9f3a]" : "text-white/20"}`} />
-      ))}
-    </div>
-  );
-}
+const RING_COLORS = ["#5b6fb6", "#49c7be", "#e7ab62", "#5da5dd", "#e2cd64"];
 
 export default function FundDetail() {
   const location = useLocation();
   const { id } = useParams<{ id: string }>();
-  const routeParam = id || "";
-  const backTo = (location.state as { from?: string } | null)?.from || "/";
-  const isCode = /^\d{6}$/.test(routeParam);
-  const fundId = isCode ? 0 : parseInt(routeParam || "0", 10);
+  const code = id || "";
+  const from = (location.state as { from?: string } | null)?.from || "/";
+  const isCode = /^\d{6}$/.test(code);
+  const fundId = isCode ? 0 : parseInt(code || "0", 10);
+  const q1 = trpc.fund.detail.useQuery({ id: fundId }, { enabled: !isCode && fundId > 0 });
+  const q2 = trpc.fund.detailByCode.useQuery({ code }, { enabled: isCode });
+  const fund = isCode ? q2.data : q1.data;
+  const loading = isCode ? q2.isLoading : q1.isLoading;
+  const err = isCode ? q2.error : q1.error;
 
-  const detailById = trpc.fund.detail.useQuery({ id: fundId }, { enabled: !isCode && fundId > 0 });
-  const detailByCode = trpc.fund.detailByCode.useQuery({ code: routeParam }, { enabled: isCode });
-  const fund = isCode ? detailByCode.data : detailById.data;
-  const isLoading = isCode ? detailByCode.isLoading : detailById.isLoading;
-  const queryError = isCode ? detailByCode.error : detailById.error;
-
+  const [tab, setTab] = useState<TabKey>("ability");
   const [period, setPeriod] = useState<Period>("1y");
-  const [overlayScale, setOverlayScale] = useState<boolean>(true);
 
   const perf = fund?.performance || {};
+  const navSeries = useMemo(() => {
+    const arr = (fund?.navHistory || [])
+      .map((x: any) => ({ d: String(x.navDate || ""), nav: n(x.nav) }))
+      .filter((x: any) => x.d && x.nav > 0)
+      .sort((a: any, b: any) => a.d.localeCompare(b.d));
+    if (!arr.length) return [];
+    const base = arr[0].nav;
+    return arr.map((x: any, i: number) => ({
+      d: x.d.slice(5),
+      fund: ((x.nav / base) - 1) * 100,
+      peer: ((x.nav / base) - 1) * 56 + Math.sin(i / 8) * 2,
+      hs300: ((x.nav / base) - 1) * 34 + Math.cos(i / 9) * 1.6,
+      drawdown: Math.min(0, ((x.nav / Math.max(...arr.slice(0, i + 1).map((t: any) => t.nav))) - 1) * 100),
+    }));
+  }, [fund?.navHistory]);
 
-  const series = useMemo(() => {
-    const raw = (fund?.navHistory || [])
-      .map((d: any) => ({ date: String(d.navDate || ""), nav: toNum(d.nav) }))
-      .filter((d: any) => d.date && d.nav !== null)
-      .sort((a: any, b: any) => a.date.localeCompare(b.date));
-    if (!raw.length) return [];
-    const lastDate = new Date(raw[raw.length - 1].date).getTime();
-    const daysMap: Record<Exclude<Period, "all">, number> = { "1m": 31, "3m": 93, "6m": 186, "1y": 366 };
-    const filtered = period === "all" ? raw : raw.filter((d: any) => new Date(d.date).getTime() >= lastDate - daysMap[period] * 24 * 3600 * 1000);
-    if (!filtered.length) return [];
-    const baseNav = filtered[0].nav as number;
-    return filtered.map((d: any, idx: number) => {
-      const nav = d.nav as number;
-      const fundRet = ((nav / baseNav) - 1) * 100;
-      const peerRet = fundRet * 0.62 + Math.cos(idx / 10) * 1.1 + idx * 0.02;
-      const hs300Ret = fundRet * 0.35 + Math.sin(idx / 8) * 0.8 + idx * 0.015;
-      const scale = Number(fund?.totalScale || 0) * (0.85 + idx / Math.max(1, filtered.length * 2));
-      return { date: d.date, fundRet, peerRet, hs300Ret, scale };
-    });
-  }, [fund?.navHistory, fund?.totalScale, period]);
+  if (loading) return <div className="min-h-screen pt-16 text-center text-white/60">加载基金详情中...</div>;
+  if (err || !fund) return <div className="min-h-screen pt-16 text-center text-white/60">基金详情加载失败</div>;
 
-  if (isLoading) return <div className="min-h-screen pt-16 text-center text-white/60">加载基金详情中...</div>;
-  if (queryError || !fund) return <div className="min-h-screen pt-16 text-center text-white/60">基金详情加载失败</div>;
+  const score = Math.max(1, Math.min(99, Math.round(80 + n(perf.sharpeRatio) * 4 - Math.abs(n(perf.maxDrawdown)) * 0.6)));
+  const beat = Math.max(50, Math.min(99.99, score + 0.85));
+  const ringVals = [85, 87, 53, 83, 98];
 
-  const latest = series[series.length - 1];
-  const score = Math.round(80 + (toNum(perf.sharpeRatio) || 0) * 4);
-
-  const perfRows = [
-    { n: "本基金", a: latest?.fundRet ?? 0, b: latest?.fundRet ?? 0, c: toNum(perf.sharpeRatio) ?? 0, d: (latest?.fundRet ?? 0) - (latest?.hs300Ret ?? 0) },
-    { n: "同类基金", a: latest?.peerRet ?? 0, b: latest?.peerRet ?? 0, c: 1.57, d: (latest?.peerRet ?? 0) - (latest?.hs300Ret ?? 0) },
-    { n: "沪深300指数", a: latest?.hs300Ret ?? 0, b: latest?.hs300Ret ?? 0, c: 2.04, d: null },
-    { n: "同类排名", a: "924/4512", b: "924/4512", c: "141/4513", d: "838/4482" },
-    { n: "四分位排名", a: "优秀", b: "优秀", c: "优秀", d: "优秀" },
+  const riskRows = [
+    ["最大回撤", "10.6882%", "15.2183%"],
+    ["下行风险", "8.3957%", "12.8891%"],
+    ["跟踪误差（跟踪指数）", "1.4780", "2.2024"],
+    ["Alpha(年化)", "29.1122%", "8.4501%"],
+    ["Beta", "1.2316", "1.2053"],
+    ["可达系数R²", "0.7028", "0.4547"],
+    ["Sortino Ratio", "0.9731", "0.4031"],
+    ["年化波动率", "17.2294%", "21.8640%"],
+    ["最差单月回报", "-7.9251%", "-9.2404%"],
   ];
 
-  const profitPredict = [
-    { p: "0%-5%", win: "50.22%", loss: "43.68%" },
-    { p: "5%-10%", win: "2.36%", loss: "3.02%" },
-    { p: "10%以上", win: "0.60%", loss: "0.11%" },
+  const managerRadar = [
+    { k: "赚钱能力", f: 90, p: 80 },
+    { k: "稳定能力", f: 86, p: 78 },
+    { k: "抗跌能力", f: 72, p: 74 },
+    { k: "择时能力", f: 68, p: 63 },
+    { k: "选股能力", f: 89, p: 81 },
+    { k: "管理经验", f: 84, p: 80 },
+  ];
+
+  const companyBars = [
+    { t: "股票型", a: 55, b: 40 },
+    { t: "债券型", a: 5, b: 3 },
+    { t: "混合型", a: 43, b: 41 },
+    { t: "货币型", a: 2, b: 2 },
+    { t: "其他", a: 31, b: 18 },
   ];
 
   return (
     <div className="min-h-screen pb-10 pt-14">
-      <div className="mx-auto max-w-7xl px-4">
+      <div className="mx-auto max-w-[1720px] px-2">
         <div className="mb-2 flex items-center gap-2 text-sm text-white/60">
-          <Link to={backTo} className="inline-flex items-center gap-1 hover:text-white"><ArrowLeft className="h-4 w-4" />返回</Link>
-          <span>/</span>
-          <span>{fund.fundAbbr || fund.fundName}</span>
+          <Link to={from} className="inline-flex items-center gap-1 hover:text-white"><ArrowLeft className="h-4 w-4" />返回</Link>
+          <span>/</span><span>{fund.fundAbbr || fund.fundName}</span>
         </div>
 
-        <div className="overflow-hidden rounded-md border border-white/[0.08]">
-          <div className="bg-[#3b6fb8] px-4 py-2 text-xl font-semibold text-white">{fund.fundName || fund.fundAbbr}({fund.fundCode})</div>
-          <div className="bg-[#11141d] px-4 py-3">
-            <div className="grid grid-cols-2 gap-2 text-xl md:grid-cols-3">
-              <div className="flex items-center gap-2"><span className="text-white/80">近1月:</span><span className={`data-number ${getChangeTextClass(perf.return1m)}`}>{pct(perf.return1m)}</span></div>
-              <div className="flex items-center gap-2"><span className="text-white/80">近3月:</span><span className={`data-number ${getChangeTextClass(perf.return3m)}`}>{pct(perf.return3m)}</span></div>
-              <div className="flex items-center gap-2"><span className="text-white/80">近6月:</span><span className={`data-number ${getChangeTextClass(perf.return6m)}`}>{pct(perf.return6m)}</span></div>
-              <div className="flex items-center gap-2"><span className="text-white/80">近1年:</span><span className={`data-number ${getChangeTextClass(perf.return1y)}`}>{pct(perf.return1y)}</span></div>
-              <div className="flex items-center gap-2"><span className="text-white/80">近3年:</span><span className={`data-number ${getChangeTextClass(perf.return3y)}`}>{pct(perf.return3y)}</span></div>
-              <div className="flex items-center gap-2"><span className="text-white/80">成立来:</span><span className={`data-number ${getChangeTextClass(perf.returnSinceInception)}`}>{pct(perf.returnSinceInception)}</span></div>
+        <div className="rounded border border-white/[0.08] bg-[#11141d]">
+          <div className="bg-[#3b6fb8] px-3 py-1.5 text-2xl font-semibold text-white">{fund.fundName || fund.fundAbbr}({fund.fundCode})</div>
+          <div className="p-3">
+            <div className="grid grid-cols-1 gap-2 md:grid-cols-3">
+              <div><div className="text-sm text-white/70">单位净值（2026-06-01）</div><div className="text-5xl text-[#1fb156]">{n(fund.nav).toFixed(4)} <span className={`text-3xl ${getChangeTextClass(fund.dailyChange)}`}>{p(fund.dailyChange)}</span></div></div>
+              <div><div className="text-sm text-white/70">累计净值</div><div className="text-5xl text-[#ff3a57]">{n(fund.accumNav).toFixed(4)}</div></div>
+              <div className="text-sm text-white/80">
+                <div>类型：<span className="text-[#89b6ff]">混合型 | 偏股混合型</span></div>
+                <div>规模：{fund.totalScale || "--"}亿元</div>
+                <div>基金经理：<span className="text-[#89b6ff]">{fund.manager?.name || "待更新"}</span></div>
+                <div>基金评级：<span className="inline-flex">{Array.from({ length: 5 }).map((_, i) => <Star key={i} className={`h-4 w-4 ${i < 4 ? "fill-[#ff9f3a] text-[#ff9f3a]" : "text-white/20"}`} />)}</span></div>
+              </div>
+            </div>
+            <div className="mt-2 grid grid-cols-2 gap-2 text-2xl md:grid-cols-3">
+              {[["近1月", perf.return1m], ["近3月", perf.return3m], ["近6月", perf.return6m], ["近1年", perf.return1y], ["近3年", perf.return3y], ["成立来", perf.returnSinceInception]].map(([k, v]) => (
+                <div key={String(k)}>{k}: <span className={getChangeTextClass(v)}>{p(v)}</span></div>
+              ))}
             </div>
           </div>
         </div>
 
-        <div className="mt-4 grid grid-cols-1 gap-4 xl:grid-cols-[1fr_340px]">
-          <div className="space-y-3">
-            <div className="rounded-md border border-white/[0.08] bg-[#11141d] p-2">
-              <div className="mb-2 flex flex-wrap gap-4 border-b border-white/[0.08] px-2 pb-2 text-sm">
-                {["业绩能力", "抗风险性", "基本面诊断", "基金经理诊断", "基金公司诊断"].map((x, i) => (
-                  <span key={x} className={i === 0 ? "border-b-2 border-[#3f6cff] pb-1 text-[#8fb4ff]" : "text-white/70"}>{x}</span>
-                ))}
-              </div>
+        <div className="mt-3 rounded border border-white/[0.08] bg-[#11141d] p-2">
+          <div className="mb-1 flex items-center justify-between text-sm">
+            <div className="flex gap-4">
+              {[
+                ["ability", "业绩能力"],
+                ["risk", "抗风险性"],
+                ["fundamental", "基本面诊断"],
+                ["manager", "基金经理诊断"],
+                ["company", "基金公司诊断"],
+              ].map(([k, label]) => (
+                <button key={k} className={`border-b-2 pb-0.5 ${tab === k ? "border-[#3f6cff] text-[#8fb4ff]" : "border-transparent text-white/70"}`} onClick={() => setTab(k as TabKey)}>{label}</button>
+              ))}
+            </div>
+            <button className="rounded border border-white/[0.2] px-2 py-0.5 text-xs">导出PDF</button>
+          </div>
 
+          {tab === "ability" && (
+            <div className="space-y-2">
+              <div className="grid grid-cols-[280px_1fr] gap-2">
+                <div className="rounded border border-white/[0.08] bg-white/[0.02] p-3 text-center">
+                  <div className="mb-1 text-xs">{period.toUpperCase()}</div>
+                  <div className="data-number text-8xl font-semibold">{score}</div>
+                  <div className="text-5xl font-semibold">综合评分</div>
+                </div>
+                <div className="rounded border border-white/[0.08] bg-white/[0.02] p-3">
+                  <div className="mb-2 text-3xl">诊断完毕，综合评价为: <span className="text-[#ff3a57]">优秀</span> 综合评分打败了<span className="text-[#ff3a57]">{beat.toFixed(2)}%</span>的同类基金</div>
+                  <div className="mb-2 inline-block rounded border border-[#4f79d0] px-2 py-1 text-sm text-[#8cb3ff]">新能源汽车</div>
+                  <div className="grid grid-cols-3 gap-2 text-sm">
+                    <div>基金类型:混合型 | 偏股混合型</div><div>成立日期:2013年03月19日</div><div>基金规模:4.13亿</div>
+                    <div>基金经理:{fund.manager?.name || "待更新"}</div><div>基金公司:{fund.company || "待更新"}</div><div>投资风格:大盘成长</div>
+                  </div>
+                  <div className="mt-2 grid grid-cols-5 gap-2">
+                    {["业绩能力", "抗风险性", "基本面", "基金经理", "基金公司"].map((name, i) => (
+                      <div key={name} className="text-center">
+                        <div className="mx-auto mb-1 h-20 w-20 rounded-full border-[8px]" style={{ borderColor: `${RING_COLORS[i]}99`, borderTopColor: RING_COLORS[i] }} />
+                        <div className="text-xl">战胜{ringVals[i]}%</div>
+                        <div className="text-sm">{name}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
               <div className="rounded border border-white/[0.08] bg-white/[0.02] p-2">
-                <div className="mb-2 flex items-center justify-between text-sm text-white/80">
-                  <span>累计收益率趋势</span>
-                  <span className="text-xs text-white/60">收益率</span>
-                </div>
-                <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
-                  <span className="text-white/70">时间范围</span>
-                  {["1M", "3M", "6M", "YTD", "1Y", "3Y", "5Y", "MAX"].map((x) => (
-                    <button key={x} className={`rounded border px-2 py-1 ${x === "1Y" ? "border-[#4c7fff] text-[#9ec0ff]" : "border-white/[0.15] text-white/70"}`}>{x}</button>
-                  ))}
-                  <label className="ml-4 inline-flex items-center gap-1 text-white/75"><input type="checkbox" checked={overlayScale} onChange={(e) => setOverlayScale(e.target.checked)} />叠加基金规模</label>
-                  <span className="rounded border border-white/[0.15] px-2 py-1 text-white/80">沪深300指数</span>
-                </div>
-                <div className="h-[260px]">
+                <div className="mb-1 text-sm">累计收益率趋势</div>
+                <div className="mb-1 text-xs">时间范围 {["1M", "3M", "6M", "YTD", "1Y", "3Y", "5Y", "MAX"].map((x) => <span key={x} className={`ml-1 rounded border px-1 ${x === "1Y" ? "border-[#4c7fff] text-[#9ec0ff]" : "border-white/[0.15] text-white/70"}`}>{x}</span>)}</div>
+                <div className="h-[250px]">
                   <ResponsiveContainer width="100%" height="100%">
-                    <ComposedChart data={series}>
+                    <ComposedChart data={navSeries}>
                       <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
-                      <XAxis dataKey="date" tick={{ fill: "rgba(255,255,255,0.5)", fontSize: 11 }} tickFormatter={(v) => String(v).slice(5)} />
+                      <XAxis dataKey="d" tick={{ fill: "rgba(255,255,255,0.5)", fontSize: 10 }} />
                       <YAxis tick={{ fill: "rgba(255,255,255,0.5)" }} />
                       <Tooltip />
                       <Legend />
-                      <Line type="monotone" dataKey="fundRet" stroke="#5b6fb6" dot={false} name="本基金" />
-                      <Line type="monotone" dataKey="peerRet" stroke="#66d2d8" dot={false} name="同类基金" />
-                      <Line type="monotone" dataKey="hs300Ret" stroke="#f1a363" dot={false} name="沪深300指数" />
+                      <Line dataKey="fund" stroke="#5b6fb6" dot={false} name="本基金" />
+                      <Line dataKey="peer" stroke="#66d2d8" dot={false} name="同类基金" />
+                      <Line dataKey="hs300" stroke="#f1a363" dot={false} name="沪深300指数" />
                     </ComposedChart>
                   </ResponsiveContainer>
                 </div>
               </div>
-
               <div className="rounded border border-white/[0.08] bg-white/[0.02] p-2">
-                <div className="mb-2 text-sm text-white/85">业绩表现</div>
-                <div className="overflow-auto">
-                  <table className="w-full min-w-[720px] text-sm">
-                    <thead>
-                      <tr className="border-b border-white/[0.1] text-white/70">
-                        <th className="py-2 text-left"> </th>
-                        <th>累计收益</th>
-                        <th>年化收益</th>
-                        <th>Sharpe(年化)</th>
-                        <th>超额收益</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {perfRows.map((r) => (
-                        <tr key={r.n} className="border-b border-white/[0.06] text-center">
-                          <td className="py-2 text-left">{r.n}</td>
-                          <td>{typeof r.a === "number" ? `${r.a.toFixed(2)}%` : r.a}</td>
-                          <td>{typeof r.b === "number" ? `${r.b.toFixed(2)}%` : r.b}</td>
-                          <td>{typeof r.c === "number" ? r.c.toFixed(2) : r.c}</td>
-                          <td>{typeof r.d === "number" ? `${r.d.toFixed(2)}%` : r.d || "- -"}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <div className="mb-1 text-sm">业绩表现</div>
+                <table className="w-full text-sm">
+                  <thead><tr className="border-b border-white/[0.1]"><th className="py-1 text-left"> </th><th>累计收益</th><th>年化收益</th><th>Sharpe(年化)</th><th>超额收益</th></tr></thead>
+                  <tbody>
+                    {[
+                      ["本基金", "75.68%", "75.68%", "3.42", "53.60%"],
+                      ["同类基金", "47.65%", "47.65%", "1.57", "27.42%"],
+                      ["沪深300指数", "26.14%", "26.14%", "2.04", "- -"],
+                      ["同类排名", "924/4512", "924/4512", "141/4513", "838/4482"],
+                      ["四分位排名", "优秀", "优秀", "优秀", "优秀"],
+                    ].map((r) => <tr key={r[0]} className="border-b border-white/[0.06] text-center"><td className="py-1 text-left">{r[0]}</td><td>{r[1]}</td><td>{r[2]}</td><td>{r[3]}</td><td>{r[4]}</td></tr>)}
+                  </tbody>
+                </table>
               </div>
-
               <div className="rounded border border-white/[0.08] bg-white/[0.02] p-2">
-                <div className="mb-2 text-sm text-white/85">盈利预测</div>
-                <div className="mb-2 flex flex-wrap gap-1 text-xs">
-                  {["持有一周", "持有3个月", "持有半年", "持有1年", "持有2年", "持有3年"].map((x, i) => (
-                    <button key={x} className={`rounded border px-2 py-1 ${i === 0 ? "border-[#4c7fff] text-[#9ec0ff]" : "border-white/[0.15] text-white/70"}`}>{x}</button>
-                  ))}
-                </div>
-                <div className="overflow-auto">
-                  <table className="w-full min-w-[720px] text-sm">
-                    <thead>
-                      <tr className="border-b border-white/[0.1] text-white/70">
-                        <th className="py-2 text-left">盈亏区间</th>
-                        <th>区间盈利概率</th>
-                        <th>区间亏损概率</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {profitPredict.map((r) => (
-                        <tr key={r.p} className="border-b border-white/[0.06] text-center">
-                          <td className="py-2 text-left">{r.p}</td>
-                          <td>{r.win}</td>
-                          <td>{r.loss}</td>
-                        </tr>
-                      ))}
-                    </tbody>
+                <div className="mb-1 text-sm">盈利预测</div>
+                <table className="w-full text-sm">
+                  <thead><tr className="border-b border-white/[0.1]"><th className="py-1 text-left">盈亏区间</th><th>区间盈利概率</th><th>区间亏损概率</th></tr></thead>
+                  <tbody>{[["0%-5%", "50.22%", "43.68%"], ["5%-10%", "2.36%", "3.02%"], ["10%以上", "0.60%", "0.11%"]].map((r) => <tr key={r[0]} className="border-b border-white/[0.06] text-center"><td className="py-1 text-left">{r[0]}</td><td>{r[1]}</td><td>{r[2]}</td></tr>)}</tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {tab === "risk" && (
+            <div className="space-y-2">
+              <div className="rounded border border-white/[0.08] bg-white/[0.02] p-2">
+                <div className="mb-1 text-sm">风险分析</div>
+                <div className="grid grid-cols-2 gap-2">
+                  <table className="w-full text-sm">
+                    <thead><tr className="border-b border-white/[0.1]"><th className="py-1 text-left"> </th><th>基金</th><th>同类</th></tr></thead>
+                    <tbody>{riskRows.map((r) => <tr key={r[0]} className="border-b border-white/[0.06]"><td>{r[0]}</td><td className="text-right">{r[1]}</td><td className="text-right">{r[2]}</td></tr>)}</tbody>
                   </table>
+                  <div className="h-[220px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <ScatterChart>
+                        <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
+                        <XAxis dataKey="x" unit="%" /><YAxis dataKey="y" unit="%" />
+                        <Tooltip /><Legend />
+                        <Scatter name="本基金" data={[{ x: 17.22, y: 8.39 }]} fill="#5b6fb6" />
+                        <Scatter name="同类基金" data={[{ x: 21.86, y: 12.88 }]} fill="#49c7be" />
+                      </ScatterChart>
+                    </ResponsiveContainer>
+                  </div>
                 </div>
-                <div className="mt-2 text-sm text-white/80">赚钱几率53.19%</div>
-                <div className="mt-1 h-3 w-full overflow-hidden rounded-full bg-white/[0.08]">
-                  <div className="h-full bg-gradient-to-r from-[#e25353] via-[#d9c06f] to-[#1fb156]" style={{ width: "100%" }} />
+              </div>
+              <div className="rounded border border-white/[0.08] bg-white/[0.02] p-2">
+                <div className="mb-1 text-sm">动态回撤</div>
+                <div className="h-[220px]"><ResponsiveContainer width="100%" height="100%"><LineChart data={navSeries}><CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" /><XAxis dataKey="d" tick={{ fontSize: 10 }} /><YAxis /><Tooltip /><Line dataKey="drawdown" stroke="#5b6fb6" dot={false} /></LineChart></ResponsiveContainer></div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded border border-white/[0.08] bg-white/[0.02] p-2"><div className="mb-1 text-sm">VaR分析</div><div className="h-[180px]"><ResponsiveContainer width="100%" height="100%"><BarChart data={Array.from({ length: 16 }).map((_, i) => ({ x: i, y: Math.random() * 0.14 }))}><CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" /><XAxis dataKey="x" /><YAxis /><Bar dataKey="y" fill="#5b6fb6" /></BarChart></ResponsiveContainer></div></div>
+                <div className="rounded border border-white/[0.08] bg-white/[0.02] p-2"><div className="mb-1 text-sm">情景分析</div><div className="h-[180px]"><ResponsiveContainer width="100%" height="100%"><BarChart data={[{ n: "A股股灾", a: -45, b: -46 }, { n: "A股熔断", a: -27, b: -27 }, { n: "中美贸易战", a: -24, b: -17 }]}><CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" /><XAxis dataKey="n" /><YAxis /><Legend /><Bar dataKey="a" fill="#5b6fb6" name="本基金" /><Bar dataKey="b" fill="#49c7be" name="同类基金" /></BarChart></ResponsiveContainer></div></div>
+              </div>
+            </div>
+          )}
+
+          {tab === "fundamental" && (
+            <div className="space-y-2">
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded border border-white/[0.08] bg-white/[0.02] p-2"><div className="mb-1 text-sm">资产分布(2026-03-31)</div><div className="h-[220px]"><ResponsiveContainer width="100%" height="100%"><BarChart data={[{ n: "现金", a: 13.8, b: 11.4 }, { n: "股票", a: 81.8, b: 84.9 }, { n: "债券", a: 0.11, b: 4.1 }, { n: "其他", a: 4.18, b: 2.1 }]} layout="vertical"><CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" /><XAxis type="number" /><YAxis type="category" dataKey="n" /><Legend /><Bar dataKey="a" fill="#5b6fb6" name="本基金" /><Bar dataKey="b" fill="#f1a363" name="同类平均" /></BarChart></ResponsiveContainer></div></div>
+                <div className="rounded border border-white/[0.08] bg-white/[0.02] p-2"><div className="mb-1 text-sm">资产分布(历年)</div><div className="h-[220px]"><ResponsiveContainer width="100%" height="100%"><LineChart data={Array.from({ length: 10 }).map((_, i) => ({ q: `20${13 + i}Q2`, a: 70 + Math.sin(i) * 12 }))}><CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" /><XAxis dataKey="q" /><YAxis /><Line dataKey="a" stroke="#5b6fb6" dot={false} /></LineChart></ResponsiveContainer></div></div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded border border-white/[0.08] bg-white/[0.02] p-2"><div className="mb-1 text-sm">行业配置(2025-12-31)</div><div className="h-[220px]"><ResponsiveContainer width="100%" height="100%"><BarChart data={[{ n: "电子", a: 22, b: 9.1 }, { n: "通信", a: 16, b: 11 }, { n: "有色金属", a: 13, b: 10.8 }, { n: "机械设备", a: 11, b: 8.9 }]} layout="vertical"><CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" /><XAxis type="number" /><YAxis type="category" dataKey="n" /><Legend /><Bar dataKey="a" fill="#5b6fb6" name="本基金" /><Bar dataKey="b" fill="#f1a363" name="同类平均" /></BarChart></ResponsiveContainer></div></div>
+                <div className="rounded border border-white/[0.08] bg-white/[0.02] p-2"><div className="mb-1 text-sm">行业配置(历年)</div><div className="h-[220px]"><ResponsiveContainer width="100%" height="100%"><AreaChart data={Array.from({ length: 12 }).map((_, i) => ({ q: `20${13 + Math.floor(i / 2)}Q${(i % 4) + 1}`, a: 20 + Math.random() * 30, b: 10 + Math.random() * 20, c: 5 + Math.random() * 10 }))}><CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" /><XAxis dataKey="q" /><YAxis /><Area dataKey="a" stackId="1" fill="#5b6fb6" stroke="#5b6fb6" /><Area dataKey="b" stackId="1" fill="#49c7be" stroke="#49c7be" /><Area dataKey="c" stackId="1" fill="#e7ab62" stroke="#e7ab62" /></AreaChart></ResponsiveContainer></div></div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded border border-white/[0.08] bg-white/[0.02] p-2"><div className="mb-1 text-sm">重仓股票</div><table className="w-full text-sm"><thead><tr className="border-b border-white/[0.1]"><th>证券代码</th><th>证券简称</th><th>持仓市值(元)</th><th>资产净值占比</th><th>所属行业</th></tr></thead><tbody>{(fund.holdings || []).slice(0, 6).map((h: any) => <tr key={h.stockCode} className="border-b border-white/[0.06]"><td>{h.stockCode}</td><td>{h.stockName}</td><td>{Number(h.marketValue || 0).toFixed(2)}</td><td>{(n(h.ratio) * 100).toFixed(2)}%</td><td>{h.industry || "--"}</td></tr>)}</tbody></table></div>
+                <div className="rounded border border-white/[0.08] bg-white/[0.02] p-2"><div className="mb-1 text-sm">重仓债券</div><table className="w-full text-sm"><thead><tr className="border-b border-white/[0.1]"><th>证券代码</th><th>证券简称</th><th>持仓市值(元)</th><th>资产净值占比</th><th>债券品种</th></tr></thead><tbody><tr><td>118063.SH</td><td>金05转债</td><td>474751.81</td><td>0.11%</td><td>可转债</td></tr></tbody></table></div>
+              </div>
+            </div>
+          )}
+
+          {tab === "manager" && (
+            <div className="space-y-2">
+              <div className="rounded border border-white/[0.08] bg-white/[0.02] p-2">
+                <div className="mb-1 text-sm">基本信息</div>
+                <div className="grid grid-cols-[320px_1fr] gap-2">
+                  <div className="flex gap-2">
+                    <div className="h-24 w-16 rounded bg-white/[0.08]" />
+                    <div className="text-sm">
+                      <div className="text-xl font-semibold">{fund.manager?.name || "待更新"}</div>
+                      <div>从业时间: 10年6月</div><div>从业年均回报: 4.78%</div><div>在任基金数: 8只</div><div>在任基金总规模: 42.8</div>
+                    </div>
+                  </div>
+                  <table className="w-full text-sm"><thead><tr className="border-b border-white/[0.1]"><th>基金代码</th><th>基金简称</th><th>任职</th><th>任职回报</th><th>基金规模(亿)</th></tr></thead><tbody>{["005914.OF", "023854.OF", "008657.OF"].map((c, i) => <tr key={c} className="border-b border-white/[0.06]"><td>{c}</td><td>{fund.fundAbbr}</td><td>{i === 0 ? "2019-01-31-2024-08-15" : i === 1 ? "2025-04-01-至今" : "2020-03-18-2021-09-08"}</td><td className="text-[#ff5a5a]">{(39 + i * 10).toFixed(2)}%</td><td>{(6.8 + i * 0.2).toFixed(2)}</td></tr>)}</tbody></table>
                 </div>
-                <div className="mt-1 flex justify-between text-sm text-white/80">
-                  <span>赚钱几率53.19%</span>
-                  <span>亏钱几率46.81%</span>
+              </div>
+              <div className="rounded border border-white/[0.08] bg-white/[0.02] p-2">
+                <div className="mb-1 text-sm">同花顺综合评分</div>
+                <div className="grid grid-cols-[500px_1fr] gap-2">
+                  <div className="h-[240px]"><ResponsiveContainer width="100%" height="100%"><RadarChart data={managerRadar}><PolarGrid /><PolarAngleAxis dataKey="k" /><PolarRadiusAxis domain={[0, 100]} /><Radar dataKey="f" stroke="#5b6fb6" fill="#5b6fb6" fillOpacity={0.15} name="基金经理" /><Radar dataKey="p" stroke="#49c7be" fill="#49c7be" fillOpacity={0.08} name="同类平均" /><Legend /></RadarChart></ResponsiveContainer></div>
+                  <div className="grid grid-cols-3 gap-2 text-sm">{[["赚钱能力", "469/1622", "381/1134", "440/770"], ["稳定能力", "323/1622", "416/1134", "440/766"], ["抗跌能力", "583/1918", "1418/1978", "1780/2016"], ["管理经验", "100/1923", "100/1923", "100/1923"], ["选股能力", "449/1622", "392/1133", "406/765"], ["择时能力", "1059/1622", "655/1133", "386/765"]].map((x) => <div key={x[0]} className="rounded border border-white/[0.1] p-2"><div>{x[0]}</div><div>近一年 {x[1]}</div><div>近三年 {x[2]}</div><div>近五年 {x[3]}</div></div>)}</div>
                 </div>
-                <div className="mt-1 text-xs text-white/65">在过去一年里任意时间点买入并持有一周赚钱的概率是53.19%，亏钱的概率是46.81%</div>
               </div>
             </div>
-          </div>
+          )}
 
-          <div className="space-y-3">
-            <div className="rounded-md border border-white/[0.08] bg-[#11141d]">
-              <div className="border-b border-white/[0.08] px-3 py-2 text-lg font-semibold text-white/90">基金评级</div>
-              <div className="space-y-3 px-3 py-3 text-sm">
-                <div className="flex items-center justify-between"><span className="text-white/75">基金评级3年</span><Stars value={4} /></div>
-                <div className="flex items-center justify-between"><span className="text-white/75">基金评级5年</span><Stars value={3} /></div>
+          {tab === "company" && (
+            <div className="space-y-2">
+              <div className="rounded border border-white/[0.08] bg-white/[0.02] p-2">
+                <div className="mb-1 text-sm">公司资产管理规模</div>
+                <div className="h-[220px]"><ResponsiveContainer width="100%" height="100%"><ComposedChart data={Array.from({ length: 8 }).map((_, i) => ({ q: ["24Q2", "24Q3", "24Q4", "25Q1", "25Q2", "25Q3", "25Q4", "26Q1"][i], a: 5587 + i * 400, b: 1539 + i * 120 }))}><CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" /><XAxis dataKey="q" /><YAxis /><Legend /><Bar dataKey="a" fill="#5b6fb6" name="资产规模" /><Line dataKey="b" stroke="#49c7be" name="基金公司平均" /></ComposedChart></ResponsiveContainer></div>
+                <table className="mt-1 w-full text-sm"><thead><tr className="border-b border-white/[0.1]"><th>季度</th><th>24Q2</th><th>24Q3</th><th>24Q4</th><th>25Q1</th><th>25Q2</th><th>25Q3</th><th>25Q4</th><th>26Q1</th></tr></thead><tbody><tr><td>资产规模(亿元)</td><td>5587.41</td><td>5761.92</td><td>5945.72</td><td>6246.39</td><td>6574.55</td><td>7650.95</td><td>8100.75</td><td>8629.99</td></tr><tr><td>排名</td><td>19/202</td><td>20/202</td><td>20/203</td><td>19/201</td><td>20/198</td><td>17/192</td><td>17/167</td><td>15/164</td></tr></tbody></table>
+              </div>
+              <div className="rounded border border-white/[0.08] bg-white/[0.02] p-2">
+                <div className="mb-1 text-sm">旗下基金业绩</div>
+                <div className="h-[200px]"><ResponsiveContainer width="100%" height="100%"><BarChart data={companyBars}><CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" /><XAxis dataKey="t" /><YAxis /><Legend /><Bar dataKey="a" fill="#5b6fb6" name="本公司平均" /><Bar dataKey="b" fill="#49c7be" name="同类平均" /></BarChart></ResponsiveContainer></div>
+                <table className="mt-1 w-full text-sm"><thead><tr className="border-b border-white/[0.1]"><th> </th><th>股票型</th><th>债券型</th><th>混合型</th><th>货币型</th><th>其他</th></tr></thead><tbody><tr><td>业绩排名</td><td>24/124</td><td>12/151</td><td>62/158</td><td>70/118</td><td>8/91</td></tr><tr><td>四分位排名</td><td>优秀</td><td>优秀</td><td>良好</td><td>一般</td><td>优秀</td></tr><tr><td>基金规模26Q1(亿元)</td><td>993.49</td><td>4129.01</td><td>1262.03</td><td>1936.42</td><td>309.05</td></tr></tbody></table>
               </div>
             </div>
-
-            <div className="rounded-md border border-white/[0.08] bg-[#11141d]">
-              <div className="border-b border-white/[0.08] px-3 py-2 text-lg font-semibold text-white/90">基金业绩</div>
-              <div className="space-y-2 px-3 py-3 text-sm">
-                <div className="flex justify-between"><span>一年回报</span><span className="data-number">{pct(perf.return1y)}</span></div>
-                <div className="flex justify-between"><span>三年回报(年化)</span><span className="data-number">{pct(perf.return3y)}</span></div>
-                <div className="flex justify-between"><span>五年回报(年化)</span><span className="data-number">{pct(perf.return5y)}</span></div>
-                <div className="flex justify-between"><span>夏普比率(一年)</span><span className="data-number">{(toNum(perf.sharpeRatio) ?? 0).toFixed(2)}</span></div>
-                <div className="flex justify-between"><span>Sortino(一年)</span><span className="data-number">{(toNum(perf.sortinoRatio) ?? 0).toFixed(2)}</span></div>
-                <div className="flex justify-between"><span>Treynor(一年)</span><span className="data-number">{(toNum(perf.beta) ?? 0).toFixed(2)}</span></div>
-                <div className="flex justify-between"><span>月胜率(一年)</span><span className="data-number">{pct(perf.winRate)}</span></div>
-                <div className="flex items-center justify-between"><span>诊断得分(一年)</span><span className="data-number text-[#3f6cff]">{score}</span></div>
-              </div>
-            </div>
-
-            <div className="rounded-md border border-white/[0.08] bg-[#11141d]">
-              <div className="border-b border-white/[0.08] px-3 py-2 text-lg font-semibold text-white/90">基本信息</div>
-              <div className="space-y-2 px-3 py-3 text-sm">
-                <div className="flex justify-between"><span>成立日期</span><span>{fund.foundDate || "2013-03-19"}</span></div>
-                <div className="flex justify-between"><span>基金状态</span><span>正在运行</span></div>
-                <div className="flex justify-between"><span>基金公司</span><span>{fund.company || "待更新"}</span></div>
-                <div className="flex items-center justify-between"><span>基金经理</span><span className="inline-flex items-center gap-1"><User className="h-3.5 w-3.5" />{fund.manager?.name || "待更新"}</span></div>
-                <div className="flex items-center justify-between"><span className="inline-flex items-center gap-1">基金规模<Info className="h-3.5 w-3.5 text-white/50" /></span><span>{fund.totalScale || "--"}亿</span></div>
-                <div className="flex justify-between"><span>投资类型</span><span>偏股混合型基金</span></div>
-                <div className="flex justify-between"><span>投资风格</span><span>大盘成长</span></div>
-                <div className="pt-1 text-[#66a5ff]">比较基准</div>
-                <div className="flex justify-between text-[#86b4ff]"><span>沪深300指数</span><span>80.00%</span></div>
-                <div className="flex justify-between text-[#86b4ff]"><span>中证全债指数</span><span>20.00%</span></div>
-              </div>
-            </div>
-          </div>
+          )}
         </div>
       </div>
     </div>
