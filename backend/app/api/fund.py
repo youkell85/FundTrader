@@ -4,30 +4,47 @@ import json
 import logging
 from datetime import datetime
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, HTTPException
 from starlette.concurrency import run_in_threadpool
 from typing import Optional
 
 from ..services.fund_service import get_fund_list, get_fund_list_from_watchlist
-from ..constants.guoyuan_funds import GUOYUAN_FUND_LIST
+from ..constants.guoyuan_funds import GUOYUAN_FUND_LIST, FUND_CATEGORIES, FUND_TYPES
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/fund", tags=["基金排名筛选"])
 
+# ── 排序参数白名单 ──
+ALLOWED_SORT_FIELDS = frozenset({
+    "今年来", "近1月", "近3月", "近6月", "近1年", "近3年",
+    "ytd", "day_growth", "nav", "near_1m", "near_3m",
+    "near_6m", "near_1y", "near_3y", "code", "name", "type",
+})
+ALLOWED_SORT_ORDERS = frozenset({"asc", "desc"})
+
+DEFAULT_CATEGORY = "全部"
+DEFAULT_SORT_BY = "今年来"
+DEFAULT_SORT_ORDER = "desc"
+DEFAULT_TAG = "鑫基荟"
+
 
 @router.get("/list")
 async def fund_list(
-    category: str = Query("全部", description="基金类型"),
+    category: str = Query(DEFAULT_CATEGORY, description="基金类型"),
     tag: Optional[str] = Query(None, description="标签筛选"),
     keyword: Optional[str] = Query(None, description="关键词搜索"),
-    sort_by: str = Query("今年来", description="排序字段"),
-    sort_order: str = Query("desc", description="排序方向"),
+    sort_by: str = Query(DEFAULT_SORT_BY, description="排序字段"),
+    sort_order: str = Query(DEFAULT_SORT_ORDER, description="排序方向"),
     page: int = Query(1, ge=1, description="页码"),
     page_size: int = Query(20, ge=1, le=5000, description="每页数量"),
     guoyuan_only: bool = Query(True, description="仅国元名单"),
     use_watchlist: bool = Query(False, description="使用自选基金列表"),
 ):
+    if sort_by not in ALLOWED_SORT_FIELDS:
+        raise HTTPException(400, f"不支持的排序字段: {sort_by}")
+    if sort_order not in ALLOWED_SORT_ORDERS:
+        raise HTTPException(400, f"不支持的排序方向: {sort_order}")
     if use_watchlist:
         return await run_in_threadpool(
             get_fund_list_from_watchlist,
@@ -54,20 +71,23 @@ async def fund_list(
 
 @router.get("/categories")
 async def fund_categories():
-    from ..constants.guoyuan_funds import FUND_CATEGORIES, FUND_TYPES
     return {"categories": FUND_CATEGORIES, "types": FUND_TYPES}
 
 
 @router.get("/snapshot/list")
 async def fund_snapshot_list(
-    category: str = Query("全部"),
+    category: str = Query(DEFAULT_CATEGORY),
     keyword: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=5000),
     xinjihui_only: bool = Query(True),
     sort_by: str = Query("ytd"),
-    sort_order: str = Query("desc"),
+    sort_order: str = Query(DEFAULT_SORT_ORDER),
 ):
+    if sort_by not in ALLOWED_SORT_FIELDS:
+        raise HTTPException(400, f"不支持的排序字段: {sort_by}")
+    if sort_order not in ALLOWED_SORT_ORDERS:
+        raise HTTPException(400, f"不支持的排序方向: {sort_order}")
     """Read paged fund quote snapshots from SQLite only."""
     from ..storage.database import FundDataStore
 
@@ -145,6 +165,60 @@ async def fund_data_status():
     return await run_in_threadpool(FundDataStore.data_status)
 
 
+def _build_snapshot_rows(df, codes, cached, now):
+    """Build SQLite row tuples and quote dicts from akshare DataFrame.
+
+    Returns (snapshot_rows, quote_dicts) where snapshot_rows matches
+    FundSnapshotCache.save_batch signature and quote_dicts feeds
+    FundDataStore.save_quote_batch.
+    """
+    rows = []
+    quote_rows = []
+    for _, row in df.iterrows():
+        code = str(row.get("基金代码", "")).strip()
+        if code not in codes and code not in cached:
+            continue
+        try:
+            item = {
+                "code": code,
+                "name": str(row.get("基金简称", "")),
+                "type": str(row.get("基金类型", "")),
+                "nav": float(row.get("单位净值", 0) or 0),
+                "day_growth": float(row.get("日增长率", 0) or 0),
+                "near_1m": float(row.get("近1月", 0) or 0),
+                "near_3m": float(row.get("近3月", 0) or 0),
+                "near_6m": float(row.get("近6月", 0) or 0),
+                "near_1y": float(row.get("近1年", 0) or 0),
+                "near_3y": float(row.get("近3年", 0) or 0),
+                "ytd": float(row.get("今年以来", 0) or 0),
+                "tags": [DEFAULT_TAG],
+                "company": "",
+                "is_xinjihui": True,
+                "is_preferred": True,
+                "updated_at": now,
+            }
+            quote_rows.append(item)
+            rows.append((
+                item["code"],
+                item["name"],
+                item["type"],
+                item["nav"],
+                item["day_growth"],
+                item["near_1m"],
+                item["near_3m"],
+                item["near_6m"],
+                item["near_1y"],
+                item["near_3y"],
+                item["ytd"],
+                json.dumps([DEFAULT_TAG], ensure_ascii=False),
+                "",
+                now,
+            ))
+        except (ValueError, TypeError):
+            continue
+    return rows, quote_rows
+
+
 @router.post("/refresh-snapshot")
 async def refresh_fund_snapshot():
     """Refresh all fund data to SQLite (called after market close)."""
@@ -174,50 +248,7 @@ async def refresh_fund_snapshot():
             return {"status": "error", "message": "akshare返回空数据"}
 
         now = datetime.now().isoformat()
-        rows = []
-        quote_rows = []
-        for _, row in df.iterrows():
-            code = str(row.get("基金代码", "")).strip()
-            if code not in codes and code not in cached:
-                continue
-            try:
-                item = {
-                    "code": code,
-                    "name": str(row.get("基金简称", "")),
-                    "type": str(row.get("基金类型", "")),
-                    "nav": float(row.get("单位净值", 0) or 0),
-                    "day_growth": float(row.get("日增长率", 0) or 0),
-                    "near_1m": float(row.get("近1月", 0) or 0),
-                    "near_3m": float(row.get("近3月", 0) or 0),
-                    "near_6m": float(row.get("近6月", 0) or 0),
-                    "near_1y": float(row.get("近1年", 0) or 0),
-                    "near_3y": float(row.get("近3年", 0) or 0),
-                    "ytd": float(row.get("今年以来", 0) or 0),
-                    "tags": ["鑫基荟"],
-                    "company": "",
-                    "is_xinjihui": True,
-                    "is_preferred": True,
-                    "updated_at": now,
-                }
-                quote_rows.append(item)
-                rows.append((
-                    item["code"],
-                    item["name"],
-                    item["type"],
-                    item["nav"],
-                    item["day_growth"],
-                    item["near_1m"],
-                    item["near_3m"],
-                    item["near_6m"],
-                    item["near_1y"],
-                    item["near_3y"],
-                    item["ytd"],
-                    json.dumps(["鑫基荟"], ensure_ascii=False),
-                    "",
-                    now,
-                ))
-            except (ValueError, TypeError):
-                continue
+        rows, quote_rows = _build_snapshot_rows(df, codes, cached, now)
 
         if rows:
             FundSnapshotCache.save_batch(rows)
