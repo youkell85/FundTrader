@@ -172,6 +172,17 @@ function hasRiskMetrics(fund: any): boolean {
   );
 }
 
+function hasDetailPayload(fund: any): boolean {
+  if (!fund || typeof fund !== "object") return false;
+  const hasNavSeries = Array.isArray(fund?.nav_data) && fund.nav_data.length > 20;
+  const hasManager = !!(
+    (typeof fund?.manager === "string" && fund.manager.trim()) ||
+    (fund?.manager && typeof fund.manager === "object" && (fund.manager.name || fund.manager.manager_name))
+  );
+  const hasFee = fund?.feeManage != null || fund?.feeCustody != null;
+  return hasNavSeries || hasManager || hasFee;
+}
+
 function isUsableFundName(name: unknown, code: string) {
   const value = String(name || "").trim();
   return Boolean(value) && value !== code && !/^\d{6}$/.test(value);
@@ -619,7 +630,7 @@ export const fundRouter = createRouter({
         // L1 准静态缓存命中：经理/持仓/回撤/Sharpe 1h 不变
         const cacheKey = `analysis_${fund.code}`;
         const cached = getCached<any>(cacheKey);
-        if (cached) return mapFundDetail(cached);
+        if (cached && hasDetailPayload(cached)) return mapFundDetail(cached);
 
         if (hasRiskMetrics(fund) && Array.isArray(fund.nav_data)) {
           setCache(cacheKey, fund, ANALYSIS_TTL);
@@ -644,7 +655,7 @@ export const fundRouter = createRouter({
       try {
         const cacheKey = `analysis_${input.code}`;
         const cachedAnalysis = getCached<any>(cacheKey);
-        if (cachedAnalysis) return mapFundDetail(cachedAnalysis);
+        if (cachedAnalysis && hasDetailPayload(cachedAnalysis)) return mapFundDetail(cachedAnalysis);
 
         const cachedHomeFunds = getCached<any[]>("homeFunds");
         const cachedHomeFund = cachedHomeFunds?.find((fund: any) => fund?.code === input.code);
