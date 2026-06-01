@@ -3,7 +3,8 @@ from typing import Dict, Any, Optional, List
 from datetime import datetime, timedelta
 from ..data.akshare_fetcher import get_fund_info, get_fund_manager_info, get_fund_portfolio, get_fund_bond_portfolio
 from ..data.efinance_fetcher import get_fund_nav_history
-from ..data.providers.fusion import get_fusion`nfrom ..data.providers.tushare_provider import TushareProvider
+from ..data.providers.fusion import get_fusion
+from ..data.providers.tushare_provider import TushareProvider
 from ..data.cache_manager import cache
 from ..config import CACHE_TTL_NAV, CACHE_TTL_INFO
 
@@ -138,11 +139,13 @@ def _build_asset_allocation(holdings: List[Dict], fund_type: str, report_date: s
     ]
     return [item for item in rows if item["ratio"] > 0]
 
+
 def _enrich_holdings_industry(holdings: List[Dict]) -> List[Dict]:
-    """Fill missing industry field in holdings from Tushare stock_basic."""
+    """Fill missing industry field in holdings using Tushare stock_basic."""
     if not holdings:
         return holdings
-    if all(h.get("industry") and h["industry"] not in ("", "--") for h in holdings):
+    symbols = [h.get("code", "") for h in holdings if h.get("industry") in (None, "", "--")]
+    if not symbols:
         return holdings
     try:
         provider = TushareProvider()
@@ -151,28 +154,28 @@ def _enrich_holdings_industry(holdings: List[Dict]) -> List[Dict]:
         pro = provider._get_pro()
         if not pro:
             return holdings
-        symbols = [h.get("code", "") for h in holdings if h.get("code")]
-        if not symbols:
-            return holdings
-        stock_df = provider._safe_call(pro.stock_basic, ts_code=",".join(symbols))
-        industry_map = {}
-        if stock_df is not None and not stock_df.empty:
-            for _, row in stock_df.iterrows():
-                industry_map[str(row.get("ts_code", ""))] = row.get("industry", "")
-        if not industry_map:
-            return holdings
-        enriched = []
-        for h in holdings:
-            code = h.get("code", "")
-            ind = industry_map.get(code, h.get("industry", ""))
-            enriched.append({**h, "industry": ind or h.get("industry", "")})
-        return enriched
+        for batch_start in range(0, len(symbols), 100):
+            batch = symbols[batch_start:batch_start + 100]
+            ts_codes = [f"{s}.{provider._stock_market(s)}" for s in batch if s]
+            if not ts_codes:
+                continue
+            df = provider._safe_call(pro.stock_basic, ts_code=','.join(ts_codes), fields='ts_code,industry')
+            if df is not None and not df.empty:
+                industry_map = {}
+                for _, row in df.iterrows():
+                    raw_code = str(row.get("ts_code", "")).split(".")[0]
+                    industry_map[raw_code] = str(row.get("industry", ""))
+                for idx, h in enumerate(holdings):
+                    if h.get("industry") in (None, "", "--") and h.get("code") in industry_map:
+                        holdings[idx] = dict(h)
+                        holdings[idx]["industry"] = industry_map[h["code"]]
+        return holdings
     except Exception:
         return holdings
 
 
 def _fetch_industry_history(code: str) -> List[Dict]:
-    """Fetch historical industry allocation from Tushare fund_portfolio across quarters."""
+    """Fetch historical industry allocation across quarters from fund_portfolio."""
     try:
         provider = TushareProvider()
         if not provider.is_available():
@@ -180,35 +183,25 @@ def _fetch_industry_history(code: str) -> List[Dict]:
         pro = provider._get_pro()
         if not pro:
             return []
-        ts_code = f"{code}.OF"
-        df = provider._safe_call(pro.fund_portfolio, ts_code=ts_code)
-        if df is None or df.empty:
-            return []
-        all_symbols = list(set(str(row.get("symbol", "")) for _, row in df.iterrows() if row.get("symbol")))
-        industry_map = {}
-        if all_symbols:
-            stock_df = provider._safe_call(pro.stock_basic, ts_code=",".join(all_symbols[:100]))
-            if stock_df is not None and not stock_df.empty:
-                for _, row in stock_df.iterrows():
-                    industry_map[str(row.get("ts_code", ""))] = row.get("industry", "")
-        report_col = "end_date" if "end_date" in df.columns else "ann_date" if "ann_date" in df.columns else ""
-        if not report_col:
-            return []
         result = []
-        for quarter in sorted(df[report_col].unique(), reverse=True)[:8]:
-            qdf = df[df[report_col] == quarter]
-            industry_agg: Dict[str, float] = {}
-            for _, row in qdf.iterrows():
-                symbol = str(row.get("symbol", ""))
-                ratio = _normalize_holding_ratio(row.get("stk_mkv_ratio", 0))
-                industry = industry_map.get(symbol, "\u5176\u4ed6")
-                industry_agg[industry] = industry_agg.get(industry, 0) + ratio
-            for industry, ratio in industry_agg.items():
-                result.append({
-                    "quarter": str(quarter),
-                    "industry": industry,
-                    "ratio": round(ratio, 4),
-                })
+        for candidate in provider._fund_portfolio_codes(code):
+            df = provider._safe_call(pro.fund_portfolio, ts_code=candidate, fields='end_date,industry,ratio')
+            if df is not None and not df.empty:
+                break
+        else:
+            df = None
+        if df is not None and not df.empty:
+            for period in df.groupby("end_date"):
+                end_date = period[0]
+                rows = period[1]
+                industries = []
+                for _, row in rows.iterrows():
+                    ind = str(row.get("industry", ""))
+                    ratio = float(row.get("ratio", 0) or 0)
+                    if ind and ratio > 0:
+                        industries.append({"industry": ind, "ratio": round(ratio, 2)})
+                if industries:
+                    result.append({"quarter": str(end_date), "industries": industries})
         return result
     except Exception:
         return []
@@ -810,10 +803,10 @@ def _calc_radar_scores(
 
     if nav_data and len(nav_data) > 60:
         navs = [p.get("nav", 0) for p in nav_data if p.get("nav", 0) > 0]
-        if len(navs) > 60:
+        if len(navs) > 20:
             # 收益能力
             total_return = (navs[-1] - navs[0]) / navs[0] * 100
-            scores["profitability"] = min(100, max(0, 50 + total_return))
+            scores["profitability"] = min(100, max(5, 50 + total_return))
 
             # 波动率（稳定性反向）
             import numpy as np
@@ -917,6 +910,7 @@ def _calc_radar_scores_fusion(detail) -> Dict[str, float]:
             scores["risk_control"] = min(100, max(5, 100 - detail.risk.max_drawdown * 3))
 
     return scores
+
 
 def _enrich_manager_from_akshare(code: str, manager: Dict) -> Dict:
     """用 akshare + efinance 补充基金经理详细信息"""
