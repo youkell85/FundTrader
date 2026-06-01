@@ -64,6 +64,7 @@ const DAILY_PREWARM_HOUR = Number(process.env.FUNDTRADER_PREWARM_HOUR ?? 6);
 const DAILY_PREWARM_MINUTE = Number(process.env.FUNDTRADER_PREWARM_MINUTE ?? 20);
 const DAILY_CACHE_FLOOR_TTL = 60 * 60 * 1000;
 const DAILY_CACHE_MAX_TTL = 24 * 60 * 60 * 1000;
+const HOME_ANALYSIS_LIMIT = Number(process.env.FUNDTRADER_HOME_ANALYSIS_LIMIT ?? 80);
 const ANALYSIS_TTL = DAILY_CACHE_MAX_TTL;                  // 风险指标/净值历史日频更新
 const HOLDINGS_TTL = 6 * 60 * 60 * 1000;                   // 持仓/行业 6小时（季报级别）
 
@@ -351,6 +352,11 @@ async function fetchHomeFunds() {
 
     // 使用批量接口获取所有基金的分析数据?次HTTP请求替代N次）
     const codes = Array.from(fundsByCode.keys());
+    if (codes.length > HOME_ANALYSIS_LIMIT) {
+      const summaryOnly = Array.from(fundsByCode.values());
+      setCache("homeFunds", summaryOnly, dailyCacheTtl());
+      return summaryOnly;
+    }
     const analysisMap = new Map<string, any>();
     if (codes.length > 0) {
       try {
@@ -547,17 +553,10 @@ export const fundRouter = createRouter({
 
         // 首页优先返回已预热的完整缓存；冷启动时先返回轻量列表，后台继续预热风险指标?
         let rawFunds = getCached<any[]>("homeFunds");
-        if (opts.withMetrics) {
-          // Fetch all funds for home page (page_size=5000 covers the full ~4500 fund pool)
-          if (!rawFunds) {
-            const pageResult = await getFundList({ guoyuan_only: true, page: 1, page_size: 5000 });
-            rawFunds = (pageResult?.funds || []).map((f: any) => ({ ...f, _source: "xinjihui", is_xinjihui: true }));
-            setCache("homeFunds", rawFunds, 300_000);
-          }
-        } else if (!rawFunds) {
-          const pageResult = await getFundList({ guoyuan_only: true, page: 1, page_size: 5000 });
-          rawFunds = (pageResult?.funds || []).map((f: any) => ({ ...f, _source: "xinjihui", is_xinjihui: true }));
-          setCache("homeFunds", rawFunds, 300_000);
+        if (!rawFunds) {
+          rawFunds = await fetchHomeFundSummaries();
+          setCache("homeFunds", rawFunds, dailyCacheTtl());
+          if (opts.withMetrics) scheduleHomeFundsPrewarm();
         }
         let result = rawFunds.map(mapFundItem).filter(Boolean);
         if (ctx.user) {

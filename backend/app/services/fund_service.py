@@ -216,17 +216,30 @@ def _get_guoyuan_funds_with_performance() -> List[Dict[str, Any]]:
     if result is not None:
         return result
 
-    # 3. API fetch
-    all_perf = _fetch_all_fund_performance_with_timeout()
+    # 3. Fast fallback. The home page must not wait for AkShare; snapshots are
+    # refreshed by the scheduler and this static pool is enough to render list.
+    result = _get_static_guoyuan_funds()
+    cache.set(cache_key, result)
+    return result
+
+
+def _get_static_guoyuan_funds() -> List[Dict[str, Any]]:
+    """Return the local fund pool with JSON-safe default metrics."""
     result = []
     for fund in GUOYUAN_FUND_LIST:
         fund_data = dict(fund)
-        perf = all_perf.get(fund["code"])
-        if perf:
-            fund_data.update(perf)
+        fund_data.setdefault("nav", 0.0)
+        fund_data.setdefault("day_growth", 0.0)
+        fund_data.setdefault("near_1m", 0.0)
+        fund_data.setdefault("near_3m", 0.0)
+        fund_data.setdefault("near_6m", 0.0)
+        fund_data.setdefault("near_1y", 0.0)
+        fund_data.setdefault("near_3y", 0.0)
+        fund_data.setdefault("ytd", 0.0)
+        fund_data.setdefault("company", "")
+        fund_data["is_xinjihui"] = True
         result.append(fund_data)
-    cache.set(cache_key, result)
-    return result
+    return _json_safe(result)
 
 
 def _fetch_all_fund_performance_with_timeout() -> Dict[str, Dict[str, Any]]:
