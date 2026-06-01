@@ -82,13 +82,14 @@ export default function FundDetail() {
     const p = fund.performance;
     const maxSharpe = 2;
     const maxCalmar = 2;
+    const safe = (value: unknown, fallback = 0) => metricNumber(value) ?? fallback;
     return [
-      { metric: "收益率", value: Math.min(parseFloat(p.return1y || "0") + 50, 100), raw: p.return1y },
-      { metric: "夏普比率", value: Math.min((parseFloat(p.sharpeRatio || "0") / maxSharpe) * 100, 100), raw: p.sharpeRatio },
-      { metric: "卡玛比率", value: Math.min((parseFloat(p.calmarRatio || "0") / maxCalmar) * 100, 100), raw: p.calmarRatio },
-      { metric: "胜率", value: parseFloat(p.winRate || "50"), raw: p.winRate },
-      { metric: "抗回撤", value: Math.min(100 + parseFloat(p.maxDrawdown || "0") * 2, 100), raw: p.maxDrawdown },
-      { metric: "Alpha", value: Math.min(parseFloat(p.alpha || "0") * 5 + 50, 100), raw: p.alpha },
+      { metric: "收益率", value: Math.min(safe(p.return1y) + 50, 100), raw: p.return1y },
+      { metric: "夏普比率", value: Math.min((safe(p.sharpeRatio) / maxSharpe) * 100, 100), raw: p.sharpeRatio },
+      { metric: "卡玛比率", value: Math.min((safe(p.calmarRatio) / maxCalmar) * 100, 100), raw: p.calmarRatio },
+      { metric: "胜率", value: safe(p.winRate, 50), raw: p.winRate },
+      { metric: "抗回撤", value: Math.min(100 + safe(p.maxDrawdown) * 2, 100), raw: p.maxDrawdown },
+      { metric: "Alpha", value: Math.min(safe(p.alpha) * 5 + 50, 100), raw: p.alpha },
     ];
   }, [fund]);
 
@@ -250,6 +251,7 @@ export default function FundDetail() {
               </h2>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-3 mb-6">
                 {[
+                  { label: "近1周", value: perf?.return1w },
                   { label: "近1月", value: perf?.return1m },
                   { label: "近3月", value: perf?.return3m },
                   { label: "近6月", value: perf?.return6m },

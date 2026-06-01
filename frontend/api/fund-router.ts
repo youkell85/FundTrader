@@ -3,6 +3,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { createRouter, publicQuery } from "./middleware";
 import {
+  getFundAnalysis,
   getFundSnapshot,
   getFundSnapshotList,
   getCategories as ftGetCategories,
@@ -54,7 +55,7 @@ function wrapError(err: unknown, message: string): never {
 const bffCache = new Map<string, { expiresAt: number; data: any }>();
 const MAX_BFF_CACHE_SIZE = 5000; // Maximum cache entries to prevent memory leak
 const BFF_CACHE_SIZE_LIMIT = 10000; // Hard limit before emergency cleanup
-const DETAIL_ANALYSIS_TIMEOUT_MS = Number(process.env.FUNDTRADER_DETAIL_TIMEOUT_MS ?? 12_000);
+const DETAIL_ANALYSIS_TIMEOUT_MS = Number(process.env.FUNDTRADER_DETAIL_TIMEOUT_MS ?? 20_000);
 /** LLM 分析超时独立配置 — MiniMax 等第三方模型需 30-60s，不能与数据查询共享 12s 限制 */
 const LLM_ANALYSIS_TIMEOUT_MS = Number(process.env.FUNDTRADER_LLM_TIMEOUT_MS ?? 60_000);
 
@@ -169,10 +170,6 @@ function hasRiskMetrics(fund: any): boolean {
     hasMetric(fund?.max_drawdown) ||
     (Array.isArray(fund?.nav_data) && fund.nav_data.length > 1)
   );
-}
-
-function hasAnyRiskMetrics(funds: any[]): boolean {
-  return funds.some(hasRiskMetrics);
 }
 
 function isUsableFundName(name: unknown, code: string) {
@@ -447,8 +444,12 @@ const PEER_RANKING_CATEGORIES = ["股票型", "混合型", "债券型", "指数�
 
 async function fetchAndCacheFundAnalysis(code: string, cacheKey = `analysis_${code}`) {
   return dedupe(`detailAnalysis_${code}`, async () => {
-    const analysis = await getFundSnapshot(code, true);
-    const enriched = await enrichFundAnalysis(analysis, code);
+    const [snapshot, analysis] = await Promise.all([
+      getFundSnapshot(code, true).catch(() => null),
+      getFundAnalysis(code).catch(() => null),
+    ]);
+    const merged = analysis ? { ...(snapshot || {}), ...analysis } : snapshot;
+    const enriched = await enrichFundAnalysis(merged, code);
     if (enriched) setCache(cacheKey, enriched, ANALYSIS_TTL);
     return enriched;
   });
@@ -739,6 +740,7 @@ export const fundRouter = createRouter({
           code: input.code,
           type: peerCategory || marketFund?.type || cachedFund?.type || analysis?.type || mapped?.category,
           mappedType: mapped?.fundType,
+          near_1w: marketFund?.near_1w ?? analysis?.return1w ?? mapped?.performance?.return1w,
           near_1m: marketFund?.near_1m ?? analysis?.return1m ?? mapped?.performance?.return1m,
           near_3m: marketFund?.near_3m ?? analysis?.return3m ?? mapped?.performance?.return3m,
           near_6m: marketFund?.near_6m ?? analysis?.return6m ?? mapped?.performance?.return6m,

@@ -68,7 +68,7 @@ function toNumber(value: any): number | null {
 }
 
 function formatNumber(value: number | null | undefined, digits = 2): string {
-  if (value === null || value === undefined || !Number.isFinite(value)) return "0";
+  if (value === null || value === undefined || !Number.isFinite(value)) return "—";
   return value.toFixed(digits);
 }
 
@@ -163,6 +163,7 @@ function calcPerformanceFromNav(navData: any[]) {
   const returnThisYear = ((latest.nav - yearStart.nav) / yearStart.nav) * 100;
 
   return {
+    return1w: formatNumber(calcReturn(points, 7)),
     return1m: formatNumber(calcReturn(points, 30)),
     return3m: formatNumber(calcReturn(points, 90)),
     return6m: formatNumber(calcReturn(points, 180)),
@@ -239,6 +240,7 @@ export function mapFundItem(item: any): any {
     staleLevel: item.stale_level || item.staleLevel || "unknown",
     metricsUpdatedAt: item.metrics_updated_at || item.metricsUpdatedAt || null,
     performance: {
+      return1w: perf.near_1w != null ? String(perf.near_1w) : item.near_1w != null ? String(item.near_1w) : navPerformance.return1w || "—",
       return1m: perf.near_1m != null ? String(perf.near_1m) : item.near_1m != null ? String(item.near_1m) : navPerformance.return1m || "0",
       return3m: perf.near_3m != null ? String(perf.near_3m) : item.near_3m != null ? String(item.near_3m) : navPerformance.return3m || "0",
       return6m: perf.near_6m != null ? String(perf.near_6m) : item.near_6m != null ? String(item.near_6m) : navPerformance.return6m || "0",
@@ -249,18 +251,18 @@ export function mapFundItem(item: any): any {
       return10y: perf.near_10y != null ? String(perf.near_10y) : item.near_10y != null ? String(item.near_10y) : item.return10y != null ? String(item.return10y) : navPerformance.return10y || "0",
       returnThisYear: perf.ytd != null ? String(perf.ytd) : item.ytd != null ? String(item.ytd) : navPerformance.returnThisYear || "0",
       annualizedReturn: pickMetric(perf.annualizedReturn, perf.annualized_return, item.annualizedReturn, item.annualized_return, navPerformance.annualizedReturn, perf.near_1y, item.near_1y, item.return1y) || "0",
-      annualizedVolatility: pickMetric(perf.annualizedVolatility, navPerformance.annualizedVolatility) || "0",
+      annualizedVolatility: pickMetric(perf.annualizedVolatility, navPerformance.annualizedVolatility) || "—",
       // 夏普/回撤需净值历史计算，轻量摘要模式下无此数据 → 展示 "—"
       // 后台预热完成后再次查询即可获得真实值
       sharpeRatio: pickMetric(perf.sharpeRatio, perf.sharpe_ratio, item.sharpe_ratio, navPerformance.sharpeRatio) || "—",
       maxDrawdown: pickMetric(perf.maxDrawdown, perf.max_drawdown, item.max_drawdown, navPerformance.maxDrawdown) || "—",
-      calmarRatio: perf.calmarRatio || navPerformance.calmarRatio || "0",
-      sortinoRatio: perf.sortinoRatio || navPerformance.sortinoRatio || "0",
-      informationRatio: perf.informationRatio || navPerformance.informationRatio || "0",
-      alpha: perf.alpha || navPerformance.alpha || "0",
-      beta: perf.beta || navPerformance.beta || "0",
-      winRate: perf.winRate || navPerformance.winRate || "0",
-      recoveryPeriod: perf.recoveryPeriod != null ? String(perf.recoveryPeriod) : navPerformance.recoveryPeriod || "0",
+      calmarRatio: perf.calmarRatio || navPerformance.calmarRatio || "—",
+      sortinoRatio: perf.sortinoRatio || navPerformance.sortinoRatio || "—",
+      informationRatio: perf.informationRatio || navPerformance.informationRatio || "—",
+      alpha: perf.alpha || navPerformance.alpha || "—",
+      beta: perf.beta || navPerformance.beta || "—",
+      winRate: perf.winRate || navPerformance.winRate || "—",
+      recoveryPeriod: perf.recoveryPeriod != null ? String(perf.recoveryPeriod) : navPerformance.recoveryPeriod || "—",
     },
     manager: mgrName ? {
       id: codeToId(mgrName),
@@ -287,7 +289,13 @@ export function mapFundItem(item: any): any {
 export function mapFundDetail(analysis: any): any {
   if (!analysis || typeof analysis !== "object") return null;
   const base = mapFundItem(analysis);
-  const navData = (analysis.nav_data || [])
+  const navDataRaw =
+    analysis.nav_data ||
+    analysis.navHistory ||
+    analysis.nav_history ||
+    analysis.navHistoryFull ||
+    [];
+  const navData = (navDataRaw || [])
     .map((n: any) => ({
       navDate: n?.date || n?.navDate || n?.净值日期,
       nav: n?.nav ?? n?.单位净值 ?? n?.nav_value,
