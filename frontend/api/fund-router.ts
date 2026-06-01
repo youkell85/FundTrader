@@ -322,7 +322,9 @@ async function fetchHomeFundSummaries() {
 
     const funds = Array.from(fundsByCode.values());
     // 补充基金名称（对仍然缺少名称的基金用实时报价补全
-    const enriched = await concurrentMap(funds, enrichFundSummary, 6);
+    const enriched = funds.length > HOME_ANALYSIS_LIMIT
+      ? funds
+      : await concurrentMap(funds, enrichFundSummary, 6);
 
     // ?TTL?5min（净值日频，排名数据下一个交易日才更新）
     setCache("homeFundSummaries", enriched, dailyCacheTtl());
