@@ -81,9 +81,15 @@ class TushareProvider(DataProvider):
         if pro is None:
             return None
 
+        # 多后缀回退：.OF（场外）→ .SH（沪市 ETF/LOF）→ .SZ（深市 ETF/LOF）
         ts_code = f"{code}.OF"
-        # 基本信息
-        basic_df = self._safe_call(pro.fund_basic, ts_code=ts_code)
+        basic_df = None
+        for candidate in self._fund_portfolio_codes(code):
+            candidate_df = self._safe_call(pro.fund_basic, ts_code=candidate)
+            if candidate_df is not None and not candidate_df.empty:
+                basic_df = candidate_df
+                ts_code = candidate
+                break
         basic = None
         if basic_df is not None and not basic_df.empty:
             row = basic_df.iloc[0]
@@ -405,7 +411,13 @@ class TushareProvider(DataProvider):
         pro = self._get_pro()
         if pro is None:
             return None
-        basic_df = self._safe_call(pro.fund_basic, ts_code=f"{code}.OF")
+        # 多后缀回退：.OF（场外）→ .SH（沪市 ETF/LOF）→ .SZ（深市 ETF/LOF）
+        basic_df = None
+        for candidate in self._fund_portfolio_codes(code):
+            candidate_df = self._safe_call(pro.fund_basic, ts_code=candidate)
+            if candidate_df is not None and not candidate_df.empty:
+                basic_df = candidate_df
+                break
         if basic_df is None or basic_df.empty:
             return None
         mgmt = basic_df.iloc[0].get("management", "")
