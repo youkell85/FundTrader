@@ -283,20 +283,85 @@ def _fetch_all_fund_performance() -> Dict[str, Dict[str, Any]]:
     return perf_map
 
 
-def compute_and_save_metrics(codes: Optional[List[str]] = None, limit: int = 0) -> Dict[str, Any]:
+def _compute_single_fund_metrics(code: str, RISK_FREE_RATE: float) -> Optional[Dict[str, Any]]:
+    """Compute risk metrics for a single fund from NAV history.
+
+    Returns a metrics dict or None if skipped/failed.
+    """
+    import numpy as np
+    from ..data.efinance_fetcher import get_fund_nav_history
+
+    try:
+        nav_data = get_fund_nav_history(code)
+        if not nav_data or len(nav_data) < 30:
+            return None
+
+        navs = []
+        for item in nav_data:
+            try:
+                v = float(item.get("nav", 0) or 0)
+                if v > 0:
+                    navs.append(v)
+            except (ValueError, TypeError):
+                continue
+
+        if len(navs) < 30:
+            return None
+
+        arr = np.array(navs, dtype=np.float64)
+        daily_returns = np.diff(arr) / arr[:-1]
+        daily_returns = np.nan_to_num(daily_returns, nan=0.0, posinf=0.0, neginf=0.0)
+
+        n_years = len(navs) / 252.0
+        total_return = arr[-1] / arr[0] - 1.0
+        ann_return = (1 + total_return) ** (1.0 / n_years) - 1.0 if n_years > 0 else 0.0
+
+        ann_vol = float(np.std(daily_returns, ddof=1) * np.sqrt(252)) if len(daily_returns) > 1 else 0.0
+
+        excess_daily = daily_returns - RISK_FREE_RATE / 252.0
+        std_excess = np.std(excess_daily, ddof=1)
+        sharpe = float(np.mean(excess_daily) / std_excess * np.sqrt(252)) if std_excess > 0 else 0.0
+
+        peak = np.maximum.accumulate(arr)
+        drawdown = (arr - peak) / peak
+        max_dd = float(np.min(drawdown))
+
+        return {
+            "code": code,
+            "sharpe_ratio": round(sharpe, 4),
+            "max_drawdown": round(max_dd, 4),
+            "volatility": round(ann_vol, 4),
+            "annualized_return": round(ann_return, 4),
+            "nav_points": len(navs),
+            "data_quality": "computed",
+        }
+    except Exception:
+        return None
+
+
+def compute_and_save_metrics(
+    codes: Optional[List[str]] = None,
+    limit: int = 0,
+    skip_existing: bool = True,
+    batch_size: int = 100,
+    max_workers: int = 8,
+) -> Dict[str, Any]:
     """Compute risk metrics (sharpe, max_drawdown, volatility) from NAV history
     and save to fund_metrics_snapshot table.
+
+    Uses ThreadPoolExecutor for concurrent NAV history fetching.
 
     Args:
         codes: Optional list of fund codes. If None, computes for all funds in fund_master.
         limit: Max number of funds to process (0 = all).
+        skip_existing: Skip funds that already have metrics in the table.
+        batch_size: Save to DB every N computed results.
+        max_workers: Number of concurrent workers for fetching NAV history.
 
     Returns:
         Summary dict with counts and errors.
     """
-    import numpy as np
     from ..storage.database import FundDataStore
-    from ..data.efinance_fetcher import get_fund_nav_history
 
     RISK_FREE_RATE = 0.02
 
@@ -307,72 +372,57 @@ def compute_and_save_metrics(codes: Optional[List[str]] = None, limit: int = 0) 
             ).fetchall()
             codes = [r["code"] for r in rows]
 
+    if skip_existing:
+        with get_db_context() as conn:
+            existing = conn.execute(
+                "SELECT code FROM fund_metrics_snapshot WHERE data_quality = 'computed'"
+            ).fetchall()
+            existing_codes = {r["code"] for r in existing}
+        codes = [c for c in codes if c not in existing_codes]
+
     if limit > 0:
         codes = codes[:limit]
+
+    if not codes:
+        return {
+            "total_codes": 0,
+            "computed": 0,
+            "saved": 0,
+            "skipped": 0,
+            "errors": 0,
+            "error_details": [],
+        }
 
     results = []
     errors = []
     skipped = 0
+    saved_total = 0
 
-    for code in codes:
-        try:
-            nav_data = get_fund_nav_history(code)
-            if not nav_data or len(nav_data) < 30:
-                skipped += 1
-                continue
+    with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="metrics") as executor:
+        futures = {executor.submit(_compute_single_fund_metrics, code, RISK_FREE_RATE): code for code in codes}
 
-            navs = []
-            for item in nav_data:
-                try:
-                    v = float(item.get("nav", 0) or 0)
-                    if v > 0:
-                        navs.append(v)
-                except (ValueError, TypeError):
-                    continue
+        for future in futures:
+            code = futures[future]
+            try:
+                result = future.result(timeout=30)
+                if result is None:
+                    skipped += 1
+                else:
+                    results.append(result)
+            except Exception as e:
+                errors.append({"code": code, "error": str(e)[:100]})
 
-            if len(navs) < 30:
-                skipped += 1
-                continue
+            if len(results) >= batch_size:
+                saved_total += FundDataStore.save_metrics_batch(results, source="compute")
+                results = []
 
-            arr = np.array(navs, dtype=np.float64)
-            daily_returns = np.diff(arr) / arr[:-1]
-            daily_returns = np.nan_to_num(daily_returns, nan=0.0, posinf=0.0, neginf=0.0)
-
-            n_years = len(navs) / 252.0
-            total_return = arr[-1] / arr[0] - 1.0
-            ann_return = (1 + total_return) ** (1.0 / n_years) - 1.0 if n_years > 0 else 0.0
-
-            ann_vol = float(np.std(daily_returns, ddof=1) * np.sqrt(252)) if len(daily_returns) > 1 else 0.0
-
-            excess_daily = daily_returns - RISK_FREE_RATE / 252.0
-            std_excess = np.std(excess_daily, ddof=1)
-            sharpe = float(np.mean(excess_daily) / std_excess * np.sqrt(252)) if std_excess > 0 else 0.0
-
-            peak = np.maximum.accumulate(arr)
-            drawdown = (arr - peak) / peak
-            max_dd = float(np.min(drawdown))
-
-            results.append({
-                "code": code,
-                "sharpe_ratio": round(sharpe, 4),
-                "max_drawdown": round(max_dd, 4),
-                "volatility": round(ann_vol, 4),
-                "annualized_return": round(ann_return, 4),
-                "nav_points": len(navs),
-                "data_quality": "computed",
-            })
-        except Exception as e:
-            errors.append({"code": code, "error": str(e)[:100]})
-            continue
-
-    saved = 0
     if results:
-        saved = FundDataStore.save_metrics_batch(results, source="compute")
+        saved_total += FundDataStore.save_metrics_batch(results, source="compute")
 
     return {
         "total_codes": len(codes),
-        "computed": len(results),
-        "saved": saved,
+        "computed": saved_total,
+        "saved": saved_total,
         "skipped": skipped,
         "errors": len(errors),
         "error_details": errors[:10],

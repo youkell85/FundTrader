@@ -262,13 +262,22 @@ async def refresh_fund_snapshot():
 
 
 @router.post("/metrics/compute")
-async def compute_fund_metrics(limit: int = Query(0, ge=0, description="Max funds to process (0=all)")):
+async def compute_fund_metrics(
+    limit: int = Query(0, ge=0, description="Max funds to process (0=all)"),
+    skip_existing: bool = Query(True, description="Skip funds already having computed metrics"),
+    max_workers: int = Query(8, ge=1, le=20, description="Concurrent workers for NAV fetching"),
+):
     """Compute risk metrics (sharpe, max_drawdown, volatility) from NAV history
-    and save to fund_metrics_snapshot table. Runs synchronously — may take several minutes."""
+    and save to fund_metrics_snapshot table. Uses concurrent fetching for speed."""
     from ..services.fund_service import compute_and_save_metrics
 
     try:
-        result = await run_in_threadpool(compute_and_save_metrics, limit=limit)
+        result = await run_in_threadpool(
+            compute_and_save_metrics,
+            limit=limit,
+            skip_existing=skip_existing,
+            max_workers=max_workers,
+        )
         return {"status": "ok", **result}
     except Exception as e:
         logger.error(f"Metrics compute failed: {e}")

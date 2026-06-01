@@ -180,7 +180,7 @@ def _do_fund_snapshot_refresh():
 
 async def _metrics_compute_on_startup():
     """Background task: compute risk metrics on startup if fund_metrics_snapshot is empty."""
-    await asyncio.sleep(60)  # Wait for other startup tasks to complete
+    await asyncio.sleep(60)
     try:
         from .storage.database import FundDataStore
         with get_db_context() as conn:
@@ -188,9 +188,9 @@ async def _metrics_compute_on_startup():
         if count > 0:
             logger.info(f"Metrics already computed ({count} rows), skipping startup compute")
             return
-        logger.info("fund_metrics_snapshot is empty, computing risk metrics...")
+        logger.info("fund_metrics_snapshot is empty, computing risk metrics (concurrent)...")
         from .services.fund_service import compute_and_save_metrics
-        result = await asyncio.to_thread(compute_and_save_metrics, limit=0)
+        result = await asyncio.to_thread(compute_and_save_metrics, limit=0, skip_existing=True, max_workers=8)
         logger.info(f"Metrics compute result: computed={result['computed']}, saved={result['saved']}, "
                      f"skipped={result['skipped']}, errors={result['errors']}")
     except Exception as e:
