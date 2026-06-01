@@ -318,16 +318,42 @@ function scheduleDailyHomePrewarm() {
 }
 
 async function fetchAllFundList(params: Record<string, any>) {
-  const pageResult = await getFundSnapshotList({
-    category: params.category,
-    keyword: params.keyword,
-    xinjihui_only: params.guoyuan_only !== false && !params.use_watchlist,
-    sort_by: params.sort_by || "ytd",
-    sort_order: params.sort_order || "desc",
-    page: params.page || 1,
-    page_size: Math.min(Number(params.page_size || 300), 500),
-  });
-  return Array.isArray(pageResult?.funds) ? pageResult.funds : [];
+  const pageSize = Math.min(Number(params.page_size || 500), 500);
+  const singlePageRequested = Number(params.page || 0) > 0;
+  if (singlePageRequested) {
+    const pageResult = await getFundSnapshotList({
+      category: params.category,
+      keyword: params.keyword,
+      xinjihui_only: params.guoyuan_only !== false && !params.use_watchlist,
+      sort_by: params.sort_by || "ytd",
+      sort_order: params.sort_order || "desc",
+      page: params.page,
+      page_size: pageSize,
+    });
+    return Array.isArray(pageResult?.funds) ? pageResult.funds : [];
+  }
+
+  const all: any[] = [];
+  let page = 1;
+  let total = Number.POSITIVE_INFINITY;
+  while (all.length < total && page <= 20) {
+    const pageResult = await getFundSnapshotList({
+      category: params.category,
+      keyword: params.keyword,
+      xinjihui_only: params.guoyuan_only !== false && !params.use_watchlist,
+      sort_by: params.sort_by || "ytd",
+      sort_order: params.sort_order || "desc",
+      page,
+      page_size: pageSize,
+    });
+    const funds = Array.isArray(pageResult?.funds) ? pageResult.funds : [];
+    total = Number(pageResult?.total || funds.length || 0);
+    if (funds.length === 0) break;
+    all.push(...funds);
+    if (funds.length < pageSize) break;
+    page += 1;
+  }
+  return all;
 }
 
 /**
@@ -551,7 +577,7 @@ export const fundRouter = createRouter({
         const sortBy = opts.sortBy ?? "dailyChange";
         const sortOrder = opts.sortOrder ?? "desc";
 
-        if (!ctx.user && !opts.fundType && !opts.company && !opts.riskLevel && opts.isContinuousMarketing === undefined) {
+        if (!opts.withMetrics && !ctx.user && !opts.fundType && !opts.company && !opts.riskLevel && opts.isContinuousMarketing === undefined) {
           const snapshotResult = await getFundSnapshotList({
             page,
             page_size: Math.min(pageSize, 500),

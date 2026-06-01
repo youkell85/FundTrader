@@ -1,17 +1,14 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { Link } from "react-router";
-import { Search, TrendingUp, TrendingDown, Star, PieChart, Shield, Loader2, Trash2 } from "lucide-react";
 import { trpc } from "@/providers/trpc";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { UP_COLOR, DOWN_COLOR, ACCENT_PRIMARY, RISK_COLOR, POSITIVE_METRIC_COLOR, getChangeTextClass } from "@/lib/colors";
+import { getChangeTextClass } from "@/lib/colors";
+import StatCards from "@/components/home/StatCards";
+import FilterBar from "@/components/home/FilterBar";
+import FundTable from "@/components/home/FundTable";
 
 const typeLabels: Record<string, string> = {
   equity: "股票型", hybrid: "混合型", bond: "债券型",
   index: "指数型", etf: "ETF", qdii: "QDII", money: "货币型", fof: "FOF", reits: "REITs",
-};
-const riskLabels: Record<string, string> = {
-  low: "低风险", low_medium: "中低风险", medium: "中风险",
-  medium_high: "中高风险", high: "高风险",
 };
 
 function isMissingMetric(value: unknown) {
@@ -36,18 +33,18 @@ export default function Home() {
   const [category, setCategory] = useState("__all__");
   const [company, setCompany] = useState("__all__");
   const [riskLevel, setRiskLevel] = useState("__all__");
-  const [showXinjihui, setShowXinjihui] = useState(true);
+  const [showXinjihuiOnly, setShowXinjihuiOnly] = useState(false);
+  const [showWatchlistOnly, setShowWatchlistOnly] = useState(false);
   const [sortBy, setSortBy] = useState("dailyChange");
   const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
   const [page, setPage] = useState(1);
   const pageSize = 15;
-  const [hoveredRow, setHoveredRow] = useState<number | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
 
   const { data: listData, isLoading: listLoading, refetch: refetchList } = trpc.fund.list.useQuery(
     {
-      page,
-      pageSize,
+      page: 1,
+      pageSize: 5000,
       withMetrics: true,
       fundType: fundType !== "__all__" ? fundType : undefined,
       category: category !== "__all__" ? category : undefined,
@@ -91,7 +88,6 @@ export default function Home() {
     });
     if (allFunds.length === 0 || hasRiskMetrics) return;
 
-    // 分批延迟重试，仅当数据不完整时触发
     const timers = [6000, 14000].map((delay) => window.setTimeout(() => {
       refetchList();
     }, delay));
@@ -104,9 +100,11 @@ export default function Home() {
     if (category && category !== "__all__") result = result.filter((f: any) => f.category?.includes(category));
     if (company && company !== "__all__") result = result.filter((f: any) => f.company?.includes(company));
     if (riskLevel && riskLevel !== "__all__") result = result.filter((f: any) => f.riskLevel === riskLevel);
-    result = showXinjihui
-      ? result.filter((f: any) => f.isXinjihui || f.source === "xinjihui")
-      : result.filter((f: any) => f.source === "watchlist");
+    if (showXinjihuiOnly && !showWatchlistOnly) {
+      result = result.filter((f: any) => f.isXinjihui || f.source === "xinjihui");
+    } else if (showWatchlistOnly && !showXinjihuiOnly) {
+      result = result.filter((f: any) => f.source === "watchlist");
+    }
     if (search) {
       const s = search.toLowerCase();
       result = result.filter((f: any) =>
@@ -116,7 +114,7 @@ export default function Home() {
     const sortKey = sortBy;
     const sortDir = sortOrder;
     result.sort((a: any, b: any) => {
-      if (!showXinjihui) {
+      if (showWatchlistOnly && !showXinjihuiOnly) {
         const aTime = new Date(a.updatedAt || 0).getTime();
         const bTime = new Date(b.updatedAt || 0).getTime();
         if (aTime !== bTime) return bTime - aTime;
@@ -124,7 +122,7 @@ export default function Home() {
       const aPerf = a.performance || {};
       const bPerf = b.performance || {};
       const parseSortVal = (val: string | undefined) => {
-        if (isMissingMetric(val)) return NaN;  // 无数据排末尾
+        if (isMissingMetric(val)) return NaN;
         return parseFloat(val);
       };
       const aVal = sortKey.startsWith("return") || sortKey === "annualizedReturn" || sortKey === "sharpeRatio" || sortKey === "maxDrawdown"
@@ -133,29 +131,28 @@ export default function Home() {
       const bVal = sortKey.startsWith("return") || sortKey === "annualizedReturn" || sortKey === "sharpeRatio" || sortKey === "maxDrawdown"
         ? parseSortVal(bPerf[sortKey])
         : parseSortVal(b[sortKey]);
-      // NaN 排到末尾
       if (isNaN(aVal) && isNaN(bVal)) return 0;
       if (isNaN(aVal)) return 1;
       if (isNaN(bVal)) return -1;
       return sortDir === "desc" ? bVal - aVal : aVal - bVal;
     });
     return result;
-  }, [allFunds, fundType, category, company, riskLevel, showXinjihui, search, sortBy, sortOrder]);
+  }, [allFunds, fundType, category, company, riskLevel, showXinjihuiOnly, showWatchlistOnly, search, sortBy, sortOrder]);
 
   const paginatedFunds = useMemo(() => {
-    return filteredFunds;
-  }, [filteredFunds]);
+    return filteredFunds.slice((page - 1) * pageSize, page * pageSize);
+  }, [filteredFunds, page]);
 
-  const totalPages = Math.max(1, Math.ceil((listData?.total ?? filteredFunds.length) / pageSize));
+  const totalPages = Math.max(1, Math.ceil(filteredFunds.length / pageSize));
   const currentOverview = useMemo(() => {
     const avgReturn = average(filteredFunds.map((fund: any) => parseMetric(fund.performance?.annualizedReturn ?? fund.performance?.return1y)));
-    const avgSharpe = average(filteredFunds.map((fund: any) => parseMetric(fund.performance?.sharpeRatio)).filter((value) => value !== 0));
+    const avgSharpe = average(filteredFunds.map((fund: any) => parseMetric(fund.performance?.sharpeRatio)));
     return {
-      total: listData?.total ?? filteredFunds.length,
+      total: filteredFunds.length,
       avgReturn: avgReturn === null ? "—" : avgReturn.toFixed(2),
       avgSharpe: avgSharpe === null ? "—" : avgSharpe.toFixed(2),
     };
-  }, [filteredFunds, listData?.total]);
+  }, [filteredFunds]);
 
   const categoryStats = useMemo(() => {
     const groups = new Map<string, any[]>();
@@ -163,7 +160,7 @@ export default function Home() {
       const key = typeLabels[fund.fundType] || fund.category || fund.fundType || "其他";
       groups.set(key, [...(groups.get(key) || []), fund]);
     }
-    return Array.from(groups.entries()).map(([label, funds]) => {
+    const mapped = Array.from(groups.entries()).map(([label, funds]) => {
       const avg = (values: Array<number | null>) => {
         const valid = values.filter((v): v is number => v !== null);
         return valid.length ? (valid.reduce((sum, v) => sum + v, 0) / valid.length).toFixed(2) : "—";
@@ -175,7 +172,15 @@ export default function Home() {
         avgMaxDrawdown: avg(funds.map((f) => parseMetric(f.performance?.maxDrawdown))),
         avgSharpe: avg(funds.map((f) => parseMetric(f.performance?.sharpeRatio))),
       };
-    }).sort((a, b) => b.count - a.count).slice(0, 6);
+    });
+    const preferredOrder = ["etf", "equity", "hybrid", "bond", "index", "qdii"].map((key) => typeLabels[key] || key);
+    return preferredOrder.map((label) => mapped.find((item) => item.label === label) || {
+      label,
+      count: 0,
+      avgReturn: "—",
+      avgMaxDrawdown: "—",
+      avgSharpe: "—",
+    });
   }, [filteredFunds]);
 
   const handleSearchSubmit = useCallback(async (e: React.FormEvent<HTMLFormElement>) => {
@@ -190,7 +195,8 @@ export default function Home() {
         { code },
         {
           onSuccess: () => {
-            setShowXinjihui(false);
+            setShowXinjihuiOnly(false);
+            setShowWatchlistOnly(true);
             setSearch("");
             setPage(1);
           },
@@ -201,13 +207,11 @@ export default function Home() {
       );
     };
 
-    // 6位基金代码：加入自选列表
     if (/^\d{6}$/.test(query)) {
       addWatchlistFund(query);
       return;
     }
 
-    // 名称搜索：唯一匹配时加入自选列表
     const normalizedQuery = query.toLowerCase();
     const matches = allFunds.filter((fund: any) => (
       fund.fundCode === query ||
@@ -223,61 +227,33 @@ export default function Home() {
     setSearchError(uniqueCodes.length > 1 ? "匹配到多只产品，请输入更完整的产品名称或基金代码" : "未找到匹配产品，请输入6位基金代码或产品名称");
   }, [addFundByCode, allFunds, search]);
 
-  /*
-  const handleFileSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    // Validate file type
-    if (!file.type.startsWith("image/")) {
-      setImageError("请选择图片文件");
-      return;
+  const handleSortChange = (key: string) => {
+    if (sortBy === key) {
+      setSortOrder(sortOrder === "desc" ? "asc" : "desc");
+    } else {
+      setSortBy(key);
+      setSortOrder("desc");
     }
-    // Validate file size (max 10MB)
-    if (file.size > 10 * 1024 * 1024) {
-      setImageError("图片大小不能超过10MB");
-      return;
-    }
+    setPage(1);
+  };
 
-    setImageError(null);
-    setImageResult(null);
-    setIsRecognizing(true);
+  const handleCategoryClick = (label: string) => {
+    const nextCategory = category === label ? "__all__" : label;
+    setFundType("");
+    setCategory(nextCategory);
+    setPage(1);
+  };
 
-    try {
-      const compressed = await compressImage(file);
-      setImagePreview(compressed);
-
-      const res = await fetch("/fund/api/image-search", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ image_base64: compressed }),
-      });
-      const data = await res.json();
-
-      if (!data.success) {
-        setImageError(data.error || "识别失败");
-      } else {
-        setImageResult({
-          summary: data.summary || "",
-          recognizedCount: data.recognized_count || 0,
-          matchedCount: data.matched_count || 0,
-          funds: data.funds || [],
-        });
-      }
-    } catch (err: any) {
-      setImageError(err.message || "上传识别失败，请重试");
-    } finally {
-      setIsRecognizing(false);
-    }
-  }, [compressImage]);
-
-  const clearImageSearch = useCallback(() => {
-    setImagePreview(null);
-    setImageResult(null);
-    setImageError(null);
-    if (fileInputRef.current) fileInputRef.current.value = "";
-  }, []);
-  */
+  const handleReset = () => {
+    setFundType("__all__");
+    setCategory("__all__");
+    setCompany("__all__");
+    setRiskLevel("__all__");
+    setSearch("");
+    setShowXinjihuiOnly(false);
+    setShowWatchlistOnly(false);
+    setPage(1);
+  };
 
   return (
     <div className="min-h-screen pt-14 pb-12">
@@ -287,386 +263,75 @@ export default function Home() {
             洞察趋势，甄选长跑冠军
           </h1>
           <p className="mt-3 text-white/40 text-base max-w-2xl">
-            基于“鑫基荟”优选池，AI驱动的产品筛选与智能配置平台
+            基于"鑫基荟"优选池，AI驱动的产品筛选与智能配置平台
           </p>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 md:gap-3 mt-6 md:mt-8">
-          {[
-            { label: "当前列表", value: currentOverview.total, suffix: "只", icon: PieChart, color: ACCENT_PRIMARY },
-            { label: "平均年化收益", value: currentOverview.avgReturn, suffix: currentOverview.avgReturn === "—" ? "" : "%", icon: TrendingUp, color: parseFloat(currentOverview.avgReturn) >= 0 ? UP_COLOR : DOWN_COLOR },
-            { label: "平均夏普比率", value: currentOverview.avgSharpe, suffix: "", icon: Shield, color: POSITIVE_METRIC_COLOR },
-          ].map((card) => (
-            <div key={card.label} className="liquid-glass-sm p-3 md:p-4 group hover:bg-white/[0.06] transition-all">
-              <div className="flex items-center gap-2 mb-1.5 md:mb-2">
-                <card.icon className="w-4 h-4" style={{ color: card.color }} />
-                <span className="text-white/40 text-[11px] md:text-xs">{card.label}</span>
-              </div>
-              <div className="data-number text-xl md:text-2xl font-medium text-white">
-                {card.value}
-                <span className="text-xs md:text-sm text-white/40 ml-0.5">{card.suffix}</span>
-              </div>
-            </div>
-          ))}
-        </div>
+        <StatCards
+          currentOverview={currentOverview}
+          categoryStats={categoryStats}
+          overview={overview}
+          allFunds={allFunds}
+          category={category}
+          fundType={fundType}
+          company={company}
+          riskLevel={riskLevel}
+          search={search}
+          onReset={handleReset}
+          onCategoryClick={handleCategoryClick}
+        />
 
-        <div className="mt-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
-          {((category && category !== "__all__") || (fundType && fundType !== "__all__") || (company && company !== "__all__") || (riskLevel && riskLevel !== "__all__") || search) && (
-            <button
-              onClick={() => { setFundType("__all__"); setCategory("__all__"); setCompany("__all__"); setRiskLevel("__all__"); setSearch(""); setPage(1); }}
-              className="rounded-lg border border-[#00F0FF]/20 bg-[#00F0FF]/[0.06] px-3 py-3 text-left hover:bg-[#00F0FF]/[0.09] transition-colors"
-            >
-              <div className="flex items-center justify-between gap-2 mb-2">
-                <span className="text-[#00F0FF] text-sm font-medium">返回全部列表</span>
-                <span className="data-number text-white/45 text-xs">{overview.totalFunds || allFunds.length}只</span>
-              </div>
-              <div className="text-white/50 text-[11px]">清除当前类别、风险和搜索条件</div>
-            </button>
-          )}
-          {categoryStats.map((item) => (
-            <button
-              key={item.label}
-              onClick={() => {
-                const nextCategory = category === item.label ? "__all__" : item.label;
-                setFundType("");
-                setCategory(nextCategory);
-                setPage(1);
-              }}
-              className={`rounded-lg border px-3 py-3 text-left transition-colors ${
-                category === item.label
-                  ? "border-[#3B6CFF]/35 bg-[#3B6CFF]/[0.10]"
-                  : "border-white/[0.06] bg-white/[0.025] hover:bg-white/[0.05]"
-              }`}
-            >
-              <div className="flex items-center justify-between gap-2 mb-2">
-                <span className="text-white/80 text-sm font-medium">{item.label}</span>
-                <span className="data-number text-white/55 text-xs">{item.count}只</span>
-              </div>
-              <div className="grid grid-cols-3 gap-2 text-[11px]">
-                <div>
-                  <div className="text-white/50">平均年化</div>
-                  <div className={`data-number font-medium ${getChangeTextClass(parseFloat(item.avgReturn || "0"))}`}>{item.avgReturn === "—" ? "—" : `${item.avgReturn}%`}</div>
-                </div>
-                <div>
-                  <div className="text-white/50">最大回撤</div>
-                  <div className="data-number font-medium" style={{ color: RISK_COLOR }}>{item.avgMaxDrawdown === "—" ? "—" : `${item.avgMaxDrawdown}%`}</div>
-                </div>
-                <div>
-                  <div className="text-white/50">夏普</div>
-                  <div className="data-number font-medium" style={{ color: POSITIVE_METRIC_COLOR }}>{item.avgSharpe}</div>
-                </div>
-              </div>
-            </button>
-          ))}
-        </div>
-
-        <div className="mt-8 flex flex-col md:flex-row gap-3">
-          <form className="relative flex-1" onSubmit={handleSearchSubmit}>
-            <button
-              type="submit"
-              disabled={addFundByCode.isPending}
-              className="absolute left-3 top-1/2 -translate-y-1/2 text-white/50 hover:text-white/60 transition-colors disabled:opacity-50"
-              title="搜索基金"
-            >
-              {addFundByCode.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-            </button>
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => { setSearch(e.target.value); setSearchError(null); setPage(1); }}
-              placeholder="输入基金代码 / 名称 / 基金经理..."
-              aria-label="搜索基金"
-              className="w-full h-11 pl-10 pr-4 rounded-xl bg-white/[0.03] border border-white/[0.06] text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-[#3B6CFF]/50 focus:bg-white/[0.05] transition-all"
-            />
-            {searchError && <div className="absolute left-0 top-full mt-1 text-xs text-[#FF3366]">{searchError}</div>}
-          </form>
-          {/*
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="h-11 px-4 rounded-xl bg-white/[0.03] border border-white/[0.06] text-white/60 text-sm hover:bg-white/[0.06] hover:text-white transition-all flex items-center gap-2 shrink-0"
-            title="拍照识别基金"
-          >
-            <Camera className="w-4 h-4" />
-            <span className="hidden md:inline">拍照识别</span>
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={handleFileSelect}
-          />
-          */}
-          <div className="flex gap-2 flex-wrap">
-            {/* 基金类型 */}
-            <Select value={fundType} onValueChange={(v) => { setFundType(v); setPage(1); }}>
-              <SelectTrigger className="h-11 w-auto min-w-[110px] px-3 rounded-xl bg-[#0B1021] border border-white/[0.08] text-white text-sm focus:outline-none focus:border-[#3B6CFF]/50 data-[placeholder]:text-white/50">
-                <SelectValue placeholder="全部类型" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__all__">全部类型</SelectItem>
-                {Object.entries(typeLabels).map(([k, v]) => (
-                  <SelectItem key={k} value={k}>{v}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {/* 风险等级 */}
-            <Select value={riskLevel} onValueChange={(v) => { setRiskLevel(v); setPage(1); }}>
-              <SelectTrigger className="h-11 w-auto min-w-[110px] px-3 rounded-xl bg-[#0B1021] border border-white/[0.08] text-white text-sm focus:outline-none focus:border-[#3B6CFF]/50 data-[placeholder]:text-white/50">
-                <SelectValue placeholder="全部风险" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__all__">全部风险</SelectItem>
-                {Object.entries(riskLabels).map(([k, v]) => (
-                  <SelectItem key={k} value={k}>{v}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {/* 基金分类 */}
-            <Select value={category} onValueChange={(v) => { setCategory(v); setPage(1); }}>
-              <SelectTrigger className="h-11 w-auto min-w-[110px] px-3 rounded-xl bg-[#0B1021] border border-white/[0.08] text-white text-sm focus:outline-none focus:border-[#3B6CFF]/50 data-[placeholder]:text-white/50">
-                <SelectValue placeholder="全部分类" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__all__">全部分类</SelectItem>
-                {filterOpts.categories?.map((c: string) => (
-                  <SelectItem key={c} value={c}>{c}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {/* 基金公司 */}
-            <Select value={company} onValueChange={(v) => { setCompany(v); setPage(1); }}>
-              <SelectTrigger className="h-11 w-auto min-w-[110px] px-3 rounded-xl bg-[#0B1021] border border-white/[0.08] text-white text-sm focus:outline-none focus:border-[#3B6CFF]/50 data-[placeholder]:text-white/50">
-                <SelectValue placeholder="全部公司" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__all__">全部公司</SelectItem>
-                {filterOpts.companies?.map((c: string) => (
-                  <SelectItem key={c} value={c}>{c}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <button onClick={() => { setShowXinjihui(!showXinjihui); setPage(1); }}
-              className={`h-11 px-4 rounded-xl text-sm font-medium transition-all ${showXinjihui ? "bg-[#3B6CFF]/20 text-[#00F0FF] border border-[#3B6CFF]/30" : "bg-white/[0.03] text-white/50 border border-white/[0.06] hover:bg-white/[0.06]"}`}>
-              鑫基荟
-            </button>
-          </div>
-        </div>
-
-        {/*
-        Image search result panel
-        {(imagePreview || isRecognizing || imageResult || imageError) && (
-          <div className="mt-4 liquid-glass-sm p-4 relative">
-            <button
-              onClick={clearImageSearch}
-              className="absolute top-3 right-3 text-white/50 hover:text-white/60 transition-colors"
-            >
-              <X className="w-4 h-4" />
-            </button>
-            <div className="flex items-start gap-4">
-              {imagePreview && (
-                <div className="shrink-0">
-                  <img src={imagePreview} alt="识别图片" className="w-24 h-24 object-cover rounded-lg border border-white/[0.06]" />
-                </div>
-              )}
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-2">
-                  <Camera className="w-4 h-4 text-[#00F0FF]" />
-                  <span className="text-white/80 text-sm font-medium">AI 图片识别</span>
-                  {isRecognizing && (
-                    <span className="flex items-center gap-1 text-white/40 text-xs">
-                      <Loader2 className="w-3 h-3 animate-spin" />
-                      识别中...
-                    </span>
-                  )}
-                </div>
-                {imageError && (
-                  <p className="text-[#FF3366] text-sm">{imageError}</p>
-                )}
-                {imageResult && (
-                  <div>
-                    <p className="text-white/50 text-xs mb-2">{imageResult.summary}</p>
-                    <p className="text-white/40 text-xs mb-3">
-                      识别到 {imageResult.recognizedCount} 只基金，匹配到 {imageResult.matchedCount} 只
-                    </p>
-                    {imageResult.funds.length > 0 ? (
-                      <div className="flex flex-wrap gap-2">
-                        {imageResult.funds.map((fund: any) => (
-                          <Link
-                            key={fund.id || fund.code}
-                            to={`/${fund.fundCode || fund.code}`}
-                            className="flex items-center gap-2 px-3 py-2 rounded-lg bg-white/[0.04] border border-white/[0.06] hover:bg-white/[0.08] hover:border-[#3B6CFF]/30 transition-all"
-                          >
-                            <div>
-                              <div className="text-white text-sm font-medium">{fund.fundAbbr || fund.fundName}</div>
-                              <div className="text-white/50 text-xs">{fund.fundCode}</div>
-                            </div>
-                            <TrendingUp className="w-3 h-3 text-[#A3FF12]" />
-                          </Link>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-white/50 text-sm">未在基金库中匹配到相关产品</p>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-        */}
-
-        <div className="mt-4 flex items-center gap-2 flex-wrap">
-          <span className="text-white/50 text-xs">排序:</span>
-          {[
-            { key: "dailyChange", label: "日涨跌" },
-            { key: "return1y", label: "近1年收益" },
-            { key: "sharpeRatio", label: "夏普比率" },
-            { key: "maxDrawdown", label: "最大回撤" },
-            { key: "nav", label: "净值" },
-          ].map((s) => (
-            <button key={s.key} onClick={() => { if (sortBy === s.key) setSortOrder(sortOrder === "desc" ? "asc" : "desc"); else { setSortBy(s.key); setSortOrder("desc"); } }}
-              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${sortBy === s.key ? "bg-[#3B6CFF]/15 text-[#00F0FF]" : "text-white/40 hover:text-white/70 hover:bg-white/[0.03]"}`}>
-              {s.label} {sortBy === s.key && (sortOrder === "desc" ? "↓" : "↑")}
-            </button>
-          ))}
-        </div>
+        <FilterBar
+          search={search}
+          searchError={searchError}
+          fundType={fundType}
+          category={category}
+          company={company}
+          riskLevel={riskLevel}
+          showXinjihui={showXinjihuiOnly}
+          showWatchlist={showWatchlistOnly}
+          sortBy={sortBy}
+          sortOrder={sortOrder}
+          filterOpts={filterOpts}
+          addFundByCodePending={addFundByCode.isPending}
+          onSearchChange={(value) => { setSearch(value); setSearchError(null); setPage(1); }}
+          onSearchSubmit={handleSearchSubmit}
+          onFundTypeChange={(v) => { setFundType(v); setPage(1); }}
+          onCategoryChange={(v) => { setCategory(v); setPage(1); }}
+          onCompanyChange={(v) => { setCompany(v); setPage(1); }}
+          onRiskLevelChange={(v) => { setRiskLevel(v); setPage(1); }}
+          onToggleXinjihui={() => {
+            setShowXinjihuiOnly((prev) => {
+              const next = !prev;
+              if (next) setShowWatchlistOnly(false);
+              return next;
+            });
+            setPage(1);
+          }}
+          onToggleWatchlist={() => {
+            setShowWatchlistOnly((prev) => {
+              const next = !prev;
+              if (next) setShowXinjihuiOnly(false);
+              return next;
+            });
+            setPage(1);
+          }}
+          onSortChange={handleSortChange}
+        />
       </section>
 
-      <section className="px-4 md:px-6 max-w-7xl mx-auto">
-        <div className="liquid-glass overflow-hidden">
-          {/* 桌面端表头（仅 md+ 显示） */}
-          <div className="hidden md:grid md:grid-cols-[minmax(260px,2fr)_repeat(5,minmax(92px,1fr))_minmax(150px,1fr)] gap-3 px-5 py-3 text-xs text-white/50 font-medium border-b border-white/[0.06] items-center"
-            style={{ background: "linear-gradient(180deg, rgba(255,255,255,0.04) 0%, transparent 100%)" }}>
-            <div>基金产品</div>
-            <div className="text-right">净值</div>
-            <div className="text-right">日涨跌</div>
-            <div className="text-right">近1年</div>
-            <div className="text-right">夏普</div>
-            <div className="text-right">回撤</div>
-            <div>类型/标签</div>
-          </div>
-
-          {listLoading ? (
-            <div className="p-8 text-center text-white/50 flex items-center justify-center gap-2">
-              <Loader2 className="w-4 h-4 animate-spin" />加载中...
-            </div>
-          ) : paginatedFunds.length === 0 ? (
-            <div className="p-8 text-center text-white/50">{showXinjihui ? "暂无鑫基荟产品" : "暂无自选基金"}</div>
-          ) : (
-            paginatedFunds.map((fund: any) => {
-              const perf = fund.performance;
-              const dailyChange = parseFloat(fund.dailyChange || "0");
-              const return1y = parseFloat(perf?.return1y || "0");
-              const maxDD = perf?.maxDrawdown === "—" ? null : parseFloat(perf?.maxDrawdown || "0");
-              const sharpe = perf?.sharpeRatio === "—" ? null : parseFloat(perf?.sharpeRatio || "0");
-              const isWatchlistFund = fund.source === "watchlist";
-              const dailyClass = getChangeTextClass(dailyChange);
-              const return1yClass = getChangeTextClass(return1y);
-              return (
-                <div key={fund.id}
-                  className="border-b border-white/[0.03] hover:bg-white/[0.04] transition-all group cursor-pointer relative"
-                  onMouseEnter={() => setHoveredRow(fund.id)} onMouseLeave={() => setHoveredRow(null)}>
-                  {/* 桌面端行布局 */}
-                  <Link to={`/${fund.fundCode}`} className="hidden md:grid md:grid-cols-[minmax(260px,2fr)_repeat(5,minmax(92px,1fr))_minmax(150px,1fr)] gap-3 px-5 py-3.5 text-sm items-center">
-                    <div className="relative z-10 min-w-0">
-                      <div className="text-white font-medium text-sm flex items-center gap-1">
-                        {fund.fundAbbr || fund.fundName}
-                        {isWatchlistFund && <Star className="w-3 h-3 text-[#FFB800] fill-[#FFB800]" />}
-                      </div>
-                      <div className="text-white/50 text-xs mt-0.5 flex items-center gap-1.5">
-                        <span className="data-number">{fund.fundCode}</span>
-                        <span>{fund.manager?.name}</span>
-                        <span>{fund.company}</span>
-                      </div>
-                    </div>
-                    <div className="text-right data-number text-white/80 relative z-10">{fund.nav}</div>
-                    <div className={`text-right data-number font-medium ${dailyClass} relative z-10`}>
-                      <span className="inline-flex items-center gap-0.5">
-                        {dailyChange >= 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-                        {dailyChange >= 0 ? "+" : ""}{dailyChange.toFixed(2)}%
-                      </span>
-                    </div>
-                    <div className={`text-right data-number ${return1yClass} relative z-10`}>
-                      {return1y >= 0 ? "+" : ""}{perf?.return1y}%
-                    </div>
-                    <div className="text-right data-number relative z-10" style={{ color: POSITIVE_METRIC_COLOR }}>{sharpe !== null ? sharpe.toFixed(2) : "—"}</div>
-                    <div className="text-right data-number relative z-10" style={{ color: RISK_COLOR }}>{maxDD !== null ? maxDD.toFixed(2) + "%" : "—"}</div>
-                    <div className="flex items-center gap-1.5 flex-wrap relative z-10">
-                      <span className="px-2 py-0.5 rounded text-xs bg-white/[0.05] text-white/60">{typeLabels[fund.fundType] || fund.fundType}</span>
-                      {(fund.tags || []).slice(0, 2).map((tag: string) => (
-                        <span key={tag} className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-[#3B6CFF]/10 text-[#5AA9FF] border border-[#3B6CFF]/20">{tag}</span>
-                      ))}
-                    </div>
-                  </Link>
-
-                  {/* 移动端卡片布局 */}
-                  <Link to={`/${fund.fundCode}`} className="md:hidden flex flex-col gap-2 px-4 py-3.5 text-sm">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0 flex-1">
-                        <div className="text-white font-medium text-[15px] flex items-center gap-1 truncate">
-                          {fund.fundAbbr || fund.fundName}
-                          {isWatchlistFund && <Star className="w-3.5 h-3.5 text-[#FFB800] fill-[#FFB800] shrink-0" />}
-                        </div>
-                        <div className="text-white/50 text-xs mt-1 flex items-center gap-2 flex-wrap">
-                          <span className="data-number">{fund.fundCode}</span>
-                          <span className="px-1.5 py-0.5 rounded bg-white/[0.05]">{typeLabels[fund.fundType] || fund.fundType}</span>
-                          <span>{fund.manager?.name}</span>
-                        </div>
-                      </div>
-                      <div className="text-right shrink-0">
-                        <div className="data-number text-white text-base font-semibold">{fund.nav}</div>
-                        <div className={`data-number text-sm font-medium ${dailyClass}`}>
-                          {dailyChange >= 0 ? "+" : ""}{dailyChange.toFixed(2)}%
-                        </div>
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-3 gap-2 pt-1 text-[11px]">
-                      <div>
-                        <div className="text-white/50">近1年</div>
-                        <div className={`data-number font-medium ${return1yClass}`}>{return1y >= 0 ? "+" : ""}{perf?.return1y}%</div>
-                      </div>
-                      <div>
-                        <div className="text-white/50">夏普比</div>
-                        <div className="data-number font-medium" style={{ color: POSITIVE_METRIC_COLOR }}>{sharpe !== null ? sharpe.toFixed(2) : "—"}</div>
-                      </div>
-                      <div>
-                        <div className="text-white/50">最大回撤</div>
-                        <div className="data-number font-medium" style={{ color: RISK_COLOR }}>{maxDD !== null ? maxDD.toFixed(2) + "%" : "—"}</div>
-                      </div>
-                    </div>
-                  </Link>
-
-                  {/* 移除自选按钮 - 桌面端hover显示，移动端常驻 */}
-                  {isWatchlistFund && (
-                    <button
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        removeFund.mutate({ code: fund.fundCode });
-                      }}
-                      className={`absolute top-2 right-2 z-20 w-7 h-7 rounded-md bg-[#F5384B]/10 text-[#F5384B] hover:bg-[#F5384B]/20 flex items-center justify-center transition-all ${hoveredRow === fund.id ? "opacity-100" : "md:opacity-0 opacity-100"}`}
-                      title="移除自选"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-              );
-            })
-          )}
-        </div>
-
-        {totalPages > 1 && (
-          <div className="flex justify-center items-center gap-2 mt-6">
-            <button onClick={() => setPage(Math.max(1, page - 1))} disabled={page === 1}
-              className="px-3 py-1.5 rounded-lg text-sm text-white/50 hover:text-white disabled:opacity-30 transition-all">上一页</button>
-            <span className="text-white/40 text-sm data-number">{page} / {totalPages}</span>
-            <button onClick={() => setPage(page + 1)} disabled={page >= totalPages}
-              className="px-3 py-1.5 rounded-lg text-sm text-white/50 hover:text-white disabled:opacity-30 transition-all">下一页</button>
-          </div>
-        )}
-      </section>
+      <FundTable
+        paginatedFunds={paginatedFunds}
+        listLoading={listLoading}
+        showXinjihui={showXinjihuiOnly}
+        showWatchlistOnly={showWatchlistOnly}
+        hasSearch={Boolean(search.trim())}
+        totalPages={totalPages}
+        page={page}
+        onPageChange={setPage}
+        onAddFund={(code) => addFundByCode.mutate({ code })}
+        onRemoveFund={(code) => removeFund.mutate({ code })}
+      />
     </div>
   );
 }
