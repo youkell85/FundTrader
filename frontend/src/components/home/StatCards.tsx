@@ -9,8 +9,8 @@ interface StatCardsProps {
 }
 
 function getChangeTextClass(val: number) {
-  if (val > 0) return "text-[#16C784]";
-  if (val < 0) return "text-[#F5384B]";
+  if (val > 0) return "text-[#F5384B]";
+  if (val < 0) return "text-[#16C784]";
   return "text-white/50";
 }
 
