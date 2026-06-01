@@ -214,6 +214,17 @@ export default function FundDetail() {
                 <span>{riskLabels[fund.riskLevel || ""] || fund.riskLevel}</span>
                 <span>规模: <span className="data-number text-white/60">{fund.totalScale}亿</span></span>
               </div>
+              <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-white/42">
+                <span className="rounded border border-white/[0.07] bg-white/[0.03] px-2 py-1">
+                  快照: <span className="data-number text-white/62">{fund.updatedAt ? String(fund.updatedAt).slice(0, 16).replace("T", " ") : "等待更新"}</span>
+                </span>
+                <span className="rounded border border-white/[0.07] bg-white/[0.03] px-2 py-1">
+                  数据质量: <span className="text-white/62">{fund.dataQuality || "unknown"}</span>
+                </span>
+                <span className="rounded border border-white/[0.07] bg-white/[0.03] px-2 py-1">
+                  新鲜度: <span className="text-white/62">{fund.staleLevel || "unknown"}</span>
+                </span>
+              </div>
             </div>
             <div className="flex items-center gap-4 md:gap-6">
               <div className="text-right">

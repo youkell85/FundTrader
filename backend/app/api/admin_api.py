@@ -39,6 +39,14 @@ async def admin_stats(admin: dict = Depends(_require_admin)):
     }
 
 
+@router.get("/data-health")
+async def data_health(admin: dict = Depends(_require_admin)):
+    """Data-center health, external call volume and failure risk."""
+    from ..storage.database import FundDataStore
+
+    return FundDataStore.data_status()
+
+
 # ─── User Management ──────────────────────────────────────────────────────────
 
 class UserUpdateBody(BaseModel):

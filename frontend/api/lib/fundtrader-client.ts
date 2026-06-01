@@ -44,6 +44,23 @@ export async function getFundList(params: Record<string, unknown> = {}) {
   return ftFetch<Record<string, unknown>>(`/fund/list?${qs.toString()}`);
 }
 
+export async function getFundSnapshotList(params: Record<string, unknown> = {}) {
+  const qs = new URLSearchParams();
+  Object.entries(params).forEach(([k, v]) => {
+    if (v !== undefined && v !== null) qs.append(k, String(v));
+  });
+  return ftFetch<Record<string, unknown>>(`/fund/snapshot/list?${qs.toString()}`);
+}
+
+export async function getFundSnapshot(code: string, enqueueMissing = true) {
+  const qs = new URLSearchParams({ enqueue_missing: String(enqueueMissing) });
+  return ftFetch<Record<string, unknown>>(`/fund/snapshot/${code}?${qs.toString()}`);
+}
+
+export async function requestFundBackfill(code: string) {
+  return getFundSnapshot(code, true);
+}
+
 // �������
 export async function getCategories() {
   return ftFetch<Record<string, unknown>>("/fund/categories");

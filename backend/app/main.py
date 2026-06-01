@@ -85,38 +85,72 @@ def _get_last_snapshot_date() -> str | None:
 
 def _do_fund_snapshot_refresh():
     """Execute fund snapshot refresh synchronously."""
-    import akshare as ak
     import json as _json
-    from .storage.database import FundSnapshotCache
+    from .data.data_gateway import data_gateway
+    from .storage.database import FundDataStore, FundSnapshotCache
     from .constants.guoyuan_funds import GUOYUAN_FUND_LIST
 
     codes = {f["code"] for f in GUOYUAN_FUND_LIST}
     cached = FundSnapshotCache.get_codes()
 
-    df = ak.fund_open_fund_rank_em(symbol="全部")
+    def _fetch_rank():
+        import akshare as ak
+        return ak.fund_open_fund_rank_em(symbol="全部")
+
+    gateway_result = data_gateway.call(
+        "akshare",
+        "fund_open_fund_rank_em",
+        _fetch_rank,
+        cache_key="akshare:fund_open_fund_rank_em:all",
+        ttl_seconds=24 * 60 * 60,
+    )
+    if gateway_result.error:
+        logger.warning(f"Fund snapshot: akshare failed: {gateway_result.error}")
+        return
+    df = gateway_result.data
     if df is None or df.empty:
         logger.warning("Fund snapshot: akshare returned empty")
         return
 
     now_str = datetime.now().isoformat()
     rows = []
+    quote_rows = []
     for _, row in df.iterrows():
         code = str(row.get("基金代码", "")).strip()
         if code not in codes and code not in cached:
             continue
         try:
+            item = {
+                "code": code,
+                "name": str(row.get("基金简称", "")),
+                "type": str(row.get("基金类型", "")),
+                "nav": float(row.get("单位净值", 0) or 0),
+                "day_growth": float(row.get("日增长率", 0) or 0),
+                "near_1m": float(row.get("近1月", 0) or 0),
+                "near_3m": float(row.get("近3月", 0) or 0),
+                "near_6m": float(row.get("近6月", 0) or 0),
+                "near_1y": float(row.get("近1年", 0) or 0),
+                "near_3y": float(row.get("近3年", 0) or 0),
+                "ytd": float(row.get("今年以来", 0) or 0),
+                "tags": ["鑫基荟"],
+                "company": "",
+                "is_xinjihui": True,
+                "is_preferred": True,
+                "updated_at": now_str,
+            }
+            quote_rows.append(item)
             rows.append((
-                code,
-                str(row.get("基金简称", "")),
-                str(row.get("基金类型", "")),
-                float(row.get("单位净值", 0) or 0),
-                float(row.get("日增长率", 0) or 0),
-                float(row.get("近1月", 0) or 0),
-                float(row.get("近3月", 0) or 0),
-                float(row.get("近6月", 0) or 0),
-                float(row.get("近1年", 0) or 0),
-                float(row.get("近3年", 0) or 0),
-                float(row.get("今年以来", 0) or 0),
+                item["code"],
+                item["name"],
+                item["type"],
+                item["nav"],
+                item["day_growth"],
+                item["near_1m"],
+                item["near_3m"],
+                item["near_6m"],
+                item["near_1y"],
+                item["near_3y"],
+                item["ytd"],
                 _json.dumps(["鑫基荟"], ensure_ascii=False),
                 "",
                 now_str,
@@ -126,6 +160,7 @@ def _do_fund_snapshot_refresh():
 
     if rows:
         FundSnapshotCache.save_batch(rows)
+        FundDataStore.save_quote_batch(quote_rows, source="akshare_rank_refresh")
         logger.info(f"Fund snapshot refreshed: {len(rows)} funds")
     else:
         logger.warning("Fund snapshot: no matching funds found")

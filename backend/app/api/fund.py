@@ -58,43 +58,160 @@ async def fund_categories():
     return {"categories": FUND_CATEGORIES, "types": FUND_TYPES}
 
 
+@router.get("/snapshot/list")
+async def fund_snapshot_list(
+    category: str = Query("全部"),
+    keyword: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=5000),
+    xinjihui_only: bool = Query(True),
+    sort_by: str = Query("ytd"),
+    sort_order: str = Query("desc"),
+):
+    """Read paged fund quote snapshots from SQLite only."""
+    from ..storage.database import FundDataStore
+
+    result = await run_in_threadpool(
+        FundDataStore.list_snapshots,
+        category,
+        keyword,
+        xinjihui_only,
+        page_size,
+        (page - 1) * page_size,
+        sort_by,
+        sort_order,
+    )
+    return {
+        "total": result["total"],
+        "page": page,
+        "page_size": page_size,
+        "funds": result["funds"],
+    }
+
+
+@router.get("/snapshot/{code}")
+async def fund_snapshot_detail(code: str, enqueue_missing: bool = Query(True)):
+    """Return a local fund snapshot and optionally enqueue a backfill job."""
+    from ..storage.database import FundDataStore
+
+    snapshot = await run_in_threadpool(FundDataStore.get_snapshot, code)
+    job_id = None
+    if enqueue_missing and (not snapshot or snapshot.get("data_quality") in {"partial", "missing", "unknown"}):
+        job_id = await run_in_threadpool(
+            FundDataStore.create_job,
+            "single_fund_backfill",
+            code,
+            {"reason": "snapshot_detail_missing"},
+            8,
+        )
+    if not snapshot:
+        return {
+            "code": code,
+            "data_quality": "missing",
+            "stale_level": "missing",
+            "job_id": job_id,
+        }
+    return {**snapshot, "job_id": job_id}
+
+
+@router.get("/metrics/{code}")
+async def fund_metrics_snapshot(code: str):
+    """Return local metrics fields from the snapshot facade."""
+    from ..storage.database import FundDataStore
+
+    snapshot = await run_in_threadpool(FundDataStore.get_snapshot, code)
+    if not snapshot:
+        return {"code": code, "data_quality": "missing"}
+    return {
+        "code": code,
+        "sharpe_ratio": snapshot.get("sharpe_ratio"),
+        "max_drawdown": snapshot.get("max_drawdown"),
+        "annualized_return": snapshot.get("annualized_return"),
+        "volatility": snapshot.get("volatility"),
+        "score": snapshot.get("score"),
+        "feeManage": snapshot.get("feeManage"),
+        "feeCustody": snapshot.get("feeCustody"),
+        "total_scale": snapshot.get("total_scale"),
+        "updated_at": snapshot.get("metrics_updated_at"),
+        "data_quality": snapshot.get("data_quality"),
+    }
+
+
+@router.get("/data-status")
+async def fund_data_status():
+    """Expose data center freshness, job and external-call status."""
+    from ..storage.database import FundDataStore
+
+    return await run_in_threadpool(FundDataStore.data_status)
+
+
 @router.post("/refresh-snapshot")
 async def refresh_fund_snapshot():
     """Refresh all fund data to SQLite (called after market close)."""
-    import akshare as ak
-    import pandas as pd
-    import numpy as np
-    from ..storage.database import FundSnapshotCache
+    from ..data.data_gateway import data_gateway
+    from ..storage.database import FundDataStore, FundSnapshotCache
 
     try:
         logger.info("Starting fund snapshot refresh...")
         codes = [f["code"] for f in GUOYUAN_FUND_LIST]
         cached = FundSnapshotCache.get_codes()
 
-        # Fetch from akshare (batch if possible)
-        df = ak.fund_open_fund_rank_em(symbol="全部")
+        def _fetch_rank():
+            import akshare as ak
+            return ak.fund_open_fund_rank_em(symbol="全部")
+
+        gateway_result = data_gateway.call(
+            "akshare",
+            "fund_open_fund_rank_em",
+            _fetch_rank,
+            cache_key="akshare:fund_open_fund_rank_em:all",
+            ttl_seconds=24 * 60 * 60,
+        )
+        if gateway_result.error:
+            return {"status": "error", "message": gateway_result.error}
+        df = gateway_result.data
         if df is None or df.empty:
             return {"status": "error", "message": "akshare返回空数据"}
 
         now = datetime.now().isoformat()
         rows = []
+        quote_rows = []
         for _, row in df.iterrows():
             code = str(row.get("基金代码", "")).strip()
             if code not in codes and code not in cached:
                 continue
             try:
+                item = {
+                    "code": code,
+                    "name": str(row.get("基金简称", "")),
+                    "type": str(row.get("基金类型", "")),
+                    "nav": float(row.get("单位净值", 0) or 0),
+                    "day_growth": float(row.get("日增长率", 0) or 0),
+                    "near_1m": float(row.get("近1月", 0) or 0),
+                    "near_3m": float(row.get("近3月", 0) or 0),
+                    "near_6m": float(row.get("近6月", 0) or 0),
+                    "near_1y": float(row.get("近1年", 0) or 0),
+                    "near_3y": float(row.get("近3年", 0) or 0),
+                    "ytd": float(row.get("今年以来", 0) or 0),
+                    "tags": ["鑫基荟"],
+                    "company": "",
+                    "is_xinjihui": True,
+                    "is_preferred": True,
+                    "updated_at": now,
+                }
+                quote_rows.append(item)
                 rows.append((
-                    code,
-                    str(row.get("基金简称", "")),
-                    str(row.get("基金类型", "")),
-                    float(row.get("单位净值", 0) or 0),
-                    float(row.get("日增长率", 0) or 0),
-                    float(row.get("近1月", 0) or 0),
-                    float(row.get("近3月", 0) or 0),
-                    float(row.get("近6月", 0) or 0),
-                    float(row.get("近1年", 0) or 0),
-                    float(row.get("近3年", 0) or 0),
-                    float(row.get("今年以来", 0) or 0),
+                    item["code"],
+                    item["name"],
+                    item["type"],
+                    item["nav"],
+                    item["day_growth"],
+                    item["near_1m"],
+                    item["near_3m"],
+                    item["near_6m"],
+                    item["near_1y"],
+                    item["near_3y"],
+                    item["ytd"],
                     json.dumps(["鑫基荟"], ensure_ascii=False),
                     "",
                     now,
@@ -104,6 +221,7 @@ async def refresh_fund_snapshot():
 
         if rows:
             FundSnapshotCache.save_batch(rows)
+            FundDataStore.save_quote_batch(quote_rows, source="akshare_rank_refresh")
             logger.info(f"Fund snapshot refreshed: {len(rows)} funds")
 
         return {"status": "ok", "count": len(rows), "updated_at": now}

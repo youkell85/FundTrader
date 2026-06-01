@@ -92,22 +92,10 @@ def get_fund_list(
     page_size: int = 20,
     guoyuan_only: bool = True,
 ) -> Dict[str, Any]:
-    """获取基金列表"""
-    # 如果只看国元名单
-    if guoyuan_only:
+    """Get fund list from local snapshots only."""
+    funds = _get_snapshot_funds(guoyuan_only=guoyuan_only)
+    if not funds and guoyuan_only:
         funds = _get_guoyuan_funds_with_performance()
-    else:
-        # 从缓存或API获取全量排名
-        cache_key = f"ranking_{category}"
-        funds = cache.get(cache_key, CACHE_TTL_RANKING)
-        if funds is None:
-            funds = get_fund_ranking(category)
-            if not funds:
-                funds = get_fund_ranking_em(category)
-            if category != "全部":
-                funds = [{**fund, "type": fund.get("type") or category} for fund in funds]
-            funds = _json_safe(funds)
-            cache.set(cache_key, funds)
 
     # 筛选+排序
     funds = _apply_filters_and_sort(funds, category, tag, keyword, sort_by, sort_order)
@@ -175,40 +163,41 @@ def get_fund_list_from_watchlist(
 
 def _get_watchlist_with_performance(watchlist: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """为自选基金获取业绩数据（批量模式）"""
-    all_perf = _fetch_all_fund_performance_with_timeout()
     result = []
     for fund in watchlist:
         fund_data = dict(fund)
-        perf = all_perf.get(fund["code"])
+        perf = _get_snapshot_by_code(str(fund.get("code", "")))
         if perf:
             fund_data.update(perf)
         result.append(fund_data)
     return result
 
 
-def _get_guoyuan_funds_with_performance() -> List[Dict[str, Any]]:
-    """获取国元证券基金名单及业绩数据（SQLite优先，API回退）"""
-    # 1. Try SQLite snapshot (updated once per trading day)
+def _get_snapshot_by_code(code: str) -> Dict[str, Any] | None:
     try:
-        from app.storage.database import FundSnapshotCache
-        cached = FundSnapshotCache.get_all()
-        if cached and len(cached) >= 100:
-            result = []
-            for row in cached:
-                fund_data = {
-                    "code": row["code"], "name": row["name"], "type": row["type"],
-                    "nav": row["nav"], "day_growth": row["day_growth"],
-                    "near_1m": row["near_1m"], "near_3m": row["near_3m"],
-                    "near_6m": row["near_6m"], "near_1y": row["near_1y"],
-                    "near_3y": row["near_3y"], "ytd": row["ytd"],
-                    "tags": json.loads(row.get("tags_json", "[]")),
-                    "company": row.get("company", ""),
-                    "is_xinjihui": True,
-                }
-                result.append(fund_data)
-            return result
+        from app.storage.database import FundDataStore
+        return FundDataStore.get_snapshot(code)
+    except Exception:
+        return None
+
+
+def _get_snapshot_funds(guoyuan_only: bool = True) -> List[Dict[str, Any]]:
+    try:
+        from app.storage.database import FundDataStore
+        result = FundDataStore.list_snapshots(xinjihui_only=guoyuan_only, limit=5000, offset=0)
+        funds = result.get("funds") or []
+        if funds:
+            return _json_safe(funds)
     except Exception:
         pass
+    return []
+
+
+def _get_guoyuan_funds_with_performance() -> List[Dict[str, Any]]:
+    """获取国元证券基金名单及业绩数据（SQLite优先，API回退）"""
+    snapshot = _get_snapshot_funds(guoyuan_only=True)
+    if snapshot:
+        return snapshot
 
     # 2. Fallback to in-memory cache
     cache_key = "guoyuan_funds_performance"

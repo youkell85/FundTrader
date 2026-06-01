@@ -235,6 +235,9 @@ export function mapFundItem(item: any): any {
     trackingIndex: item.trackingIndex || null,
     source, // xinjihui / watchlist 标记
     updatedAt: item.updated_at || item.updatedAt || item.created_at || null,
+    dataQuality: item.data_quality || item.dataQuality || "unknown",
+    staleLevel: item.stale_level || item.staleLevel || "unknown",
+    metricsUpdatedAt: item.metrics_updated_at || item.metricsUpdatedAt || null,
     performance: {
       return1m: perf.near_1m != null ? String(perf.near_1m) : item.near_1m != null ? String(item.near_1m) : navPerformance.return1m || "0",
       return3m: perf.near_3m != null ? String(perf.near_3m) : item.near_3m != null ? String(item.near_3m) : navPerformance.return3m || "0",

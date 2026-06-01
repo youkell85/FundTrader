@@ -19,6 +19,7 @@ from ..services.llm_service import (
 router = APIRouter(prefix="/analysis", tags=["deep-analysis"])
 
 FUND_CODE_PATTERN = re.compile(r"^\d{6}$")
+MAX_BATCH_ANALYSIS_CODES = 8
 
 
 def _validate_fund_code(code: str) -> None:
@@ -30,9 +31,18 @@ def _fill_missing_fees(code: str, data: Dict[str, Any]) -> Dict[str, Any]:
     if not data or (data.get("feeManage") is not None and data.get("feeCustody") is not None):
         return data
     try:
+        from ..data.data_gateway import data_gateway
         from ..data.efinance_fetcher import get_fund_fees
 
-        fees = get_fund_fees(code)
+        result = data_gateway.call(
+            "efinance",
+            "get_fund_fees",
+            lambda: get_fund_fees(code),
+            code=code,
+            cache_key=f"efinance:get_fund_fees:{code}",
+            ttl_seconds=CACHE_TTL_INFO,
+        )
+        fees = result.data
         if fees:
             data = dict(data)
             if data.get("feeManage") is None:
@@ -51,10 +61,18 @@ def _fill_missing_holding_changes(data: Dict[str, Any]) -> Dict[str, Any]:
     if all(item.get("daily_change") is not None for item in holdings if isinstance(item, dict)):
         return data
     try:
+        from ..data.data_gateway import data_gateway
         from ..data.akshare_fetcher import get_stock_daily_changes
 
         codes = [item.get("code", "") for item in holdings if isinstance(item, dict)]
-        changes = get_stock_daily_changes(codes)
+        result = data_gateway.call(
+            "akshare",
+            "get_stock_daily_changes",
+            lambda: get_stock_daily_changes(codes),
+            cache_key=f"akshare:get_stock_daily_changes:{','.join(sorted(codes))}",
+            ttl_seconds=15 * 60,
+        )
+        changes = result.data
         if changes:
             data = dict(data)
             data["holdings"] = [
@@ -131,8 +149,6 @@ def cached_analyze_fund(code: str) -> Dict[str, Any]:
     cached = cache.get(cache_key, CACHE_TTL_INFO)
     if cached:
         enriched = _fill_missing_nav_metrics(cached)
-        enriched = _fill_missing_fees(code, enriched)
-        enriched = _fill_missing_holding_changes(enriched)
         if enriched != cached:
             cache.set(cache_key, enriched)
         return enriched
@@ -148,7 +164,7 @@ def cached_analyze_fund(code: str) -> Dict[str, Any]:
 
 def _run_analysis_batch(codes: List[str]) -> Dict[str, Any]:
     results: Dict[str, Any] = {}
-    with ThreadPoolExecutor(max_workers=8) as executor:
+    with ThreadPoolExecutor(max_workers=min(4, max(1, len(set(codes))))) as executor:
         future_to_code = {executor.submit(cached_analyze_fund, code): code for code in set(codes)}
         for future in as_completed(future_to_code):
             code = future_to_code[future]
@@ -169,7 +185,13 @@ async def fund_analysis(code: str):
 async def fund_analysis_batch(codes: List[str]) -> Dict[str, Any]:
     for code in codes:
         _validate_fund_code(code)
-    return await run_in_threadpool(_run_analysis_batch, codes)
+    unique_codes = sorted(set(codes))
+    if len(unique_codes) > MAX_BATCH_ANALYSIS_CODES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Batch analysis is limited to {MAX_BATCH_ANALYSIS_CODES} codes; use fund snapshots for large pages.",
+        )
+    return await run_in_threadpool(_run_analysis_batch, unique_codes)
 
 
 @router.get("/{code}/style")

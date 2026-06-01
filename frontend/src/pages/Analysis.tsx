@@ -172,7 +172,7 @@ type PickerAnchor = { left: number; top: number; width: number; maxHeight: numbe
 
 export default function Analysis() {
   const { data: listData, isLoading } = trpc.fund.list.useQuery(
-    { pageSize: 1000, withMetrics: true },
+    { page: 1, pageSize: 300, withMetrics: false },
     { staleTime: 30 * 60 * 1000, refetchOnWindowFocus: false }
   );
   const allFunds = listData?.funds ?? [];

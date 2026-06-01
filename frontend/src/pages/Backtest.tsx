@@ -216,7 +216,7 @@ function MetricCard({ label, value, color, icon: Icon }: { label: string; value:
 
 export default function Backtest() {
   const { data: listData } = trpc.fund.list.useQuery(
-    { pageSize: 1000, withMetrics: true },
+    { page: 1, pageSize: 300, withMetrics: false },
     { staleTime: 30 * 60 * 1000, refetchOnWindowFocus: false }
   );
   const allFunds = listData?.funds ?? [];

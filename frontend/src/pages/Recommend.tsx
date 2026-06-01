@@ -157,7 +157,7 @@ export default function Recommend() {
   const [manualCode, setManualCode] = useState("");
 
   const { data: listData } = trpc.fund.list.useQuery(
-    { pageSize: 1000, withMetrics: true },
+    { page: 1, pageSize: 300, withMetrics: false },
     { staleTime: 30 * 60 * 1000, refetchOnWindowFocus: false }
   );
   const { data: recommendationsData, isLoading, isFetching } = trpc.fund.recommendations.useQuery(

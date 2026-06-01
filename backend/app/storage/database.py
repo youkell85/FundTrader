@@ -489,6 +489,8 @@ class Database:
 def init_db():
     """Initialize database tables."""
     Database.init_tables()
+    _init_fund_data_center_tables()
+    FundDataStore.bootstrap_from_legacy()
 
 
 def get_db_context():
@@ -1022,3 +1024,508 @@ class FundSnapshotCache:
         with get_db() as conn:
             row = conn.execute("SELECT MAX(updated_at) as t FROM fund_snapshot").fetchone()
             return row["t"] if row else None
+
+
+def _init_fund_data_center_tables() -> None:
+    """Create the unified fund data center tables.
+
+    These tables are additive. They intentionally do not remove or rewrite the
+    legacy fund_snapshot/fund_pool/fund_nav_cache tables so the rollout can be
+    deployed incrementally.
+    """
+    with get_db() as conn:
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS fund_master (
+                code TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                fund_type TEXT DEFAULT '',
+                company TEXT DEFAULT '',
+                tags_json TEXT DEFAULT '[]',
+                share_class_group TEXT DEFAULT '',
+                share_class TEXT DEFAULT '',
+                is_xinjihui INTEGER DEFAULT 0,
+                is_preferred INTEGER DEFAULT 0,
+                is_active INTEGER DEFAULT 1,
+                data_quality TEXT DEFAULT 'unknown',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS fund_quote_snapshot (
+                code TEXT PRIMARY KEY,
+                nav REAL,
+                accum_nav REAL,
+                nav_date TEXT DEFAULT '',
+                day_growth REAL,
+                near_1m REAL,
+                near_3m REAL,
+                near_6m REAL,
+                near_1y REAL,
+                near_3y REAL,
+                ytd REAL,
+                source TEXT DEFAULT 'snapshot',
+                data_quality TEXT DEFAULT 'unknown',
+                stale_level TEXT DEFAULT 'unknown',
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (code) REFERENCES fund_master(code) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS fund_nav_history (
+                code TEXT NOT NULL,
+                nav_date TEXT NOT NULL,
+                nav REAL NOT NULL,
+                accum_nav REAL,
+                day_growth REAL,
+                source TEXT DEFAULT 'api',
+                fetched_at TEXT NOT NULL,
+                PRIMARY KEY (code, nav_date)
+            );
+
+            CREATE TABLE IF NOT EXISTS fund_metrics_snapshot (
+                code TEXT PRIMARY KEY,
+                sharpe_ratio REAL,
+                max_drawdown REAL,
+                volatility REAL,
+                annualized_return REAL,
+                score REAL,
+                fee_manage REAL,
+                fee_custody REAL,
+                total_scale REAL,
+                nav_points INTEGER DEFAULT 0,
+                source TEXT DEFAULT 'snapshot',
+                data_quality TEXT DEFAULT 'unknown',
+                updated_at TEXT NOT NULL,
+                FOREIGN KEY (code) REFERENCES fund_master(code) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS fund_holdings_snapshot (
+                code TEXT NOT NULL,
+                report_date TEXT NOT NULL,
+                holdings_json TEXT NOT NULL,
+                asset_allocation_json TEXT DEFAULT '[]',
+                source TEXT DEFAULT 'snapshot',
+                data_quality TEXT DEFAULT 'unknown',
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (code, report_date)
+            );
+
+            CREATE TABLE IF NOT EXISTS fund_data_job (
+                id TEXT PRIMARY KEY,
+                job_type TEXT NOT NULL,
+                code TEXT DEFAULT '',
+                priority INTEGER DEFAULT 5,
+                status TEXT NOT NULL DEFAULT 'pending',
+                payload_json TEXT DEFAULT '{}',
+                error TEXT DEFAULT '',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                started_at TEXT DEFAULT '',
+                finished_at TEXT DEFAULT ''
+            );
+
+            CREATE TABLE IF NOT EXISTS external_api_call_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source TEXT NOT NULL,
+                endpoint TEXT NOT NULL,
+                code TEXT DEFAULT '',
+                cache_key TEXT DEFAULT '',
+                duration_ms INTEGER DEFAULT 0,
+                success INTEGER NOT NULL,
+                error TEXT DEFAULT '',
+                created_at TEXT NOT NULL
+            );
+
+            CREATE INDEX IF NOT EXISTS idx_fund_master_pool ON fund_master(is_xinjihui, is_preferred, is_active);
+            CREATE INDEX IF NOT EXISTS idx_fund_master_type ON fund_master(fund_type);
+            CREATE INDEX IF NOT EXISTS idx_fund_quote_updated ON fund_quote_snapshot(updated_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_fund_quote_quality ON fund_quote_snapshot(data_quality, stale_level);
+            CREATE INDEX IF NOT EXISTS idx_fund_nav_history_code_date ON fund_nav_history(code, nav_date);
+            CREATE INDEX IF NOT EXISTS idx_fund_data_job_status ON fund_data_job(status, priority, created_at);
+            CREATE INDEX IF NOT EXISTS idx_external_api_call_log_source ON external_api_call_log(source, created_at);
+        """)
+
+
+def _fund_tags(value: Any) -> List[str]:
+    if isinstance(value, list):
+        return [str(item) for item in value if item]
+    if isinstance(value, str) and value:
+        try:
+            parsed = json.loads(value)
+            if isinstance(parsed, list):
+                return [str(item) for item in parsed if item]
+        except Exception:
+            return [value]
+    return []
+
+
+def _stale_level(updated_at: str | None) -> str:
+    if not updated_at:
+        return "missing"
+    try:
+        age_days = (datetime.now() - datetime.fromisoformat(updated_at[:19])).days
+    except Exception:
+        return "unknown"
+    if age_days <= 1:
+        return "fresh"
+    if age_days <= 7:
+        return "stale"
+    return "very_stale"
+
+
+class FundDataStore:
+    """SQLite data-center facade for fund master, quotes, metrics, jobs and logs."""
+
+    @staticmethod
+    def bootstrap_from_legacy() -> None:
+        """Idempotently seed new tables from the legacy pool and fund_snapshot."""
+        now = datetime.now().isoformat()
+        try:
+            from ..constants.guoyuan_funds import GUOYUAN_FUND_LIST
+        except Exception:
+            GUOYUAN_FUND_LIST = []
+
+        with get_db() as conn:
+            for fund in GUOYUAN_FUND_LIST:
+                code = str(fund.get("code", "")).strip()
+                if not code:
+                    continue
+                tags = _fund_tags(fund.get("tags"))
+                if not tags:
+                    tags = ["xinjihui"]
+                conn.execute(
+                    """INSERT INTO fund_master
+                       (code, name, fund_type, company, tags_json, is_xinjihui, is_preferred,
+                        is_active, data_quality, created_at, updated_at)
+                       VALUES (?, ?, ?, ?, ?, 1, 1, 1, 'seeded', ?, ?)
+                       ON CONFLICT(code) DO UPDATE SET
+                         name = COALESCE(NULLIF(excluded.name, ''), fund_master.name),
+                         fund_type = COALESCE(NULLIF(excluded.fund_type, ''), fund_master.fund_type),
+                         tags_json = excluded.tags_json,
+                         is_xinjihui = 1,
+                         is_preferred = 1,
+                         is_active = 1,
+                         updated_at = excluded.updated_at""",
+                    (
+                        code,
+                        str(fund.get("name") or code),
+                        str(fund.get("type") or fund.get("fund_type") or ""),
+                        str(fund.get("company") or ""),
+                        json.dumps(tags, ensure_ascii=False),
+                        now,
+                        now,
+                    ),
+                )
+
+            legacy_rows = conn.execute("SELECT * FROM fund_snapshot").fetchall()
+            for row in legacy_rows:
+                tags = _fund_tags(row["tags_json"])
+                tags_json = json.dumps(tags, ensure_ascii=False)
+                updated_at = row["updated_at"] or now
+                conn.execute(
+                    """INSERT INTO fund_master
+                       (code, name, fund_type, company, tags_json, is_xinjihui, is_preferred,
+                        is_active, data_quality, created_at, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'snapshot', ?, ?)
+                       ON CONFLICT(code) DO UPDATE SET
+                         name = COALESCE(NULLIF(excluded.name, ''), fund_master.name),
+                         fund_type = COALESCE(NULLIF(excluded.fund_type, ''), fund_master.fund_type),
+                         company = COALESCE(NULLIF(excluded.company, ''), fund_master.company),
+                         tags_json = CASE WHEN fund_master.tags_json = '[]' THEN excluded.tags_json ELSE fund_master.tags_json END,
+                         data_quality = 'snapshot',
+                         updated_at = excluded.updated_at""",
+                    (
+                        row["code"],
+                        row["name"] or row["code"],
+                        row["type"] or "",
+                        row["company"] or "",
+                        tags_json,
+                        1 if tags else 0,
+                        1 if tags else 0,
+                        updated_at,
+                        updated_at,
+                    ),
+                )
+                FundDataStore._upsert_quote_row(conn, dict(row), source="legacy_fund_snapshot")
+
+    @staticmethod
+    def _upsert_quote_row(conn: sqlite3.Connection, row: Dict[str, Any], source: str = "snapshot") -> None:
+        updated_at = row.get("updated_at") or datetime.now().isoformat()
+        has_nav = row.get("nav") not in (None, "", 0)
+        quality = "ok" if has_nav else "partial"
+        conn.execute(
+            """INSERT INTO fund_quote_snapshot
+               (code, nav, accum_nav, nav_date, day_growth, near_1m, near_3m, near_6m,
+                near_1y, near_3y, ytd, source, data_quality, stale_level, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(code) DO UPDATE SET
+                 nav = excluded.nav,
+                 accum_nav = excluded.accum_nav,
+                 nav_date = excluded.nav_date,
+                 day_growth = excluded.day_growth,
+                 near_1m = excluded.near_1m,
+                 near_3m = excluded.near_3m,
+                 near_6m = excluded.near_6m,
+                 near_1y = excluded.near_1y,
+                 near_3y = excluded.near_3y,
+                 ytd = excluded.ytd,
+                 source = excluded.source,
+                 data_quality = excluded.data_quality,
+                 stale_level = excluded.stale_level,
+                 updated_at = excluded.updated_at""",
+            (
+                row.get("code"),
+                row.get("nav"),
+                row.get("accum_nav"),
+                row.get("nav_date") or str(updated_at)[:10],
+                row.get("day_growth"),
+                row.get("near_1m"),
+                row.get("near_3m"),
+                row.get("near_6m"),
+                row.get("near_1y"),
+                row.get("near_3y"),
+                row.get("ytd"),
+                source,
+                row.get("data_quality") or quality,
+                _stale_level(updated_at),
+                updated_at,
+            ),
+        )
+
+    @staticmethod
+    def save_quote_batch(rows: List[Dict[str, Any]], source: str = "snapshot_refresh") -> None:
+        now = datetime.now().isoformat()
+        with get_db() as conn:
+            for row in rows:
+                code = str(row.get("code", "")).strip()
+                if not code:
+                    continue
+                conn.execute(
+                    """INSERT INTO fund_master
+                       (code, name, fund_type, company, tags_json, is_xinjihui, is_preferred,
+                        is_active, data_quality, created_at, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'snapshot', ?, ?)
+                       ON CONFLICT(code) DO UPDATE SET
+                         name = COALESCE(NULLIF(excluded.name, ''), fund_master.name),
+                         fund_type = COALESCE(NULLIF(excluded.fund_type, ''), fund_master.fund_type),
+                         company = COALESCE(NULLIF(excluded.company, ''), fund_master.company),
+                         updated_at = excluded.updated_at""",
+                    (
+                        code,
+                        str(row.get("name") or code),
+                        str(row.get("type") or row.get("fund_type") or ""),
+                        str(row.get("company") or ""),
+                        json.dumps(_fund_tags(row.get("tags")) or ["xinjihui"], ensure_ascii=False),
+                        1 if row.get("is_xinjihui", True) else 0,
+                        1 if row.get("is_preferred", row.get("is_xinjihui", True)) else 0,
+                        row.get("updated_at") or now,
+                        row.get("updated_at") or now,
+                    ),
+                )
+                FundDataStore._upsert_quote_row(conn, {**row, "updated_at": row.get("updated_at") or now}, source)
+
+    @staticmethod
+    def list_snapshots(
+        category: str = "",
+        keyword: str | None = None,
+        xinjihui_only: bool = True,
+        limit: int = 5000,
+        offset: int = 0,
+        sort_field: str = "ytd",
+        sort_order: str = "desc",
+    ) -> Dict[str, Any]:
+        allowed_sort = {
+            "nav", "day_growth", "near_1m", "near_3m", "near_6m",
+            "near_1y", "near_3y", "ytd", "updated_at"
+        }
+        sort_sql = sort_field if sort_field in allowed_sort else "ytd"
+        order_sql = "ASC" if sort_order.lower() == "asc" else "DESC"
+        clauses = ["m.is_active = 1"]
+        params: List[Any] = []
+        if xinjihui_only:
+            clauses.append("(m.is_xinjihui = 1 OR m.is_preferred = 1)")
+        if category and category not in ("all", "全部", "鍏ㄩ儴"):
+            clauses.append("m.fund_type = ?")
+            params.append(category)
+        if keyword:
+            clauses.append("(m.code LIKE ? OR m.name LIKE ?)")
+            like = f"%{keyword}%"
+            params.extend([like, like])
+        where = " AND ".join(clauses)
+        limit = max(1, min(int(limit or 20), 5000))
+        offset = max(0, int(offset or 0))
+        with get_db() as conn:
+            total = conn.execute(f"SELECT COUNT(*) as c FROM fund_master m WHERE {where}", params).fetchone()["c"]
+            rows = conn.execute(
+                f"""SELECT m.code, m.name, m.fund_type as type, m.company, m.tags_json,
+                          m.is_xinjihui, m.is_preferred, m.data_quality as master_quality,
+                          q.nav, q.accum_nav, q.nav_date, q.day_growth, q.near_1m, q.near_3m,
+                          q.near_6m, q.near_1y, q.near_3y, q.ytd, q.updated_at,
+                          q.data_quality, q.stale_level,
+                          ms.sharpe_ratio, ms.max_drawdown, ms.volatility,
+                          ms.annualized_return, ms.score, ms.fee_manage, ms.fee_custody,
+                          ms.total_scale, ms.updated_at as metrics_updated_at
+                   FROM fund_master m
+                   LEFT JOIN fund_quote_snapshot q ON q.code = m.code
+                   LEFT JOIN fund_metrics_snapshot ms ON ms.code = m.code
+                   WHERE {where}
+                   ORDER BY COALESCE(q.{sort_sql}, 0) {order_sql}, m.code
+                   LIMIT ? OFFSET ?""",
+                [*params, limit, offset],
+            ).fetchall()
+        return {"total": total, "funds": [FundDataStore._row_to_fund(row) for row in rows]}
+
+    @staticmethod
+    def get_snapshot(code: str) -> Optional[Dict[str, Any]]:
+        with get_db() as conn:
+            row = conn.execute(
+                """SELECT m.code, m.name, m.fund_type as type, m.company, m.tags_json,
+                          m.is_xinjihui, m.is_preferred, m.data_quality as master_quality,
+                          q.nav, q.accum_nav, q.nav_date, q.day_growth, q.near_1m, q.near_3m,
+                          q.near_6m, q.near_1y, q.near_3y, q.ytd, q.updated_at,
+                          q.data_quality, q.stale_level,
+                          ms.sharpe_ratio, ms.max_drawdown, ms.volatility,
+                          ms.annualized_return, ms.score, ms.fee_manage, ms.fee_custody,
+                          ms.total_scale, ms.updated_at as metrics_updated_at
+                   FROM fund_master m
+                   LEFT JOIN fund_quote_snapshot q ON q.code = m.code
+                   LEFT JOIN fund_metrics_snapshot ms ON ms.code = m.code
+                   WHERE m.code = ?""",
+                (code,),
+            ).fetchone()
+            if row:
+                return FundDataStore._row_to_fund(row)
+            legacy = conn.execute("SELECT * FROM fund_snapshot WHERE code = ?", (code,)).fetchone()
+            return FundDataStore._legacy_row_to_fund(legacy) if legacy else None
+
+    @staticmethod
+    def _row_to_fund(row: sqlite3.Row) -> Dict[str, Any]:
+        tags = _fund_tags(row["tags_json"])
+        return {
+            "code": row["code"],
+            "name": row["name"],
+            "type": row["type"] or "",
+            "company": row["company"] or "",
+            "tags": tags,
+            "is_xinjihui": bool(row["is_xinjihui"]),
+            "is_preferred": bool(row["is_preferred"]),
+            "nav": row["nav"] or 0,
+            "accum_nav": row["accum_nav"],
+            "nav_date": row["nav_date"] or "",
+            "day_growth": row["day_growth"] or 0,
+            "near_1m": row["near_1m"] or 0,
+            "near_3m": row["near_3m"] or 0,
+            "near_6m": row["near_6m"] or 0,
+            "near_1y": row["near_1y"] or 0,
+            "near_3y": row["near_3y"] or 0,
+            "ytd": row["ytd"] or 0,
+            "updated_at": row["updated_at"],
+            "data_quality": row["data_quality"] or row["master_quality"] or "unknown",
+            "stale_level": row["stale_level"] or _stale_level(row["updated_at"]),
+            "sharpe_ratio": row["sharpe_ratio"],
+            "max_drawdown": row["max_drawdown"],
+            "annualized_return": row["annualized_return"],
+            "volatility": row["volatility"],
+            "score": row["score"],
+            "feeManage": row["fee_manage"],
+            "feeCustody": row["fee_custody"],
+            "total_scale": row["total_scale"],
+            "metrics_updated_at": row["metrics_updated_at"],
+        }
+
+    @staticmethod
+    def _legacy_row_to_fund(row: sqlite3.Row) -> Dict[str, Any]:
+        return {
+            "code": row["code"],
+            "name": row["name"],
+            "type": row["type"] or "",
+            "company": row["company"] or "",
+            "tags": _fund_tags(row["tags_json"]),
+            "is_xinjihui": True,
+            "is_preferred": True,
+            "nav": row["nav"] or 0,
+            "day_growth": row["day_growth"] or 0,
+            "near_1m": row["near_1m"] or 0,
+            "near_3m": row["near_3m"] or 0,
+            "near_6m": row["near_6m"] or 0,
+            "near_1y": row["near_1y"] or 0,
+            "near_3y": row["near_3y"] or 0,
+            "ytd": row["ytd"] or 0,
+            "updated_at": row["updated_at"],
+            "data_quality": "legacy",
+            "stale_level": _stale_level(row["updated_at"]),
+        }
+
+    @staticmethod
+    def create_job(job_type: str, code: str = "", payload: Optional[Dict[str, Any]] = None, priority: int = 5) -> str:
+        import uuid
+        now = datetime.now().isoformat()
+        job_id = str(uuid.uuid4())
+        with get_db() as conn:
+            existing = conn.execute(
+                """SELECT id FROM fund_data_job
+                   WHERE job_type = ? AND code = ? AND status IN ('pending', 'running')
+                   ORDER BY created_at DESC LIMIT 1""",
+                (job_type, code),
+            ).fetchone()
+            if existing:
+                return existing["id"]
+            conn.execute(
+                """INSERT INTO fund_data_job
+                   (id, job_type, code, priority, status, payload_json, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)""",
+                (job_id, job_type, code, priority, json.dumps(payload or {}, ensure_ascii=False), now, now),
+            )
+        return job_id
+
+    @staticmethod
+    def log_external_api_call(
+        source: str,
+        endpoint: str,
+        code: str = "",
+        cache_key: str = "",
+        duration_ms: int = 0,
+        success: bool = True,
+        error: str = "",
+    ) -> None:
+        with get_db() as conn:
+            conn.execute(
+                """INSERT INTO external_api_call_log
+                   (source, endpoint, code, cache_key, duration_ms, success, error, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (source, endpoint, code, cache_key, duration_ms, 1 if success else 0, error[:500], datetime.now().isoformat()),
+            )
+
+    @staticmethod
+    def data_status() -> Dict[str, Any]:
+        with get_db() as conn:
+            tables = {}
+            for name in [
+                "fund_master", "fund_quote_snapshot", "fund_nav_history",
+                "fund_metrics_snapshot", "fund_holdings_snapshot", "fund_data_job",
+                "external_api_call_log", "fund_snapshot", "fund_pool", "fund_nav_cache",
+            ]:
+                try:
+                    tables[name] = conn.execute(f"SELECT COUNT(*) as c FROM {name}").fetchone()["c"]
+                except Exception:
+                    tables[name] = None
+            calls = conn.execute(
+                """SELECT source,
+                          COUNT(*) as total,
+                          SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) as failures,
+                          AVG(duration_ms) as avg_ms
+                   FROM external_api_call_log
+                   WHERE created_at >= datetime('now', '-1 day')
+                   GROUP BY source
+                   ORDER BY total DESC"""
+            ).fetchall()
+            jobs = conn.execute(
+                "SELECT status, COUNT(*) as c FROM fund_data_job GROUP BY status"
+            ).fetchall()
+            quote_ts = conn.execute("SELECT MAX(updated_at) as t FROM fund_quote_snapshot").fetchone()["t"]
+        return {
+            "tables": tables,
+            "quote_updated_at": quote_ts,
+            "quote_stale_level": _stale_level(quote_ts),
+            "api_calls_24h": [dict(row) for row in calls],
+            "jobs": {row["status"]: row["c"] for row in jobs},
+        }

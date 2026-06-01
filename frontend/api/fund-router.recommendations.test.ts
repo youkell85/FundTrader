@@ -16,6 +16,23 @@ vi.mock('./lib/fundtrader-client', () => ({
       },
     }],
   })),
+  getFundSnapshotList: vi.fn(async () => ({
+    total: 1,
+    funds: [{
+      code: '000001',
+      name: '测试股票基金',
+      type: '股票型',
+      is_xinjihui: true,
+      performance: {
+        near_3y: 100,
+        annualizedVolatility: 10,
+        maxDrawdown: -20,
+        sharpeRatio: '\u2014',
+      },
+    }],
+  })),
+  getFundSnapshot: vi.fn(async () => ({})),
+  requestFundBackfill: vi.fn(async () => ({})),
   getCategories: vi.fn(async () => ({ categories: [] })),
   getFundAnalysis: vi.fn(async () => ({})),
   getFundAnalysisBatch: vi.fn(async () => ({ results: {} })),
