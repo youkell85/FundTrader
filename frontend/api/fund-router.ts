@@ -726,9 +726,13 @@ export const fundRouter = createRouter({
       try {
         const cachedHomeFunds = getCached<any[]>("homeFunds") || getCached<any[]>("homeFundSummaries") || [];
         const cachedFund = cachedHomeFunds.find((fund: any) => String(fund?.code || fund?.fundCode || "") === input.code);
-        const analysis = await getFundSnapshot(input.code, true).catch(() => null);
-        const mapped = mapFundItem(cachedFund || analysis || { code: input.code });
-        const preferredCategory = resolvePeerCategory(cachedFund?.type, analysis?.type, mapped?.category, mapped?.fundType, mapped?.fundName);
+        const [analysis, analysisDetail] = await Promise.all([
+          getFundSnapshot(input.code, true).catch(() => null),
+          getFundAnalysis(input.code).catch(() => null),
+        ]);
+        const mergedTarget = { ...(analysis || {}), ...(analysisDetail || {}) };
+        const mapped = mapFundItem(cachedFund || mergedTarget || { code: input.code });
+        const preferredCategory = resolvePeerCategory(cachedFund?.type, mergedTarget?.type, mapped?.category, mapped?.fundType, mapped?.fundName);
         const categories = preferredCategory
           ? [preferredCategory, ...PEER_RANKING_CATEGORIES.filter((item) => item !== preferredCategory)]
           : PEER_RANKING_CATEGORIES;
@@ -747,15 +751,15 @@ export const fundRouter = createRouter({
         }
         const target = {
           ...(marketFund || {}),
-          ...(analysis || {}),
+          ...mergedTarget,
           code: input.code,
-          type: peerCategory || marketFund?.type || cachedFund?.type || analysis?.type || mapped?.category,
+          type: peerCategory || marketFund?.type || cachedFund?.type || mergedTarget?.type || mapped?.category,
           mappedType: mapped?.fundType,
-          near_1w: marketFund?.near_1w ?? analysis?.return1w ?? mapped?.performance?.return1w,
-          near_1m: marketFund?.near_1m ?? analysis?.return1m ?? mapped?.performance?.return1m,
-          near_3m: marketFund?.near_3m ?? analysis?.return3m ?? mapped?.performance?.return3m,
-          near_6m: marketFund?.near_6m ?? analysis?.return6m ?? mapped?.performance?.return6m,
-          near_1y: marketFund?.near_1y ?? analysis?.return1y ?? mapped?.performance?.return1y,
+          near_1w: marketFund?.near_1w ?? mergedTarget?.return1w ?? mapped?.performance?.return1w,
+          near_1m: marketFund?.near_1m ?? mergedTarget?.return1m ?? mapped?.performance?.return1m,
+          near_3m: marketFund?.near_3m ?? mergedTarget?.return3m ?? mapped?.performance?.return3m,
+          near_6m: marketFund?.near_6m ?? mergedTarget?.return6m ?? mapped?.performance?.return6m,
+          near_1y: marketFund?.near_1y ?? mergedTarget?.return1y ?? mapped?.performance?.return1y,
         };
         const peers = peerFunds.map((fund: any) => {
           const item = mapFundItem(fund);
