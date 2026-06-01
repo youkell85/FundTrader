@@ -20,6 +20,7 @@ from ..data.eastmoney_fetcher import get_fund_ranking_em
 from ..data.cache_manager import cache
 from ..constants.guoyuan_funds import GUOYUAN_FUND_LIST, FUND_CATEGORIES, FUND_TYPES
 from ..config import CACHE_TTL_RANKING
+from ..storage.database import get_db_context
 
 # 排序字段映射（提取为模块级常量，避免重复定义）
 SORT_FIELD_MAP: Dict[str, str] = {
@@ -280,3 +281,99 @@ def _fetch_all_fund_performance() -> Dict[str, Dict[str, Any]]:
     except Exception as e:
         console_error(f"Bulk performance fetch error: {e}")
     return perf_map
+
+
+def compute_and_save_metrics(codes: Optional[List[str]] = None, limit: int = 0) -> Dict[str, Any]:
+    """Compute risk metrics (sharpe, max_drawdown, volatility) from NAV history
+    and save to fund_metrics_snapshot table.
+
+    Args:
+        codes: Optional list of fund codes. If None, computes for all funds in fund_master.
+        limit: Max number of funds to process (0 = all).
+
+    Returns:
+        Summary dict with counts and errors.
+    """
+    import numpy as np
+    from ..storage.database import FundDataStore
+    from ..data.efinance_fetcher import get_fund_nav_history
+
+    RISK_FREE_RATE = 0.02
+
+    if codes is None:
+        with get_db_context() as conn:
+            rows = conn.execute(
+                "SELECT code FROM fund_master WHERE is_active = 1 ORDER BY code"
+            ).fetchall()
+            codes = [r["code"] for r in rows]
+
+    if limit > 0:
+        codes = codes[:limit]
+
+    results = []
+    errors = []
+    skipped = 0
+
+    for code in codes:
+        try:
+            nav_data = get_fund_nav_history(code)
+            if not nav_data or len(nav_data) < 30:
+                skipped += 1
+                continue
+
+            navs = []
+            for item in nav_data:
+                try:
+                    v = float(item.get("nav", 0) or 0)
+                    if v > 0:
+                        navs.append(v)
+                except (ValueError, TypeError):
+                    continue
+
+            if len(navs) < 30:
+                skipped += 1
+                continue
+
+            arr = np.array(navs, dtype=np.float64)
+            daily_returns = np.diff(arr) / arr[:-1]
+            daily_returns = np.nan_to_num(daily_returns, nan=0.0, posinf=0.0, neginf=0.0)
+
+            n_years = len(navs) / 252.0
+            total_return = arr[-1] / arr[0] - 1.0
+            ann_return = (1 + total_return) ** (1.0 / n_years) - 1.0 if n_years > 0 else 0.0
+
+            ann_vol = float(np.std(daily_returns, ddof=1) * np.sqrt(252)) if len(daily_returns) > 1 else 0.0
+
+            excess_daily = daily_returns - RISK_FREE_RATE / 252.0
+            std_excess = np.std(excess_daily, ddof=1)
+            sharpe = float(np.mean(excess_daily) / std_excess * np.sqrt(252)) if std_excess > 0 else 0.0
+
+            peak = np.maximum.accumulate(arr)
+            drawdown = (arr - peak) / peak
+            max_dd = float(np.min(drawdown))
+
+            results.append({
+                "code": code,
+                "sharpe_ratio": round(sharpe, 4),
+                "max_drawdown": round(max_dd, 4),
+                "volatility": round(ann_vol, 4),
+                "annualized_return": round(ann_return, 4),
+                "nav_points": len(navs),
+                "data_quality": "computed",
+            })
+        except Exception as e:
+            errors.append({"code": code, "error": str(e)[:100]})
+            continue
+
+    saved = 0
+    if results:
+        saved = FundDataStore.save_metrics_batch(results, source="compute")
+
+    return {
+        "total_codes": len(codes),
+        "computed": len(results),
+        "saved": saved,
+        "skipped": skipped,
+        "errors": len(errors),
+        "error_details": errors[:10],
+    }

@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import API_PREFIX, CORS_ORIGINS, MARKET_DATA_REFRESH_INTERVAL
 from .api import fund, analysis, recommend, dca, professional, settings, allocation, storage, auth, admin_api
-from .storage.database import init_db
+from .storage.database import init_db, get_db_context
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +24,18 @@ async def _background_refresh_loop():
             await asyncio.to_thread(market_data_service.refresh)
         except Exception as e:
             logger.error(f"Background refresh failed: {e}")
+
+
+async def _db_cleanup_scheduler():
+    """Background task: periodically clean up stale data from growing tables."""
+    while True:
+        await asyncio.sleep(86400)
+        try:
+            from .storage.database import FundDataStore
+            result = await asyncio.to_thread(FundDataStore.cleanup_stale_data)
+            logger.info(f"DB cleanup: {result}")
+        except Exception as e:
+            logger.error(f"DB cleanup failed: {e}")
 
 
 async def _fund_snapshot_scheduler():
@@ -166,6 +178,25 @@ def _do_fund_snapshot_refresh():
         logger.warning("Fund snapshot: no matching funds found")
 
 
+async def _metrics_compute_on_startup():
+    """Background task: compute risk metrics on startup if fund_metrics_snapshot is empty."""
+    await asyncio.sleep(60)  # Wait for other startup tasks to complete
+    try:
+        from .storage.database import FundDataStore
+        with get_db_context() as conn:
+            count = conn.execute("SELECT COUNT(*) as c FROM fund_metrics_snapshot").fetchone()["c"]
+        if count > 0:
+            logger.info(f"Metrics already computed ({count} rows), skipping startup compute")
+            return
+        logger.info("fund_metrics_snapshot is empty, computing risk metrics...")
+        from .services.fund_service import compute_and_save_metrics
+        result = await asyncio.to_thread(compute_and_save_metrics, limit=0)
+        logger.info(f"Metrics compute result: computed={result['computed']}, saved={result['saved']}, "
+                     f"skipped={result['skipped']}, errors={result['errors']}")
+    except Exception as e:
+        logger.error(f"Startup metrics compute failed: {e}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """App lifespan: startup data refresh + background task."""
@@ -196,10 +227,14 @@ async def lifespan(app: FastAPI):
     # Spawn background refresh tasks
     task = asyncio.create_task(_background_refresh_loop())
     fund_task = asyncio.create_task(_fund_snapshot_scheduler())
+    cleanup_task = asyncio.create_task(_db_cleanup_scheduler())
+    metrics_task = asyncio.create_task(_metrics_compute_on_startup())
     yield
     # Shutdown: cancel background tasks
     task.cancel()
     fund_task.cancel()
+    cleanup_task.cancel()
+    metrics_task.cancel()
     try:
         await task
     except asyncio.CancelledError:

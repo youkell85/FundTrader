@@ -259,3 +259,17 @@ async def refresh_fund_snapshot():
     except Exception as e:
         logger.error(f"Fund snapshot refresh failed: {e}")
         return {"status": "error", "message": str(e)[:200]}
+
+
+@router.post("/metrics/compute")
+async def compute_fund_metrics(limit: int = Query(0, ge=0, description="Max funds to process (0=all)")):
+    """Compute risk metrics (sharpe, max_drawdown, volatility) from NAV history
+    and save to fund_metrics_snapshot table. Runs synchronously — may take several minutes."""
+    from ..services.fund_service import compute_and_save_metrics
+
+    try:
+        result = await run_in_threadpool(compute_and_save_metrics, limit=limit)
+        return {"status": "ok", **result}
+    except Exception as e:
+        logger.error(f"Metrics compute failed: {e}")
+        return {"status": "error", "message": str(e)[:200]}

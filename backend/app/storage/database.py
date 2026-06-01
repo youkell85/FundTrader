@@ -6,10 +6,11 @@ import sqlite3
 import json
 import os
 import threading
+import time
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
 
 # Database file location
 DB_DIR = Path(__file__).resolve().parent.parent.parent / "data"
@@ -20,14 +21,78 @@ _local = threading.local()
 
 
 def _get_connection() -> sqlite3.Connection:
-    """Get thread-local database connection."""
+    """Get thread-local database connection with performance-optimized PRAGMAs."""
     if not hasattr(_local, "conn") or _local.conn is None:
         DB_DIR.mkdir(parents=True, exist_ok=True)
         _local.conn = sqlite3.connect(str(DB_PATH))
         _local.conn.row_factory = sqlite3.Row
-        _local.conn.execute("PRAGMA journal_mode=WAL")  # Better concurrency
+        _local.conn.execute("PRAGMA journal_mode=WAL")
         _local.conn.execute("PRAGMA foreign_keys=ON")
+        _local.conn.execute("PRAGMA synchronous=NORMAL")
+        _local.conn.execute("PRAGMA cache_size=-64000")
+        _local.conn.execute("PRAGMA mmap_size=134217728")
+        _local.conn.execute("PRAGMA temp_store=MEMORY")
+        _local.conn.execute("PRAGMA wal_autocheckpoint=1000")
     return _local.conn
+
+
+class _QueryCache:
+    """Lightweight in-process TTL cache for hot SQLite queries.
+
+    Avoids repeated 3-table JOINs on list_snapshots / get_snapshot when the
+    underlying data hasn't changed.  Cache is invalidated on any write
+    operation that mutates fund_master / fund_quote_snapshot /
+    fund_metrics_snapshot.
+    """
+
+    _instance = None
+    _instance_lock = threading.Lock()
+
+    def __init__(self) -> None:
+        self._cache: Dict[str, Tuple[float, Any]] = {}
+        self._lock = threading.Lock()
+        self._invalidation_key = "v0"
+        self._max_entries = 2000
+
+    @classmethod
+    def get_instance(cls) -> "_QueryCache":
+        if cls._instance is None:
+            with cls._instance_lock:
+                if cls._instance is None:
+                    cls._instance = cls()
+        return cls._instance
+
+    def get(self, key: str, ttl: float) -> Any | None:
+        with self._lock:
+            entry = self._cache.get(key)
+            if entry is None:
+                return None
+            expires_at, inv_key, value = entry
+            if inv_key != self._invalidation_key or time.time() > expires_at:
+                del self._cache[key]
+                return None
+            return value
+
+    def set(self, key: str, value: Any, ttl: float) -> None:
+        with self._lock:
+            if len(self._cache) >= self._max_entries:
+                oldest_key = next(iter(self._cache))
+                del self._cache[oldest_key]
+            self._cache[key] = (time.time() + ttl, self._invalidation_key, value)
+
+    def invalidate(self) -> None:
+        with self._lock:
+            self._invalidation_key = f"v{time.time()}"
+            self._cache.clear()
+
+    def invalidate_prefix(self, prefix: str) -> None:
+        with self._lock:
+            keys_to_delete = [k for k in self._cache if k.startswith(prefix)]
+            for k in keys_to_delete:
+                del self._cache[k]
+
+
+_qcache = _QueryCache.get_instance()
 
 
 @contextmanager
@@ -226,6 +291,13 @@ class Database:
                 CREATE INDEX IF NOT EXISTS idx_etf_code_date ON etf_daily_prices(code, trade_date);
                 CREATE INDEX IF NOT EXISTS idx_fund_nav_code ON fund_nav_cache(code);
                 CREATE INDEX IF NOT EXISTS idx_regime_date ON regime_history(detected_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_fund_snapshot_type ON fund_snapshot(type);
+                CREATE INDEX IF NOT EXISTS idx_fund_snapshot_updated ON fund_snapshot(updated_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_fund_snapshot_company ON fund_snapshot(company);
+                CREATE INDEX IF NOT EXISTS idx_fund_master_type_active ON fund_master(fund_type, is_active);
+                CREATE INDEX IF NOT EXISTS idx_fund_metrics_code ON fund_metrics_snapshot(code);
+                CREATE INDEX IF NOT EXISTS idx_fund_holdings_code ON fund_holdings_snapshot(code);
+                CREATE INDEX IF NOT EXISTS idx_external_api_created ON external_api_call_log(created_at);
             """)
 
     # ─── Allocation Plans ───
@@ -704,6 +776,8 @@ class FundNAVCache:
                 [(code, k, v, metrics.get("data_points"), now) for k, v in metrics.items()
                  if k != "data_points"]
             )
+        _qcache.invalidate_prefix(f"snapshot:{code}")
+        _qcache.invalidate_prefix("list:")
 
     @staticmethod
     def clear_expired() -> None:
@@ -717,7 +791,12 @@ class FundNAVCache:
 # ─── Stats Snapshot Cache ─────────────────────────────────────────────────────
 
 class StatsSnapshotCache:
-    """SQLite-backed cache for rolling stats / vol snapshots / IC decay."""
+    """SQLite-backed cache for rolling stats / vol snapshots / IC decay.
+
+    TTL-aware: stats snapshots expire after 24 hours by default.
+    """
+
+    TTL_SECONDS = 86400  # 24 hours
 
     @staticmethod
     def save(snapshot_type: str, data: dict) -> None:
@@ -733,11 +812,15 @@ class StatsSnapshotCache:
 
     @staticmethod
     def get(snapshot_type: str) -> dict | None:
-        """Load a stats snapshot."""
+        """Load a stats snapshot if not expired."""
         import json
+        from datetime import datetime, timedelta
+        cutoff = (datetime.now() - timedelta(seconds=StatsSnapshotCache.TTL_SECONDS)).isoformat()
         with get_db() as conn:
             row = conn.execute(
-                "SELECT data_json FROM stats_snapshot WHERE snapshot_type = ?", (snapshot_type,)
+                """SELECT data_json, created_at FROM stats_snapshot
+                   WHERE snapshot_type = ? AND created_at > ?""",
+                (snapshot_type, cutoff)
             ).fetchone()
             return json.loads(row["data_json"]) if row else None
 
@@ -1001,6 +1084,7 @@ class FundSnapshotCache:
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 rows
             )
+        _qcache.invalidate()
 
     @staticmethod
     def get_all() -> list:
@@ -1322,6 +1406,7 @@ class FundDataStore:
                     ),
                 )
                 FundDataStore._upsert_quote_row(conn, {**row, "updated_at": row.get("updated_at") or now}, source)
+        _qcache.invalidate()
 
     @staticmethod
     def list_snapshots(
@@ -1333,6 +1418,10 @@ class FundDataStore:
         sort_field: str = "ytd",
         sort_order: str = "desc",
     ) -> Dict[str, Any]:
+        cache_key = f"list:{category}:{keyword}:{xinjihui_only}:{limit}:{offset}:{sort_field}:{sort_order}"
+        cached = _qcache.get(cache_key, 120)
+        if cached is not None:
+            return cached
         allowed_sort = {
             "nav", "day_growth", "near_1m", "near_3m", "near_6m",
             "near_1y", "near_3y", "ytd", "updated_at"
@@ -1372,10 +1461,16 @@ class FundDataStore:
                    LIMIT ? OFFSET ?""",
                 [*params, limit, offset],
             ).fetchall()
-        return {"total": total, "funds": [FundDataStore._row_to_fund(row) for row in rows]}
+        result = {"total": total, "funds": [FundDataStore._row_to_fund(row) for row in rows]}
+        _qcache.set(cache_key, result, 120)
+        return result
 
     @staticmethod
     def get_snapshot(code: str) -> Optional[Dict[str, Any]]:
+        cache_key = f"snapshot:{code}"
+        cached = _qcache.get(cache_key, 120)
+        if cached is not None:
+            return cached
         with get_db() as conn:
             row = conn.execute(
                 """SELECT m.code, m.name, m.fund_type as type, m.company, m.tags_json,
@@ -1393,9 +1488,14 @@ class FundDataStore:
                 (code,),
             ).fetchone()
             if row:
-                return FundDataStore._row_to_fund(row)
+                result = FundDataStore._row_to_fund(row)
+                _qcache.set(cache_key, result, 120)
+                return result
             legacy = conn.execute("SELECT * FROM fund_snapshot WHERE code = ?", (code,)).fetchone()
-            return FundDataStore._legacy_row_to_fund(legacy) if legacy else None
+            result = FundDataStore._legacy_row_to_fund(legacy) if legacy else None
+            if result:
+                _qcache.set(cache_key, result, 120)
+            return result
 
     @staticmethod
     def _row_to_fund(row: sqlite3.Row) -> Dict[str, Any]:
@@ -1496,6 +1596,58 @@ class FundDataStore:
             )
 
     @staticmethod
+    def save_metrics_batch(rows: List[Dict[str, Any]], source: str = "compute") -> int:
+        """Save computed metrics for multiple funds.
+
+        rows: [{code, sharpe_ratio, max_drawdown, volatility, annualized_return,
+               score, fee_manage, fee_custody, total_scale, nav_points}, ...]
+        Returns count of upserted rows.
+        """
+        now = datetime.now().isoformat()
+        with get_db() as conn:
+            for r in rows:
+                code = r.get("code", "")
+                if not code:
+                    continue
+                conn.execute(
+                    """INSERT INTO fund_metrics_snapshot
+                       (code, sharpe_ratio, max_drawdown, volatility, annualized_return,
+                        score, fee_manage, fee_custody, total_scale, nav_points,
+                        source, data_quality, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                       ON CONFLICT(code) DO UPDATE SET
+                         sharpe_ratio = excluded.sharpe_ratio,
+                         max_drawdown = excluded.max_drawdown,
+                         volatility = excluded.volatility,
+                         annualized_return = excluded.annualized_return,
+                         score = excluded.score,
+                         fee_manage = excluded.fee_manage,
+                         fee_custody = excluded.fee_custody,
+                         total_scale = excluded.total_scale,
+                         nav_points = excluded.nav_points,
+                         source = excluded.source,
+                         data_quality = excluded.data_quality,
+                         updated_at = excluded.updated_at""",
+                    (
+                        code,
+                        r.get("sharpe_ratio"),
+                        r.get("max_drawdown"),
+                        r.get("volatility"),
+                        r.get("annualized_return"),
+                        r.get("score"),
+                        r.get("fee_manage"),
+                        r.get("fee_custody"),
+                        r.get("total_scale"),
+                        r.get("nav_points", 0),
+                        source,
+                        r.get("data_quality", "computed"),
+                        now,
+                    ),
+                )
+        _qcache.invalidate()
+        return len(rows)
+
+    @staticmethod
     def data_status() -> Dict[str, Any]:
         with get_db() as conn:
             tables = {}
@@ -1529,3 +1681,32 @@ class FundDataStore:
             "api_calls_24h": [dict(row) for row in calls],
             "jobs": {row["status"]: row["c"] for row in jobs},
         }
+
+    @staticmethod
+    def cleanup_stale_data() -> Dict[str, int]:
+        """Remove stale rows from growing tables. Returns counts deleted."""
+        from datetime import timedelta
+        now = datetime.now()
+        results: Dict[str, int] = {}
+        with get_db() as conn:
+            cutoff_7d = (now - timedelta(days=7)).isoformat()
+            cur = conn.execute(
+                "DELETE FROM external_api_call_log WHERE created_at < ?", (cutoff_7d,)
+            )
+            results["external_api_call_log"] = cur.rowcount
+
+            cutoff_3d = (now - timedelta(days=3)).isoformat()
+            cur = conn.execute(
+                """DELETE FROM fund_data_job
+                   WHERE status IN ('done', 'failed', 'cancelled')
+                     AND updated_at < ?""",
+                (cutoff_3d,),
+            )
+            results["fund_data_job"] = cur.rowcount
+
+            cutoff_30d = (now - timedelta(days=30)).isoformat()
+            cur = conn.execute(
+                "DELETE FROM fund_nav_cache WHERE computed_at < ?", (cutoff_30d,)
+            )
+            results["fund_nav_cache"] = cur.rowcount
+        return results
