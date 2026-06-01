@@ -31,8 +31,32 @@ function average(values: Array<number | null>) {
 
 export default function Home() {
   const utils = trpc.useUtils();
+  const [search, setSearch] = useState("");
+  const [fundType, setFundType] = useState("__all__");
+  const [category, setCategory] = useState("__all__");
+  const [company, setCompany] = useState("__all__");
+  const [riskLevel, setRiskLevel] = useState("__all__");
+  const [showXinjihui, setShowXinjihui] = useState(true);
+  const [sortBy, setSortBy] = useState("dailyChange");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
+  const [page, setPage] = useState(1);
+  const pageSize = 15;
+  const [hoveredRow, setHoveredRow] = useState<number | null>(null);
+  const [searchError, setSearchError] = useState<string | null>(null);
+
   const { data: listData, isLoading: listLoading, refetch: refetchList } = trpc.fund.list.useQuery(
-    { pageSize: 5000, withMetrics: true },
+    {
+      page,
+      pageSize,
+      withMetrics: true,
+      fundType: fundType !== "__all__" ? fundType : undefined,
+      category: category !== "__all__" ? category : undefined,
+      company: company !== "__all__" ? company : undefined,
+      riskLevel: riskLevel !== "__all__" ? riskLevel : undefined,
+      search: search.trim() || undefined,
+      sortBy,
+      sortOrder,
+    },
     { staleTime: 30 * 60 * 1000, refetchOnWindowFocus: false }
   );
   const { data: filterOptsData } = trpc.fund.filterOptions.useQuery(
@@ -59,19 +83,6 @@ export default function Home() {
   const allFunds = listData?.funds ?? [];
   const filterOpts = filterOptsData ?? { types: [], categories: [], companies: [], riskLevels: [] };
   const overview = overviewData ?? { totalFunds: 0, avgReturn: "0", avgSharpe: "0", avgMaxDD: "0", marketingCount: 0 };
-
-  const [search, setSearch] = useState("");
-  const [fundType, setFundType] = useState("__all__");
-  const [category, setCategory] = useState("__all__");
-  const [company, setCompany] = useState("__all__");
-  const [riskLevel, setRiskLevel] = useState("__all__");
-  const [showXinjihui, setShowXinjihui] = useState(true);
-  const [sortBy, setSortBy] = useState("dailyChange");
-  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("desc");
-  const [page, setPage] = useState(1);
-  const pageSize = 15;
-  const [hoveredRow, setHoveredRow] = useState<number | null>(null);
-  const [searchError, setSearchError] = useState<string | null>(null);
 
   useEffect(() => {
     const hasRiskMetrics = allFunds.some((fund: any) => {
@@ -132,19 +143,19 @@ export default function Home() {
   }, [allFunds, fundType, category, company, riskLevel, showXinjihui, search, sortBy, sortOrder]);
 
   const paginatedFunds = useMemo(() => {
-    return filteredFunds.slice((page - 1) * pageSize, page * pageSize);
-  }, [filteredFunds, page]);
+    return filteredFunds;
+  }, [filteredFunds]);
 
-  const totalPages = Math.ceil(filteredFunds.length / pageSize);
+  const totalPages = Math.max(1, Math.ceil((listData?.total ?? filteredFunds.length) / pageSize));
   const currentOverview = useMemo(() => {
     const avgReturn = average(filteredFunds.map((fund: any) => parseMetric(fund.performance?.annualizedReturn ?? fund.performance?.return1y)));
     const avgSharpe = average(filteredFunds.map((fund: any) => parseMetric(fund.performance?.sharpeRatio)).filter((value) => value !== 0));
     return {
-      total: filteredFunds.length,
+      total: listData?.total ?? filteredFunds.length,
       avgReturn: avgReturn === null ? "—" : avgReturn.toFixed(2),
       avgSharpe: avgSharpe === null ? "—" : avgSharpe.toFixed(2),
     };
-  }, [filteredFunds]);
+  }, [filteredFunds, listData?.total]);
 
   const categoryStats = useMemo(() => {
     const groups = new Map<string, any[]>();
