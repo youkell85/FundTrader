@@ -1,17 +1,10 @@
-import { TrendingUp, TrendingDown, PieChart, Shield } from "lucide-react";
+import { TrendingUp, PieChart, Shield } from "lucide-react";
 import { UP_COLOR, DOWN_COLOR, ACCENT_PRIMARY, POSITIVE_METRIC_COLOR } from "@/lib/colors";
 
 interface StatCardsProps {
   currentOverview: { total: number; avgReturn: string; avgSharpe: string };
   categoryStats: any[];
-  overview: any;
-  allFunds: any[];
   category: string;
-  fundType: string;
-  company: string;
-  riskLevel: string;
-  search: string;
-  onReset: () => void;
   onCategoryClick: (label: string) => void;
 }
 
@@ -21,21 +14,7 @@ function getChangeTextClass(val: number) {
   return "text-white/50";
 }
 
-export default function StatCards({
-  currentOverview,
-  categoryStats,
-  overview,
-  allFunds,
-  category,
-  fundType,
-  company,
-  riskLevel,
-  search,
-  onReset,
-  onCategoryClick,
-}: StatCardsProps) {
-  const hasFilters = (category && category !== "__all__") || (fundType && fundType !== "__all__") || (company && company !== "__all__") || (riskLevel && riskLevel !== "__all__") || search;
-
+export default function StatCards({ currentOverview, categoryStats, category, onCategoryClick }: StatCardsProps) {
   return (
     <>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 md:gap-3 mt-6 md:mt-8">
@@ -58,18 +37,6 @@ export default function StatCards({
       </div>
 
       <div className="mt-3 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-2">
-        {hasFilters && (
-          <button
-            onClick={onReset}
-            className="rounded-lg border border-[#00F0FF]/20 bg-[#00F0FF]/[0.06] px-3 py-3 text-left hover:bg-[#00F0FF]/[0.09] transition-colors"
-          >
-            <div className="flex items-center justify-between gap-2 mb-2">
-              <span className="text-[#00F0FF] text-sm font-medium">返回全部列表</span>
-              <span className="data-number text-white/45 text-xs">{overview.totalFunds || allFunds.length}只</span>
-            </div>
-            <div className="text-white/50 text-[11px]">清除当前类别、风险和搜索条件</div>
-          </button>
-        )}
         {categoryStats.map((item) => (
           <button
             key={item.label}

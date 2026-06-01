@@ -60,10 +60,6 @@ export default function Home() {
     undefined,
     { staleTime: 30 * 60 * 1000, refetchOnWindowFocus: false }
   );
-  const { data: overviewData } = trpc.fund.marketOverview.useQuery(
-    undefined,
-    { staleTime: 5 * 60 * 1000, refetchOnWindowFocus: false }
-  );
   const addFundByCode = trpc.fund.addByCode.useMutation({
     onSuccess: () => {
       utils.fund.list.invalidate();
@@ -79,7 +75,6 @@ export default function Home() {
 
   const allFunds = listData?.funds ?? [];
   const filterOpts = filterOptsData ?? { types: [], categories: [], companies: [], riskLevels: [] };
-  const overview = overviewData ?? { totalFunds: 0, avgReturn: "0", avgSharpe: "0", avgMaxDD: "0", marketingCount: 0 };
 
   useEffect(() => {
     const hasRiskMetrics = allFunds.some((fund: any) => {
@@ -154,9 +149,27 @@ export default function Home() {
     };
   }, [filteredFunds]);
 
+  const baseFundsForCategoryStats = useMemo(() => {
+    let result = [...allFunds];
+    if (company && company !== "__all__") result = result.filter((f: any) => f.company?.includes(company));
+    if (riskLevel && riskLevel !== "__all__") result = result.filter((f: any) => f.riskLevel === riskLevel);
+    if (search) {
+      const s = search.toLowerCase();
+      result = result.filter((f: any) =>
+        f.fundCode?.includes(s) || f.fundName?.toLowerCase().includes(s) || f.fundAbbr?.toLowerCase().includes(s) || f.manager?.name?.includes(s)
+      );
+    }
+    if (showXinjihuiOnly && !showWatchlistOnly) {
+      result = result.filter((f: any) => f.isXinjihui || f.source === "xinjihui");
+    } else if (showWatchlistOnly && !showXinjihuiOnly) {
+      result = result.filter((f: any) => f.source === "watchlist");
+    }
+    return result;
+  }, [allFunds, company, riskLevel, search, showXinjihuiOnly, showWatchlistOnly]);
+
   const categoryStats = useMemo(() => {
     const groups = new Map<string, any[]>();
-    for (const fund of filteredFunds) {
+    for (const fund of baseFundsForCategoryStats) {
       const key = typeLabels[fund.fundType] || fund.category || fund.fundType || "其他";
       groups.set(key, [...(groups.get(key) || []), fund]);
     }
@@ -181,7 +194,7 @@ export default function Home() {
       avgMaxDrawdown: "—",
       avgSharpe: "—",
     });
-  }, [filteredFunds]);
+  }, [baseFundsForCategoryStats]);
 
   const handleSearchSubmit = useCallback(async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -244,17 +257,6 @@ export default function Home() {
     setPage(1);
   };
 
-  const handleReset = () => {
-    setFundType("__all__");
-    setCategory("__all__");
-    setCompany("__all__");
-    setRiskLevel("__all__");
-    setSearch("");
-    setShowXinjihuiOnly(false);
-    setShowWatchlistOnly(false);
-    setPage(1);
-  };
-
   return (
     <div className="min-h-screen pt-14 pb-12">
       <section className="relative px-6 pt-16 pb-12 max-w-7xl mx-auto">
@@ -270,14 +272,7 @@ export default function Home() {
         <StatCards
           currentOverview={currentOverview}
           categoryStats={categoryStats}
-          overview={overview}
-          allFunds={allFunds}
           category={category}
-          fundType={fundType}
-          company={company}
-          riskLevel={riskLevel}
-          search={search}
-          onReset={handleReset}
           onCategoryClick={handleCategoryClick}
         />
 
