@@ -1,18 +1,23 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
-import { Link } from "react-router";
 import { trpc } from "@/providers/trpc";
-import { getChangeTextClass } from "@/lib/colors";
 import StatCards from "@/components/home/StatCards";
 import FilterBar from "@/components/home/FilterBar";
 import FundTable from "@/components/home/FundTable";
 
 const typeLabels: Record<string, string> = {
-  equity: "股票型", hybrid: "混合型", bond: "债券型",
-  index: "指数型", etf: "ETF", qdii: "QDII", money: "货币型", fof: "FOF", reits: "REITs",
+  equity: "股票型",
+  hybrid: "混合型",
+  bond: "债券型",
+  index: "指数型",
+  etf: "ETF",
+  qdii: "QDII",
+  money: "货币型",
+  fof: "FOF",
+  reits: "REITs",
 };
 
 function isMissingMetric(value: unknown) {
-  return value === undefined || value === null || value === "" || value === "—" || value === "暂无" || value === "鈥?";
+  return value === undefined || value === null || value === "" || value === "—" || value === "-";
 }
 
 function parseMetric(value: unknown): number | null {
@@ -60,16 +65,23 @@ export default function Home() {
     undefined,
     { staleTime: 30 * 60 * 1000, refetchOnWindowFocus: false }
   );
+  const { data: categoryMetricsData } = trpc.fund.categoryMetrics.useQuery(
+    {
+      windowDays: 365,
+      riskFreeRate: 0.02,
+      xinjihuiOnly: showXinjihuiOnly && !showWatchlistOnly,
+    },
+    { staleTime: 6 * 60 * 60 * 1000, refetchOnWindowFocus: false, enabled: !showWatchlistOnly }
+  );
+
   const addFundByCode = trpc.fund.addByCode.useMutation({
     onSuccess: () => {
       utils.fund.list.invalidate();
-      utils.fund.marketOverview.invalidate();
     },
   });
   const removeFund = trpc.fund.removeFromWatchlist.useMutation({
     onSuccess: () => {
       utils.fund.list.invalidate();
-      utils.fund.marketOverview.invalidate();
     },
   });
 
@@ -82,63 +94,48 @@ export default function Home() {
       return !isMissingMetric(perf.sharpeRatio) && !isMissingMetric(perf.maxDrawdown);
     });
     if (allFunds.length === 0 || hasRiskMetrics) return;
-
-    const timers = [6000, 14000].map((delay) => window.setTimeout(() => {
-      refetchList();
-    }, delay));
+    const timers = [6000, 14000].map((delay) => window.setTimeout(() => refetchList(), delay));
     return () => timers.forEach((timer) => window.clearTimeout(timer));
   }, [allFunds.length, refetchList]);
 
   const filteredFunds = useMemo(() => {
     let result = [...allFunds];
-    if (fundType && fundType !== "__all__") result = result.filter((f: any) => f.fundType === fundType);
-    if (category && category !== "__all__") result = result.filter((f: any) => f.category?.includes(category));
-    if (company && company !== "__all__") result = result.filter((f: any) => f.company?.includes(company));
-    if (riskLevel && riskLevel !== "__all__") result = result.filter((f: any) => f.riskLevel === riskLevel);
-    if (showXinjihuiOnly && !showWatchlistOnly) {
-      result = result.filter((f: any) => f.isXinjihui || f.source === "xinjihui");
-    } else if (showWatchlistOnly && !showXinjihuiOnly) {
-      result = result.filter((f: any) => f.source === "watchlist");
-    }
+    if (fundType !== "__all__") result = result.filter((f: any) => f.fundType === fundType);
+    if (category !== "__all__") result = result.filter((f: any) => f.category?.includes(category));
+    if (company !== "__all__") result = result.filter((f: any) => f.company?.includes(company));
+    if (riskLevel !== "__all__") result = result.filter((f: any) => f.riskLevel === riskLevel);
+    if (showXinjihuiOnly && !showWatchlistOnly) result = result.filter((f: any) => f.isXinjihui || f.source === "xinjihui");
+    if (showWatchlistOnly && !showXinjihuiOnly) result = result.filter((f: any) => f.source === "watchlist");
     if (search) {
       const s = search.toLowerCase();
       result = result.filter((f: any) =>
         f.fundCode?.includes(s) || f.fundName?.toLowerCase().includes(s) || f.fundAbbr?.toLowerCase().includes(s) || f.manager?.name?.includes(s)
       );
     }
-    const sortKey = sortBy;
-    const sortDir = sortOrder;
+    const parseSortVal = (val: string | undefined) => {
+      if (isMissingMetric(val)) return Number.NaN;
+      return parseFloat(val);
+    };
     result.sort((a: any, b: any) => {
-      if (showWatchlistOnly && !showXinjihuiOnly) {
-        const aTime = new Date(a.updatedAt || 0).getTime();
-        const bTime = new Date(b.updatedAt || 0).getTime();
-        if (aTime !== bTime) return bTime - aTime;
-      }
       const aPerf = a.performance || {};
       const bPerf = b.performance || {};
-      const parseSortVal = (val: string | undefined) => {
-        if (isMissingMetric(val)) return NaN;
-        return parseFloat(val);
-      };
-      const aVal = sortKey.startsWith("return") || sortKey === "annualizedReturn" || sortKey === "sharpeRatio" || sortKey === "maxDrawdown"
-        ? parseSortVal(aPerf[sortKey])
-        : parseSortVal(a[sortKey]);
-      const bVal = sortKey.startsWith("return") || sortKey === "annualizedReturn" || sortKey === "sharpeRatio" || sortKey === "maxDrawdown"
-        ? parseSortVal(bPerf[sortKey])
-        : parseSortVal(b[sortKey]);
-      if (isNaN(aVal) && isNaN(bVal)) return 0;
-      if (isNaN(aVal)) return 1;
-      if (isNaN(bVal)) return -1;
-      return sortDir === "desc" ? bVal - aVal : aVal - bVal;
+      const aVal = sortBy.startsWith("return") || sortBy === "annualizedReturn" || sortBy === "sharpeRatio" || sortBy === "maxDrawdown"
+        ? parseSortVal(aPerf[sortBy])
+        : parseSortVal(a[sortBy]);
+      const bVal = sortBy.startsWith("return") || sortBy === "annualizedReturn" || sortBy === "sharpeRatio" || sortBy === "maxDrawdown"
+        ? parseSortVal(bPerf[sortBy])
+        : parseSortVal(b[sortBy]);
+      if (Number.isNaN(aVal) && Number.isNaN(bVal)) return 0;
+      if (Number.isNaN(aVal)) return 1;
+      if (Number.isNaN(bVal)) return -1;
+      return sortOrder === "desc" ? bVal - aVal : aVal - bVal;
     });
     return result;
   }, [allFunds, fundType, category, company, riskLevel, showXinjihuiOnly, showWatchlistOnly, search, sortBy, sortOrder]);
 
-  const paginatedFunds = useMemo(() => {
-    return filteredFunds.slice((page - 1) * pageSize, page * pageSize);
-  }, [filteredFunds, page]);
-
+  const paginatedFunds = useMemo(() => filteredFunds.slice((page - 1) * pageSize, page * pageSize), [filteredFunds, page]);
   const totalPages = Math.max(1, Math.ceil(filteredFunds.length / pageSize));
+
   const currentOverview = useMemo(() => {
     const avgReturn = average(filteredFunds.map((fund: any) => parseMetric(fund.performance?.annualizedReturn ?? fund.performance?.return1y)));
     const avgSharpe = average(filteredFunds.map((fund: any) => parseMetric(fund.performance?.sharpeRatio)));
@@ -151,26 +148,38 @@ export default function Home() {
 
   const baseFundsForCategoryStats = useMemo(() => {
     let result = [...allFunds];
-    if (company && company !== "__all__") result = result.filter((f: any) => f.company?.includes(company));
-    if (riskLevel && riskLevel !== "__all__") result = result.filter((f: any) => f.riskLevel === riskLevel);
+    if (company !== "__all__") result = result.filter((f: any) => f.company?.includes(company));
+    if (riskLevel !== "__all__") result = result.filter((f: any) => f.riskLevel === riskLevel);
     if (search) {
       const s = search.toLowerCase();
       result = result.filter((f: any) =>
         f.fundCode?.includes(s) || f.fundName?.toLowerCase().includes(s) || f.fundAbbr?.toLowerCase().includes(s) || f.manager?.name?.includes(s)
       );
     }
-    if (showXinjihuiOnly && !showWatchlistOnly) {
-      result = result.filter((f: any) => f.isXinjihui || f.source === "xinjihui");
-    } else if (showWatchlistOnly && !showXinjihuiOnly) {
-      result = result.filter((f: any) => f.source === "watchlist");
-    }
+    if (showXinjihuiOnly && !showWatchlistOnly) result = result.filter((f: any) => f.isXinjihui || f.source === "xinjihui");
+    if (showWatchlistOnly && !showXinjihuiOnly) result = result.filter((f: any) => f.source === "watchlist");
     return result;
   }, [allFunds, company, riskLevel, search, showXinjihuiOnly, showWatchlistOnly]);
 
   const categoryStats = useMemo(() => {
+    const preferredOrder = ["etf", "equity", "hybrid", "bond", "index", "qdii"].map((key) => typeLabels[key] || key);
+    const apiRows = Array.isArray((categoryMetricsData as any)?.rows) ? (categoryMetricsData as any).rows : [];
+    if (!showWatchlistOnly && apiRows.length > 0) {
+      const rowByCategory = new Map(apiRows.map((r: any) => [String(r.category || ""), r]));
+      return preferredOrder.map((label) => {
+        const row = rowByCategory.get(label);
+        return {
+          label,
+          count: Number(row?.total_count || 0),
+          avgReturn: row?.avg_annual_return_eq != null ? (Number(row.avg_annual_return_eq) * 100).toFixed(2) : "—",
+          avgMaxDrawdown: row?.avg_max_drawdown_eq != null ? (Number(row.avg_max_drawdown_eq) * 100).toFixed(2) : "—",
+          avgSharpe: row?.avg_sharpe_eq != null ? Number(row.avg_sharpe_eq).toFixed(2) : "—",
+        };
+      });
+    }
     const groups = new Map<string, any[]>();
     for (const fund of baseFundsForCategoryStats) {
-      const key = typeLabels[fund.fundType] || fund.category || fund.fundType || "其他";
+      const key = typeLabels[fund.fundType] || fund.category || fund.fundType || "other";
       groups.set(key, [...(groups.get(key) || []), fund]);
     }
     const mapped = Array.from(groups.entries()).map(([label, funds]) => {
@@ -186,7 +195,6 @@ export default function Home() {
         avgSharpe: avg(funds.map((f) => parseMetric(f.performance?.sharpeRatio))),
       };
     });
-    const preferredOrder = ["etf", "equity", "hybrid", "bond", "index", "qdii"].map((key) => typeLabels[key] || key);
     return preferredOrder.map((label) => mapped.find((item) => item.label === label) || {
       label,
       count: 0,
@@ -194,56 +202,37 @@ export default function Home() {
       avgMaxDrawdown: "—",
       avgSharpe: "—",
     });
-  }, [baseFundsForCategoryStats]);
+  }, [baseFundsForCategoryStats, categoryMetricsData, showWatchlistOnly]);
 
-  const handleSearchSubmit = useCallback(async (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSearchSubmit = useCallback((e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const query = search.trim();
     setSearchError(null);
-    if (addFundByCode.isPending) return;
-    if (!query) return;
-
-    const addWatchlistFund = (code: string) => {
-      addFundByCode.mutate(
-        { code },
-        {
-          onSuccess: () => {
-            setShowXinjihuiOnly(false);
-            setShowWatchlistOnly(true);
-            setSearch("");
-            setPage(1);
-          },
-          onError: (err) => {
-            setSearchError(`添加基金失败: ${err.message}`);
-          },
-        }
-      );
-    };
-
-    if (/^\d{6}$/.test(query)) {
-      addWatchlistFund(query);
-      return;
-    }
-
-    const normalizedQuery = query.toLowerCase();
-    const matches = allFunds.filter((fund: any) => (
-      fund.fundCode === query ||
-      fund.fundName?.toLowerCase().includes(normalizedQuery) ||
-      fund.fundAbbr?.toLowerCase().includes(normalizedQuery)
-    ));
-    const uniqueCodes = Array.from(new Set(matches.map((fund: any) => fund.fundCode).filter(Boolean)));
-    if (uniqueCodes.length === 1) {
-      addWatchlistFund(uniqueCodes[0]);
-      return;
-    }
-
-    setSearchError(uniqueCodes.length > 1 ? "匹配到多只产品，请输入更完整的产品名称或基金代码" : "未找到匹配产品，请输入6位基金代码或产品名称");
+    if (addFundByCode.isPending || !query) return;
+    const addWatchlistFund = (code: string) => addFundByCode.mutate(
+      { code },
+      {
+        onSuccess: () => {
+          setShowXinjihuiOnly(false);
+          setShowWatchlistOnly(true);
+          setSearch("");
+          setPage(1);
+        },
+        onError: (err) => setSearchError(`添加基金失败: ${err.message}`),
+      }
+    );
+    if (/^\d{6}$/.test(query)) return addWatchlistFund(query);
+    const normalized = query.toLowerCase();
+    const matches = allFunds.filter((f: any) =>
+      f.fundCode === query || f.fundName?.toLowerCase().includes(normalized) || f.fundAbbr?.toLowerCase().includes(normalized));
+    const uniqueCodes = Array.from(new Set(matches.map((f: any) => f.fundCode).filter(Boolean)));
+    if (uniqueCodes.length === 1) return addWatchlistFund(uniqueCodes[0]);
+    setSearchError(uniqueCodes.length > 1 ? "匹配到多只产品，请输入更完整名称或代码" : "未找到匹配产品");
   }, [addFundByCode, allFunds, search]);
 
   const handleSortChange = (key: string) => {
-    if (sortBy === key) {
-      setSortOrder(sortOrder === "desc" ? "asc" : "desc");
-    } else {
+    if (sortBy === key) setSortOrder(sortOrder === "desc" ? "asc" : "desc");
+    else {
       setSortBy(key);
       setSortOrder("desc");
     }
@@ -251,9 +240,8 @@ export default function Home() {
   };
 
   const handleCategoryClick = (label: string) => {
-    const nextCategory = category === label ? "__all__" : label;
-    setFundType("");
-    setCategory(nextCategory);
+    setFundType("__all__");
+    setCategory(category === label ? "__all__" : label);
     setPage(1);
   };
 
@@ -261,12 +249,8 @@ export default function Home() {
     <div className="min-h-screen pt-14 pb-12">
       <section className="relative px-6 pt-16 pb-12 max-w-7xl mx-auto">
         <div className="mb-2">
-          <h1 className="text-4xl md:text-5xl font-semibold text-white tracking-tight leading-tight" style={{ letterSpacing: "-1.2px" }}>
-            洞察趋势，甄选长跑冠军
-          </h1>
-          <p className="mt-3 text-white/40 text-base max-w-2xl">
-            基于"鑫基荟"优选池，AI驱动的产品筛选与智能配置平台
-          </p>
+          <h1 className="text-4xl md:text-5xl font-semibold text-white tracking-tight leading-tight">洞察趋势，甄选长跑冠军</h1>
+          <p className="mt-3 text-white/40 text-base max-w-2xl">基于鑫基荟优选池，AI驱动的产品筛选与智能配置平台</p>
         </div>
 
         <StatCards

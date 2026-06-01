@@ -2,15 +2,18 @@
 SQLite Database Module — 数据持久化层
 支持配置方案存储、调仓历史记录、用户偏好
 """
-import sqlite3
 import json
+import logging
 import os
+import sqlite3
 import threading
 import time
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Dict, Any, List, Tuple
+from typing import Any
+
+logger = logging.getLogger(__name__)
 
 # Database file location
 DB_DIR = Path(__file__).resolve().parent.parent.parent / "data"
@@ -49,7 +52,7 @@ class _QueryCache:
     _instance_lock = threading.Lock()
 
     def __init__(self) -> None:
-        self._cache: Dict[str, Tuple[float, Any]] = {}
+        self._cache: dict[str, tuple[float, Any]] = {}
         self._lock = threading.Lock()
         self._invalidation_key = "v0"
         self._max_entries = 2000
@@ -306,8 +309,8 @@ class Database:
     def save_plan(
         plan_id: str,
         name: str,
-        request: Dict[str, Any],
-        response: Dict[str, Any],
+        request: dict[str, Any],
+        response: dict[str, Any],
         risk_profile: str,
         description: str = "",
     ) -> str:
@@ -326,7 +329,7 @@ class Database:
         return plan_id
 
     @staticmethod
-    def get_plan(plan_id: str) -> Optional[Dict[str, Any]]:
+    def get_plan(plan_id: str) -> dict[str, Any] | None:
         """Get a single plan by ID."""
         with get_db() as conn:
             row = conn.execute(
@@ -338,14 +341,14 @@ class Database:
 
     @staticmethod
     def list_plans(
-        risk_profile: Optional[str] = None,
+        risk_profile: str | None = None,
         favorite_only: bool = False,
         limit: int = 50,
         offset: int = 0,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """List allocation plans."""
         query = "SELECT * FROM allocation_plans WHERE is_archived = 0"
-        params: List[Any] = []
+        params: list[Any] = []
 
         if risk_profile:
             query += " AND risk_profile = ?"
@@ -363,14 +366,14 @@ class Database:
     @staticmethod
     def update_plan(
         plan_id: str,
-        name: Optional[str] = None,
-        description: Optional[str] = None,
-        is_favorite: Optional[bool] = None,
-        is_archived: Optional[bool] = None,
+        name: str | None = None,
+        description: str | None = None,
+        is_favorite: bool | None = None,
+        is_archived: bool | None = None,
     ) -> bool:
         """Update plan metadata."""
         updates = []
-        params: List[Any] = []
+        params: list[Any] = []
 
         if name is not None:
             updates.append("name = ?")
@@ -409,10 +412,10 @@ class Database:
             return cursor.rowcount > 0
 
     @staticmethod
-    def count_plans(risk_profile: Optional[str] = None) -> int:
+    def count_plans(risk_profile: str | None = None) -> int:
         """Count plans."""
         query = "SELECT COUNT(*) as cnt FROM allocation_plans WHERE is_archived = 0"
-        params: List[Any] = []
+        params: list[Any] = []
         if risk_profile:
             query += " AND risk_profile = ?"
             params.append(risk_profile)
@@ -421,7 +424,7 @@ class Database:
             return row["cnt"] if row else 0
 
     @staticmethod
-    def _plan_row_to_dict(row: sqlite3.Row) -> Dict[str, Any]:
+    def _plan_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
         """Convert plan row to dict."""
         return {
             "id": row["id"],
@@ -443,14 +446,14 @@ class Database:
         record_id: str,
         risk_profile: str,
         trigger_type: str,
-        actions: List[Dict[str, Any]],
+        actions: list[dict[str, Any]],
         total_turnover: float,
         estimated_cost: float,
         status: str = "executed",
         summary: str = "",
         notes: str = "",
-        plan_id: Optional[str] = None,
-        executed_at: Optional[str] = None,
+        plan_id: str | None = None,
+        executed_at: str | None = None,
     ) -> str:
         """Add a rebalance history record."""
         if executed_at is None:
@@ -469,14 +472,14 @@ class Database:
 
     @staticmethod
     def list_rebalance_history(
-        plan_id: Optional[str] = None,
-        status: Optional[str] = None,
+        plan_id: str | None = None,
+        status: str | None = None,
         limit: int = 50,
         offset: int = 0,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """List rebalance history."""
         query = "SELECT * FROM rebalance_history WHERE 1=1"
-        params: List[Any] = []
+        params: list[Any] = []
 
         if plan_id:
             query += " AND plan_id = ?"
@@ -493,7 +496,7 @@ class Database:
             return [Database._rebalance_row_to_dict(row) for row in rows]
 
     @staticmethod
-    def get_rebalance_stats() -> Dict[str, Any]:
+    def get_rebalance_stats() -> dict[str, Any]:
         """Get rebalance statistics."""
         with get_db() as conn:
             total = conn.execute(
@@ -516,7 +519,7 @@ class Database:
             }
 
     @staticmethod
-    def _rebalance_row_to_dict(row: sqlite3.Row) -> Dict[str, Any]:
+    def _rebalance_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
         """Convert rebalance row to dict."""
         return {
             "id": row["id"],
@@ -622,7 +625,7 @@ class MacroCache:
             )
 
     @staticmethod
-    def get(indicator: str) -> Optional[float]:
+    def get(indicator: str) -> float | None:
         """Get the latest cached value for an indicator. Returns None if expired or missing."""
         from datetime import datetime, timedelta
         freq = MacroCache.FREQ.get(indicator, "monthly")
@@ -870,7 +873,8 @@ class UserStore:
     @staticmethod
     def seed_admin() -> None:
         """Create default admin user if no users exist."""
-        import hashlib, os, uuid
+        import hashlib
+        import uuid
         from datetime import datetime
         with get_db() as conn:
             count = conn.execute("SELECT COUNT(*) as c FROM users").fetchone()["c"]
@@ -884,12 +888,13 @@ class UserStore:
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 (str(uuid.uuid4()), "admin", pw.hex(), salt.hex(), "管理员", "admin", now, now)
             )
-            print("[UserStore] Seeded admin user")
+            logger.info("[UserStore] Seeded admin user")
 
     @staticmethod
     def register(username: str, password: str, display_name: str = "", email: str = "") -> dict | None:
         """Create a new user. Returns user dict or None if username taken."""
-        import hashlib, os, uuid
+        import hashlib
+        import uuid
         from datetime import datetime
         uid = str(uuid.uuid4())
         salt = os.urandom(16)
@@ -903,13 +908,15 @@ class UserStore:
                     (uid, username, pw_hash.hex(), salt.hex(), display_name or username, email, now, now)
                 )
             return {"id": uid, "username": username, "displayName": display_name or username, "email": email, "role": "user"}
-        except Exception:
+        except sqlite3.IntegrityError:
+            logger.warning(f"User registration failed: username '{username}' already exists")
             return None
 
     @staticmethod
     def login(username: str, password: str) -> dict | None:
         """Validate credentials. Returns user dict or None."""
-        import hashlib, hmac
+        import hashlib
+        import hmac
         with get_db() as conn:
             row = conn.execute(
                 "SELECT * FROM users WHERE username = ?", (username,)
@@ -937,7 +944,8 @@ class UserStore:
     @staticmethod
     def create_session(user_id: str) -> str:
         """Create a session, return token (plaintext)."""
-        import hashlib, os, secrets
+        import hashlib
+        import secrets
         from datetime import datetime, timedelta
         token = secrets.token_urlsafe(32)
         token_hash = hashlib.sha256(token.encode()).hexdigest()
@@ -979,7 +987,8 @@ class UserStore:
     @staticmethod
     def create_email_token(user_id: str, email: str, token_type: str = "verify") -> None:
         """Create an email verification token and send the email."""
-        import hashlib, secrets
+        import hashlib
+        import secrets
         from datetime import datetime, timedelta
         token = secrets.token_urlsafe(32)
         token_hash = hashlib.sha256(token.encode()).hexdigest()
@@ -996,7 +1005,7 @@ class UserStore:
             from app.api.email_util import send_verification_email
             send_verification_email(email, user_id[:8], token)
         except Exception:
-            pass
+            logger.exception("Failed to send verification email")
 
     @staticmethod
     def verify_email_token(token: str) -> dict | None:
@@ -1020,7 +1029,8 @@ class UserStore:
     @staticmethod
     def reset_password_send(username: str, email: str) -> bool:
         """Validate user+email match, generate new password, send via email. Returns bool."""
-        import hashlib, os, secrets
+        import hashlib
+        import secrets
         from datetime import datetime
         with get_db() as conn:
             row = conn.execute(
@@ -1042,7 +1052,7 @@ class UserStore:
             from app.api.email_util import send_password_reset_email
             send_password_reset_email(email, username, new_pw)
         except Exception:
-            pass
+            logger.exception("Failed to send password reset email")
         return True
 
     @staticmethod
@@ -1193,6 +1203,22 @@ def _init_fund_data_center_tables() -> None:
                 PRIMARY KEY (code, report_date)
             );
 
+            CREATE TABLE IF NOT EXISTS fund_category_metrics_snapshot (
+                category TEXT NOT NULL,
+                as_of_date TEXT NOT NULL,
+                window_days INTEGER NOT NULL DEFAULT 365,
+                avg_annual_return_eq REAL,
+                avg_max_drawdown_eq REAL,
+                avg_sharpe_eq REAL,
+                sample_count INTEGER NOT NULL DEFAULT 0,
+                total_count INTEGER NOT NULL DEFAULT 0,
+                coverage_ratio REAL NOT NULL DEFAULT 0,
+                risk_free_rate REAL NOT NULL DEFAULT 0.02,
+                calc_version TEXT NOT NULL DEFAULT 'v1.0',
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (category, as_of_date, window_days)
+            );
+
             CREATE TABLE IF NOT EXISTS fund_data_job (
                 id TEXT PRIMARY KEY,
                 job_type TEXT NOT NULL,
@@ -1226,10 +1252,11 @@ def _init_fund_data_center_tables() -> None:
             CREATE INDEX IF NOT EXISTS idx_fund_nav_history_code_date ON fund_nav_history(code, nav_date);
             CREATE INDEX IF NOT EXISTS idx_fund_data_job_status ON fund_data_job(status, priority, created_at);
             CREATE INDEX IF NOT EXISTS idx_external_api_call_log_source ON external_api_call_log(source, created_at);
+            CREATE INDEX IF NOT EXISTS idx_category_metrics_asof ON fund_category_metrics_snapshot(as_of_date, window_days);
         """)
 
 
-def _fund_tags(value: Any) -> List[str]:
+def _fund_tags(value: Any) -> list[str]:
     if isinstance(value, list):
         return [str(item) for item in value if item]
     if isinstance(value, str) and value:
@@ -1237,7 +1264,7 @@ def _fund_tags(value: Any) -> List[str]:
             parsed = json.loads(value)
             if isinstance(parsed, list):
                 return [str(item) for item in parsed if item]
-        except Exception:
+        except json.JSONDecodeError:
             return [value]
     return []
 
@@ -1247,7 +1274,7 @@ def _stale_level(updated_at: str | None) -> str:
         return "missing"
     try:
         age_days = (datetime.now() - datetime.fromisoformat(updated_at[:19])).days
-    except Exception:
+    except (ValueError, TypeError):
         return "unknown"
     if age_days <= 1:
         return "fresh"
@@ -1265,7 +1292,8 @@ class FundDataStore:
         now = datetime.now().isoformat()
         try:
             from ..constants.guoyuan_funds import GUOYUAN_FUND_LIST
-        except Exception:
+        except ImportError:
+            logger.warning("GUOYUAN_FUND_LIST not found, using empty list")
             GUOYUAN_FUND_LIST = []
 
         with get_db() as conn:
@@ -1332,7 +1360,7 @@ class FundDataStore:
                 FundDataStore._upsert_quote_row(conn, dict(row), source="legacy_fund_snapshot")
 
     @staticmethod
-    def _upsert_quote_row(conn: sqlite3.Connection, row: Dict[str, Any], source: str = "snapshot") -> None:
+    def _upsert_quote_row(conn: sqlite3.Connection, row: dict[str, Any], source: str = "snapshot") -> None:
         updated_at = row.get("updated_at") or datetime.now().isoformat()
         has_nav = row.get("nav") not in (None, "", 0)
         quality = "ok" if has_nav else "partial"
@@ -1376,7 +1404,7 @@ class FundDataStore:
         )
 
     @staticmethod
-    def save_quote_batch(rows: List[Dict[str, Any]], source: str = "snapshot_refresh") -> None:
+    def save_quote_batch(rows: list[dict[str, Any]], source: str = "snapshot_refresh") -> None:
         now = datetime.now().isoformat()
         with get_db() as conn:
             for row in rows:
@@ -1417,7 +1445,7 @@ class FundDataStore:
         offset: int = 0,
         sort_field: str = "ytd",
         sort_order: str = "desc",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         cache_key = f"list:{category}:{keyword}:{xinjihui_only}:{limit}:{offset}:{sort_field}:{sort_order}"
         cached = _qcache.get(cache_key, 120)
         if cached is not None:
@@ -1429,7 +1457,7 @@ class FundDataStore:
         sort_sql = sort_field if sort_field in allowed_sort else "ytd"
         order_sql = "ASC" if sort_order.lower() == "asc" else "DESC"
         clauses = ["m.is_active = 1"]
-        params: List[Any] = []
+        params: list[Any] = []
         if xinjihui_only:
             clauses.append("(m.is_xinjihui = 1 OR m.is_preferred = 1)")
         if category and category not in ("all", "全部", "鍏ㄩ儴"):
@@ -1466,7 +1494,7 @@ class FundDataStore:
         return result
 
     @staticmethod
-    def get_snapshot(code: str) -> Optional[Dict[str, Any]]:
+    def get_snapshot(code: str) -> dict[str, Any] | None:
         cache_key = f"snapshot:{code}"
         cached = _qcache.get(cache_key, 120)
         if cached is not None:
@@ -1498,7 +1526,7 @@ class FundDataStore:
             return result
 
     @staticmethod
-    def _row_to_fund(row: sqlite3.Row) -> Dict[str, Any]:
+    def _row_to_fund(row: sqlite3.Row) -> dict[str, Any]:
         tags = _fund_tags(row["tags_json"])
         return {
             "code": row["code"],
@@ -1533,7 +1561,7 @@ class FundDataStore:
         }
 
     @staticmethod
-    def _legacy_row_to_fund(row: sqlite3.Row) -> Dict[str, Any]:
+    def _legacy_row_to_fund(row: sqlite3.Row) -> dict[str, Any]:
         return {
             "code": row["code"],
             "name": row["name"],
@@ -1556,7 +1584,7 @@ class FundDataStore:
         }
 
     @staticmethod
-    def create_job(job_type: str, code: str = "", payload: Optional[Dict[str, Any]] = None, priority: int = 5) -> str:
+    def create_job(job_type: str, code: str = "", payload: dict[str, Any] | None = None, priority: int = 5) -> str:
         import uuid
         now = datetime.now().isoformat()
         job_id = str(uuid.uuid4())
@@ -1596,7 +1624,7 @@ class FundDataStore:
             )
 
     @staticmethod
-    def save_metrics_batch(rows: List[Dict[str, Any]], source: str = "compute") -> int:
+    def save_metrics_batch(rows: list[dict[str, Any]], source: str = "compute") -> int:
         """Save computed metrics for multiple funds.
 
         rows: [{code, sharpe_ratio, max_drawdown, volatility, annualized_return,
@@ -1648,17 +1676,92 @@ class FundDataStore:
         return len(rows)
 
     @staticmethod
-    def data_status() -> Dict[str, Any]:
+    def save_category_metrics_snapshot(
+        rows: list[dict[str, Any]],
+        *,
+        as_of_date: str,
+        window_days: int = 365,
+        risk_free_rate: float = 0.02,
+        calc_version: str = "v1.0",
+    ) -> int:
+        now = datetime.now().isoformat()
+        with get_db() as conn:
+            for row in rows:
+                conn.execute(
+                    """INSERT INTO fund_category_metrics_snapshot
+                       (category, as_of_date, window_days, avg_annual_return_eq, avg_max_drawdown_eq,
+                        avg_sharpe_eq, sample_count, total_count, coverage_ratio, risk_free_rate,
+                        calc_version, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                       ON CONFLICT(category, as_of_date, window_days) DO UPDATE SET
+                         avg_annual_return_eq = excluded.avg_annual_return_eq,
+                         avg_max_drawdown_eq = excluded.avg_max_drawdown_eq,
+                         avg_sharpe_eq = excluded.avg_sharpe_eq,
+                         sample_count = excluded.sample_count,
+                         total_count = excluded.total_count,
+                         coverage_ratio = excluded.coverage_ratio,
+                         risk_free_rate = excluded.risk_free_rate,
+                         calc_version = excluded.calc_version,
+                         updated_at = excluded.updated_at""",
+                    (
+                        str(row.get("category") or "unknown"),
+                        as_of_date,
+                        int(window_days),
+                        row.get("avg_annual_return_eq"),
+                        row.get("avg_max_drawdown_eq"),
+                        row.get("avg_sharpe_eq"),
+                        int(row.get("sample_count") or 0),
+                        int(row.get("total_count") or 0),
+                        float(row.get("coverage_ratio") or 0),
+                        float(risk_free_rate),
+                        calc_version,
+                        now,
+                    ),
+                )
+        _qcache.invalidate()
+        return len(rows)
+
+    @staticmethod
+    def get_latest_category_metrics(window_days: int = 365) -> dict[str, Any]:
+        cache_key = f"category_metrics:{window_days}"
+        cached = _qcache.get(cache_key, 300)
+        if cached is not None:
+            return cached
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT MAX(as_of_date) as as_of_date FROM fund_category_metrics_snapshot WHERE window_days = ?",
+                (int(window_days),),
+            ).fetchone()
+            as_of_date = row["as_of_date"] if row else None
+            if not as_of_date:
+                result = {"as_of_date": None, "window_days": int(window_days), "rows": []}
+                _qcache.set(cache_key, result, 120)
+                return result
+            rows = conn.execute(
+                """SELECT category, as_of_date, window_days, avg_annual_return_eq, avg_max_drawdown_eq,
+                          avg_sharpe_eq, sample_count, total_count, coverage_ratio, risk_free_rate,
+                          calc_version, updated_at
+                   FROM fund_category_metrics_snapshot
+                   WHERE as_of_date = ? AND window_days = ?
+                   ORDER BY category""",
+                (as_of_date, int(window_days)),
+            ).fetchall()
+        result = {"as_of_date": as_of_date, "window_days": int(window_days), "rows": [dict(r) for r in rows]}
+        _qcache.set(cache_key, result, 300)
+        return result
+
+    @staticmethod
+    def data_status() -> dict[str, Any]:
         with get_db() as conn:
             tables = {}
             for name in [
                 "fund_master", "fund_quote_snapshot", "fund_nav_history",
-                "fund_metrics_snapshot", "fund_holdings_snapshot", "fund_data_job",
+                "fund_metrics_snapshot", "fund_holdings_snapshot", "fund_category_metrics_snapshot", "fund_data_job",
                 "external_api_call_log", "fund_snapshot", "fund_pool", "fund_nav_cache",
             ]:
                 try:
                     tables[name] = conn.execute(f"SELECT COUNT(*) as c FROM {name}").fetchone()["c"]
-                except Exception:
+                except sqlite3.OperationalError:
                     tables[name] = None
             calls = conn.execute(
                 """SELECT source,
@@ -1683,11 +1786,11 @@ class FundDataStore:
         }
 
     @staticmethod
-    def cleanup_stale_data() -> Dict[str, int]:
+    def cleanup_stale_data() -> dict[str, int]:
         """Remove stale rows from growing tables. Returns counts deleted."""
         from datetime import timedelta
         now = datetime.now()
-        results: Dict[str, int] = {}
+        results: dict[str, int] = {}
         with get_db() as conn:
             cutoff_7d = (now - timedelta(days=7)).isoformat()
             cur = conn.execute(

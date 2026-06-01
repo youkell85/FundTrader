@@ -57,6 +57,19 @@ export async function getFundSnapshot(code: string, enqueueMissing = true) {
   return ftFetch<Record<string, unknown>>(`/fund/snapshot/${code}?${qs.toString()}`);
 }
 
+export async function getFundCategoryMetrics(params: {
+  window_days?: number;
+  risk_free_rate?: number;
+  xinjihui_only?: boolean;
+  force_refresh?: boolean;
+} = {}) {
+  const qs = new URLSearchParams();
+  Object.entries(params).forEach(([k, v]) => {
+    if (v !== undefined && v !== null) qs.append(k, String(v));
+  });
+  return ftFetch<Record<string, unknown>>(`/fund/category-metrics?${qs.toString()}`);
+}
+
 export async function requestFundBackfill(code: string) {
   return getFundSnapshot(code, true);
 }

@@ -5,6 +5,7 @@ import { createRouter, publicQuery } from "./middleware";
 import {
   getFundAnalysis,
   getFundSnapshot,
+  getFundCategoryMetrics,
   getFundSnapshotList,
   getCategories as ftGetCategories,
   runDcaBacktest,
@@ -1485,6 +1486,28 @@ export const fundRouter = createRouter({
       return mapMarketOverview({});
     }
   }),
+
+  categoryMetrics: publicQuery
+    .input(z.object({
+      windowDays: z.number().optional(),
+      riskFreeRate: z.number().optional(),
+      xinjihuiOnly: z.boolean().optional(),
+      forceRefresh: z.boolean().optional(),
+    }).optional())
+    .query(async ({ input }) => {
+      try {
+        const opts = input || {};
+        const result = await getFundCategoryMetrics({
+          window_days: opts.windowDays ?? 365,
+          risk_free_rate: opts.riskFreeRate ?? 0.02,
+          xinjihui_only: opts.xinjihuiOnly ?? false,
+          force_refresh: opts.forceRefresh ?? false,
+        });
+        return result;
+      } catch (err) {
+        wrapError(err, "获取分类指标失败");
+      }
+    }),
 
   // 基金评价 LLM 分析（详情页使用）— 使用独立 LLM 超时避免被 12s 数据超时截断
   analyzeFundLLM: publicQuery

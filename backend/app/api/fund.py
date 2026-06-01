@@ -7,7 +7,7 @@ from fastapi import APIRouter, HTTPException, Query
 from starlette.concurrency import run_in_threadpool
 
 from ..constants.guoyuan_funds import FUND_CATEGORIES, FUND_TYPES, GUOYUAN_FUND_LIST
-from ..services.fund_service import get_fund_list, get_fund_list_from_watchlist
+from ..services.fund_service import compute_category_metrics_1y, get_fund_list, get_fund_list_from_watchlist
 
 logger = logging.getLogger(__name__)
 
@@ -161,6 +161,23 @@ async def fund_data_status():
     from ..storage.database import FundDataStore
 
     return await run_in_threadpool(FundDataStore.data_status)
+
+
+@router.get("/category-metrics")
+async def fund_category_metrics(
+    window_days: int = Query(365, ge=180, le=730),
+    risk_free_rate: float = Query(0.02, ge=0.0, le=0.1),
+    xinjihui_only: bool = Query(False),
+    force_refresh: bool = Query(False),
+):
+    """Compute/read 1Y category metrics from NAV history and return daily snapshot."""
+    return await run_in_threadpool(
+        compute_category_metrics_1y,
+        window_days=window_days,
+        risk_free_rate=risk_free_rate,
+        xinjihui_only=xinjihui_only,
+        force_refresh=force_refresh,
+    )
 
 
 def _sync_fund_companies_to_master(codes: list[str]) -> int:

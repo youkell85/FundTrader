@@ -11,7 +11,7 @@
 import math
 import os
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from ..config import CACHE_TTL_RANKING
@@ -28,6 +28,158 @@ SORT_FIELD_MAP: dict[str, str] = {
 
 BULK_PERFORMANCE_TIMEOUT_SECONDS = float(os.getenv("FUNDTRADER_BULK_PERFORMANCE_TIMEOUT_SECONDS", "8"))
 _bulk_performance_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="fund-perf")
+
+
+def _to_date(value: Any) -> date | None:
+    if not value:
+        return None
+    text = str(value)[:10]
+    try:
+        return datetime.fromisoformat(text).date()
+    except ValueError:
+        return None
+
+
+def _calc_window_metrics_from_nav(
+    nav_rows: list[dict[str, Any]],
+    *,
+    as_of: date,
+    window_days: int = 365,
+    risk_free_rate: float = 0.02,
+) -> dict[str, float] | None:
+    import numpy as np
+
+    start_date = as_of - timedelta(days=window_days)
+    points: list[tuple[date, float]] = []
+    for row in nav_rows:
+        d = _to_date(row.get("nav_date") or row.get("date"))
+        if not d or d < start_date or d > as_of:
+            continue
+        try:
+            nav = float(row.get("nav", 0) or 0)
+        except (TypeError, ValueError):
+            continue
+        if nav > 0:
+            points.append((d, nav))
+    if len(points) < 200:
+        return None
+    points.sort(key=lambda x: x[0])
+    navs = np.array([p[1] for p in points], dtype=np.float64)
+    if len(navs) < 2 or navs[0] <= 0:
+        return None
+    daily_returns = np.diff(navs) / navs[:-1]
+    daily_returns = np.nan_to_num(daily_returns, nan=0.0, posinf=0.0, neginf=0.0)
+    elapsed_days = max(1, (points[-1][0] - points[0][0]).days)
+    annualized_return = (navs[-1] / navs[0]) ** (365.0 / elapsed_days) - 1.0
+    annualized_vol = float(np.std(daily_returns, ddof=1) * np.sqrt(252)) if len(daily_returns) > 1 else 0.0
+    excess_daily = daily_returns - risk_free_rate / 252.0
+    std_excess = float(np.std(excess_daily, ddof=1))
+    sharpe = float(np.mean(excess_daily) / std_excess * np.sqrt(252)) if std_excess > 0 else 0.0
+    peak = np.maximum.accumulate(navs)
+    drawdown = (navs - peak) / peak
+    max_dd = float(np.min(drawdown))
+    return {
+        "annualized_return": float(annualized_return),
+        "max_drawdown": max_dd,
+        "sharpe_ratio": sharpe,
+    }
+
+
+def compute_category_metrics_1y(
+    *,
+    window_days: int = 365,
+    risk_free_rate: float = 0.02,
+    xinjihui_only: bool = False,
+    force_refresh: bool = False,
+) -> dict[str, Any]:
+    """Compute 1Y category average annual return/max drawdown/sharpe and snapshot to SQLite."""
+    from ..data.efinance_fetcher import get_fund_nav_history
+    from ..storage.database import FundDataStore
+
+    as_of = datetime.now().date()
+    as_of_text = as_of.isoformat()
+
+    # Fast path: reuse latest snapshot for today unless force_refresh
+    if not force_refresh:
+        latest = FundDataStore.get_latest_category_metrics(window_days=window_days)
+        if latest.get("as_of_date") == as_of_text and latest.get("rows"):
+            return latest
+
+    with get_db_context() as conn:
+        where = "WHERE is_active = 1"
+        params: list[Any] = []
+        if xinjihui_only:
+            where += " AND (is_xinjihui = 1 OR is_preferred = 1)"
+        masters = conn.execute(
+            f"SELECT code, fund_type FROM fund_master {where} ORDER BY code",
+            params,
+        ).fetchall()
+        nav_map: dict[str, list[dict[str, Any]]] = {}
+        for row in conn.execute(
+            "SELECT code, nav_date, nav FROM fund_nav_history WHERE nav_date >= ?",
+            ((as_of - timedelta(days=window_days + 30)).isoformat(),),
+        ).fetchall():
+            nav_map.setdefault(row["code"], []).append(dict(row))
+
+    category_bucket: dict[str, dict[str, Any]] = {}
+    for row in masters:
+        code = row["code"]
+        category = (row["fund_type"] or "unknown").strip() or "unknown"
+        bucket = category_bucket.setdefault(category, {
+            "category": category,
+            "annualized_returns": [],
+            "max_drawdowns": [],
+            "sharpes": [],
+            "sample_count": 0,
+            "total_count": 0,
+        })
+        bucket["total_count"] += 1
+
+        nav_rows = nav_map.get(code) or []
+        if len(nav_rows) < 200:
+            fetched = get_fund_nav_history(code)
+            if fetched:
+                nav_rows = fetched
+
+        metrics = _calc_window_metrics_from_nav(
+            nav_rows,
+            as_of=as_of,
+            window_days=window_days,
+            risk_free_rate=risk_free_rate,
+        )
+        if not metrics:
+            continue
+        bucket["sample_count"] += 1
+        bucket["annualized_returns"].append(metrics["annualized_return"])
+        bucket["max_drawdowns"].append(metrics["max_drawdown"])
+        bucket["sharpes"].append(metrics["sharpe_ratio"])
+
+    rows: list[dict[str, Any]] = []
+    for category, bucket in category_bucket.items():
+        sample = int(bucket["sample_count"])
+        total = int(bucket["total_count"])
+        cov = (sample / total) if total > 0 else 0.0
+        ann = sum(bucket["annualized_returns"]) / sample if sample > 0 else None
+        mdd = sum(bucket["max_drawdowns"]) / sample if sample > 0 else None
+        shp = sum(bucket["sharpes"]) / sample if sample > 0 else None
+        rows.append({
+            "category": category,
+            "avg_annual_return_eq": ann,
+            "avg_max_drawdown_eq": mdd,
+            "avg_sharpe_eq": shp,
+            "sample_count": sample,
+            "total_count": total,
+            "coverage_ratio": cov,
+        })
+
+    FundDataStore.save_category_metrics_snapshot(
+        rows,
+        as_of_date=as_of_text,
+        window_days=window_days,
+        risk_free_rate=risk_free_rate,
+        calc_version="v1.0-1y-nav",
+    )
+    return FundDataStore.get_latest_category_metrics(window_days=window_days)
 
 
 def _safe_float(value: Any, default: float = 0.0) -> float:
