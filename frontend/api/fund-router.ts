@@ -755,19 +755,33 @@ export const fundRouter = createRouter({
           1800,
           () => fund,
         ).catch(() => fund);
+
+        // 如果 fallback 已经是完整的，直接返回
+        if (fallback && hasDetailPayload(fallback)) {
+          setCache(cacheKey, fallback, ANALYSIS_TTL);
+          return mapFundDetail(fallback);
+        }
+
+        // fallback 不完整，尝试获取完整分析数据
+        const enriched = await withTimeout(
+          fetchAndCacheFundAnalysis(fund.code, cacheKey),
+          DETAIL_ANALYSIS_TIMEOUT_MS,
+          () => (fallback ? { ...fallback, _partial: true } : { ...fund, _partial: true })
+        );
+
+        if (enriched && hasDetailPayload(enriched)) {
+          return mapFundDetail(enriched);
+        }
+
+        // 最终兜底：返回 partial fallback
         if (fallback) {
           const partial = !hasDetailPayload(fallback);
-          setCache(cacheKey, fallback, partial ? PARTIAL_DETAIL_TTL : ANALYSIS_TTL);
+          setCache(cacheKey, fallback, PARTIAL_DETAIL_TTL);
           if (partial) scheduleFundAnalysisWarmup(fund.code, cacheKey);
           return mapFundDetail({ ...fallback, _partial: partial });
         }
 
-        const enriched = await withTimeout(
-          fetchAndCacheFundAnalysis(fund.code, cacheKey),
-          DETAIL_ANALYSIS_TIMEOUT_MS,
-          () => ({ ...fund, _partial: true })
-        );
-        return mapFundDetail(enriched);
+        return mapFundDetail({ ...fund, _partial: true });
       } catch (err) {
         wrapError(err, "获取基金详情失败");
       }
@@ -795,30 +809,43 @@ export const fundRouter = createRouter({
           1800,
           () => cachedAnalysis || cachedHomeFund || null,
         ).catch(() => cachedAnalysis || cachedHomeFund || null);
-        if (fallback) {
-          const partial = !hasDetailPayload(fallback);
-          setCache(cacheKey, fallback, partial ? PARTIAL_DETAIL_TTL : ANALYSIS_TTL);
-          if (partial) scheduleFundAnalysisWarmup(input.code, cacheKey);
-          return mapFundDetail({ ...fallback, _partial: partial });
+
+        // 如果 fallback 已经是完整的，直接返回
+        if (fallback && hasDetailPayload(fallback)) {
+          setCache(cacheKey, fallback, ANALYSIS_TTL);
+          return mapFundDetail(fallback);
         }
 
+        // fallback 不完整，尝试获取完整分析数据
         const enriched = await withTimeout(
           fetchAndCacheFundAnalysis(input.code, cacheKey),
           DETAIL_ANALYSIS_TIMEOUT_MS,
           async () => {
             const quote = await fetchFundQuote(input.code);
-            const fallback = await quoteToAnalysisWithSnapshot(input.code, quote, "watchlist") || cachedHomeFund || null;
-            return fallback ? { ...fallback, _partial: true } : null;
+            const fb = await quoteToAnalysisWithSnapshot(input.code, quote, "watchlist") || cachedHomeFund || null;
+            return fb ? { ...fb, _partial: true } : null;
           }
         ).catch(async (analysisErr) => {
           console.error(`[fundRouter] detail analysis failed for ${input.code}:`, analysisErr);
           scheduleFundAnalysisWarmup(input.code, cacheKey);
           const quote = await fetchFundQuote(input.code);
-          const fallback = await quoteToAnalysisWithSnapshot(input.code, quote, "watchlist") || cachedHomeFund || null;
-          return fallback ? { ...fallback, _partial: true } : null;
+          const fb = await quoteToAnalysisWithSnapshot(input.code, quote, "watchlist") || cachedHomeFund || null;
+          return fb ? { ...fb, _partial: true } : null;
         });
-        if (!enriched) throw new Error(`No fund detail available for ${input.code}`);
-        return mapFundDetail(enriched);
+
+        if (enriched && hasDetailPayload(enriched)) {
+          return mapFundDetail(enriched);
+        }
+
+        // 最终兜底：返回 partial fallback
+        if (fallback) {
+          const partial = !hasDetailPayload(fallback);
+          setCache(cacheKey, fallback, PARTIAL_DETAIL_TTL);
+          if (partial) scheduleFundAnalysisWarmup(input.code, cacheKey);
+          return mapFundDetail({ ...fallback, _partial: partial });
+        }
+
+        throw new Error(`No fund detail available for ${input.code}`);
       } catch (err) {
         wrapError(err, "按基金代码获取详情失败");
       }

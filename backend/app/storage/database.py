@@ -1517,6 +1517,25 @@ class FundDataStore:
             ).fetchone()
             if row:
                 result = FundDataStore._row_to_fund(row)
+                # 补充净值历史（如有）
+                nav_rows = conn.execute(
+                    """SELECT nav_date, nav, accum_nav, day_growth
+                       FROM fund_nav_history
+                       WHERE code = ?
+                       ORDER BY nav_date DESC
+                       LIMIT 500""",
+                    (code,),
+                ).fetchall()
+                if nav_rows:
+                    result["nav_data"] = [
+                        {
+                            "date": str(r["nav_date"]),
+                            "nav": float(r["nav"]) if r["nav"] is not None else None,
+                            "accum_nav": float(r["accum_nav"]) if r["accum_nav"] is not None else None,
+                            "day_growth": float(r["day_growth"]) if r["day_growth"] is not None else None,
+                        }
+                        for r in reversed(nav_rows)
+                    ]
                 _qcache.set(cache_key, result, 120)
                 return result
             legacy = conn.execute("SELECT * FROM fund_snapshot WHERE code = ?", (code,)).fetchone()
