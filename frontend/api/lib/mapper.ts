@@ -239,6 +239,7 @@ export function mapFundItem(item: any): any {
     dataQuality: item.data_quality || item.dataQuality || "unknown",
     staleLevel: item.stale_level || item.staleLevel || "unknown",
     metricsUpdatedAt: item.metrics_updated_at || item.metricsUpdatedAt || null,
+    _partial: item._partial || false,
     performance: {
       return1w: perf.near_1w != null ? String(perf.near_1w) : item.near_1w != null ? String(item.near_1w) : navPerformance.return1w || "—",
       return1m: perf.near_1m != null ? String(perf.near_1m) : item.near_1m != null ? String(item.near_1m) : navPerformance.return1m || "0",
@@ -362,6 +363,7 @@ export function mapFundDetail(analysis: any): any {
     benchmark: analysis.benchmark || null,
     accumNav: analysis.accum_nav ?? analysis.accumNav ?? null,
     companyInfo: analysis.company_info || null,
+    _partial: analysis._partial || false,
   };
 }
 

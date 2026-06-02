@@ -213,6 +213,7 @@ export default function FundDetail() {
   const [tab, setTab] = useState<TabKey>("ability");
   const [range, setRange] = useState<RangeKey>("1Y");
   const [horizon, setHorizon] = useState<HorizonKey>("1m");
+  const [radarRange, setRadarRange] = useState<"1Y" | "3Y" | "5Y">("1Y");
 
   const navPoints = useMemo(
     () => ((fund?.navHistory || [])
@@ -368,6 +369,18 @@ export default function FundDetail() {
 
   const fundName = fund.fundName || fund.fundAbbr || "--";
 
+  const styleMap: Record<string, string> = {
+    "股票型": "大盘成长",
+    "混合型": "平衡型",
+    "债券型": "稳健型",
+    "指数型": "被动跟踪",
+    "货币": "保守型",
+    "FOF": "多元配置",
+    "QDII": "海外配置",
+  };
+  const investmentStyle =
+    fund.manager?.investmentStyle || styleMap[fund.fundType || ""] || "--";
+
   return (
     <div className="min-h-screen pb-8 pt-14">
       <div className="mx-auto max-w-[1800px] px-2">
@@ -391,7 +404,7 @@ export default function FundDetail() {
               <div>类型：<span className="text-[#8eb8ff]">{fund.category || fund.fundType || "--"}</span></div>
               <div>规模：{fund.totalScale || "--"} 亿元</div>
               <div>基金经理：<span className="text-[#8eb8ff]">{fund.manager?.name || "--"}</span></div>
-              <div className="inline-flex items-center gap-1">基金评级：{Array.from({ length: 5 }).map((_, i) => <Star key={i} className={`h-4 w-4 ${i < (fund.stars || 4) ? "fill-[#ff9f3a] text-[#ff9f3a]" : "text-white/20"}`} />)}</div>
+              <div className="inline-flex items-center gap-1">基金评级：{Array.from({ length: 5 }).map((_, i) => <Star key={i} className={`h-4 w-4 ${i < (fund.stars || 0) ? "fill-[#ff9f3a] text-[#ff9f3a]" : "text-white/20"}`} />)}</div>
             </div>
           </div>
           <div className="grid grid-cols-2 gap-2 px-3 pb-3 text-lg md:grid-cols-6">
@@ -400,6 +413,12 @@ export default function FundDetail() {
             ))}
           </div>
         </div>
+
+        {(fund as any)?._partial && (
+          <div className="bg-yellow-900/30 border border-yellow-700/50 rounded-lg px-4 py-2 my-3 text-yellow-200 text-sm">
+            部分数据正在加载中，当前显示的信息可能不完整
+          </div>
+        )}
 
         <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-[1fr_360px]">
           <main className="space-y-3">
@@ -445,6 +464,9 @@ export default function FundDetail() {
                       {rangeOptions.map((r) => <button key={r} className={`rounded border px-1.5 py-0.5 ${range === r ? "border-[#4c7fff] text-[#9ec0ff]" : "border-white/[0.2] text-white/70"}`} onClick={() => setRange(r)}>{r}</button>)}
                     </div>
                     <div className="h-[280px]">
+                      {navSeries.length === 0 ? (
+                        <div className="flex items-center justify-center h-full text-muted-foreground text-sm">暂无数据</div>
+                      ) : (
                       <ResponsiveContainer width="100%" height="100%">
                         <ComposedChart data={navSeries}>
                           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
@@ -455,6 +477,7 @@ export default function FundDetail() {
                           <Line dataKey="fund" stroke="#5b6fb6" dot={false} name="本基金" />
                         </ComposedChart>
                       </ResponsiveContainer>
+                      )}
                     </div>
                   </div>
 
@@ -529,6 +552,9 @@ export default function FundDetail() {
                   <div className="rounded border border-white/[0.08] bg-white/[0.02] p-2">
                     <div className="mb-1 text-sm">动态回撤</div>
                     <div className="h-[260px]">
+                      {navSeries.length === 0 ? (
+                        <div className="flex items-center justify-center h-full text-muted-foreground text-sm">暂无数据</div>
+                      ) : (
                       <ResponsiveContainer width="100%" height="100%">
                         <ComposedChart data={navSeries}>
                           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
@@ -538,6 +564,7 @@ export default function FundDetail() {
                           <Line dataKey="dd" stroke="#5b6fb6" dot={false} name="本基金回撤" />
                         </ComposedChart>
                       </ResponsiveContainer>
+                      )}
                     </div>
                   </div>
 
@@ -580,6 +607,9 @@ export default function FundDetail() {
                     <div className="rounded border border-white/[0.08] bg-white/[0.02] p-2">
                       <div className="mb-1 text-sm">资产分布</div>
                       <div className="h-[220px]">
+                        {(!fund.assetAllocation || fund.assetAllocation.length === 0) ? (
+                          <div className="flex items-center justify-center h-full text-muted-foreground text-sm">暂无数据</div>
+                        ) : (
                         <ResponsiveContainer width="100%" height="100%">
                           <PieChart>
                             <Tooltip />
@@ -596,6 +626,7 @@ export default function FundDetail() {
                             />
                           </PieChart>
                         </ResponsiveContainer>
+                        )}
                       </div>
                     </div>
                     <div className="rounded border border-white/[0.08] bg-white/[0.02] p-2">
@@ -617,6 +648,9 @@ export default function FundDetail() {
                   <div className="rounded border border-white/[0.08] bg-white/[0.02] p-2">
                     <div className="mb-1 text-sm">行业配置（历史）</div>
                     <div className="h-[240px]">
+                      {industryHistory.length === 0 ? (
+                        <div className="flex items-center justify-center h-full text-muted-foreground text-sm">暂无数据</div>
+                      ) : (
                       <ResponsiveContainer width="100%" height="100%">
                         <ComposedChart data={industryHistory}>
                           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
@@ -624,29 +658,32 @@ export default function FundDetail() {
                           <YAxis />
                           <Tooltip />
                           <Legend />
-                          {industryHistory.length > 0
-                            ? Object.keys(industryHistory[0]).filter((k) => k !== "period").map((k, idx) => (
-                              <Line key={k} dataKey={k} stroke={["#5b6fb6", "#46c6c2", "#e9ab60", "#5ca8df", "#dfca58", "#b07be3"][idx % 6]} dot={false} />
-                            ))
-                            : null}
+                          {Object.keys(industryHistory[0]).filter((k) => k !== "period").map((k, idx) => (
+                            <Line key={k} dataKey={k} stroke={["#5b6fb6", "#46c6c2", "#e9ab60", "#5ca8df", "#dfca58", "#b07be3"][idx % 6]} dot={false} />
+                          ))}
                         </ComposedChart>
                       </ResponsiveContainer>
+                      )}
                     </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-2">
                     <div className="rounded border border-white/[0.08] bg-white/[0.02] p-2">
                       <div className="mb-1 text-sm">重仓股票 / 债券</div>
+                      {(!fund.holdings || fund.holdings.length === 0) ? (
+                        <div className="flex items-center justify-center h-[120px] text-muted-foreground text-sm">暂无数据</div>
+                      ) : (
                       <table className="w-full text-sm">
                         <thead><tr className="border-b border-white/[0.1]"><th>代码</th><th>名称</th><th>占比</th><th>行业/品类</th><th>近一日</th></tr></thead>
                         <tbody>
                           {(fund.holdings || []).slice(0, 12).map((h: any) => (
                             <tr key={`${h.stockCode}-${h.stockName}`} className="border-b border-white/[0.06] text-center">
-                              <td>{h.stockCode}</td><td>{h.stockName}</td><td>{pct((n(h.ratio) ?? 0) * ((n(h.ratio) ?? 0) > 1 ? 1 : 100))}</td><td>{h.industry || "--"}</td><td className={(n(h.dailyChange) ?? 0) >= 0 ? "text-[#ff6b6b]" : "text-[#2ec27e]"}>{pct(h.dailyChange)}</td>
+                              <td>{h.stockCode}</td><td>{h.stockName}</td><td>{pct((n(h.ratio) ?? 0) * ((n(h.ratio) ?? 0) > 1 ? 1 : 100))}</td><td>{h.industry || "--"}</td><td className={(n(h.dailyChange) ?? 0) >= 0 ? "text-[#F5384B]" : "text-[#16C784]"}>{pct(h.dailyChange)}</td>
                             </tr>
                           ))}
                         </tbody>
                       </table>
+                      )}
                     </div>
                     <div className="rounded border border-white/[0.08] bg-white/[0.02] p-2">
                       <div className="mb-1 text-sm">分红记录</div>
@@ -667,12 +704,15 @@ export default function FundDetail() {
                 <div className="space-y-3">
                   <div className="rounded border border-white/[0.08] bg-white/[0.02] p-2">
                     <div className="mb-1 text-sm">基金经理基本信息</div>
-                    <div className="grid grid-cols-2 gap-2 text-sm">
+                    <div className="grid grid-cols-3 gap-2 text-sm">
                       <div>姓名：{managerQ.data?.name || fund.manager?.name || "--"}</div>
                       <div>从业年限：{managerQ.data?.manageYears || fund.manager?.manageYears || "--"}</div>
+                      <div>学历：{fund.manager?.education || "--"}</div>
                       <div>在任基金数：{managerQ.data?.fundCount || managerFunds.length || "--"}</div>
                       <div>在管规模：{managerQ.data?.totalScale || fund.manager?.totalScale || "--"} 亿</div>
-                      <div>平均1年回报：{managerQ.data?.avgReturn1y ? `${managerQ.data.avgReturn1y}%` : "--"}</div>
+                      <div>投资风格：{fund.manager?.investmentStyle || "--"}</div>
+                      <div>任职回报：{fund.manager?.returnSinceTenure || "--"}</div>
+                      <div>年化回报：{fund.manager?.annualizedReturn || "--"}</div>
                       <div>平均Sharpe：{managerQ.data?.avgSharpe || "--"}</div>
                     </div>
                   </div>
@@ -800,13 +840,15 @@ export default function FundDetail() {
                 <tbody>
                   {[
                     ["成立日期", fund.establishDate || "--"],
-                    ["基金状态", "正在运行"],
+                    ["基金状态", fund.establishDate ? "正在运行" : "--"],
                     ["基金公司", fund.company || "--"],
                     ["基金经理", fund.manager?.name || "--"],
                     ["基金规模", `${fund.totalScale || "--"}亿`],
                     ["投资类型", fund.category || fund.fundType || "--"],
                     ["投资风格", fund.manager?.investmentStyle || "--"],
                     ["比较基准", fund.benchmark || "--"],
+                    ["管理费", fund.feeManage != null ? `${(Number(fund.feeManage) * 100).toFixed(2)}%` : "--"],
+                    ["托管费", fund.feeCustody != null ? `${(Number(fund.feeCustody) * 100).toFixed(2)}%` : "--"],
                   ].map((r) => (
                     <tr key={r[0]} className="border-b border-white/[0.06]"><td className="px-3 py-1">{r[0]}</td><td className="px-3 py-1 text-right">{r[1]}</td></tr>
                   ))}

@@ -688,7 +688,7 @@ export const fundRouter = createRouter({
         const enriched = await withTimeout(
           fetchAndCacheFundAnalysis(fund.code, cacheKey),
           DETAIL_ANALYSIS_TIMEOUT_MS,
-          () => fund
+          () => ({ ...fund, _partial: true })
         );
         return mapFundDetail(enriched);
       } catch (err) {
@@ -717,13 +717,15 @@ export const fundRouter = createRouter({
           DETAIL_ANALYSIS_TIMEOUT_MS,
           async () => {
             const quote = await fetchFundQuote(input.code);
-            return quoteToAnalysis(input.code, quote, "watchlist") || cachedHomeFund || null;
+            const fallback = quoteToAnalysis(input.code, quote, "watchlist") || cachedHomeFund || null;
+            return fallback ? { ...fallback, _partial: true } : null;
           }
         ).catch(async (analysisErr) => {
           console.error(`[fundRouter] detail analysis failed for ${input.code}:`, analysisErr);
           scheduleFundAnalysisWarmup(input.code, cacheKey);
           const quote = await fetchFundQuote(input.code);
-          return quoteToAnalysis(input.code, quote, "watchlist") || cachedHomeFund || null;
+          const fallback = quoteToAnalysis(input.code, quote, "watchlist") || cachedHomeFund || null;
+          return fallback ? { ...fallback, _partial: true } : null;
         });
         if (!enriched) throw new Error(`No fund detail available for ${input.code}`);
         return mapFundDetail(enriched);
