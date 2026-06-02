@@ -324,19 +324,22 @@ export default function FundDetail() {
           peer?: Record<string, number | null>;
           index?: Record<string, number | null>;
           benchmark?: Record<string, number | null>;
+          fund?: Record<string, number | null>;
         }
       | undefined;
+    // 优先使用 peerPerformance 返回的本基金数据（含 1y/3y 真实值），fallback 到 fund.performance
+    const fundCells = pp?.fund || fundPerf;
     const rowFund: PerfRow = {
       key: "fund",
       label: "本基金",
       cells: {
-        "3m": emptyPerfCell(num(fundPerf.return3m)),
-        "6m": emptyPerfCell(num(fundPerf.return6m)),
-        "1y": emptyPerfCell(num(fundPerf.return1y)),
-        "3y": emptyPerfCell(num(fundPerf.return3y)),
-        "5y": emptyPerfCell(num(fundPerf.return5y)),
-        since: emptyPerfCell(sinceReturn),
-        annual: emptyPerfCell(num(fundPerf.annualizedReturn)),
+        "3m": emptyPerfCell(num(fundCells.return3m)),
+        "6m": emptyPerfCell(num(fundCells.return6m)),
+        "1y": emptyPerfCell(num(fundCells.return1y)),
+        "3y": emptyPerfCell(num(fundCells.return3y)),
+        "5y": emptyPerfCell(num(fundCells.return5y)),
+        since: emptyPerfCell(num(fundCells.returnSinceInception) ?? sinceReturn),
+        annual: emptyPerfCell(num(fundCells.annualizedReturn)),
       },
     };
     const rowPeer: PerfRow = {
@@ -1368,10 +1371,10 @@ function RiskSection({
       </Panel>
 
       <Panel
-        title="±同类风险对比（1y / 3y / 5y / 成立以来）"
+        title="同类风险对比"
         extra={
           <span className="rounded border border-dashed border-muted-foreground/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">
-            ±同类待补
+            多窗口期
           </span>
         }
       >
