@@ -104,8 +104,12 @@ const indexHtml = fs.existsSync(path.resolve(distPath, "index.html"))
 app.get("/fund", (c) => c.redirect("/fund/"));
 
 // SPA fallback: serve index.html for all non-API routes under /fund/
+// Cache-Control: no-cache 防止浏览器缓存旧版 dist 资源（部署时强制拉新）
 app.get("/fund/*", (c) => {
-  if (indexHtml) return c.html(indexHtml);
+  if (indexHtml) {
+    c.header("Cache-Control", "no-cache, must-revalidate");
+    return c.html(indexHtml);
+  }
   return c.json({ error: "Not Found" }, 404);
 });
 
