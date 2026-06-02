@@ -43,7 +43,7 @@ def fetch_all() -> MacroSnapshot:
         ("PPI同比",         lambda: _fetch_ppi(pro),            TTL_MONTHLY),
         ("10Y国债收益率",    lambda: _fetch_bond_yield_10y(pro), TTL_DAILY),
         ("DR007",           lambda: _fetch_dr007(pro),          TTL_DAILY),
-        ("社融增量",         lambda: _fetch_social_financing(pro), TTL_MONTHLY),
+        ("社融增速",         lambda: _fetch_social_financing(pro), TTL_MONTHLY),
         ("M2增速",          lambda: _fetch_m2(pro),             TTL_MONTHLY),
         ("融资余额变化",     lambda: _fetch_margin_balance(pro), TTL_DAILY),
         ("北向资金净流入",   _fetch_northbound,                  TTL_DAILY),
@@ -61,9 +61,18 @@ def fetch_all() -> MacroSnapshot:
             elif name == "美元指数":
                 src = "forex_api"
             if value is not None:
+                conf = 0.95 if src == "tushare" else 0.9
+                # DR007: use actual source to determine confidence
+                if name == "DR007":
+                    conf = 0.95 if _dr007_actual_source == "tushare" else 0.9
+                    if _dr007_actual_source == "tushare":
+                        conf = 0.7  # Shibor proxy is less accurate than FR007
+                # Lower confidence for DXY (computed from forex rates, not direct)
+                if name == "美元指数":
+                    conf = 0.7
                 indicators[name] = MacroIndicator(
                     name=name, value=float(value), source=src,
-                    confidence=0.95 if src == "tushare" else 0.9,
+                    confidence=conf,
                     fetch_time=datetime.now().isoformat(), ttl_seconds=ttl,
                 )
             else:
@@ -226,10 +235,20 @@ def _ak_bond() -> Optional[float]:
         return None
 
 
-# ─── 6. DR007 (Tushare shibor → 1W as proxy) ───────────────────────────────────
+# ─── 6. DR007 (FR007 first, Shibor 1W as fallback proxy) ────────────────────────
+
+_dr007_actual_source = "akshare"  # track which source was actually used
+
 
 def _fetch_dr007(pro) -> Optional[float]:
-    """DR007 proxy: Tushare Shibor 1W or akshare FR007."""
+    """DR007 proxy: prefer FR007 (repo fixing rate), fallback to Shibor 1W."""
+    global _dr007_actual_source
+    # Try FR007 from akshare first (more accurate proxy for DR007)
+    fr007 = _ak_fr007()
+    if fr007 is not None:
+        _dr007_actual_source = "akshare"
+        return fr007
+    # Fallback: Shibor 1W from Tushare (less accurate proxy)
     if pro:
         try:
             end = datetime.now().strftime("%Y%m%d")
@@ -237,13 +256,17 @@ def _fetch_dr007(pro) -> Optional[float]:
             df = pro.shibor(start_date=start, end_date=end, fields="date,1w")
             if df is not None and not df.empty:
                 df = df.sort_values("date")
-                return _latest(df, "1w")
+                val = _latest(df, "1w")
+                _dr007_actual_source = "tushare"
+                return val
         except Exception as e:
             logger.debug(f"Tushare shibor failed: {e}")
-    return _ak_dr007()
+    _dr007_actual_source = "akshare"
+    return _ak_dr007_fallback()
 
 
-def _ak_dr007() -> Optional[float]:
+def _ak_fr007() -> Optional[float]:
+    """FR007 (回购定盘利率) from akshare — best proxy for DR007."""
     import akshare as ak
     try:
         df = ak.repo_rate_hist()
@@ -251,7 +274,12 @@ def _ak_dr007() -> Optional[float]:
             return _latest(df, "FR007")
     except Exception:
         pass
-    # Fallback: LPR 1Y
+    return None
+
+
+def _ak_dr007_fallback() -> Optional[float]:
+    """Fallback: LPR 1Y as very rough proxy for short-term rate."""
+    import akshare as ak
     try:
         df = ak.macro_china_lpr()
         if df is not None and not df.empty:
@@ -261,30 +289,57 @@ def _ak_dr007() -> Optional[float]:
     return None
 
 
-# ─── 7. 社融增量 (Tushare sf_month) ─────────────────────────────────────────────
+# ─── 7. 社融增速 (Tushare sf_month → compute YoY) ──────────────────────────────
 
 def _fetch_social_financing(pro) -> Optional[float]:
-    """社会融资规模月度增量 (亿元)."""
+    """社会融资规模存量同比增速 (%). Compute YoY from monthly incremental data."""
     if pro:
         try:
-            df = pro.sf_month(start_m=_month(-13), end_m=_month(0), fields="month,inc_month")
+            df = pro.sf_month(start_m=_month(-25), end_m=_month(0), fields="month,inc_month")
             if df is not None and not df.empty and "inc_month" in df.columns:
+                df = df.sort_values("month")
                 vals = pd.to_numeric(df["inc_month"], errors="coerce").dropna()
-                window = vals.iloc[-12:] if len(vals) >= 12 else vals
-                return round(float(window.sum()), 2)
+                # Compute rolling 12-month cumulative for current and prior year
+                if len(vals) >= 24:
+                    current_12m = float(vals.iloc[-12:].sum())
+                    prior_12m = float(vals.iloc[-24:-12].sum())
+                    if prior_12m > 0:
+                        yoy = (current_12m / prior_12m - 1) * 100
+                        return round(yoy, 2)
+                elif len(vals) >= 13:
+                    # Not enough for full YoY, use last 12m vs available prior
+                    current_12m = float(vals.iloc[-12:].sum())
+                    prior_12m = float(vals.iloc[:-12].sum())
+                    if prior_12m > 0:
+                        yoy = (current_12m / prior_12m - 1) * 100
+                        return round(yoy, 2)
         except Exception as e:
             logger.debug(f"Tushare sf_month failed: {e}")
     return _ak_sf()
 
 
 def _ak_sf() -> Optional[float]:
+    """社会融资规模存量同比增速 (%) from akshare."""
     import akshare as ak
     try:
+        # Try to get social financing stock (存量) YoY directly
         df = ak.macro_china_shrzgm()
         if df is not None and not df.empty:
-            vals = pd.to_numeric(df["社会融资规模增量"], errors="coerce").dropna()
-            window = vals.iloc[-12:] if len(vals) >= 12 else vals
-            return round(float(window.sum()), 2)
+            # Check if there's a YoY growth column
+            for col in ["社会融资规模存量同比", "社会融资规模增量"]:
+                if col in df.columns:
+                    vals = pd.to_numeric(df[col], errors="coerce").dropna()
+                    if col == "社会融资规模存量同比" and not vals.empty:
+                        return round(float(vals.iloc[-1]), 2)
+            # Fallback: compute YoY from incremental data
+            col = "社会融资规模增量" if "社会融资规模增量" in df.columns else df.columns[-1]
+            vals = pd.to_numeric(df[col], errors="coerce").dropna()
+            if len(vals) >= 24:
+                current_12m = float(vals.iloc[-12:].sum())
+                prior_12m = float(vals.iloc[-24:-12].sum())
+                if prior_12m > 0:
+                    yoy = (current_12m / prior_12m - 1) * 100
+                    return round(yoy, 2)
     except Exception:
         return None
 

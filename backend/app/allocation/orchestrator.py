@@ -366,14 +366,18 @@ def run(
     pct_group_allocs = {g: round(v * 100, 2) for g, v in group_allocs.items()}
     pct_risk_contributions = {a: round(v * 100, 2) for a, v in saa_result["risk_contributions"].items()}
 
-    # SAA summary
+    # SAA summary — use MC MDD95 when available, otherwise estimate from vol
+    mc_mdd = mc_result.max_drawdown_95 if mc_result else None
+    estimated_mdd = round(saa_result["expected_volatility"] * 2.5, 2)
+    effective_mdd = abs(mc_mdd) if mc_mdd and abs(mc_mdd) > 0 else estimated_mdd
+
     saa_summary = SAASummary(
         allocations=pct_allocations,
         group_allocations=pct_group_allocs,
         equity_center=round(profile.equity_center, 1),
         expected_return=saa_result["expected_return"],
         expected_volatility=saa_result["expected_volatility"],
-        expected_max_drawdown=round(saa_result["expected_volatility"] * 2.5, 2),
+        expected_max_drawdown=effective_mdd,
         sharpe_ratio=_compute_sharpe(saa_result["expected_return"], saa_result["expected_volatility"]),
         glide_path_applied=profile.glide_path_applied,
         risk_contributions=pct_risk_contributions,
@@ -482,19 +486,47 @@ def _compute_group_allocations(allocations: Dict[str, float]) -> Dict[str, float
     return groups
 
 
-def _compute_sharpe(expected_return: float, volatility: float, rf: float = 2.0) -> float:
-    """Compute Sharpe ratio. Returns and vol in % terms."""
+def _compute_sharpe(expected_return: float, volatility: float, rf: float = None) -> float:
+    """Compute Sharpe ratio. Returns and vol in % terms.
+
+    Uses 10Y government bond yield as risk-free rate when available,
+    otherwise falls back to 2.0% default.
+    """
+    if rf is None:
+        rf = _get_risk_free_rate()
     if volatility < 0.01:
         return 0.0
     return round((expected_return - rf) / volatility, 2)
 
 
+def _get_risk_free_rate() -> float:
+    """Get risk-free rate from macro data (10Y government bond yield).
+
+    Falls back to 2.0% if data is unavailable.
+    """
+    try:
+        from .data import market_data_service
+        macro = market_data_service.get_macro_snapshot()
+        if macro is not None:
+            yield_10y = macro.get_value("10Y国债收益率")
+            if yield_10y is not None and 0 < yield_10y < 10:
+                return yield_10y
+    except Exception:
+        pass
+    return 2.0
+
+
 def _compute_portfolio_metrics(saa_result: dict, mc_result, fund_list) -> Dict[str, float]:
     """Assemble portfolio-level metrics for display (frontend field names)."""
+    # Use MC MDD95 when available, otherwise estimate from vol
+    mc_mdd = mc_result.max_drawdown_95 if mc_result else None
+    estimated_mdd = round(saa_result["expected_volatility"] * 2.5, 2)
+    effective_mdd = abs(mc_mdd) if mc_mdd and abs(mc_mdd) > 0 else estimated_mdd
+
     metrics = {
         "expected_return": round(saa_result["expected_return"], 2),
         "volatility": round(saa_result["expected_volatility"], 2),
-        "max_drawdown": round(saa_result["expected_volatility"] * 2.5, 2),
+        "max_drawdown": effective_mdd,
         "sharpe": _compute_sharpe(saa_result["expected_return"], saa_result["expected_volatility"]),
         "calmar": 0.0,
         "fund_count": len(fund_list),

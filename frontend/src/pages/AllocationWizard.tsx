@@ -27,8 +27,8 @@ const BEHAVIOR_QUESTIONS = [
     { value: "partial", label: "止盈部分", adj: 0 }, { value: "all_out", label: "全部止盈", adj: -1 },
   ]},
   { id: "q3_volatility", text: "能接受的年度波动？", options: [
-    { value: "vhigh", label: "20%+，追求高收益", adj: +2 }, { value: "vmid", label: "10-15%，兼顾", adj: 0 },
-    { value: "vlow", label: "5-8%，稳健优先", adj: -1 }, { value: "vnone", label: "几乎不接受亏损", adj: -2 },
+    { value: "high", label: "20%+，追求高收益", adj: +2 }, { value: "medium", label: "10-15%，兼顾", adj: 0 },
+    { value: "low", label: "5-8%，稳健优先", adj: -1 }, { value: "none", label: "几乎不接受亏损", adj: -2 },
   ]},
 ];
 

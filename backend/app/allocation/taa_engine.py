@@ -259,6 +259,7 @@ def _generate_live_signals() -> List[MacroSignalItem]:
                 confidence_str = "medium"
             else:
                 confidence_str = "low"
+                score = 0  # Low confidence indicators should not influence TAA
             threshold_desc = f"当前值: {value:.2f}"
         else:
             score = 0

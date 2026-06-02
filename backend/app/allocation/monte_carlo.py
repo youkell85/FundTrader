@@ -51,7 +51,7 @@ def simulate(
 
     # Monthly parameters
     annual_returns = np.array([cma.expected_returns[a] / 100.0 for a in ASSET_CLASSES])
-    monthly_returns = annual_returns / 12.0
+    monthly_returns = np.power(1 + annual_returns, 1 / 12.0) - 1
 
     # Annual covariance to monthly
     cov_annual = np.array(cma.covariance_matrix, dtype=np.float64)
@@ -76,10 +76,10 @@ def simulate(
         asset_returns = monthly_returns + z @ L.T  # (n_paths, n_assets)
 
         # Regime-aware jump diffusion (Poisson process)
-        # Each asset can experience jumps independently, scaled by sensitivity
-        jump_mask = rng.random((n_paths, N_ASSETS)) < (jp["prob"] * jump_sensitivity[np.newaxis, :])
-        jump_sizes = rng.normal(jp["mean"], jp["vol"], (n_paths, N_ASSETS))
-        asset_returns += jump_mask * jump_sizes * jump_sensitivity[np.newaxis, :]
+        # Jump probability is uniform; only jump size is scaled by sensitivity
+        jump_mask = rng.random((n_paths, N_ASSETS)) < jp["prob"]
+        jump_sizes = rng.normal(jp["mean"] * jump_sensitivity[np.newaxis, :], jp["vol"], (n_paths, N_ASSETS))
+        asset_returns += jump_mask * jump_sizes
 
         # Portfolio return for this month
         port_returns = asset_returns @ weights  # (n_paths,)

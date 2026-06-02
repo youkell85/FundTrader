@@ -195,8 +195,8 @@ def _score_monetary(macro) -> float:
 
 def _classify_quadrant(growth: float, inflation: float, monetary: float) -> str:
     """Classify regime from growth and inflation scores."""
-    # Signal thresholds — lowered from 0.2 for better sensitivity
-    THRESHOLD = 0.1
+    # Signal thresholds
+    THRESHOLD = 0.2
 
     if growth > THRESHOLD and inflation < -THRESHOLD:
         return "goldilocks"

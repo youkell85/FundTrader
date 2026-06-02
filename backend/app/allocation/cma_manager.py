@@ -15,6 +15,7 @@ import pandas as pd
 
 from .config import (
     ASSET_CLASSES,
+    ASSET_TO_GROUP,
     DEFAULT_CORR,
     EQUILIBRIUM_RETURNS,
     EQUILIBRIUM_VOLS,
@@ -251,15 +252,15 @@ def _blend_dicts(anchor: Dict[str, float], signal: Dict[str, float], lam: float)
 def _get_regime_adjustments(regime: str) -> dict:
     """Mild return adjustments based on market regime."""
     if regime == "goldilocks":
-        return {a: 1.0 for a in ASSET_CLASSES if "equity" in a or "share" in a}
+        return {a: 1.0 for a in ASSET_CLASSES if ASSET_TO_GROUP.get(a) == "equity"}
     elif regime == "overheat":
         return {"gold": 1.5, "commodity": 2.0, "rate_bond": -0.5}
     elif regime == "stagflation":
-        adj = {a: -1.5 for a in ASSET_CLASSES if "share" in a}
+        adj = {a: -1.5 for a in ASSET_CLASSES if ASSET_TO_GROUP.get(a) == "equity"}
         adj.update({"gold": 2.0, "rate_bond": 1.0})
         return adj
     elif regime == "deflation":
-        adj = {a: -2.0 for a in ASSET_CLASSES if "share" in a}
+        adj = {a: -2.0 for a in ASSET_CLASSES if ASSET_TO_GROUP.get(a) == "equity"}
         adj.update({"rate_bond": 1.5, "credit_bond": 0.5})
         return adj
     return {}  # baseline — no adjustment

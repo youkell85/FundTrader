@@ -98,23 +98,30 @@ def _l1_risk_budget(cov, returns, bounds, target_budgets, equity_center):
     """Minimize distance between actual and target risk contributions."""
     n = cov.shape[0]
 
-    # Map group budgets to per-asset targets
-    target_rc = np.zeros(n)
+    # Map group budgets to per-asset targets — group-level constraint only,
+    # optimizer decides intra-group distribution based on risk characteristics
+    group_target_rc = {}
     for grp, budget in target_budgets.items():
         group_assets = GROUP_MAP[grp]
-        n_in_group = len(group_assets)
         for a in group_assets:
             idx = ASSET_CLASSES.index(a)
-            target_rc[idx] = budget / n_in_group
+            group_target_rc[idx] = (grp, budget)
 
     def objective(w):
         rc = portfolio_risk_contributions(w, cov)
-        # L2 distance from target
         total_rc = rc.sum()
         if total_rc < 1e-10:
             return 1e6
         rc_pct = rc / total_rc
-        return float(np.sum((rc_pct - target_rc) ** 2))
+        # Group-level L2 distance: sum of (group_rc_sum - group_target)^2
+        group_sums = {}
+        for idx, (grp, _budget) in group_target_rc.items():
+            group_sums.setdefault(grp, 0.0)
+            group_sums[grp] += rc_pct[idx]
+        loss = 0.0
+        for grp, budget in target_budgets.items():
+            loss += (group_sums.get(grp, 0.0) - budget) ** 2
+        return float(loss)
 
     # Constraints
     constraints = [
