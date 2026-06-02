@@ -280,6 +280,7 @@ class TushareProvider(DataProvider):
 
         # 批量查询股票名称（带兜底：查询失败时保留symbol作为名称）
         name_map = {}
+        industry_map = {}
         if symbols:
             try:
                 ts_codes = ",".join(symbols)
@@ -287,6 +288,9 @@ class TushareProvider(DataProvider):
                 if stock_df is not None and not stock_df.empty:
                     for _, row in stock_df.iterrows():
                         name_map[str(row.get("ts_code", ""))] = row.get("name", "")
+                        ind = row.get("industry", "")
+                        if ind:
+                            industry_map[str(row.get("ts_code", ""))] = str(ind)
             except Exception as e:
                 console_error(f"stock_basic batch query error: {e}")
 
@@ -298,10 +302,12 @@ class TushareProvider(DataProvider):
         result = []
         for symbol, ratio in holdings_raw:
             stock_name = name_map.get(symbol, symbol)
+            stock_industry = industry_map.get(symbol, "")
             result.append(FundHolding(
                 name=stock_name,
                 code=symbol,
                 ratio=ratio,
+                industry=stock_industry,
                 quarter=report_period,
                 source=f"Tushare fund_portfolio:{used_ts_code}" if used_ts_code else "Tushare fund_portfolio",
                 updated_at=report_period,
@@ -438,11 +444,11 @@ class TushareProvider(DataProvider):
         return result
 
     def get_fund_company(self, code: str) -> FundCompany | None:
-        """获取基金公司信息（经理人数/基金数/管理总规模）"""
+        """????????????/??????"""
         pro = self._get_pro()
         if pro is None:
             return None
-        # 多后缀回退：.OF（场外）→ .SH（沪市 ETF/LOF）→ .SZ（深市 ETF/LOF）
+        # ??????.OF????? .SH??? ETF/LOF?? .SZ??? ETF/LOF?
         basic_df = None
         for candidate in self._fund_portfolio_codes(code):
             candidate_df = self._safe_call(pro.fund_basic, ts_code=candidate)
@@ -454,15 +460,27 @@ class TushareProvider(DataProvider):
         mgmt = basic_df.iloc[0].get("management", "")
         if not mgmt:
             return None
+
+        # Get company name from fund_company API
+        company_name = mgmt
         company_df = self._safe_call(pro.fund_company, name=mgmt)
-        if company_df is None or company_df.empty:
-            return FundCompany(name=mgmt)
-        row = company_df.iloc[0]
+        if company_df is not None and not company_df.empty:
+            company_name = company_df.iloc[0].get("name", mgmt) or mgmt
+
+        # Count funds managed by this company using fund_basic
+        fund_count = None
+        total_scale = None
+        try:
+            funds_df = self._safe_call(pro.fund_basic, management=mgmt)
+            if funds_df is not None and not funds_df.empty:
+                fund_count = len(funds_df)
+        except Exception:
+            pass
+
         return FundCompany(
-            name=row.get("name", mgmt),
-            manager_count=self._safe_float(row.get("manager_count")),
-            fund_count=self._safe_float(row.get("fund_count")),
-            total_scale=self._safe_float(row.get("total_scale")),
+            name=company_name,
+            fund_count=fund_count,
+            total_scale=total_scale,
         )
 
     def get_trade_cal(self, exchange: str = "SSE", start_date: str = "", end_date: str = "") -> list[TradeCal]:

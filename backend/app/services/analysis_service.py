@@ -156,26 +156,32 @@ def _enrich_holdings_industry(holdings: List[Dict]) -> List[Dict]:
             return holdings
         for batch_start in range(0, len(symbols), 100):
             batch = symbols[batch_start:batch_start + 100]
-            ts_codes = [f"{s}.{provider._stock_market(s)}" for s in batch if s]
+            # Codes may already have suffix (e.g. "301010.SZ") or be bare (e.g. "301010")
+            ts_codes = [s if "." in s else s for s in batch if s]
             if not ts_codes:
                 continue
             df = provider._safe_call(pro.stock_basic, ts_code=','.join(ts_codes), fields='ts_code,industry')
             if df is not None and not df.empty:
                 industry_map = {}
                 for _, row in df.iterrows():
-                    raw_code = str(row.get("ts_code", "")).split(".")[0]
-                    industry_map[raw_code] = str(row.get("industry", ""))
+                    ts = str(row.get("ts_code", ""))
+                    industry_map[ts] = str(row.get("industry", ""))
+                    # Also map by bare code (without suffix)
+                    bare = ts.split(".")[0]
+                    industry_map[bare] = industry_map[ts]
                 for idx, h in enumerate(holdings):
-                    if h.get("industry") in (None, "", "--") and h.get("code") in industry_map:
-                        holdings[idx] = dict(h)
-                        holdings[idx]["industry"] = industry_map[h["code"]]
+                    if h.get("industry") in (None, "", "--"):
+                        code = h.get("code", "")
+                        if code in industry_map:
+                            holdings[idx] = dict(h)
+                            holdings[idx]["industry"] = industry_map[code]
         return holdings
     except Exception:
         return holdings
 
 
 def _fetch_industry_history(code: str) -> List[Dict]:
-    """Fetch historical industry allocation across quarters from fund_portfolio."""
+    """Fetch historical industry allocation across quarters from fund_portfolio + stock_basic."""
     try:
         provider = TushareProvider()
         if not provider.is_available():
@@ -185,23 +191,41 @@ def _fetch_industry_history(code: str) -> List[Dict]:
             return []
         result = []
         for candidate in provider._fund_portfolio_codes(code):
-            df = provider._safe_call(pro.fund_portfolio, ts_code=candidate, fields='end_date,industry,ratio')
+            df = provider._safe_call(pro.fund_portfolio, ts_code=candidate)
             if df is not None and not df.empty:
                 break
         else:
             df = None
         if df is not None and not df.empty:
-            for period in df.groupby("end_date"):
-                end_date = period[0]
-                rows = period[1]
-                industries = []
-                for _, row in rows.iterrows():
-                    ind = str(row.get("industry", ""))
-                    ratio = float(row.get("ratio", 0) or 0)
+            # Get all unique stock symbols across all periods
+            all_symbols = df["symbol"].dropna().unique().tolist() if "symbol" in df.columns else []
+            # Batch lookup industry from stock_basic
+            industry_map = {}
+            for batch_start in range(0, len(all_symbols), 100):
+                batch = all_symbols[batch_start:batch_start + 100]
+                ts_codes = ",".join(batch)
+                stock_df = provider._safe_call(pro.stock_basic, ts_code=ts_codes)
+                if stock_df is not None and not stock_df.empty:
+                    for _, srow in stock_df.iterrows():
+                        ind = str(srow.get("industry", ""))
+                        if ind:
+                            industry_map[str(srow.get("ts_code", ""))] = ind
+
+            # Group by quarter and aggregate by industry
+            for end_date, period_df in df.groupby("end_date"):
+                industries = {}
+                for _, row in period_df.iterrows():
+                    symbol = str(row.get("symbol", ""))
+                    ratio = _normalize_holding_ratio(row.get("stk_mkv_ratio", 0))
+                    ind = industry_map.get(symbol, "")
                     if ind and ratio > 0:
-                        industries.append({"industry": ind, "ratio": round(ratio, 2)})
+                        industries[ind] = industries.get(ind, 0) + ratio
                 if industries:
-                    result.append({"quarter": str(end_date), "industries": industries})
+                    sorted_items = sorted(industries.items(), key=lambda x: x[1], reverse=True)
+                    result.append({
+                        "quarter": str(end_date),
+                        "industries": [{"industry": k, "ratio": round(v, 2)} for k, v in sorted_items],
+                    })
         return result
     except Exception:
         return []
