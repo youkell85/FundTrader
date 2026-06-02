@@ -560,12 +560,26 @@ function scheduleFundAnalysisWarmup(code: string, cacheKey = `analysis_${code}`)
 }
 
 async function fetchFastDetailFallback(code: string, cachedFund?: any) {
-  const [snapshot, quote] = await Promise.all([
+  // 并行 3 个：snapshot(快) + quote(快) + analysis 的 nav_data(慢 8s 超时)
+  // nav_data 即使 analysis 超时也能拿到（_supplement_nav_with_efinance 已改用 DB）
+  const [snapshot, quote, analysis] = await Promise.all([
     getFundSnapshot(code, true).catch(() => null),
     fetchFundQuote(code).catch(() => null),
+    withTimeout(
+      getFundAnalysis(code).catch(() => null),
+      8_000,
+      () => null,
+    ).catch(() => null),
   ]);
+  // 从 analysis 抽出 nav_data，附到 fallback 让累计收益趋势图有数据
+  const navData = Array.isArray((analysis as any)?.nav_data) ? (analysis as any).nav_data : [];
   const quoteFallback = quoteToAnalysis(code, quote, cachedFund?._source || "watchlist");
   const fallback = { ...(cachedFund || {}), ...(snapshot || {}), ...(quoteFallback || {}) };
+  if (navData.length > 0) {
+    fallback.nav_data = navData;
+    fallback.navHistory = navData;
+    fallback.navHistoryFull = navData;
+  }
   return fallback?.code ? fallback : null;
 }
 
