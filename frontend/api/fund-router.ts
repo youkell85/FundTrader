@@ -16,7 +16,6 @@ import {
   getDcaLLMReview,
   ftFetch,
   generateAllocation,
-  requestFundBackfill,
 } from "./lib/fundtrader-client";
 import {
   mapFundItem,
@@ -62,6 +61,7 @@ const LLM_ANALYSIS_TIMEOUT_MS = Number(process.env.FUNDTRADER_LLM_TIMEOUT_MS ?? 
 
 /** 默认缓存TTL按数据层级分配*/
 const BFF_CACHE_TTL = 30 * 60 * 1000;                     // 默认 30分钟
+const PARTIAL_DETAIL_TTL = 2 * 60 * 1000;
 const DAILY_PREWARM_HOUR = Number(process.env.FUNDTRADER_PREWARM_HOUR ?? 6);
 const DAILY_PREWARM_MINUTE = Number(process.env.FUNDTRADER_PREWARM_MINUTE ?? 20);
 const DAILY_CACHE_FLOOR_TTL = 60 * 60 * 1000;
@@ -176,12 +176,17 @@ function hasRiskMetrics(fund: any): boolean {
 function hasDetailPayload(fund: any): boolean {
   if (!fund || typeof fund !== "object") return false;
   const hasNavSeries = Array.isArray(fund?.nav_data) && fund.nav_data.length > 20;
-  const hasManager = !!(
-    (typeof fund?.manager === "string" && fund.manager.trim()) ||
-    (fund?.manager && typeof fund.manager === "object" && (fund.manager.name || fund.manager.manager_name))
+  const hasHoldings = Array.isArray(fund?.holdings) && fund.holdings.length > 0;
+  const hasAssetAllocation = (
+    (Array.isArray(fund?.asset_allocation) && fund.asset_allocation.length > 0) ||
+    (Array.isArray(fund?.assetAllocation) && fund.assetAllocation.length > 0)
   );
-  const hasFee = fund?.feeManage != null || fund?.feeCustody != null;
-  return hasNavSeries || hasManager || hasFee;
+  const hasIndustryHistory = (
+    (Array.isArray(fund?.industry_history) && fund.industry_history.length > 0) ||
+    (Array.isArray(fund?.industryHistory) && fund.industryHistory.length > 0)
+  );
+  const hasDividends = Array.isArray(fund?.dividends) && fund.dividends.length > 0;
+  return hasNavSeries || hasHoldings || hasAssetAllocation || hasIndustryHistory || hasDividends;
 }
 
 function isUsableFundName(name: unknown, code: string) {
@@ -499,6 +504,36 @@ function quoteToAnalysis(code: string, quote: Awaited<ReturnType<typeof fetchFun
   };
 }
 
+async function quoteToAnalysisWithSnapshot(code: string, quote: Awaited<ReturnType<typeof fetchFundQuote>> | null, source = "manual") {
+  const base = quoteToAnalysis(code, quote, source);
+  if (!base) return null;
+  try {
+    const snapshot = await getFundSnapshot(code, false);
+    if (snapshot) {
+      return {
+        ...base,
+        sharpe_ratio: snapshot.sharpe_ratio ?? base.sharpe_ratio,
+        max_drawdown: snapshot.max_drawdown ?? base.max_drawdown,
+        volatility: snapshot.volatility ?? base.volatility,
+        annualized_return: snapshot.annualized_return ?? base.annualized_return,
+        score: snapshot.score ?? base.score,
+        total_scale: snapshot.total_scale ?? base.total_scale,
+        feeManage: snapshot.feeManage ?? base.feeManage,
+        feeCustody: snapshot.feeCustody ?? base.feeCustody,
+        performance: {
+          sharpeRatio: snapshot.sharpe_ratio,
+          maxDrawdown: snapshot.max_drawdown,
+          annualizedReturn: snapshot.annualized_return,
+          volatility: snapshot.volatility,
+        },
+      };
+    }
+  } catch {
+    // snapshot fetch failed, return base
+  }
+  return base;
+}
+
 const PEER_RANKING_CATEGORIES = ["股票型", "混合型", "债券型", "指数型", "QDII", "FOF", "货币"];
 
 async function fetchAndCacheFundAnalysis(code: string, cacheKey = `analysis_${code}`) {
@@ -509,19 +544,26 @@ async function fetchAndCacheFundAnalysis(code: string, cacheKey = `analysis_${co
     ]);
     const merged = analysis ? { ...(snapshot || {}), ...analysis } : snapshot;
     const enriched = await enrichFundAnalysis(merged, code);
-    if (enriched) setCache(cacheKey, enriched, ANALYSIS_TTL);
+    if (enriched) setCache(cacheKey, enriched, hasDetailPayload(enriched) ? ANALYSIS_TTL : PARTIAL_DETAIL_TTL);
     return enriched;
   });
 }
 
 function scheduleFundAnalysisWarmup(code: string, cacheKey = `analysis_${code}`) {
-  dedupe(`detailWarmup_${code}`, () => requestFundBackfill(code).then((snapshot) => {
-    if (snapshot) setCache(cacheKey, snapshot, ANALYSIS_TTL);
-    return snapshot;
-  }))
+  dedupe(`detailWarmup_${code}`, () => fetchAndCacheFundAnalysis(code, cacheKey))
     .catch((err) => {
       console.error(`[fundRouter] detail warmup failed for ${code}:`, err);
     });
+}
+
+async function fetchFastDetailFallback(code: string, cachedFund?: any) {
+  const [snapshot, quote] = await Promise.all([
+    getFundSnapshot(code, true).catch(() => null),
+    fetchFundQuote(code).catch(() => null),
+  ]);
+  const quoteFallback = quoteToAnalysis(code, quote, cachedFund?._source || "watchlist");
+  const fallback = { ...(cachedFund || {}), ...(snapshot || {}), ...(quoteFallback || {}) };
+  return fallback?.code ? fallback : null;
 }
 
 function resolvePeerCategory(...values: unknown[]) {
@@ -681,8 +723,21 @@ export const fundRouter = createRouter({
         if (cached && hasDetailPayload(cached)) return mapFundDetail(cached);
 
         if (hasRiskMetrics(fund) && Array.isArray(fund.nav_data)) {
-          setCache(cacheKey, fund, ANALYSIS_TTL);
+          setCache(cacheKey, fund, hasDetailPayload(fund) ? ANALYSIS_TTL : PARTIAL_DETAIL_TTL);
+          if (!hasDetailPayload(fund)) scheduleFundAnalysisWarmup(fund.code, cacheKey);
           return mapFundDetail(fund);
+        }
+
+        const fallback = await withTimeout(
+          fetchFastDetailFallback(fund.code, fund),
+          1800,
+          () => fund,
+        ).catch(() => fund);
+        if (fallback) {
+          const partial = !hasDetailPayload(fallback);
+          setCache(cacheKey, fallback, partial ? PARTIAL_DETAIL_TTL : ANALYSIS_TTL);
+          if (partial) scheduleFundAnalysisWarmup(fund.code, cacheKey);
+          return mapFundDetail({ ...fallback, _partial: partial });
         }
 
         const enriched = await withTimeout(
@@ -708,8 +763,21 @@ export const fundRouter = createRouter({
         const cachedHomeFunds = getCached<any[]>("homeFunds");
         const cachedHomeFund = cachedHomeFunds?.find((fund: any) => fund?.code === input.code);
         if (cachedHomeFund && hasRiskMetrics(cachedHomeFund) && Array.isArray(cachedHomeFund.nav_data)) {
-          setCache(cacheKey, cachedHomeFund, ANALYSIS_TTL);
+          setCache(cacheKey, cachedHomeFund, hasDetailPayload(cachedHomeFund) ? ANALYSIS_TTL : PARTIAL_DETAIL_TTL);
+          if (!hasDetailPayload(cachedHomeFund)) scheduleFundAnalysisWarmup(input.code, cacheKey);
           return mapFundDetail(cachedHomeFund);
+        }
+
+        const fallback = await withTimeout(
+          fetchFastDetailFallback(input.code, cachedAnalysis || cachedHomeFund),
+          1800,
+          () => cachedAnalysis || cachedHomeFund || null,
+        ).catch(() => cachedAnalysis || cachedHomeFund || null);
+        if (fallback) {
+          const partial = !hasDetailPayload(fallback);
+          setCache(cacheKey, fallback, partial ? PARTIAL_DETAIL_TTL : ANALYSIS_TTL);
+          if (partial) scheduleFundAnalysisWarmup(input.code, cacheKey);
+          return mapFundDetail({ ...fallback, _partial: partial });
         }
 
         const enriched = await withTimeout(
@@ -717,14 +785,14 @@ export const fundRouter = createRouter({
           DETAIL_ANALYSIS_TIMEOUT_MS,
           async () => {
             const quote = await fetchFundQuote(input.code);
-            const fallback = quoteToAnalysis(input.code, quote, "watchlist") || cachedHomeFund || null;
+            const fallback = await quoteToAnalysisWithSnapshot(input.code, quote, "watchlist") || cachedHomeFund || null;
             return fallback ? { ...fallback, _partial: true } : null;
           }
         ).catch(async (analysisErr) => {
           console.error(`[fundRouter] detail analysis failed for ${input.code}:`, analysisErr);
           scheduleFundAnalysisWarmup(input.code, cacheKey);
           const quote = await fetchFundQuote(input.code);
-          const fallback = quoteToAnalysis(input.code, quote, "watchlist") || cachedHomeFund || null;
+          const fallback = await quoteToAnalysisWithSnapshot(input.code, quote, "watchlist") || cachedHomeFund || null;
           return fallback ? { ...fallback, _partial: true } : null;
         });
         if (!enriched) throw new Error(`No fund detail available for ${input.code}`);

@@ -312,16 +312,16 @@ export function mapFundDetail(analysis: any): any {
 
   const holdings = (analysis.holdings || []).map((h: any) => ({
     fundId: base?.id,
-    stockCode: h?.code || "",
-    stockName: h?.name || "",
-    industry: h?.industry || "—",
-    ratio: normalizeRatio(h?.ratio).toFixed(4),
-    changeRatio: h?.change_ratio != null ? String(h.change_ratio) : "0",
-    dailyChange: h?.daily_change != null ? String(h.daily_change) : null,
-    quoteCode: h?.quote_code || null,
-    quarter: h?.quarter || null,
+    stockCode: h?.code || h?.stockCode || h?.stock_code || h?.bondCode || h?.bond_code || "",
+    stockName: h?.name || h?.stockName || h?.stock_name || h?.bondName || h?.bond_name || "",
+    industry: h?.industry || h?.asset_type || h?.type || "—",
+    ratio: normalizeRatio(h?.ratio ?? h?.weight ?? h?.market_value_ratio).toFixed(4),
+    changeRatio: h?.change_ratio != null ? String(h.change_ratio) : h?.changeRatio != null ? String(h.changeRatio) : "0",
+    dailyChange: h?.daily_change != null ? String(h.daily_change) : h?.dailyChange != null ? String(h.dailyChange) : null,
+    quoteCode: h?.quote_code || h?.quoteCode || null,
+    quarter: h?.quarter || h?.report_date || h?.reportDate || null,
     source: h?.source || null,
-    updatedAt: h?.updated_at || null,
+    updatedAt: h?.updated_at || h?.updatedAt || null,
   })).sort((a: any, b: any) => parseFloat(b.ratio || "0") - parseFloat(a.ratio || "0"));
 
   const industries: any[] = [];
@@ -349,13 +349,33 @@ export function mapFundDetail(analysis: any): any {
     cash: item?.div_cash != null ? String(item.div_cash) : item?.cash != null ? String(item.cash) : "",
   })).filter((item: any) => item.exDate || item.annDate || item.cash);
 
+  const industryHistory = (analysis.industry_history || analysis.industryHistory || [])
+    .flatMap((item: any) => {
+      const period = item?.quarter || item?.report_date || item?.reportDate || item?.date || "";
+      if (Array.isArray(item?.industries)) {
+        return item.industries.map((industry: any) => ({
+          period,
+          quarter: period,
+          industry: industry?.industry || industry?.name || "",
+          ratio: normalizeRatio(industry?.ratio ?? industry?.value).toFixed(4),
+        }));
+      }
+      return [{
+        period,
+        quarter: period,
+        industry: item?.industry || item?.name || "",
+        ratio: normalizeRatio(item?.ratio ?? item?.value).toFixed(4),
+      }];
+    })
+    .filter((item: any) => item.period && item.industry && parseFloat(item.ratio) > 0);
+
   return {
     ...base,
     navHistory: navData, // 返回全量净值数据，由前端按周期裁剪
     navHistoryFull: navData, // 保留完整历史供周期切换
     holdings,
     industries,
-    industryHistory: analysis.industry_history || analysis.industryHistory || industries,
+    industryHistory: industryHistory.length ? industryHistory : industries,
     assetAllocation,
     dividends,
     establishDate: analysis.establishDate || analysis.establish_date || analysis.found_date || null,

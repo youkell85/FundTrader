@@ -1,6 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useParams } from "react-router";
-import { ArrowLeft, Star } from "lucide-react";
+import { ArrowLeft, BarChart3, Building2, RefreshCw, ShieldAlert, Star, UserRound } from "lucide-react";
 import {
   Bar,
   BarChart,
@@ -16,8 +16,6 @@ import {
   Radar,
   RadarChart,
   ResponsiveContainer,
-  Scatter,
-  ScatterChart,
   Tooltip,
   XAxis,
   YAxis,
@@ -25,34 +23,51 @@ import {
 import { trpc } from "@/providers/trpc";
 import { getChangeTextClass } from "@/lib/colors";
 
-type TabKey = "ability" | "risk" | "fundamental" | "manager" | "company";
+type TabKey = "overview" | "risk" | "fundamental" | "manager" | "company";
 type HorizonKey = "1w" | "1m" | "3m" | "6m" | "1y";
 type RangeKey = "1M" | "3M" | "6M" | "YTD" | "1Y" | "3Y" | "5Y" | "MAX";
 
 const tabs: { key: TabKey; label: string }[] = [
-  { key: "ability", label: "业绩能力" },
-  { key: "risk", label: "抗风险性" },
-  { key: "fundamental", label: "基本面诊断" },
-  { key: "manager", label: "基金经理诊断" },
-  { key: "company", label: "基金公司诊断" },
+  { key: "overview", label: "业绩能力" },
+  { key: "risk", label: "风险控制" },
+  { key: "fundamental", label: "持仓与资产" },
+  { key: "manager", label: "基金经理" },
+  { key: "company", label: "基金公司" },
 ];
 
 const rangeOptions: RangeKey[] = ["1M", "3M", "6M", "YTD", "1Y", "3Y", "5Y", "MAX"];
 const horizonOptions: HorizonKey[] = ["1w", "1m", "3m", "6m", "1y"];
+const chartColors = ["hsl(var(--primary))", "#46c6c2", "#e9ab60", "#5ca8df", "#dfca58", "#b07be3"];
 
 function n(v: unknown): number | null {
-  const x = parseFloat(String(v ?? "").replace("%", ""));
+  if (v === null || v === undefined || v === "" || v === "—" || v === "--") return null;
+  const x = parseFloat(String(v).replace("%", ""));
   return Number.isFinite(x) ? x : null;
 }
 
 function pct(v: unknown, digits = 2): string {
   const x = n(v);
-  return x === null ? "--" : `${x.toFixed(digits)}%`;
+  return x === null ? "—" : `${x.toFixed(digits)}%`;
 }
 
 function num(v: unknown, digits = 2): string {
   const x = n(v);
-  return x === null ? "--" : x.toFixed(digits);
+  return x === null ? "—" : x.toFixed(digits);
+}
+
+function ratioPct(v: unknown): number {
+  const x = n(v) ?? 0;
+  return x > 1 ? x : x * 100;
+}
+
+function isMissing(v: unknown): boolean {
+  return v === null || v === undefined || v === "" || v === "—" || v === "--";
+}
+
+function formatFee(v: unknown): string {
+  const x = n(v);
+  if (x === null) return "—";
+  return `${(x <= 1 ? x * 100 : x).toFixed(2)}%`;
 }
 
 function toDailyReturns(points: Array<{ nav: number }>): number[] {
@@ -85,18 +100,12 @@ function filterByRange(points: Array<{ d: string; nav: number }>, range: RangeKe
   if (range === "1Y") from = latest - 366 * day;
   if (range === "3Y") from = latest - 1096 * day;
   if (range === "5Y") from = latest - 1827 * day;
-  if (range === "YTD") {
-    const y = new Date(points[points.length - 1].d).getFullYear();
-    from = new Date(`${y}-01-01`).getTime();
-  }
+  if (range === "YTD") from = new Date(`${new Date(latest).getFullYear()}-01-01`).getTime();
   const filtered = points.filter((p) => new Date(p.d).getTime() >= from);
   return filtered.length >= 2 ? filtered : points;
 }
 
-function rollingReturns(
-  points: Array<{ d: string; nav: number }>,
-  horizon: HorizonKey,
-): number[] {
+function rollingReturns(points: Array<{ d: string; nav: number }>, horizon: HorizonKey): number[] {
   const daysMap: Record<HorizonKey, number> = { "1w": 7, "1m": 30, "3m": 90, "6m": 180, "1y": 365 };
   const days = daysMap[horizon];
   const result: number[] = [];
@@ -139,7 +148,6 @@ function computeRisk(points: Array<{ d: string; nav: number }>) {
     ? downside.reduce((a, b) => a + (b - downsideMean) ** 2, 0) / Math.max(1, downside.length - 1)
     : 0;
   const downsideRisk = Math.sqrt(downsideVar) * Math.sqrt(252) * 100;
-
   const rfDaily = 0.02 / 252;
   const sharpe = vol > 0 ? ((mean - rfDaily) * 252) / (vol / 100) : null;
   const sortino = downsideRisk > 0 ? ((mean - rfDaily) * 252) / (downsideRisk / 100) : null;
@@ -150,13 +158,11 @@ function computeRisk(points: Array<{ d: string; nav: number }>) {
     return { d: p.d, dd: peak > 0 ? ((p.nav - peak) / peak) * 100 : 0 };
   });
   const maxDrawdown = drawdownSeries.reduce((m, x) => Math.min(m, x.dd), 0);
-
   const sorted = [...dailyReturns].sort((a, b) => a - b);
   const idx95 = Math.floor(sorted.length * 0.05);
   const var95 = sorted.length ? sorted[idx95] * 100 : null;
   const tail = sorted.slice(0, Math.max(1, idx95 + 1));
   const cvar95 = tail.length ? (tail.reduce((a, b) => a + b, 0) / tail.length) * 100 : null;
-
   const winRate = (dailyReturns.filter((x) => x > 0).length / dailyReturns.length) * 100;
 
   const monthMap = new Map<string, { first: number; last: number }>();
@@ -171,19 +177,29 @@ function computeRisk(points: Array<{ d: string; nav: number }>) {
     .map((m) => ((m.last - m.first) / m.first) * 100);
   const worstMonth = monthReturns.length ? Math.min(...monthReturns) : null;
 
-  return {
-    sharpe,
-    sortino,
-    maxDrawdown,
-    volatility: vol,
-    downsideRisk,
-    winRate,
-    var95,
-    cvar95,
-    worstMonth,
-    dailyReturns,
-    drawdownSeries,
-  };
+  return { sharpe, sortino, maxDrawdown, volatility: vol, downsideRisk, winRate, var95, cvar95, worstMonth, dailyReturns, drawdownSeries };
+}
+
+function EmptyState({ label = "暂无数据" }: { label?: string }) {
+  return <div className="flex h-full min-h-[120px] items-center justify-center text-sm text-muted-foreground">{label}</div>;
+}
+
+function Panel({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="rounded-lg border bg-card text-card-foreground">
+      <div className="border-b px-4 py-3 text-sm font-medium">{title}</div>
+      <div className="p-4">{children}</div>
+    </section>
+  );
+}
+
+function Metric({ label, value, tone }: { label: string; value: string; tone?: string }) {
+  return (
+    <div className="rounded-md border bg-popover px-3 py-2">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className={`mt-1 data-number text-lg font-semibold ${tone || "text-foreground"}`}>{value}</div>
+    </div>
+  );
 }
 
 export default function FundDetail() {
@@ -196,24 +212,37 @@ export default function FundDetail() {
 
   const detailById = trpc.fund.detail.useQuery({ id: fundId }, { enabled: !isCode && fundId > 0 });
   const detailByCode = trpc.fund.detailByCode.useQuery({ code }, { enabled: isCode });
-  const fund = isCode ? detailByCode.data : detailById.data;
-  const loading = isCode ? detailByCode.isLoading : detailById.isLoading;
-  const err = isCode ? detailByCode.error : detailById.error;
+  const activeDetail = isCode ? detailByCode : detailById;
+  const fund = activeDetail.data;
+  const loading = activeDetail.isLoading;
+  const err = activeDetail.error;
 
-  const peerQ = trpc.fund.peerPerformanceRanking.useQuery({ code }, { enabled: isCode });
-  const managerQ = trpc.fund.managerDetail.useQuery(
-    { id: fund?.managerId || 0 },
-    { enabled: Boolean(fund?.managerId) },
-  );
-  const companyFundsQ = trpc.fund.list.useQuery(
-    { company: fund?.company, page: 1, pageSize: 1000, sortBy: "return1y", sortOrder: "desc", withMetrics: true },
-    { enabled: Boolean(fund?.company) },
-  );
-
-  const [tab, setTab] = useState<TabKey>("ability");
+  const [tab, setTab] = useState<TabKey>("overview");
   const [range, setRange] = useState<RangeKey>("1Y");
   const [horizon, setHorizon] = useState<HorizonKey>("1m");
-  const [radarRange, setRadarRange] = useState<"1Y" | "3Y" | "5Y">("1Y");
+  const [partialRetries, setPartialRetries] = useState(0);
+
+  useEffect(() => {
+    if (!fund?._partial || partialRetries >= 6) return;
+    const timer = window.setTimeout(() => {
+      setPartialRetries((value) => value + 1);
+      activeDetail.refetch();
+    }, 7000);
+    return () => window.clearTimeout(timer);
+  }, [activeDetail, fund?._partial, partialRetries]);
+
+  const peerQ = trpc.fund.peerPerformanceRanking.useQuery(
+    { code },
+    { enabled: Boolean(fund) && isCode && tab === "overview" },
+  );
+  const managerQ = trpc.fund.managerDetail.useQuery(
+    { id: fund?.managerId || 0 },
+    { enabled: Boolean(fund?.managerId) && tab === "manager" },
+  );
+  const companyFundsQ = trpc.fund.list.useQuery(
+    { company: fund?.company, page: 1, pageSize: 300, sortBy: "return1y", sortOrder: "desc", withMetrics: true },
+    { enabled: Boolean(fund?.company) && tab === "company" },
+  );
 
   const navPoints = useMemo(
     () => ((fund?.navHistory || [])
@@ -224,6 +253,8 @@ export default function FundDetail() {
   );
   const scopedPoints = useMemo(() => filterByRange(navPoints, range), [navPoints, range]);
   const risk = useMemo(() => computeRisk(scopedPoints), [scopedPoints]);
+  const annualized = useMemo(() => calcAnnualized(scopedPoints), [scopedPoints]);
+  const rolling = useMemo(() => rollingReturns(navPoints, horizon), [navPoints, horizon]);
 
   const navSeries = useMemo(() => {
     if (!scopedPoints.length) return [];
@@ -235,8 +266,61 @@ export default function FundDetail() {
     }));
   }, [scopedPoints, risk.drawdownSeries]);
 
-  const annualized = useMemo(() => calcAnnualized(scopedPoints), [scopedPoints]);
-  const rolling = useMemo(() => rollingReturns(navPoints, horizon), [navPoints, horizon]);
+  const performanceRows = peerQ.data?.rows || [];
+  const rowByKey = (key: string) => performanceRows.find((r: any) => r.key === key);
+  const r1y = rowByKey("return1y");
+  const r1m = rowByKey("return1m");
+  const r3m = rowByKey("return3m");
+  const r6m = rowByKey("return6m");
+
+  const score = useMemo(() => {
+    const ret1y = n(fund?.performance?.return1y) ?? r1y?.value ?? 0;
+    const sharpe = n(fund?.performance?.sharpeRatio) ?? risk.sharpe ?? 0;
+    const mdd = Math.abs(n(fund?.performance?.maxDrawdown) ?? risk.maxDrawdown ?? 0);
+    return Math.max(1, Math.min(99, Math.round(55 + ret1y * 0.6 + sharpe * 8 - mdd)));
+  }, [fund?.performance?.return1y, fund?.performance?.sharpeRatio, fund?.performance?.maxDrawdown, r1y?.value, risk.sharpe, risk.maxDrawdown]);
+
+  const abilityRadar = useMemo(() => ([
+    { k: "收益", value: Math.max(0, Math.min(100, 50 + (n(fund?.performance?.return1y) ?? 0))), base: 50 },
+    { k: "回撤", value: Math.max(0, Math.min(100, 90 - Math.abs(n(fund?.performance?.maxDrawdown) ?? risk.maxDrawdown ?? 0) * 2)), base: 50 },
+    { k: "波动", value: Math.max(0, Math.min(100, 90 - (risk.volatility ?? 0))), base: 50 },
+    { k: "持仓", value: Math.max(0, Math.min(100, 35 + (fund?.holdings?.length || 0) * 5)), base: 50 },
+    { k: "经理", value: Math.max(0, Math.min(100, 35 + (n(fund?.manager?.manageYears) ?? 0) * 8)), base: 50 },
+  ]), [fund?.performance?.return1y, fund?.performance?.maxDrawdown, risk.maxDrawdown, risk.volatility, fund?.holdings?.length, fund?.manager?.manageYears]);
+
+  const holdingsByIndustry = useMemo(() => {
+    const source = (fund?.industries || []).length
+      ? fund.industries.map((x: any) => ({ k: x.industry, v: ratioPct(x.ratio) }))
+      : (fund?.holdings || []).map((x: any) => ({ k: x.industry || "其他", v: ratioPct(x.ratio) }));
+    const map = new Map<string, number>();
+    source.forEach((x: any) => map.set(x.k, (map.get(x.k) || 0) + x.v));
+    return Array.from(map.entries())
+      .map(([k, value]) => ({ k, value: Number(value.toFixed(2)) }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 12);
+  }, [fund?.industries, fund?.holdings]);
+
+  const industryHistory = useMemo(() => {
+    const raw = fund?.industryHistory || [];
+    const points = raw
+      .map((x: any) => ({
+        period: String(x.quarter || x.period || x.reportDate || x.date || ""),
+        industry: String(x.industry || x.name || ""),
+        ratio: ratioPct(x.ratio),
+      }))
+      .filter((x: any) => x.period && x.industry);
+    if (!points.length) return [];
+    const topIndustries = Array.from(new Set(points.map((p: any) => p.industry))).slice(0, 6);
+    const periods = Array.from(new Set(points.map((p: any) => p.period))).sort();
+    return periods.map((period) => {
+      const row: Record<string, string | number> = { period };
+      topIndustries.forEach((ind) => {
+        const found = points.find((p: any) => p.period === period && p.industry === ind);
+        row[ind] = found ? Number(found.ratio.toFixed(2)) : 0;
+      });
+      return row;
+    });
+  }, [fund?.industryHistory]);
 
   const profitBuckets = useMemo(() => {
     const buckets = [
@@ -252,11 +336,7 @@ export default function FundDetail() {
       else buckets[3].count += 1;
     });
     const total = Math.max(1, rolling.length);
-    return buckets.map((b) => ({
-      ...b,
-      profitProb: ((b.count / total) * 100),
-      lossProb: b.key === "<0" ? 100 - ((b.count / total) * 100) : ((buckets[0].count / total) * 100),
-    }));
+    return buckets.map((b) => ({ ...b, probability: (b.count / total) * 100 }));
   }, [rolling]);
 
   const varHistogram = useMemo(() => {
@@ -274,75 +354,17 @@ export default function FundDetail() {
       const idx = Math.min(bins - 1, Math.max(0, Math.floor((v - min) / step)));
       data[idx].density += 1;
     });
-    return data.map((x) => ({ ...x, density: x.density / values.length }));
+    return data.map((x) => ({ ...x, density: Number((x.density / values.length).toFixed(3)) }));
   }, [risk.dailyReturns]);
 
-  const stressBars = useMemo(() => {
-    const dd = [...risk.drawdownSeries].sort((a, b) => a.dd - b.dd).slice(0, 3);
-    return dd.map((x, idx) => ({ name: `压力${idx + 1}`, date: x.d, fund: x.dd }));
-  }, [risk.drawdownSeries]);
-
-  const performanceRows = peerQ.data?.rows || [];
-  const rowByKey = (key: string) => performanceRows.find((r: any) => r.key === key);
-  const r1y = rowByKey("return1y");
-  const r1m = rowByKey("return1m");
-  const r3m = rowByKey("return3m");
-  const r6m = rowByKey("return6m");
-
-  const score = useMemo(() => {
-    const ret1y = n(fund?.performance?.return1y) ?? r1y?.value ?? 0;
-    const sharpe = n(fund?.performance?.sharpeRatio) ?? risk.sharpe ?? 0;
-    const mdd = Math.abs(n(fund?.performance?.maxDrawdown) ?? risk.maxDrawdown ?? 0);
-    return Math.max(1, Math.min(99, Math.round(55 + ret1y * 0.6 + sharpe * 8 - mdd)));
-  }, [fund?.performance?.return1y, fund?.performance?.sharpeRatio, fund?.performance?.maxDrawdown, r1y?.value, risk.sharpe, risk.maxDrawdown]);
-
-  const abilityRadar = useMemo(() => ([
-    { k: "业绩能力", f: Math.max(0, Math.min(100, 50 + (n(fund?.performance?.return1y) ?? 0))), p: 50 },
-    { k: "抗风险性", f: Math.max(0, Math.min(100, 90 - Math.abs(risk.maxDrawdown ?? 0) * 2)), p: 50 },
-    { k: "基本面", f: Math.max(0, Math.min(100, 30 + (fund?.holdings?.length || 0) * 4)), p: 50 },
-    { k: "基金经理", f: Math.max(0, Math.min(100, 30 + (n(fund?.manager?.manageYears) ?? 0) * 8)), p: 50 },
-    { k: "基金公司", f: Math.max(0, Math.min(100, 30 + Math.log2((companyFundsQ.data?.funds?.length || 1) + 1) * 12)), p: 50 },
-  ]), [fund?.performance?.return1y, risk.maxDrawdown, fund?.holdings?.length, fund?.manager?.manageYears, companyFundsQ.data?.funds?.length]);
-
-  const holdingsByIndustry = useMemo(() => {
-    const source = (fund?.industries || []).length
-      ? fund.industries.map((x: any) => ({ k: x.industry, v: (n(x.ratio) ?? 0) * ((n(x.ratio) ?? 0) > 1 ? 1 : 100) }))
-      : (fund?.holdings || []).map((x: any) => ({ k: x.industry || "其他", v: (n(x.ratio) ?? 0) * ((n(x.ratio) ?? 0) > 1 ? 1 : 100) }));
-    const map = new Map<string, number>();
-    source.forEach((x: any) => map.set(x.k, (map.get(x.k) || 0) + x.v));
-    return Array.from(map.entries())
-      .map(([k, f]) => ({ k, f: Number(f.toFixed(2)) }))
-      .sort((a, b) => b.f - a.f)
-      .slice(0, 12);
-  }, [fund?.industries, fund?.holdings]);
-
-  const industryHistory = useMemo(() => {
-    const raw = fund?.industryHistory || [];
-    const points = raw
-      .map((x: any) => ({
-        period: String(x.quarter || x.reportDate || x.date || ""),
-        industry: String(x.industry || x.name || ""),
-        ratio: (n(x.ratio) ?? 0) * ((n(x.ratio) ?? 0) > 1 ? 1 : 100),
-      }))
-      .filter((x: any) => x.period && x.industry);
-    if (!points.length) return [];
-    const topIndustries = Array.from(new Set(points.map((p: any) => p.industry))).slice(0, 6);
-    const periods = Array.from(new Set(points.map((p: any) => p.period))).sort();
-    return periods.map((period) => {
-      const row: Record<string, string | number> = { period };
-      topIndustries.forEach((ind) => {
-        const found = points.find((p: any) => p.period === period && p.industry === ind);
-        row[ind] = found ? Number(found.ratio.toFixed(2)) : 0;
-      });
-      return row;
-    });
-  }, [fund?.industryHistory]);
+  const stressBars = useMemo(
+    () => [...risk.drawdownSeries].sort((a, b) => a.dd - b.dd).slice(0, 3).map((x, idx) => ({ name: `压力${idx + 1}`, date: x.d, drawdown: x.dd })),
+    [risk.drawdownSeries],
+  );
 
   const managerFunds = managerQ.data?.funds || [];
   const managerBars = useMemo(
-    () => managerFunds
-      .slice(0, 10)
-      .map((f: any) => ({ name: (f.fundAbbr || f.fundName || f.fundCode || "").slice(0, 8), return1y: n(f.performance?.return1y) ?? 0 })),
+    () => managerFunds.slice(0, 10).map((f: any) => ({ name: (f.fundAbbr || f.fundName || f.fundCode || "").slice(0, 8), return1y: n(f.performance?.return1y) ?? 0 })),
     [managerFunds],
   );
 
@@ -357,504 +379,450 @@ export default function FundDetail() {
       cur.count += 1;
       map.set(key, cur);
     });
-    return Array.from(map.entries()).map(([t, x]) => ({
-      t,
+    return Array.from(map.entries()).map(([type, x]) => ({
+      type,
       avgReturn1y: x.returns.length ? x.returns.reduce((a, b) => a + b, 0) / x.returns.length : 0,
       count: x.count,
     })).sort((a, b) => b.count - a.count);
   }, [companyFunds]);
 
-  if (loading) return <div className="min-h-screen pt-16 text-center text-white/60">加载基金详情中...</div>;
-  if (err || !fund) return <div className="min-h-screen pt-16 text-center text-white/60">基金详情加载失败</div>;
+  if (loading) {
+    return <div className="min-h-screen pt-20 text-center text-muted-foreground">加载基金详情中...</div>;
+  }
+  if (err || !fund) {
+    return <div className="min-h-screen pt-20 text-center text-muted-foreground">基金详情加载失败</div>;
+  }
 
-  const fundName = fund.fundName || fund.fundAbbr || "--";
-
-  const styleMap: Record<string, string> = {
-    "股票型": "大盘成长",
-    "混合型": "平衡型",
-    "债券型": "稳健型",
-    "指数型": "被动跟踪",
-    "货币": "保守型",
-    "FOF": "多元配置",
-    "QDII": "海外配置",
-  };
-  const investmentStyle =
-    fund.manager?.investmentStyle || styleMap[fund.fundType || ""] || "--";
+  const fundName = fund.fundName || fund.fundAbbr || fund.fundCode || "--";
+  const isPartial = Boolean((fund as any)?._partial);
+  const navDate = fund.navDate || fund.nav_date || navPoints[navPoints.length - 1]?.d || "—";
+  const basicRows = [
+    ["成立日期", fund.establishDate || "—"],
+    ["基金公司", fund.company || "—"],
+    ["基金经理", fund.manager?.name || "—"],
+    ["基金规模", `${fund.totalScale || "—"} 亿元`],
+    ["投资类型", fund.category || fund.fundType || "—"],
+    ["比较基准", fund.benchmark || "—"],
+    ["管理费", formatFee(fund.feeManage)],
+    ["托管费", formatFee(fund.feeCustody)],
+  ];
 
   return (
     <div className="min-h-screen pb-8 pt-14">
-      <div className="mx-auto max-w-[1800px] px-2">
-        <div className="mb-2 flex items-center gap-2 text-sm text-white/60">
-          <Link to={from} className="inline-flex items-center gap-1 hover:text-white"><ArrowLeft className="h-4 w-4" />返回</Link>
-          <span>/</span><span>{fundName}</span>
+      <div className="mx-auto max-w-[1440px] px-3 md:px-5">
+        <div className="mb-3 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+          <Link to={from} className="inline-flex items-center gap-1 hover:text-foreground">
+            <ArrowLeft className="h-4 w-4" />
+            返回
+          </Link>
+          <span>/</span>
+          <span className="truncate">{fundName}</span>
+          {isPartial && (
+            <button
+              onClick={() => activeDetail.refetch()}
+              className="ml-auto inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-secondary"
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+              补全数据中
+            </button>
+          )}
         </div>
 
-        <div className="rounded border border-white/[0.08] bg-[#11141d]">
-          <div className="bg-[#3b6fb8] px-3 py-1.5 text-2xl font-semibold text-white">{fundName} ({fund.fundCode})</div>
-          <div className="grid gap-3 p-3 md:grid-cols-3">
-            <div>
-              <div className="text-sm text-white/70">单位净值</div>
-              <div className="text-5xl text-[#1fb156]">{num(fund.nav, 4)}<span className={`ml-2 text-3xl ${getChangeTextClass(fund.dailyChange)}`}>{pct(fund.dailyChange)}</span></div>
-            </div>
-            <div>
-              <div className="text-sm text-white/70">累计净值</div>
-              <div className="text-5xl text-[#ff3a57]">{num(fund.accumNav, 4)}</div>
-            </div>
-            <div className="space-y-1 text-sm text-white/80">
-              <div>类型：<span className="text-[#8eb8ff]">{fund.category || fund.fundType || "--"}</span></div>
-              <div>规模：{fund.totalScale || "--"} 亿元</div>
-              <div>基金经理：<span className="text-[#8eb8ff]">{fund.manager?.name || "--"}</span></div>
-              <div className="inline-flex items-center gap-1">基金评级：{Array.from({ length: 5 }).map((_, i) => <Star key={i} className={`h-4 w-4 ${i < (fund.stars || 0) ? "fill-[#ff9f3a] text-[#ff9f3a]" : "text-white/20"}`} />)}</div>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-2 px-3 pb-3 text-lg md:grid-cols-6">
-            {[["近1月", r1m?.value], ["近3月", r3m?.value], ["近6月", r6m?.value], ["近1年", r1y?.value], ["年化", annualized], ["最大回撤", risk.maxDrawdown]].map(([label, value]) => (
-              <div key={String(label)}>{label}：<span className={getChangeTextClass(value)}>{pct(value)}</span></div>
-            ))}
-          </div>
-        </div>
-
-        {(fund as any)?._partial && (
-          <div className="bg-yellow-900/30 border border-yellow-700/50 rounded-lg px-4 py-2 my-3 text-yellow-200 text-sm">
-            部分数据正在加载中，当前显示的信息可能不完整
-          </div>
-        )}
-
-        <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-[1fr_360px]">
-          <main className="space-y-3">
-            <div className="rounded border border-white/[0.08] bg-[#11141d] p-2">
-              <div className="mb-2 flex items-center justify-between text-sm">
-                <div className="flex gap-5">
-                  {tabs.map((item) => (
-                    <button key={item.key} className={`border-b-2 pb-0.5 ${tab === item.key ? "border-[#3f6cff] text-[#8fb4ff]" : "border-transparent text-white/75"}`} onClick={() => setTab(item.key)}>
-                      {item.label}
-                    </button>
-                  ))}
-                </div>
-                <button className="rounded border border-white/[0.2] px-2 py-0.5">导出PDF</button>
+        <section className="rounded-lg border bg-card text-card-foreground">
+          <div className="grid gap-4 p-4 lg:grid-cols-[1fr_440px]">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <h1 className="truncate text-2xl font-semibold md:text-3xl">{fundName}</h1>
+                <span className="rounded-md border px-2 py-1 data-number text-sm text-muted-foreground">{fund.fundCode}</span>
+                <span className="rounded-md bg-secondary px-2 py-1 text-xs">{fund.category || fund.fundType || "其他"}</span>
               </div>
+              <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+                <Metric label="单位净值" value={num(fund.nav, 4)} />
+                <Metric label="日涨跌" value={pct(fund.dailyChange)} tone={getChangeTextClass(fund.dailyChange)} />
+                <Metric label="累计净值" value={num(fund.accumNav, 4)} />
+                <Metric label="净值日期" value={String(navDate)} />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+              <Metric label="近1月" value={pct(r1m?.value ?? fund.performance?.return1m)} tone={getChangeTextClass(r1m?.value ?? fund.performance?.return1m)} />
+              <Metric label="近3月" value={pct(r3m?.value ?? fund.performance?.return3m)} tone={getChangeTextClass(r3m?.value ?? fund.performance?.return3m)} />
+              <Metric label="近6月" value={pct(r6m?.value ?? fund.performance?.return6m)} tone={getChangeTextClass(r6m?.value ?? fund.performance?.return6m)} />
+              <Metric label="近1年" value={pct(r1y?.value ?? fund.performance?.return1y)} tone={getChangeTextClass(r1y?.value ?? fund.performance?.return1y)} />
+              <Metric label="年化收益" value={annualized === null ? pct(fund.performance?.annualizedReturn) : `${annualized.toFixed(2)}%`} tone={getChangeTextClass(annualized ?? fund.performance?.annualizedReturn)} />
+              <Metric label="最大回撤" value={pct(fund.performance?.maxDrawdown ?? risk.maxDrawdown)} tone={getChangeTextClass(-(Math.abs(n(fund.performance?.maxDrawdown) ?? risk.maxDrawdown ?? 0)))} />
+            </div>
+          </div>
+          {isPartial && (
+            <div className="border-t px-4 py-2 text-sm text-muted-foreground">
+              已先展示本地快照，净值历史、持仓、行业和公司数据会在后台补全。
+            </div>
+          )}
+        </section>
 
-              {tab === "ability" && (
-                <div className="space-y-3">
-                  <div className="grid grid-cols-[280px_1fr] gap-2">
-                    <div className="rounded border border-white/[0.08] bg-white/[0.02] p-3 text-center">
-                      <div className="data-number text-8xl font-semibold">{score}</div>
-                      <div className="text-5xl font-semibold">综合评分</div>
-                    </div>
-                    <div className="rounded border border-white/[0.08] bg-white/[0.02] p-3">
-                      <div className="mb-2 text-xl">诊断完毕，综合评价：<span className="text-[#ff3a57]">{score >= 85 ? "优秀" : score >= 70 ? "良好" : "一般"}</span></div>
-                      <div className="h-[220px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <RadarChart data={abilityRadar}>
-                            <PolarGrid />
-                            <PolarAngleAxis dataKey="k" />
-                            <PolarRadiusAxis domain={[0, 100]} />
-                            <Radar dataKey="f" stroke="#5b6fb6" fill="#5b6fb6" fillOpacity={0.24} name="本基金" />
-                            <Radar dataKey="p" stroke="#46c6c2" fill="#46c6c2" fillOpacity={0.12} name="基准" />
-                            <Legend />
-                          </RadarChart>
-                        </ResponsiveContainer>
-                      </div>
-                    </div>
-                  </div>
+        <div className="mt-3 flex gap-2 overflow-x-auto rounded-lg border bg-card p-2">
+          {tabs.map((item) => (
+            <button
+              key={item.key}
+              className={`whitespace-nowrap rounded-md px-3 py-2 text-sm ${tab === item.key ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-secondary hover:text-foreground"}`}
+              onClick={() => setTab(item.key)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
 
-                  <div className="rounded border border-white/[0.08] bg-white/[0.02] p-2">
-                    <div className="mb-2 flex items-center gap-2 text-sm">
-                      <span>累计收益趋势</span>
-                      {rangeOptions.map((r) => <button key={r} className={`rounded border px-1.5 py-0.5 ${range === r ? "border-[#4c7fff] text-[#9ec0ff]" : "border-white/[0.2] text-white/70"}`} onClick={() => setRange(r)}>{r}</button>)}
+        <div className="mt-3 grid grid-cols-1 gap-3 xl:grid-cols-[minmax(0,1fr)_360px]">
+          <main className="min-w-0 space-y-3">
+            {tab === "overview" && (
+              <>
+                <div className="grid grid-cols-1 gap-3 lg:grid-cols-[260px_minmax(0,1fr)]">
+                  <Panel title="综合评分">
+                    <div className="flex h-[220px] flex-col items-center justify-center">
+                      <div className="data-number text-7xl font-semibold">{score}</div>
+                      <div className="mt-2 text-sm text-muted-foreground">{score >= 85 ? "表现优秀" : score >= 70 ? "表现良好" : "需要观察"}</div>
                     </div>
-                    <div className="h-[280px]">
-                      {navSeries.length === 0 ? (
-                        <div className="flex items-center justify-center h-full text-muted-foreground text-sm">暂无数据</div>
-                      ) : (
-                      <ResponsiveContainer width="100%" height="100%">
-                        <ComposedChart data={navSeries}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
-                          <XAxis dataKey="d" tick={{ fontSize: 10 }} />
-                          <YAxis />
-                          <Tooltip />
-                          <Legend />
-                          <Line dataKey="fund" stroke="#5b6fb6" dot={false} name="本基金" />
-                        </ComposedChart>
-                      </ResponsiveContainer>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="rounded border border-white/[0.08] bg-white/[0.02] p-2">
-                    <div className="mb-1 text-sm">业绩表现</div>
-                    <table className="w-full text-sm">
-                      <thead><tr className="border-b border-white/[0.1]"><th className="text-left">指标</th><th>本基金</th><th>同类平均</th><th>同类排名</th></tr></thead>
-                      <tbody>
-                        {performanceRows.map((row: any) => (
-                          <tr key={row.key} className="border-b border-white/[0.06] text-center">
-                            <td className="text-left">{row.label}</td>
-                            <td>{pct(row.value)}</td>
-                            <td>{pct(row.peerAverage)}</td>
-                            <td>{row.rank && row.total ? `${row.rank}/${row.total}` : "--"}</td>
-                          </tr>
-                        ))}
-                        <tr className="border-b border-white/[0.06] text-center"><td className="text-left">Sharpe(年化)</td><td>{num(fund.performance?.sharpeRatio ?? risk.sharpe)}</td><td>--</td><td>--</td></tr>
-                        <tr className="border-b border-white/[0.06] text-center"><td className="text-left">最大回撤</td><td>{pct(fund.performance?.maxDrawdown ?? risk.maxDrawdown)}</td><td>--</td><td>--</td></tr>
-                      </tbody>
-                    </table>
-                  </div>
-
-                  <div className="rounded border border-white/[0.08] bg-white/[0.02] p-2">
-                    <div className="mb-2 flex items-center gap-2 text-sm">
-                      <span>盈利预测（历史滚动窗口）</span>
-                      {horizonOptions.map((h) => <button key={h} className={`rounded border px-1.5 py-0.5 ${horizon === h ? "border-[#4c7fff] text-[#9ec0ff]" : "border-white/[0.2] text-white/70"}`} onClick={() => setHorizon(h)}>{h}</button>)}
-                    </div>
-                    <table className="w-full text-sm">
-                      <thead><tr className="border-b border-white/[0.1]"><th className="text-left">盈利区间</th><th>区间概率</th><th>亏损概率</th></tr></thead>
-                      <tbody>{profitBuckets.map((b) => <tr key={b.key} className="border-b border-white/[0.06]"><td>{b.label}</td><td>{b.profitProb.toFixed(2)}%</td><td>{b.lossProb.toFixed(2)}%</td></tr>)}</tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
-
-              {tab === "risk" && (
-                <div className="space-y-3">
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="rounded border border-white/[0.08] bg-white/[0.02] p-2">
-                      <div className="mb-1 text-sm">风险分析</div>
-                      <table className="w-full text-sm">
-                        <tbody>
-                          {[
-                            ["最大回撤", pct(risk.maxDrawdown)],
-                            ["下行风险(年化)", pct(risk.downsideRisk)],
-                            ["年化波动率", pct(risk.volatility)],
-                            ["Sharpe(年化)", num(risk.sharpe)],
-                            ["Sortino", num(risk.sortino)],
-                            ["VaR(95%)", pct(risk.var95)],
-                            ["CVaR(95%)", pct(risk.cvar95)],
-                            ["最差单月", pct(risk.worstMonth)],
-                            ["日胜率", pct(risk.winRate)],
-                          ].map((r) => <tr key={r[0]} className="border-b border-white/[0.06]"><td>{r[0]}</td><td className="text-right">{r[1]}</td></tr>)}
-                        </tbody>
-                      </table>
-                    </div>
-                    <div className="rounded border border-white/[0.08] bg-white/[0.02] p-2">
-                      <div className="h-[280px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <ScatterChart>
-                            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
-                            <XAxis type="number" dataKey="x" name="年化波动率" />
-                            <YAxis type="number" dataKey="y" name="下行风险" />
-                            <Tooltip />
-                            <Scatter data={[{ x: risk.volatility ?? 0, y: risk.downsideRisk ?? 0 }]} fill="#5b6fb6" name="本基金" />
-                          </ScatterChart>
-                        </ResponsiveContainer>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="rounded border border-white/[0.08] bg-white/[0.02] p-2">
-                    <div className="mb-1 text-sm">动态回撤</div>
-                    <div className="h-[260px]">
-                      {navSeries.length === 0 ? (
-                        <div className="flex items-center justify-center h-full text-muted-foreground text-sm">暂无数据</div>
-                      ) : (
-                      <ResponsiveContainer width="100%" height="100%">
-                        <ComposedChart data={navSeries}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
-                          <XAxis dataKey="d" tick={{ fontSize: 10 }} />
-                          <YAxis />
-                          <Tooltip />
-                          <Line dataKey="dd" stroke="#5b6fb6" dot={false} name="本基金回撤" />
-                        </ComposedChart>
-                      </ResponsiveContainer>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="rounded border border-white/[0.08] bg-white/[0.02] p-2">
-                      <div className="mb-1 text-sm">VaR 分布</div>
-                      <div className="h-[230px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={varHistogram}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
-                            <XAxis dataKey="bucket" tick={{ fontSize: 10 }} />
-                            <YAxis />
-                            <Tooltip />
-                            <Bar dataKey="density" fill="#5b6fb6" name="频率" />
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </div>
-                    </div>
-                    <div className="rounded border border-white/[0.08] bg-white/[0.02] p-2">
-                      <div className="mb-1 text-sm">历史压力区间</div>
-                      <div className="h-[230px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={stressBars}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
-                            <XAxis dataKey="date" tick={{ fontSize: 10 }} />
-                            <YAxis />
-                            <Tooltip />
-                            <Bar dataKey="fund" fill="#5b6fb6" name="回撤(%)" />
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {tab === "fundamental" && (
-                <div className="space-y-3">
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="rounded border border-white/[0.08] bg-white/[0.02] p-2">
-                      <div className="mb-1 text-sm">资产分布</div>
-                      <div className="h-[220px]">
-                        {(!fund.assetAllocation || fund.assetAllocation.length === 0) ? (
-                          <div className="flex items-center justify-center h-full text-muted-foreground text-sm">暂无数据</div>
-                        ) : (
-                        <ResponsiveContainer width="100%" height="100%">
-                          <PieChart>
-                            <Tooltip />
-                            <Legend />
-                            <Pie
-                              data={(fund.assetAllocation || []).map((x: any) => ({
-                                name: x.name,
-                                value: (n(x.ratio) ?? 0) * ((n(x.ratio) ?? 0) > 1 ? 1 : 100),
-                              }))}
-                              dataKey="value"
-                              nameKey="name"
-                              outerRadius={80}
-                              fill="#5b6fb6"
-                            />
-                          </PieChart>
-                        </ResponsiveContainer>
-                        )}
-                      </div>
-                    </div>
-                    <div className="rounded border border-white/[0.08] bg-white/[0.02] p-2">
-                      <div className="mb-1 text-sm">行业配置</div>
-                      <div className="h-[220px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <BarChart layout="vertical" data={holdingsByIndustry}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
-                            <XAxis type="number" />
-                            <YAxis type="category" dataKey="k" width={90} />
-                            <Tooltip />
-                            <Bar dataKey="f" fill="#5b6fb6" name="占净值比例(%)" />
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="rounded border border-white/[0.08] bg-white/[0.02] p-2">
-                    <div className="mb-1 text-sm">行业配置（历史）</div>
-                    <div className="h-[240px]">
-                      {industryHistory.length === 0 ? (
-                        <div className="flex items-center justify-center h-full text-muted-foreground text-sm">暂无数据</div>
-                      ) : (
-                      <ResponsiveContainer width="100%" height="100%">
-                        <ComposedChart data={industryHistory}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
-                          <XAxis dataKey="period" tick={{ fontSize: 10 }} />
-                          <YAxis />
-                          <Tooltip />
-                          <Legend />
-                          {Object.keys(industryHistory[0]).filter((k) => k !== "period").map((k, idx) => (
-                            <Line key={k} dataKey={k} stroke={["#5b6fb6", "#46c6c2", "#e9ab60", "#5ca8df", "#dfca58", "#b07be3"][idx % 6]} dot={false} />
-                          ))}
-                        </ComposedChart>
-                      </ResponsiveContainer>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="rounded border border-white/[0.08] bg-white/[0.02] p-2">
-                      <div className="mb-1 text-sm">重仓股票 / 债券</div>
-                      {(!fund.holdings || fund.holdings.length === 0) ? (
-                        <div className="flex items-center justify-center h-[120px] text-muted-foreground text-sm">暂无数据</div>
-                      ) : (
-                      <table className="w-full text-sm">
-                        <thead><tr className="border-b border-white/[0.1]"><th>代码</th><th>名称</th><th>占比</th><th>行业/品类</th><th>近一日</th></tr></thead>
-                        <tbody>
-                          {(fund.holdings || []).slice(0, 12).map((h: any) => (
-                            <tr key={`${h.stockCode}-${h.stockName}`} className="border-b border-white/[0.06] text-center">
-                              <td>{h.stockCode}</td><td>{h.stockName}</td><td>{pct((n(h.ratio) ?? 0) * ((n(h.ratio) ?? 0) > 1 ? 1 : 100))}</td><td>{h.industry || "--"}</td><td className={(n(h.dailyChange) ?? 0) >= 0 ? "text-[#F5384B]" : "text-[#16C784]"}>{pct(h.dailyChange)}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                      )}
-                    </div>
-                    <div className="rounded border border-white/[0.08] bg-white/[0.02] p-2">
-                      <div className="mb-1 text-sm">分红记录</div>
-                      <table className="w-full text-sm">
-                        <thead><tr className="border-b border-white/[0.1]"><th>除权日</th><th>派现(元)</th><th>支付日</th></tr></thead>
-                        <tbody>
-                          {(fund.dividends || []).slice(0, 12).map((d: any, idx: number) => (
-                            <tr key={`${d.exDate}-${idx}`} className="border-b border-white/[0.06] text-center"><td>{d.exDate || "--"}</td><td>{num(d.cash, 4)}</td><td>{d.payDate || "--"}</td></tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {tab === "manager" && (
-                <div className="space-y-3">
-                  <div className="rounded border border-white/[0.08] bg-white/[0.02] p-2">
-                    <div className="mb-1 text-sm">基金经理基本信息</div>
-                    <div className="grid grid-cols-3 gap-2 text-sm">
-                      <div>姓名：{managerQ.data?.name || fund.manager?.name || "--"}</div>
-                      <div>从业年限：{managerQ.data?.manageYears || fund.manager?.manageYears || "--"}</div>
-                      <div>学历：{fund.manager?.education || "--"}</div>
-                      <div>在任基金数：{managerQ.data?.fundCount || managerFunds.length || "--"}</div>
-                      <div>在管规模：{managerQ.data?.totalScale || fund.manager?.totalScale || "--"} 亿</div>
-                      <div>投资风格：{fund.manager?.investmentStyle || "--"}</div>
-                      <div>任职回报：{fund.manager?.returnSinceTenure || "--"}</div>
-                      <div>年化回报：{fund.manager?.annualizedReturn || "--"}</div>
-                      <div>平均Sharpe：{managerQ.data?.avgSharpe || "--"}</div>
-                    </div>
-                  </div>
-
-                  <div className="rounded border border-white/[0.08] bg-white/[0.02] p-2">
-                    <div className="mb-1 text-sm">同花顺综合评分（数据映射）</div>
-                    <div className="h-[260px]">
+                  </Panel>
+                  <Panel title="能力雷达">
+                    <div className="h-[220px]">
                       <ResponsiveContainer width="100%" height="100%">
                         <RadarChart data={abilityRadar}>
-                          <PolarGrid />
-                          <PolarAngleAxis dataKey="k" />
-                          <PolarRadiusAxis domain={[0, 100]} />
-                          <Radar dataKey="f" stroke="#5b6fb6" fill="#5b6fb6" fillOpacity={0.24} name="本基金" />
-                          <Radar dataKey="p" stroke="#46c6c2" fill="#46c6c2" fillOpacity={0.12} name="基准" />
+                          <PolarGrid stroke="hsl(var(--border))" />
+                          <PolarAngleAxis dataKey="k" tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }} />
+                          <PolarRadiusAxis domain={[0, 100]} tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 10 }} />
+                          <Radar dataKey="value" stroke="hsl(var(--primary))" fill="hsl(var(--primary))" fillOpacity={0.25} name="本基金" />
+                          <Radar dataKey="base" stroke="#46c6c2" fill="#46c6c2" fillOpacity={0.1} name="基准" />
                           <Legend />
                         </RadarChart>
                       </ResponsiveContainer>
                     </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2">
-                    <div className="rounded border border-white/[0.08] bg-white/[0.02] p-2">
-                      <div className="mb-1 text-sm">经理在管基金（回报对比）</div>
-                      <div className="h-[240px]">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={managerBars}>
-                            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
-                            <XAxis dataKey="name" tick={{ fontSize: 10 }} />
-                            <YAxis />
-                            <Tooltip />
-                            <Bar dataKey="return1y" fill="#5b6fb6" name="近1年(%)" />
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </div>
-                    </div>
-                    <div className="rounded border border-white/[0.08] bg-white/[0.02] p-2">
-                      <div className="mb-1 text-sm">在管基金明细</div>
-                      <table className="w-full text-sm">
-                        <thead><tr className="border-b border-white/[0.1]"><th>代码</th><th>名称</th><th>近1年</th><th>夏普</th></tr></thead>
-                        <tbody>
-                          {managerFunds.slice(0, 12).map((f: any) => (
-                            <tr key={f.fundCode} className="border-b border-white/[0.06] text-center"><td>{f.fundCode}</td><td>{f.fundAbbr || f.fundName}</td><td>{pct(f.performance?.return1y)}</td><td>{num(f.performance?.sharpeRatio)}</td></tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
+                  </Panel>
                 </div>
-              )}
 
-              {tab === "company" && (
-                <div className="space-y-3">
-                  <div className="rounded border border-white/[0.08] bg-white/[0.02] p-2">
-                    <div className="mb-1 text-sm">旗下基金业绩（按类型聚合）</div>
-                    <div className="h-[250px]">
+                <Panel title="累计收益趋势">
+                  <div className="mb-3 flex flex-wrap gap-2">
+                    {rangeOptions.map((item) => (
+                      <button key={item} className={`rounded-md border px-2 py-1 text-xs ${range === item ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`} onClick={() => setRange(item)}>
+                        {item}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="h-[320px]">
+                    {navSeries.length === 0 ? <EmptyState /> : (
                       <ResponsiveContainer width="100%" height="100%">
-                        <BarChart data={companyByType}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.08)" />
-                          <XAxis dataKey="t" />
-                          <YAxis />
+                        <ComposedChart data={navSeries}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                          <XAxis dataKey="d" tick={{ fontSize: 11 }} />
+                          <YAxis tick={{ fontSize: 11 }} />
                           <Tooltip />
                           <Legend />
-                          <Bar dataKey="avgReturn1y" fill="#5b6fb6" name="平均1年收益(%)" />
-                          <Bar dataKey="count" fill="#46c6c2" name="基金数量" />
-                        </BarChart>
+                          <Line dataKey="fund" stroke="hsl(var(--primary))" dot={false} name="累计收益(%)" />
+                        </ComposedChart>
                       </ResponsiveContainer>
-                    </div>
+                    )}
                   </div>
+                </Panel>
 
-                  <div className="rounded border border-white/[0.08] bg-white/[0.02] p-2">
-                    <div className="mb-1 text-sm">基金公司样本明细</div>
-                    <table className="w-full text-sm">
-                      <thead><tr className="border-b border-white/[0.1]"><th>基金代码</th><th>基金简称</th><th>类型</th><th>近1年</th><th>夏普</th><th>最大回撤</th></tr></thead>
+                <Panel title="同类业绩表现">
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[560px] text-sm">
+                      <thead className="text-muted-foreground">
+                        <tr className="border-b"><th className="py-2 text-left">指标</th><th className="text-right">本基金</th><th className="text-right">同类平均</th><th className="text-right">同类排名</th></tr>
+                      </thead>
                       <tbody>
-                        {companyFunds.slice(0, 20).map((f: any) => (
-                          <tr key={f.fundCode} className="border-b border-white/[0.06] text-center"><td>{f.fundCode}</td><td>{f.fundAbbr || f.fundName}</td><td>{f.category || f.fundType || "--"}</td><td>{pct(f.performance?.return1y)}</td><td>{num(f.performance?.sharpeRatio)}</td><td>{pct(f.performance?.maxDrawdown)}</td></tr>
+                        {performanceRows.length === 0 ? (
+                          <tr><td colSpan={4}><EmptyState label={peerQ.isLoading ? "同类数据加载中..." : "暂无同类数据"} /></td></tr>
+                        ) : performanceRows.map((row: any) => (
+                          <tr key={row.key} className="border-b">
+                            <td className="py-2">{row.label}</td>
+                            <td className={`text-right ${getChangeTextClass(row.value)}`}>{pct(row.value)}</td>
+                            <td className="text-right">{pct(row.peerAverage)}</td>
+                            <td className="text-right">{row.rank && row.total ? `${row.rank}/${row.total}` : "—"}</td>
+                          </tr>
                         ))}
                       </tbody>
                     </table>
                   </div>
+                </Panel>
 
-                  <div className="grid grid-cols-2 gap-2 text-sm">
-                    <div className="rounded border border-white/[0.08] bg-white/[0.02] p-2">公司样本数：{companyFunds.length} 只</div>
-                    <div className="rounded border border-white/[0.08] bg-white/[0.02] p-2">可用风险数据：{companyFunds.filter((f: any) => n(f.performance?.sharpeRatio) !== null || n(f.performance?.maxDrawdown) !== null).length} 只</div>
-                    <div className="rounded border border-white/[0.08] bg-white/[0.02] p-2">平均近1年收益：{companyByType.length ? `${(companyByType.reduce((a, b) => a + b.avgReturn1y, 0) / companyByType.length).toFixed(2)}%` : "--"}</div>
-                    <div className="rounded border border-white/[0.08] bg-white/[0.02] p-2">基金类型覆盖：{companyByType.length} 类</div>
+                <Panel title="滚动收益分布">
+                  <div className="mb-3 flex flex-wrap gap-2">
+                    {horizonOptions.map((item) => (
+                      <button key={item} className={`rounded-md border px-2 py-1 text-xs ${horizon === item ? "bg-primary text-primary-foreground" : "hover:bg-secondary"}`} onClick={() => setHorizon(item)}>
+                        {item}
+                      </button>
+                    ))}
                   </div>
+                  <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+                    {profitBuckets.map((bucket) => (
+                      <Metric key={bucket.key} label={bucket.label} value={`${bucket.probability.toFixed(1)}%`} />
+                    ))}
+                  </div>
+                </Panel>
+              </>
+            )}
+
+            {tab === "risk" && (
+              <>
+                <Panel title="风险指标">
+                  <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
+                    <Metric label="最大回撤" value={pct(fund.performance?.maxDrawdown ?? risk.maxDrawdown)} />
+                    <Metric label="年化波动" value={pct(risk.volatility)} />
+                    <Metric label="下行风险" value={pct(risk.downsideRisk)} />
+                    <Metric label="Sharpe" value={num(fund.performance?.sharpeRatio ?? risk.sharpe)} />
+                    <Metric label="Sortino" value={num(fund.performance?.sortinoRatio ?? risk.sortino)} />
+                    <Metric label="日胜率" value={pct(risk.winRate)} />
+                    <Metric label="VaR 95%" value={pct(risk.var95)} />
+                    <Metric label="CVaR 95%" value={pct(risk.cvar95)} />
+                    <Metric label="最差单月" value={pct(risk.worstMonth)} />
+                  </div>
+                </Panel>
+                <Panel title="动态回撤">
+                  <div className="h-[300px]">
+                    {navSeries.length === 0 ? <EmptyState /> : (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <ComposedChart data={navSeries}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                          <XAxis dataKey="d" tick={{ fontSize: 11 }} />
+                          <YAxis tick={{ fontSize: 11 }} />
+                          <Tooltip />
+                          <Line dataKey="dd" stroke="hsl(var(--primary))" dot={false} name="回撤(%)" />
+                        </ComposedChart>
+                      </ResponsiveContainer>
+                    )}
+                  </div>
+                </Panel>
+                <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                  <Panel title="VaR 分布">
+                    <div className="h-[260px]">
+                      {varHistogram.length === 0 ? <EmptyState /> : (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={varHistogram}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                            <XAxis dataKey="bucket" tick={{ fontSize: 10 }} />
+                            <YAxis tick={{ fontSize: 11 }} />
+                            <Tooltip />
+                            <Bar dataKey="density" fill="hsl(var(--primary))" name="频率" />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      )}
+                    </div>
+                  </Panel>
+                  <Panel title="历史压力区间">
+                    <div className="h-[260px]">
+                      {stressBars.length === 0 ? <EmptyState /> : (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={stressBars}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                            <XAxis dataKey="date" tick={{ fontSize: 10 }} />
+                            <YAxis tick={{ fontSize: 11 }} />
+                            <Tooltip />
+                            <Bar dataKey="drawdown" fill="#e9ab60" name="回撤(%)" />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      )}
+                    </div>
+                  </Panel>
                 </div>
-              )}
-            </div>
+              </>
+            )}
+
+            {tab === "fundamental" && (
+              <>
+                <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                  <Panel title="资产分布">
+                    <div className="h-[260px]">
+                      {(!fund.assetAllocation || fund.assetAllocation.length === 0) ? <EmptyState /> : (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Tooltip />
+                            <Legend />
+                            <Pie data={(fund.assetAllocation || []).map((x: any) => ({ name: x.name, value: ratioPct(x.ratio) }))} dataKey="value" nameKey="name" outerRadius={90} fill="hsl(var(--primary))" />
+                          </PieChart>
+                        </ResponsiveContainer>
+                      )}
+                    </div>
+                  </Panel>
+                  <Panel title="行业配置">
+                    <div className="h-[260px]">
+                      {holdingsByIndustry.length === 0 ? <EmptyState /> : (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart layout="vertical" data={holdingsByIndustry}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                            <XAxis type="number" tick={{ fontSize: 11 }} />
+                            <YAxis type="category" dataKey="k" width={92} tick={{ fontSize: 11 }} />
+                            <Tooltip />
+                            <Bar dataKey="value" fill="hsl(var(--primary))" name="占比(%)" />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      )}
+                    </div>
+                  </Panel>
+                </div>
+                <Panel title="行业配置历史">
+                  <div className="h-[300px]">
+                    {industryHistory.length === 0 ? <EmptyState /> : (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <ComposedChart data={industryHistory}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                          <XAxis dataKey="period" tick={{ fontSize: 11 }} />
+                          <YAxis tick={{ fontSize: 11 }} />
+                          <Tooltip />
+                          <Legend />
+                          {Object.keys(industryHistory[0]).filter((k) => k !== "period").map((key, idx) => (
+                            <Line key={key} dataKey={key} stroke={chartColors[idx % chartColors.length]} dot={false} />
+                          ))}
+                        </ComposedChart>
+                      </ResponsiveContainer>
+                    )}
+                  </div>
+                </Panel>
+                <Panel title="重仓明细">
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[680px] text-sm">
+                      <thead className="text-muted-foreground">
+                        <tr className="border-b"><th className="py-2 text-left">代码</th><th className="text-left">名称</th><th className="text-right">占比</th><th className="text-left">行业/品类</th><th className="text-right">近一日</th></tr>
+                      </thead>
+                      <tbody>
+                        {(!fund.holdings || fund.holdings.length === 0) ? (
+                          <tr><td colSpan={5}><EmptyState /></td></tr>
+                        ) : fund.holdings.slice(0, 20).map((h: any) => (
+                          <tr key={`${h.stockCode}-${h.stockName}`} className="border-b">
+                            <td className="py-2 data-number">{h.stockCode || "—"}</td>
+                            <td>{h.stockName || "—"}</td>
+                            <td className="text-right">{pct(ratioPct(h.ratio))}</td>
+                            <td>{h.industry || "—"}</td>
+                            <td className={`text-right ${getChangeTextClass(h.dailyChange)}`}>{isMissing(h.dailyChange) ? "—" : pct(h.dailyChange)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </Panel>
+              </>
+            )}
+
+            {tab === "manager" && (
+              <>
+                <Panel title="基金经理概览">
+                  <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
+                    <Metric label="姓名" value={managerQ.data?.name || fund.manager?.name || "—"} />
+                    <Metric label="从业年限" value={String(managerQ.data?.manageYears || fund.manager?.manageYears || "—")} />
+                    <Metric label="在管基金" value={String(managerQ.data?.fundCount || managerFunds.length || "—")} />
+                    <Metric label="在管规模" value={`${managerQ.data?.totalScale || fund.manager?.totalScale || "—"} 亿元`} />
+                    <Metric label="任职回报" value={pct(fund.manager?.returnSinceTenure)} />
+                    <Metric label="年化回报" value={pct(fund.manager?.annualizedReturn)} />
+                  </div>
+                </Panel>
+                <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                  <Panel title="在管基金回报">
+                    <div className="h-[280px]">
+                      {managerBars.length === 0 ? <EmptyState label={managerQ.isLoading ? "经理数据加载中..." : "暂无数据"} /> : (
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={managerBars}>
+                            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                            <XAxis dataKey="name" tick={{ fontSize: 10 }} />
+                            <YAxis tick={{ fontSize: 11 }} />
+                            <Tooltip />
+                            <Bar dataKey="return1y" fill="hsl(var(--primary))" name="近1年(%)" />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      )}
+                    </div>
+                  </Panel>
+                  <Panel title="经理在管明细">
+                    <div className="overflow-x-auto">
+                      <table className="w-full min-w-[460px] text-sm">
+                        <thead className="text-muted-foreground"><tr className="border-b"><th className="py-2 text-left">代码</th><th className="text-left">名称</th><th className="text-right">近1年</th><th className="text-right">Sharpe</th></tr></thead>
+                        <tbody>
+                          {managerFunds.length === 0 ? <tr><td colSpan={4}><EmptyState /></td></tr> : managerFunds.slice(0, 12).map((f: any) => (
+                            <tr key={f.fundCode} className="border-b"><td className="py-2 data-number">{f.fundCode}</td><td>{f.fundAbbr || f.fundName}</td><td className="text-right">{pct(f.performance?.return1y)}</td><td className="text-right">{num(f.performance?.sharpeRatio)}</td></tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </Panel>
+                </div>
+              </>
+            )}
+
+            {tab === "company" && (
+              <>
+                <Panel title="公司产品结构">
+                  <div className="h-[300px]">
+                    {companyByType.length === 0 ? <EmptyState label={companyFundsQ.isLoading ? "公司数据加载中..." : "暂无数据"} /> : (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={companyByType}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                          <XAxis dataKey="type" tick={{ fontSize: 11 }} />
+                          <YAxis tick={{ fontSize: 11 }} />
+                          <Tooltip />
+                          <Legend />
+                          <Bar dataKey="avgReturn1y" fill="hsl(var(--primary))" name="平均近1年(%)" />
+                          <Bar dataKey="count" fill="#46c6c2" name="基金数量" />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    )}
+                  </div>
+                </Panel>
+                <Panel title="公司样本明细">
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[760px] text-sm">
+                      <thead className="text-muted-foreground"><tr className="border-b"><th className="py-2 text-left">代码</th><th className="text-left">简称</th><th className="text-left">类型</th><th className="text-right">近1年</th><th className="text-right">Sharpe</th><th className="text-right">最大回撤</th></tr></thead>
+                      <tbody>
+                        {companyFunds.length === 0 ? <tr><td colSpan={6}><EmptyState /></td></tr> : companyFunds.slice(0, 30).map((f: any) => (
+                          <tr key={f.fundCode} className="border-b"><td className="py-2 data-number">{f.fundCode}</td><td>{f.fundAbbr || f.fundName}</td><td>{f.category || f.fundType || "—"}</td><td className="text-right">{pct(f.performance?.return1y)}</td><td className="text-right">{num(f.performance?.sharpeRatio)}</td><td className="text-right">{pct(f.performance?.maxDrawdown)}</td></tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </Panel>
+              </>
+            )}
           </main>
 
           <aside className="space-y-3">
-            <div className="rounded border border-white/[0.08] bg-[#11141d]">
-              <div className="border-b border-white/[0.08] bg-white/[0.04] px-3 py-1.5 font-semibold">基金评级</div>
-              <div className="space-y-2 p-3 text-sm">
-                <div className="flex items-center justify-between"><span>基金评级3年</span><span className="inline-flex">{Array.from({ length: 5 }).map((_, i) => <Star key={i} className={`h-4 w-4 ${i < Math.max(1, Math.round(score / 20)) ? "fill-[#ff9f3a] text-[#ff9f3a]" : "text-white/20"}`} />)}</span></div>
-                <div className="flex items-center justify-between"><span>基金评级5年</span><span className="inline-flex">{Array.from({ length: 5 }).map((_, i) => <Star key={i} className={`h-4 w-4 ${i < Math.max(1, Math.round(score / 25)) ? "fill-[#ff9f3a] text-[#ff9f3a]" : "text-white/20"}`} />)}</span></div>
+            <Panel title="核心信息">
+              <div className="space-y-2">
+                {basicRows.map(([label, value]) => (
+                  <div key={label} className="flex items-start justify-between gap-3 border-b pb-2 text-sm last:border-b-0 last:pb-0">
+                    <span className="text-muted-foreground">{label}</span>
+                    <span className="max-w-[210px] text-right">{value}</span>
+                  </div>
+                ))}
               </div>
-            </div>
-
-            <div className="rounded border border-white/[0.08] bg-[#11141d]">
-              <div className="border-b border-white/[0.08] bg-white/[0.04] px-3 py-1.5 font-semibold">基金业绩</div>
-              <table className="w-full text-sm">
-                <tbody>
-                  {[
-                    ["近1年", pct(r1y?.value ?? fund.performance?.return1y)],
-                    ["近3年", pct(fund.performance?.return3y)],
-                    ["近5年", pct(fund.performance?.return5y)],
-                    ["年化收益", annualized === null ? "--" : `${annualized.toFixed(2)}%`],
-                    ["夏普", num(fund.performance?.sharpeRatio ?? risk.sharpe)],
-                    ["Sortino", num(fund.performance?.sortinoRatio ?? risk.sortino)],
-                    ["最大回撤", pct(fund.performance?.maxDrawdown ?? risk.maxDrawdown)],
-                    ["综合得分", String(score)],
-                  ].map((r) => (
-                    <tr key={r[0]} className="border-b border-white/[0.06]"><td className="px-3 py-1">{r[0]}</td><td className="px-3 py-1 text-right text-[#9fbfff]">{r[1]}</td></tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="rounded border border-white/[0.08] bg-[#11141d]">
-              <div className="border-b border-white/[0.08] bg-white/[0.04] px-3 py-1.5 font-semibold">基本信息</div>
-              <table className="w-full text-sm">
-                <tbody>
-                  {[
-                    ["成立日期", fund.establishDate || "--"],
-                    ["基金状态", fund.establishDate ? "正在运行" : "--"],
-                    ["基金公司", fund.company || "--"],
-                    ["基金经理", fund.manager?.name || "--"],
-                    ["基金规模", `${fund.totalScale || "--"}亿`],
-                    ["投资类型", fund.category || fund.fundType || "--"],
-                    ["投资风格", fund.manager?.investmentStyle || "--"],
-                    ["比较基准", fund.benchmark || "--"],
-                    ["管理费", fund.feeManage != null ? `${(Number(fund.feeManage) * 100).toFixed(2)}%` : "--"],
-                    ["托管费", fund.feeCustody != null ? `${(Number(fund.feeCustody) * 100).toFixed(2)}%` : "--"],
-                  ].map((r) => (
-                    <tr key={r[0]} className="border-b border-white/[0.06]"><td className="px-3 py-1">{r[0]}</td><td className="px-3 py-1 text-right">{r[1]}</td></tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            </Panel>
+            <Panel title="基金评级">
+              <div className="space-y-3 text-sm">
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">综合评分</span>
+                  <span className="data-number text-lg font-semibold">{score}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">星级</span>
+                  <span className="inline-flex">
+                    {Array.from({ length: 5 }).map((_, i) => (
+                      <Star key={i} className={`h-4 w-4 ${i < Math.max(1, Math.round(score / 20)) ? "fill-primary text-primary" : "text-muted-foreground"}`} />
+                    ))}
+                  </span>
+                </div>
+              </div>
+            </Panel>
+            <Panel title="数据覆盖">
+              <div className="grid grid-cols-2 gap-2">
+                <Metric label="净值点数" value={String(navPoints.length)} />
+                <Metric label="持仓数" value={String(fund.holdings?.length || 0)} />
+                <Metric label="资产项" value={String(fund.assetAllocation?.length || 0)} />
+                <Metric label="分红数" value={String(fund.dividends?.length || 0)} />
+              </div>
+            </Panel>
+            <Panel title="快捷状态">
+              <div className="space-y-2 text-sm text-muted-foreground">
+                <div className="flex items-center gap-2"><BarChart3 className="h-4 w-4" />{navPoints.length > 20 ? "净值历史可用" : "净值历史待补全"}</div>
+                <div className="flex items-center gap-2"><ShieldAlert className="h-4 w-4" />{risk.maxDrawdown !== null ? "风险指标已计算" : "风险指标待计算"}</div>
+                <div className="flex items-center gap-2"><UserRound className="h-4 w-4" />{fund.manager?.name ? "经理信息可用" : "经理信息待补全"}</div>
+                <div className="flex items-center gap-2"><Building2 className="h-4 w-4" />{fund.company ? "公司信息可用" : "公司信息待补全"}</div>
+              </div>
+            </Panel>
           </aside>
         </div>
       </div>
