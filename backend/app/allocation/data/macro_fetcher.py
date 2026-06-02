@@ -62,11 +62,22 @@ def fetch_all() -> MacroSnapshot:
                 src = "forex_api"
             if value is not None:
                 conf = 0.95 if src == "tushare" else 0.9
-                # DR007: use actual source to determine confidence
+                # 财政赤字率: hardcoded placeholder, force low confidence so
+                # TAA score=0 (B5). Without this, the placeholder would
+                # affect allocations with full weight.
+                if name == "财政赤字率":
+                    conf = 0.3
+                # DR007: confidence depends on actual data source used
+                # - FR007 (akshare) is best proxy → conf 0.9
+                # - Shibor 1W (tushare) is rough proxy → conf 0.7
+                # - LPR 1W final fallback → conf 0.5
                 if name == "DR007":
-                    conf = 0.95 if _dr007_actual_source == "tushare" else 0.9
                     if _dr007_actual_source == "tushare":
-                        conf = 0.7  # Shibor proxy is less accurate than FR007
+                        conf = 0.7  # Shibor 1W as rough DR007 proxy
+                    elif _dr007_actual_source == "lpr_fallback":
+                        conf = 0.5  # LPR 1W as very rough proxy
+                    else:
+                        conf = 0.9  # FR007 from akshare
                 # Lower confidence for DXY (computed from forex rates, not direct)
                 if name == "美元指数":
                     conf = 0.7
@@ -261,7 +272,7 @@ def _fetch_dr007(pro) -> Optional[float]:
                 return val
         except Exception as e:
             logger.debug(f"Tushare shibor failed: {e}")
-    _dr007_actual_source = "akshare"
+    _dr007_actual_source = "lpr_fallback"
     return _ak_dr007_fallback()
 
 
@@ -433,11 +444,14 @@ def _fetch_northbound() -> Optional[float]:
     return None
 
 
-# ─── 11. 财政赤字率 (static) ────────────────────────────────────────────────────
+# ─── 11. 财政赤字率 (static placeholder; real source needs iFinD/EDB) ──────────
 
 def _fetch_fiscal_deficit() -> Optional[float]:
-    """财政赤字率 (annual government budget target)."""
-    # TODO: replace with iFinD EDB get_macro_data("财政赤字") when available
+    """财政赤字率 (%). Placeholder until iFinD EDB / official data source wired.
+
+    The hardcoded 3.0 below is the 2026 government work report target. Treat
+    as low confidence in fetch_all() — confidence is overridden to 0.3 there.
+    """
     return 3.0
 
 

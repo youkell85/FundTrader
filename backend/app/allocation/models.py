@@ -131,6 +131,8 @@ class MonteCarloResult(BaseModel):
     max_drawdown_95: float
     var_95: float
     cvar_95: float
+    var_95_annual: Optional[float] = None  # Annualized (comparable across horizons)
+    cvar_95_annual: Optional[float] = None
     prob_positive: float
 
 

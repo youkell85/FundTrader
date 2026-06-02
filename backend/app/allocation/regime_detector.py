@@ -6,6 +6,7 @@ Graceful fallback: returns baseline if no macro data available.
 import logging
 import os
 import threading
+import time
 from typing import Optional
 
 from .models import RegimeState
@@ -25,7 +26,12 @@ REGIME_LABELS = {
 _previous_regime: str = "baseline"
 _pending_regime: Optional[str] = None
 _pending_count: int = 0
+_last_pending_started_at: Optional[float] = None  # monotonic time of first pending detection
 _regime_lock = threading.Lock()
+# Minimum elapsed monotonic time (seconds) before a pending regime can be
+# confirmed. Prevents fast-loop callers (e.g., SSE regenerate) from confirming
+# a regime switch on the same dataset within milliseconds.
+_PERSISTENCE_MIN_INTERVAL_S = 60.0
 
 
 def detect_regime() -> RegimeState:
@@ -66,8 +72,23 @@ def detect_regime() -> RegimeState:
     # Compute confidence from data quality
     confidence = macro.overall_confidence
 
-    # Composite score (useful for continuous tracking)
-    composite = round(growth_score * 0.4 + (-inflation_score) * 0.3 + monetary_score * 0.3, 3)
+    # Composite score (useful for continuous tracking).
+    # Default weights assume "normal" cycle. When growth or inflation is the
+    # dominant risk, weight shifts toward that dimension to match regime reality.
+    if raw_regime == "stagflation":
+        weights = (0.25, 0.5, 0.25)
+    elif raw_regime == "deflation":
+        weights = (0.55, 0.15, 0.30)
+    elif raw_regime == "overheat":
+        weights = (0.30, 0.40, 0.30)
+    else:
+        weights = (0.4, 0.3, 0.3)
+    composite = round(
+        growth_score * weights[0]
+        + (-inflation_score) * weights[1]
+        + monetary_score * weights[2],
+        3,
+    )
 
     # Persistence logic: require 2 consecutive same detections to switch
     # (v3 mode: skip persistence, use immediate classification)
@@ -211,26 +232,40 @@ def _classify_quadrant(growth: float, inflation: float, monetary: float) -> str:
 
 
 def _apply_persistence(raw_regime: str) -> str:
-    """Apply persistence logic: require 2 consecutive same detections to switch."""
-    global _previous_regime, _pending_regime, _pending_count
+    """Apply persistence logic: require 2 consecutive same detections to switch.
 
+    Additionally requires the two detections to be at least
+    _PERSISTENCE_MIN_INTERVAL_S apart in wall-clock terms, so a tight
+    loop cannot confirm a regime switch on the same data snapshot.
+    """
+    global _previous_regime, _pending_regime, _pending_count
+    global _last_pending_started_at
+
+    now = time.monotonic()
     with _regime_lock:
         if raw_regime == _previous_regime:
             _pending_regime = None
             _pending_count = 0
+            _last_pending_started_at = None
             return _previous_regime
 
         if raw_regime == _pending_regime:
             _pending_count += 1
-            if _pending_count >= 2:
+            elapsed = now - (_last_pending_started_at or now)
+            if _pending_count >= 2 and elapsed >= _PERSISTENCE_MIN_INTERVAL_S:
                 _previous_regime = raw_regime
                 _pending_regime = None
                 _pending_count = 0
-                logger.info(f"Regime switched to: {raw_regime} ({REGIME_LABELS.get(raw_regime, '')})")
+                _last_pending_started_at = None
+                logger.info(
+                    f"Regime switched to: {raw_regime} "
+                    f"({REGIME_LABELS.get(raw_regime, '')}) after {elapsed:.0f}s"
+                )
                 return raw_regime
         else:
             _pending_regime = raw_regime
             _pending_count = 1
+            _last_pending_started_at = now
 
         return _previous_regime
 

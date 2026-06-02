@@ -104,8 +104,14 @@ def simulate(
     p90 = float(np.percentile(total_returns, 90))
 
     # VaR and CVaR (95%)
+    # Two horizons are reported so consumers can compare across MC horizons:
+    #   - var_95 / cvar_95: cumulative over the simulation horizon (legacy)
+    #   - var_95_annual / cvar_95_annual: annualized, comparable across horizons
     var_95 = float(np.percentile(total_returns, 5))  # 5th percentile = 95% VaR
     cvar_95 = float(total_returns[total_returns <= var_95].mean()) if (total_returns <= var_95).any() else var_95
+    horizon_years = max(horizon_months / 12.0, 1e-9)
+    var_95_annual = 1.0 - (1.0 - var_95) ** (1.0 / horizon_years) if var_95 < 0 else var_95
+    cvar_95_annual = 1.0 - (1.0 - cvar_95) ** (1.0 / horizon_years) if cvar_95 < 0 else cvar_95
 
     # Max drawdown at 95% confidence
     max_dd_95 = float(np.percentile(max_drawdowns, 5))  # 5th percentile of drawdowns
@@ -122,5 +128,7 @@ def simulate(
         max_drawdown_95=round(max_dd_95 * 100, 2),
         var_95=round(var_95 * 100, 2),
         cvar_95=round(cvar_95 * 100, 2),
+        var_95_annual=round(var_95_annual * 100, 2),
+        cvar_95_annual=round(cvar_95_annual * 100, 2),
         prob_positive=round(prob_positive * 100, 1),
     )

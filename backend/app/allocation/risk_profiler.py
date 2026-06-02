@@ -57,11 +57,22 @@ def profile_user(request: AllocationRequest) -> RiskProfile:
     effective_params = RISK_PROFILES[effective_risk]
     equity_center = effective_params["equity_center"]
 
-    # ─── Glide path: age-based equity reduction ───
+    # ─── Glide path: age-based equity reduction, modulated by horizon ───
     glide_path_applied = False
     age = request.age
+    horizon = request.investment_horizon or "medium"
+    horizon_months = HORIZON_MONTHS.get(horizon, 36)
     if age > 40:
-        reduction = (age - 40) * 0.5  # 0.5% per year over 40
+        # Horizon attenuation: long-horizon investors can tolerate more equity
+        # at the same age (e.g., 70y with 15y horizon vs 70y with 1y horizon).
+        # Multiplier: short=1.0, medium=0.85, long=0.7, very_long=0.55
+        horizon_factor = {
+            "short": 1.0,
+            "medium": 0.85,
+            "long": 0.7,
+            "very_long": 0.55,
+        }.get(horizon, 0.85)
+        reduction = (age - 40) * 0.5 * horizon_factor  # % per year attenuated by horizon
         equity_center = max(10, equity_center - reduction)
         glide_path_applied = True
 

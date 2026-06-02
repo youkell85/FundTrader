@@ -461,8 +461,17 @@ def adjust_taa_with_snapshot(
     )
 
 
-def _generate_signals_from_snapshot(snapshot: Dict[str, Optional[float]]) -> List[MacroSignalItem]:
-    """Generate signals from an explicit macro value dict (no live data call)."""
+def _generate_signals_from_snapshot(
+    snapshot: Dict[str, Optional[float]],
+    confidences: Optional[Dict[str, float]] = None,
+) -> List[MacroSignalItem]:
+    """Generate signals from an explicit macro value dict (no live data call).
+
+    Args:
+        snapshot: Mapping indicator name → value
+        confidences: Optional mapping indicator name → confidence [0, 1].
+                     When provided, signals with conf<0.5 get score=0 (B5 parity).
+    """
     signal_defs = [
         ("PMI制造业", "growth", lambda v: _linear_score(v, 49.5, 50.5)),
         ("GDP同比", "growth", lambda v: _linear_score(v, 3.0, 6.0)),
@@ -485,7 +494,14 @@ def _generate_signals_from_snapshot(snapshot: Dict[str, Optional[float]]) -> Lis
 
         if value is not None:
             score = scorer(value)
-            confidence_str = "medium"
+            conf = confidences.get(name, 1.0) if confidences else 1.0
+            if conf >= 0.8:
+                confidence_str = "high"
+            elif conf >= 0.5:
+                confidence_str = "medium"
+            else:
+                confidence_str = "low"
+                score = 0  # B5 parity: low-confidence indicators should not influence TAA
             threshold_desc = f"当前值: {value:.2f}"
         else:
             score = 0

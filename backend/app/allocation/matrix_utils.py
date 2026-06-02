@@ -58,7 +58,11 @@ def portfolio_risk_contributions(weights: NDArray, cov: NDArray) -> NDArray:
 
 # ─── Ledoit-Wolf Linear Shrinkage ───
 
-def ledoit_wolf_shrinkage(sample_cov: NDArray, target: NDArray = None) -> tuple:
+def ledoit_wolf_shrinkage(
+    sample_cov: NDArray,
+    target: NDArray = None,
+    n_observations: int = None,
+) -> tuple:
     """Ledoit-Wolf optimal linear shrinkage estimator.
 
     Shrinks the sample covariance matrix toward a structured target:
@@ -68,9 +72,13 @@ def ledoit_wolf_shrinkage(sample_cov: NDArray, target: NDArray = None) -> tuple:
     relative to n_observations.
 
     Args:
-        sample_cov: n×n sample covariance matrix
-        target: n×n shrinkage target (default: diagonal matrix with
-                average variance on diagonal)
+        sample_cov: n×n sample covariance matrix.
+        target: n×n shrinkage target (default: scaled identity with average
+            variance on diagonal).
+        n_observations: number of observations T used to estimate sample_cov.
+            When provided, uses the standard Ledoit-Wolf (2004) formula
+            delta* = min(1, phi_hat / (T * d^2)). When absent, falls back
+            to a condition-number heuristic.
 
     Returns:
         (shrunk_cov, delta) where delta is the optimal shrinkage intensity [0, 1]
@@ -86,37 +94,37 @@ def ledoit_wolf_shrinkage(sample_cov: NDArray, target: NDArray = None) -> tuple:
         avg_var = np.trace(sample_cov) / n
         target = np.eye(n) * avg_var
 
-    # Compute optimal shrinkage intensity
-    # delta = sum_ij (s_ij - t_ij)^2 / sum_ij (s_ij - t_ij)^2 + ...
-    # Simplified analytical formula:
     diff = sample_cov - target
-    # Frobenius norm squared
-    d_sq = np.sum(diff ** 2)
+    d_sq = float(np.sum(diff ** 2))  # ||S - T||_F^2
 
     if d_sq < 1e-12:
         return sample_cov.copy(), 0.0
 
-    # Estimate the sum of squared estimation errors (phi)
-    # For a sample covariance from T observations:
-    # phi_hat ≈ (1/T) * sum_t ||X_t X_t' - S||_F^2
-    # Since we don't have T directly, use an analytical approximation:
-    # Under normality, phi ≈ (1 + 1/n) * ||S - F||_F^2 where F = diagonal target
-    # Simplified: delta = min(1, phi / (T * d_sq))
-    # Without T, use heuristic based on matrix condition:
-    cond = np.linalg.cond(sample_cov)
-    if cond > 1000:
-        # Ill-conditioned: apply more shrinkage
-        delta = min(1.0, 0.5 * np.sqrt(n / d_sq) * 0.1)
-    elif cond > 100:
-        delta = min(1.0, 0.3 * np.sqrt(n / d_sq) * 0.1)
+    if n_observations is not None and n_observations > 0:
+        # Standard Ledoit-Wolf (2004) formula.
+        # phi_hat is the sum of asymptotic variances of the entries of S;
+        # with no access to the raw observations, approximate using the
+        # bound phi_hat ≤ (1/n) * ||S||_F^2, which is conservative (gives
+        # larger delta, i.e. more shrinkage, appropriate when T is small).
+        s_norm_sq = float(np.sum(sample_cov ** 2))
+        phi_hat = s_norm_sq / n
+        delta = phi_hat / (n_observations * d_sq)
+        delta = float(np.clip(delta, 0.0, 1.0))
     else:
-        # Well-conditioned: minimal shrinkage
-        delta = min(1.0, 0.1 * np.sqrt(n / d_sq) * 0.1)
-
-    delta = np.clip(delta, 0.0, 1.0)
+        # Fallback heuristic: condition-number-driven shrinkage, used when
+        # T is unknown. Less principled than the LW formula, but still
+        # improves conditioning for ill-conditioned sample covariances.
+        cond = np.linalg.cond(sample_cov)
+        if cond > 1000:
+            delta = min(1.0, 0.5 * np.sqrt(n / d_sq) * 0.1)
+        elif cond > 100:
+            delta = min(1.0, 0.3 * np.sqrt(n / d_sq) * 0.1)
+        else:
+            delta = min(1.0, 0.1 * np.sqrt(n / d_sq) * 0.1)
+        delta = float(np.clip(delta, 0.0, 1.0))
 
     shrunk = (1.0 - delta) * sample_cov + delta * target
-    return ensure_positive_definite(shrunk), float(delta)
+    return ensure_positive_definite(shrunk), delta
 
 
 def shrink_covariance_toward_diagonal(cov: NDArray, intensity: float = 0.1) -> NDArray:

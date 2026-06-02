@@ -152,7 +152,7 @@ def _l1_risk_budget(cov, returns, bounds, target_budgets, equity_center):
         options={"maxiter": 500, "ftol": 1e-10},
     )
 
-    if result.success and result.fun < 0.1:
+    if result.success and result.fun < 0.01:
         return result.x.tolist()
     return None
 
@@ -219,7 +219,10 @@ def _erc_ccd(cov, bounds, max_iter=200, tol=1e-8):
             var_p = float(w @ cov @ w)
             if var_p < 1e-12:
                 break
-            target_rc_i = var_p / n
+            # ERC: target each RC to equal sigma_p / n
+            # (RC_i = w_i * (cov @ w)_i, summing to var_p; equal-RC means each ≈ sqrt(var_p)/n)
+            sigma_p = np.sqrt(var_p)
+            target_rc_i = sigma_p / n
             w_new_i = target_rc_i / a
             w[i] = np.clip(w_new_i, bounds_arr[i, 0], bounds_arr[i, 1])
 
@@ -344,7 +347,8 @@ def _l6_max_div(cov, bounds):
 def _l4_inverse_vol(cma: CMAResult):
     """Inverse volatility weighting — closed-form, always succeeds."""
     vols = np.array([cma.volatilities[a] for a in ASSET_CLASSES])
-    vols = np.maximum(vols, 0.1)  # Prevent division by zero
+    # Floor at 1.0% so a money-market fund (vol≈0.5%) doesn't dominate weights
+    vols = np.maximum(vols, 1.0)  # Prevent division by zero and extreme concentration
     inv_vol = 1.0 / vols
     weights = inv_vol / inv_vol.sum()
     return weights.tolist()

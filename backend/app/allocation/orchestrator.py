@@ -67,10 +67,11 @@ class _StepDiag:
 # Module-level history (last 10 runs)
 _DIAG_HISTORY: List[Dict[str, Any]] = []
 _MAX_HISTORY = 10
+_DIAG_HISTORY_LOCK = threading.Lock()
 
 
 def _record_run(diags: List[_StepDiag], warnings: List[str], total_ms: float):
-    """Record a pipeline run into diagnostic history."""
+    """Record a pipeline run into diagnostic history (thread-safe)."""
     record = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "total_ms": round(total_ms, 2),
@@ -85,9 +86,10 @@ def _record_run(diags: List[_StepDiag], warnings: List[str], total_ms: float):
     elif record["degraded_steps"] or len(warnings) > 2:
         record["health"] = "degraded"
 
-    _DIAG_HISTORY.append(record)
-    if len(_DIAG_HISTORY) > _MAX_HISTORY:
-        _DIAG_HISTORY.pop(0)
+    with _DIAG_HISTORY_LOCK:
+        _DIAG_HISTORY.append(record)
+        if len(_DIAG_HISTORY) > _MAX_HISTORY:
+            _DIAG_HISTORY.pop(0)
 
     return record
 
@@ -121,8 +123,15 @@ def run(
         cancel_event: If set, raises TaskCancelledError before next step.
     """
     TOTAL_STEPS = 14
+    # Hard ceiling on total pipeline wall-clock (seconds). 14 steps normally
+    # finish well under 30s, but external data fetches (Tushare/akshare) can
+    # hang. Trigger a TaskCancelledError on next step entry so resources free.
+    _TOTAL_TIMEOUT_S = 120.0
+    _deadline = time.monotonic() + _TOTAL_TIMEOUT_S
 
     def _check_cancel():
+        if time.monotonic() > _deadline:
+            raise TaskCancelledError(f"管线超过 {_TOTAL_TIMEOUT_S:.0f}s 总超时,自动终止")
         if cancel_event and cancel_event.is_set():
             raise TaskCancelledError("任务已被用户取消")
 
@@ -449,17 +458,16 @@ def get_pipeline_health() -> dict:
     regime_status = get_regime_status()
     breaker_status = get_breaker_status()
 
-    last_run = _DIAG_HISTORY[-1] if _DIAG_HISTORY else None
-
-    # Summary stats from history
-    total_runs = len(_DIAG_HISTORY)
-    healthy_runs = sum(1 for r in _DIAG_HISTORY if r["health"] == "healthy")
-    degraded_runs = sum(1 for r in _DIAG_HISTORY if r["health"] == "degraded")
-    critical_runs = sum(1 for r in _DIAG_HISTORY if r["health"] == "critical")
-
-    avg_ms = 0.0
-    if total_runs > 0:
-        avg_ms = sum(r["total_ms"] for r in _DIAG_HISTORY) / total_runs
+    with _DIAG_HISTORY_LOCK:
+        last_run = _DIAG_HISTORY[-1] if _DIAG_HISTORY else None
+        total_runs = len(_DIAG_HISTORY)
+        healthy_runs = sum(1 for r in _DIAG_HISTORY if r["health"] == "healthy")
+        degraded_runs = sum(1 for r in _DIAG_HISTORY if r["health"] == "degraded")
+        critical_runs = sum(1 for r in _DIAG_HISTORY if r["health"] == "critical")
+        avg_ms = (
+            sum(r["total_ms"] for r in _DIAG_HISTORY) / total_runs
+            if total_runs > 0 else 0.0
+        )
 
     return {
         "last_run": last_run,
