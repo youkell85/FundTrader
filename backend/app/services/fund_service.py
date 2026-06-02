@@ -468,15 +468,24 @@ def _compute_single_fund_metrics(code: str, RISK_FREE_RATE: float) -> dict[str, 
     """Compute risk metrics for a single fund from NAV history.
 
     Returns a metrics dict or None if skipped/failed.
+    副作用：把拉到的 nav_data 持久化到 fund_nav_history，供 getFundAnalysis 读，
+    避免详情页"累计收益趋势"图无数据。
     """
     import numpy as np
 
     from ..data.efinance_fetcher import get_fund_nav_history
+    from ..storage.database import FundDataStore
 
     try:
         nav_data = get_fund_nav_history(code)
         if not nav_data or len(nav_data) < 30:
             return None
+
+        # 持久化净值历史（fund_nav_history）—— 修复累计收益趋势图无数据
+        try:
+            FundDataStore.save_nav_history_batch(code, nav_data, source="compute")
+        except Exception:
+            pass  # nav 持久化失败不影响 metrics 计算
 
         navs = []
         for item in nav_data:

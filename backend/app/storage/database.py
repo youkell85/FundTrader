@@ -1643,6 +1643,53 @@ class FundDataStore:
             )
 
     @staticmethod
+    def save_nav_history_batch(code: str, nav_records: list[dict[str, Any]], source: str = "compute") -> int:
+        """Upsert fund_nav_history rows for a single fund.
+
+        nav_records: [{"date": "2024-01-02", "nav": 1.234, "acc_nav": 1.5, "day_growth": 0.5}, ...]
+        Returns count of rows upserted.
+        """
+        if not nav_records:
+            return 0
+        now = datetime.now().isoformat()
+        rows = []
+        for r in nav_records:
+            d = str(r.get("date") or r.get("nav_date") or "").strip()
+            try:
+                nav = float(r.get("nav", 0) or 0)
+            except (TypeError, ValueError):
+                continue
+            if not d or nav <= 0:
+                continue
+            acc_nav = r.get("acc_nav") or r.get("accum_nav")
+            day_growth = r.get("day_growth")
+            try:
+                acc_nav = float(acc_nav) if acc_nav is not None else None
+            except (TypeError, ValueError):
+                acc_nav = None
+            try:
+                day_growth = float(day_growth) if day_growth is not None else None
+            except (TypeError, ValueError):
+                day_growth = None
+            rows.append((code, d, nav, acc_nav, day_growth, source, now))
+        if not rows:
+            return 0
+        with get_db() as conn:
+            conn.executemany(
+                """INSERT INTO fund_nav_history
+                   (code, nav_date, nav, accum_nav, day_growth, source, fetched_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(code, nav_date) DO UPDATE SET
+                     nav = excluded.nav,
+                     accum_nav = COALESCE(excluded.accum_nav, fund_nav_history.accum_nav),
+                     day_growth = COALESCE(excluded.day_growth, fund_nav_history.day_growth),
+                     source = excluded.source,
+                     fetched_at = excluded.fetched_at""",
+                rows,
+            )
+        return len(rows)
+
+    @staticmethod
     def save_metrics_batch(rows: list[dict[str, Any]], source: str = "compute") -> int:
         """Save computed metrics for multiple funds.
 
