@@ -30,3 +30,7 @@ backend/data/
 /data/
 !backend/app/allocation/data/
 Qoder_Lighthouse_MCP_*.md
+
+# Claude / 浏览器自动化
+.claude/
+.browser-profile/
