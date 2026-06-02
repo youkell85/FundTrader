@@ -565,7 +565,7 @@ async def fund_manager_history(code: str = Query(..., min_length=4, max_length=1
 @router.get("/manager-report")
 async def fund_manager_report(code: str = Query(..., min_length=4, max_length=10, description="基金代码")):
     """运作分析：基于基金数据用LLM生成个性化运作分析报告。"""
-    from ..services.fund_service import get_fund_manager_report, get_fund_snapshot_helper
+    from ..services.fund_service import get_fund_manager_report
 
     try:
         # 先获取基金基础数据
