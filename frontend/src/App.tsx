@@ -77,7 +77,7 @@ export default function App() {
         <Suspense fallback={<PageLoader />}>
           <Routes>
             <Route path="/" element={<Home />} />
-            <Route path="/:id" element={<FundDetail />} />
+            <Route path="/fund/:code" element={<FundDetail />} />
             <Route path="/login" element={<Login />} />
 
             {/* 管理员 */}

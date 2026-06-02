@@ -670,7 +670,7 @@ export default function Recommend() {
                                 <MetricTile label="夏普" value={metricValue(perf?.sharpeRatio).toFixed(2)} color={POSITIVE_METRIC_COLOR} />
                               </div>
                               <p className="text-white/55 text-sm leading-relaxed">{fd.reason}</p>
-                              <Link to={`/${fund.fundCode || fd.fundId}`} state={{ from: "/recommend" }} className="mt-3 inline-flex items-center gap-1 text-sm" style={{ color: ACCENT_INFO }}>
+                              <Link to={`/fund/${fund.fundCode || fd.fundId}`} state={{ from: "/recommend" }} className="mt-3 inline-flex items-center gap-1 text-sm" style={{ color: ACCENT_INFO }}>
                                 查看基金详情 <ArrowRight className="w-3.5 h-3.5" />
                               </Link>
                             </div>

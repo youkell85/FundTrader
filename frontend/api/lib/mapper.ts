@@ -1,4 +1,4 @@
-﻿/**
+/**
  * FundTrader 后端数据 → 前端数据格式映射
  */
 
@@ -189,107 +189,113 @@ function calcPerformanceFromNav(navData: any[]) {
 
 // 映射基金列表项
 export function mapFundItem(item: any): any {
-  if (!item || typeof item !== "object") return null;
-  const code = item.code || "";
-  const name = item.name || "";
-  const type = inferFundType(code, name, item.type || "");
-  const perf = item.performance || {};
-  const navPerformance = calcPerformanceFromNav(item.nav_data || item.navHistory || []);
-  // 兼容 manager 为字符串或对象的情况
-  const mgrRaw = item.manager_info || item.manager;
-  const mgr = typeof mgrRaw === "string" ? { name: mgrRaw } : (mgrRaw || {});
-  // 如果 manager 对象存在但 name 为空，尝试从其他字段提取
-  const mgrName = mgr.name || mgr.manager_name || item.manager_name || item.基金经理 || "";
-  const id = codeToId(code);
-  const source = item._source || "guoyuan";
-  const tags = item.tags || generateTags(name, type);
-  const hasXinjihuiTag = tags.some((tag: unknown) => String(tag).includes("鑫基荟"));
-  const isXinjihui =
-    item.is_xinjihui === true ||
-    item.isXinjihui === true ||
-    hasXinjihuiTag ||
-    tags.includes("鑫基荟") ||
-    source === "xinjihui" ||
-    source === "guoyuan";
+  try {
+    if (!item || typeof item !== "object") return null;
+    const code = item.code || "";
+    const name = item.name || "";
+    const type = inferFundType(code, name, item.type || "");
+    const perf = item.performance || {};
+    const navPerformance = calcPerformanceFromNav(item.nav_data || item.navHistory || []);
+    // 兼容 manager 为字符串或对象的情况
+    const mgrRaw = item.manager_info || item.manager;
+    const mgr = typeof mgrRaw === "string" ? { name: mgrRaw } : (mgrRaw || {});
+    // 如果 manager 对象存在但 name 为空，尝试从其他字段提取
+    const mgrName = mgr.name || mgr.manager_name || item.manager_name || item.基金经理 || "";
+    const id = codeToId(code);
+    const source = item._source || "guoyuan";
+    const tags = item.tags || generateTags(name, type);
+    const hasXinjihuiTag = tags.some((tag: unknown) => String(tag).includes("鑫基荟"));
+    const isXinjihui =
+      item.is_xinjihui === true ||
+      item.isXinjihui === true ||
+      hasXinjihuiTag ||
+      tags.includes("鑫基荟") ||
+      source === "xinjihui" ||
+      source === "guoyuan";
 
-  return {
-    id,
-    fundCode: code,
-    fundName: name,
-    fundAbbr: name.replace(/混合型|股票型|债券型|指数型|证券投资基金|A类|C类/g, "").trim(),
-    fundType: typeMap[type] || type.toLowerCase().replace(/型/g, ""),
-    category: type || "其他",
-    company: item.company || item.management || item.fund_company || item.company_name || item.manager_company || "—",
-    riskLevel: riskMap[item.risk_level || item.riskLevel] || "medium",
-    isContinuousMarketing: isXinjihui ? 1 : item.isContinuousMarketing ?? 0,
-    isXinjihui,
-    nav: item.nav != null ? String(item.nav) : "—",
-    accumNav: item.accum_nav != null ? String(item.accum_nav) : item.nav != null ? String(item.nav) : "—",
-    dailyChange: item.day_growth != null ? String(item.day_growth) : "0",
-    totalScale: item.total_scale != null ? String(item.total_scale) : item.scale != null ? String(item.scale) : "—",
-    benchmark: item.benchmark || "—",
-    feeManage: item.feeManage ?? item.fee_rate ?? "—",
-    feeCustody: item.feeCustody ?? "—",
-    stars: item.stars || (item.rating ? Math.min(5, Math.max(1, item.rating)) : 4),
-    managerId: mgrName ? codeToId(mgrName) : null,
-    tags,
-    trackingIndex: item.trackingIndex || null,
-    source, // xinjihui / watchlist 标记
-    updatedAt: item.updated_at || item.updatedAt || item.created_at || null,
-    dataQuality: item.data_quality || item.dataQuality || "unknown",
-    staleLevel: item.stale_level || item.staleLevel || "unknown",
-    metricsUpdatedAt: item.metrics_updated_at || item.metricsUpdatedAt || null,
-    _partial: item._partial || false,
-    performance: {
-      return1w: perf.near_1w != null ? String(perf.near_1w) : item.near_1w != null ? String(item.near_1w) : navPerformance.return1w || "—",
-      return1m: perf.near_1m != null ? String(perf.near_1m) : item.near_1m != null ? String(item.near_1m) : navPerformance.return1m || "0",
-      return3m: perf.near_3m != null ? String(perf.near_3m) : item.near_3m != null ? String(item.near_3m) : navPerformance.return3m || "0",
-      return6m: perf.near_6m != null ? String(perf.near_6m) : item.near_6m != null ? String(item.near_6m) : navPerformance.return6m || "0",
-      return1y: perf.near_1y != null ? String(perf.near_1y) : item.near_1y != null ? String(item.near_1y) : item.return1y != null ? String(item.return1y) : navPerformance.return1y || "0",
-      return2y: perf.near_2y != null ? String(perf.near_2y) : navPerformance.return2y || "0",
-      return3y: perf.near_3y != null ? String(perf.near_3y) : item.near_3y != null ? String(item.near_3y) : item.return3y != null ? String(item.return3y) : navPerformance.return3y || "0",
-      return5y: perf.near_5y != null ? String(perf.near_5y) : item.return5y != null ? String(item.return5y) : navPerformance.return5y || "0",
-      return10y: perf.near_10y != null ? String(perf.near_10y) : item.near_10y != null ? String(item.near_10y) : item.return10y != null ? String(item.return10y) : navPerformance.return10y || "0",
-      returnThisYear: perf.ytd != null ? String(perf.ytd) : item.ytd != null ? String(item.ytd) : navPerformance.returnThisYear || "0",
-      annualizedReturn: pickMetric(perf.annualizedReturn, perf.annualized_return, item.annualizedReturn, item.annualized_return, navPerformance.annualizedReturn, perf.near_1y, item.near_1y, item.return1y) || "0",
-      annualizedVolatility: pickMetric(perf.annualizedVolatility, navPerformance.annualizedVolatility) || "—",
-      // 夏普/回撤需净值历史计算，轻量摘要模式下无此数据 → 展示 "—"
-      // 后台预热完成后再次查询即可获得真实值
-      sharpeRatio: pickMetric(perf.sharpeRatio, perf.sharpe_ratio, item.sharpe_ratio, navPerformance.sharpeRatio) || "—",
-      maxDrawdown: pickMetric(perf.maxDrawdown, perf.max_drawdown, item.max_drawdown, navPerformance.maxDrawdown) || "—",
-      calmarRatio: perf.calmarRatio || navPerformance.calmarRatio || "—",
-      sortinoRatio: perf.sortinoRatio || navPerformance.sortinoRatio || "—",
-      informationRatio: perf.informationRatio || navPerformance.informationRatio || "—",
-      alpha: perf.alpha || navPerformance.alpha || "—",
-      beta: perf.beta || navPerformance.beta || "—",
-      winRate: perf.winRate || navPerformance.winRate || "—",
-      recoveryPeriod: perf.recoveryPeriod != null ? String(perf.recoveryPeriod) : navPerformance.recoveryPeriod || "—",
-    },
-    manager: mgrName ? {
-      id: codeToId(mgrName),
-      name: mgrName,
-      gender: mgr.gender || null,
-      education: mgr.education || null,
-      careerStart: mgr.begin_date || mgr.career_start || "2010-01-01",
-      manageYears: mgr.tenure_days ? (mgr.tenure_days / 365).toFixed(2) : "5.00",
-      totalScale: mgr.total_scale != null ? String(mgr.total_scale) : "—",
-      fundCount: mgr.fund_count ?? 1,
-      company: item.company || item.management || item.fund_company || "—",
-      investmentStyle: mgr.style_analysis || mgr.investment_style || "均衡配置",
-      philosophy: mgr.philosophy || "坚持价值投资，精选优质企业",
-      styleDescription: mgr.style_description || "",
-      bestReturn: mgr.best_return != null ? String(mgr.best_return) : "—",
-      worstReturn: mgr.worst_return != null ? String(mgr.worst_return) : "—",
-      returnSinceTenure: mgr.return_since_tenure != null ? String(mgr.return_since_tenure) : "—",
-      annualizedReturn: mgr.annualized_return != null ? String(mgr.annualized_return) : "—",
-    } : null,
-  };
+    return {
+      id,
+      fundCode: code,
+      fundName: name,
+      fundAbbr: name.replace(/混合型|股票型|债券型|指数型|证券投资基金|A类|C类/g, "").trim(),
+      fundType: typeMap[type] || type.toLowerCase().replace(/型/g, ""),
+      category: type || "其他",
+      company: item.company || item.management || item.fund_company || item.company_name || item.manager_company || "—",
+      riskLevel: riskMap[item.risk_level || item.riskLevel] || "medium",
+      isContinuousMarketing: isXinjihui ? 1 : item.isContinuousMarketing ?? 0,
+      isXinjihui,
+      nav: item.nav != null ? String(item.nav) : "—",
+      accumNav: item.accum_nav != null ? String(item.accum_nav) : item.nav != null ? String(item.nav) : "—",
+      dailyChange: item.day_growth != null ? String(item.day_growth) : "0",
+      totalScale: item.total_scale != null ? String(item.total_scale) : item.scale != null ? String(item.scale) : "—",
+      benchmark: item.benchmark || "—",
+      feeManage: item.feeManage ?? item.fee_rate ?? "—",
+      feeCustody: item.feeCustody ?? "—",
+      stars: item.stars || (item.rating ? Math.min(5, Math.max(1, item.rating)) : 4),
+      managerId: mgrName ? codeToId(mgrName) : null,
+      tags,
+      trackingIndex: item.trackingIndex || null,
+      source, // xinjihui / watchlist 标记
+      updatedAt: item.updated_at || item.updatedAt || item.created_at || null,
+      dataQuality: item.data_quality || item.dataQuality || "unknown",
+      staleLevel: item.stale_level || item.staleLevel || "unknown",
+      metricsUpdatedAt: item.metrics_updated_at || item.metricsUpdatedAt || null,
+      _partial: item._partial || false,
+      performance: {
+        return1w: perf.near_1w != null ? String(perf.near_1w) : item.near_1w != null ? String(item.near_1w) : navPerformance.return1w || "—",
+        return1m: perf.near_1m != null ? String(perf.near_1m) : item.near_1m != null ? String(item.near_1m) : navPerformance.return1m || "0",
+        return3m: perf.near_3m != null ? String(perf.near_3m) : item.near_3m != null ? String(item.near_3m) : navPerformance.return3m || "0",
+        return6m: perf.near_6m != null ? String(perf.near_6m) : item.near_6m != null ? String(item.near_6m) : navPerformance.return6m || "0",
+        return1y: perf.near_1y != null ? String(perf.near_1y) : item.near_1y != null ? String(item.near_1y) : item.return1y != null ? String(item.return1y) : navPerformance.return1y || "0",
+        return2y: perf.near_2y != null ? String(perf.near_2y) : navPerformance.return2y || "0",
+        return3y: perf.near_3y != null ? String(perf.near_3y) : item.near_3y != null ? String(item.near_3y) : item.return3y != null ? String(item.return3y) : navPerformance.return3y || "0",
+        return5y: perf.near_5y != null ? String(perf.near_5y) : item.return5y != null ? String(item.return5y) : navPerformance.return5y || "0",
+        return10y: perf.near_10y != null ? String(perf.near_10y) : item.near_10y != null ? String(item.near_10y) : item.return10y != null ? String(item.return10y) : navPerformance.return10y || "0",
+        returnThisYear: perf.ytd != null ? String(perf.ytd) : item.ytd != null ? String(item.ytd) : navPerformance.returnThisYear || "0",
+        annualizedReturn: pickMetric(perf.annualizedReturn, perf.annualized_return, item.annualizedReturn, item.annualized_return, navPerformance.annualizedReturn, perf.near_1y, item.near_1y, item.return1y) || "0",
+        annualizedVolatility: pickMetric(perf.annualizedVolatility, navPerformance.annualizedVolatility) || "—",
+        // 夏普/回撤需净值历史计算，轻量摘要模式下无此数据 → 展示 "—"
+        // 后台预热完成后再次查询即可获得真实值
+        sharpeRatio: pickMetric(perf.sharpeRatio, perf.sharpe_ratio, item.sharpe_ratio, navPerformance.sharpeRatio) || "—",
+        maxDrawdown: pickMetric(perf.maxDrawdown, perf.max_drawdown, item.max_drawdown, navPerformance.maxDrawdown) || "—",
+        calmarRatio: perf.calmarRatio || navPerformance.calmarRatio || "—",
+        sortinoRatio: perf.sortinoRatio || navPerformance.sortinoRatio || "—",
+        informationRatio: perf.informationRatio || navPerformance.informationRatio || "—",
+        alpha: perf.alpha || navPerformance.alpha || "—",
+        beta: perf.beta || navPerformance.beta || "—",
+        winRate: perf.winRate || navPerformance.winRate || "—",
+        recoveryPeriod: perf.recoveryPeriod != null ? String(perf.recoveryPeriod) : navPerformance.recoveryPeriod || "—",
+      },
+      manager: mgrName ? {
+        id: codeToId(mgrName),
+        name: mgrName,
+        gender: mgr.gender || null,
+        education: mgr.education || null,
+        careerStart: mgr.begin_date || mgr.career_start || "2010-01-01",
+        manageYears: mgr.tenure_days ? (mgr.tenure_days / 365).toFixed(2) : "5.00",
+        totalScale: mgr.total_scale != null ? String(mgr.total_scale) : "—",
+        fundCount: mgr.fund_count ?? 1,
+        company: item.company || item.management || item.fund_company || "—",
+        investmentStyle: mgr.style_analysis || mgr.investment_style || "均衡配置",
+        philosophy: mgr.philosophy || "坚持价值投资，精选优质企业",
+        styleDescription: mgr.style_description || "",
+        bestReturn: mgr.best_return != null ? String(mgr.best_return) : "—",
+        worstReturn: mgr.worst_return != null ? String(mgr.worst_return) : "—",
+        returnSinceTenure: mgr.return_since_tenure != null ? String(mgr.return_since_tenure) : "—",
+        annualizedReturn: mgr.annualized_return != null ? String(mgr.annualized_return) : "—",
+      } : null,
+    };
+  } catch (err) {
+    console.error("[mapFundItem] failed:", err, "item:", item);
+    return null;
+  }
 }
 
 // 映射基金详情
 export function mapFundDetail(analysis: any): any {
-  if (!analysis || typeof analysis !== "object") return null;
-  const base = mapFundItem(analysis);
+  try {
+    if (!analysis || typeof analysis !== "object") return null;
+    const base = mapFundItem(analysis);
   const navDataRaw =
     analysis.nav_data ||
     analysis.navHistory ||
@@ -385,6 +391,10 @@ export function mapFundDetail(analysis: any): any {
     companyInfo: analysis.company_info || null,
     _partial: analysis._partial || false,
   };
+  } catch (err) {
+    console.error("[mapFundDetail] failed:", err, "analysis:", analysis);
+    return null;
+  }
 }
 
 // 映射推荐方案

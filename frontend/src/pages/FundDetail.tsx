@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useParams } from "react-router";
-import { ArrowLeft, BarChart3, Building2, RefreshCw, ShieldAlert, Star, UserRound } from "lucide-react";
+import { ArrowLeft, BarChart3, Building2, RefreshCw, ShieldAlert, Star, UserRound, AlertCircle } from "lucide-react";
 import {
   Bar,
   BarChart,
@@ -204,18 +204,14 @@ function Metric({ label, value, tone }: { label: string; value: string; tone?: s
 
 export default function FundDetail() {
   const location = useLocation();
-  const { id } = useParams<{ id: string }>();
-  const code = id || "";
+  const { code: codeParam } = useParams<{ code: string }>();
+  const code = codeParam || "";
   const from = (location.state as { from?: string } | null)?.from || "/";
-  const isCode = /^\d{6}$/.test(code);
-  const fundId = isCode ? 0 : parseInt(code || "0", 10);
 
-  const detailById = trpc.fund.detail.useQuery({ id: fundId }, { enabled: !isCode && fundId > 0 });
-  const detailByCode = trpc.fund.detailByCode.useQuery({ code }, { enabled: isCode });
-  const activeDetail = isCode ? detailByCode : detailById;
-  const fund = activeDetail.data;
-  const loading = activeDetail.isLoading;
-  const err = activeDetail.error;
+  const detailQuery = trpc.fund.detailByCode.useQuery({ code }, { enabled: /^\d{6}$/.test(code) });
+  const fund = detailQuery.data;
+  const loading = detailQuery.isLoading;
+  const err = detailQuery.error;
 
   const [tab, setTab] = useState<TabKey>("overview");
   const [range, setRange] = useState<RangeKey>("1Y");
@@ -226,14 +222,14 @@ export default function FundDetail() {
     if (!fund?._partial || partialRetries >= 6) return;
     const timer = window.setTimeout(() => {
       setPartialRetries((value) => value + 1);
-      activeDetail.refetch();
+      detailQuery.refetch();
     }, 7000);
     return () => window.clearTimeout(timer);
-  }, [activeDetail, fund?._partial, partialRetries]);
+  }, [detailQuery, fund?._partial, partialRetries]);
 
   const peerQ = trpc.fund.peerPerformanceRanking.useQuery(
     { code },
-    { enabled: Boolean(fund) && isCode && tab === "overview" },
+    { enabled: Boolean(fund) && /^\d{6}$/.test(code) && tab === "overview" },
   );
   const managerQ = trpc.fund.managerDetail.useQuery(
     { id: fund?.managerId || 0 },
@@ -390,7 +386,34 @@ export default function FundDetail() {
     return <div className="min-h-screen pt-20 text-center text-muted-foreground">加载基金详情中...</div>;
   }
   if (err || !fund) {
-    return <div className="min-h-screen pt-20 text-center text-muted-foreground">基金详情加载失败</div>;
+    const errMessage = err instanceof Error ? err.message : String(err || "");
+    return (
+      <div className="min-h-screen pt-20 text-center">
+        <div className="inline-flex flex-col items-center gap-3 rounded-lg border bg-card p-6 text-card-foreground">
+          <AlertCircle className="h-8 w-8 text-destructive" />
+          <div className="text-lg font-medium">基金详情加载失败</div>
+          {errMessage && (
+            <div className="max-w-md text-sm text-muted-foreground">{errMessage}</div>
+          )}
+          <div className="flex gap-2">
+            <button
+              onClick={() => detailQuery.refetch()}
+              className="inline-flex items-center gap-1 rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground hover:bg-primary/90"
+            >
+              <RefreshCw className="h-4 w-4" />
+              重试
+            </button>
+            <Link
+              to={from}
+              className="inline-flex items-center gap-1 rounded-md border px-3 py-2 text-sm hover:bg-secondary"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              返回
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   const fundName = fund.fundName || fund.fundAbbr || fund.fundCode || "--";
@@ -419,7 +442,7 @@ export default function FundDetail() {
           <span className="truncate">{fundName}</span>
           {isPartial && (
             <button
-              onClick={() => activeDetail.refetch()}
+              onClick={() => detailQuery.refetch()}
               className="ml-auto inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs hover:bg-secondary"
             >
               <RefreshCw className="h-3.5 w-3.5" />
@@ -429,7 +452,7 @@ export default function FundDetail() {
         </div>
 
         <section className="rounded-lg border bg-card text-card-foreground">
-          <div className="grid gap-4 p-4 lg:grid-cols-[1fr_440px]">
+          <div className="grid gap-4 p-4 xl:grid-cols-[1fr_440px]">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="truncate text-2xl font-semibold md:text-3xl">{fundName}</h1>

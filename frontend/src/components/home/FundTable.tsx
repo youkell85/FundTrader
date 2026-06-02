@@ -70,7 +70,7 @@ export default function FundTable({
             const isWatchlistFund = fund.source === "watchlist";
             return (
               <div key={fund.id} className="border-b border-white/[0.03] hover:bg-white/[0.04] transition-all group cursor-pointer relative">
-                <Link to={`/${fund.fundCode}`} className="hidden md:grid md:grid-cols-[minmax(260px,2fr)_repeat(5,minmax(92px,1fr))_minmax(150px,1fr)] gap-3 px-5 py-3.5 text-sm items-center">
+                <Link to={`/fund/${fund.fundCode}`} className="hidden md:grid md:grid-cols-[minmax(260px,2fr)_repeat(5,minmax(92px,1fr))_minmax(150px,1fr)] gap-3 px-5 py-3.5 text-sm items-center">
                   <div className="min-w-0">
                     <div className="text-white font-medium text-sm flex items-center gap-1">
                       {fund.fundAbbr || fund.fundName}

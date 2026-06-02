@@ -710,11 +710,28 @@ export const fundRouter = createRouter({
     .input(z.object({ id: z.number() }))
     .query(async ({ input }) => {
       try {
-        const rawFunds = getCached<any[]>("homeFunds") || await fetchHomeFundSummaries();
-        const fund = rawFunds.find((f: any) => {
+        let rawFunds = getCached<any[]>("homeFunds") || getCached<any[]>("homeFundSummaries");
+        if (!rawFunds) {
+          rawFunds = await fetchHomeFundSummaries().catch((err) => {
+            console.error("[fundRouter.detail] fetchHomeFundSummaries failed:", err);
+            return null;
+          });
+        }
+        let fund = rawFunds?.find((f: any) => {
           const mapped = mapFundItem(f);
           return mapped?.id === input.id;
         });
+        // 缓存未命中时，尝试从完整基金列表获取
+        if (!fund) {
+          const allFunds = await fetchHomeFunds().catch((err) => {
+            console.error("[fundRouter.detail] fetchHomeFunds fallback failed:", err);
+            return null;
+          });
+          fund = allFunds?.find((f: any) => {
+            const mapped = mapFundItem(f);
+            return mapped?.id === input.id;
+          });
+        }
         if (!fund) return null;
 
         // L1 准静态缓存命中：经理/持仓/回撤/Sharpe 1h 不变

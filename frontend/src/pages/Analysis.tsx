@@ -472,7 +472,7 @@ export default function Analysis() {
                     {ranked.best.map((fund: any, index: number) => {
                       const ret = metric(fund, "annualizedReturn") ?? metric(fund, "return1y") ?? 0;
                       return (
-                        <Link key={fund.fundCode} to={`/${fund.fundCode}`} className="grid grid-cols-[24px_1fr_64px_54px] gap-2 items-center rounded-lg px-2 py-2 hover:bg-white/[0.04] transition-all">
+                        <Link key={fund.fundCode} to={`/fund/${fund.fundCode}`} className="grid grid-cols-[24px_1fr_64px_54px] gap-2 items-center rounded-lg px-2 py-2 hover:bg-white/[0.04] transition-all">
                           <span className="data-number text-xs text-white/55">{index + 1}</span>
                           <span className="text-white/75 text-xs truncate">{fundName(fund)}</span>
                           <span className={`data-number text-xs text-right ${getChangeTextClass(ret)}`}>{ret >= 0 ? "+" : ""}{ret.toFixed(2)}%</span>
@@ -486,7 +486,7 @@ export default function Analysis() {
                   <div className="text-xs text-white/55 mb-2">回撤风险靠前</div>
                   <div className="space-y-1.5">
                     {ranked.risk.map((fund: any, index: number) => (
-                      <Link key={fund.fundCode} to={`/${fund.fundCode}`} className="grid grid-cols-[24px_1fr_64px_54px] gap-2 items-center rounded-lg px-2 py-2 hover:bg-white/[0.04] transition-all">
+                      <Link key={fund.fundCode} to={`/fund/${fund.fundCode}`} className="grid grid-cols-[24px_1fr_64px_54px] gap-2 items-center rounded-lg px-2 py-2 hover:bg-white/[0.04] transition-all">
                         <span className="data-number text-xs text-white/55">{index + 1}</span>
                         <span className="text-white/75 text-xs truncate">{fundName(fund)}</span>
                         <span className="data-number text-xs text-right" style={{ color: RISK_COLOR }}>{fmt(metric(fund, "maxDrawdown"), 2, "%")}</span>
@@ -569,7 +569,7 @@ export default function Analysis() {
               </h2>
               <div className="space-y-2">
                 {ranked.best.slice(0, 4).map((fund: any) => (
-                  <Link key={fund.fundCode} to={`/${fund.fundCode}`} className="flex items-center justify-between gap-2 rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-2 hover:bg-white/[0.06] transition-all">
+                  <Link key={fund.fundCode} to={`/fund/${fund.fundCode}`} className="flex items-center justify-between gap-2 rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-2 hover:bg-white/[0.06] transition-all">
                     <span className="text-white/70 text-xs truncate">{fundName(fund)}</span>
                     <ArrowRight className="w-3.5 h-3.5 text-white/50" />
                   </Link>
