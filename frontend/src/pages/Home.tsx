@@ -162,12 +162,15 @@ export default function Home() {
   }, [allFunds, company, riskLevel, search, showXinjihuiOnly, showWatchlistOnly]);
 
   const categoryStats = useMemo(() => {
-    const preferredOrder = ["etf", "equity", "hybrid", "bond", "index", "qdii"].map((key) => typeLabels[key] || key);
+    // 关键：后端 _normalize_fund_type_to_bucket 已把 category 归一为英文桶（etf/equity/...）
+    // 因此 rowByCategory 用英文 key 查询，preferredOrder 必须是英文 fundType 列表，不能用 typeLabels 转中文
+    const preferredOrder = ["etf", "equity", "hybrid", "bond", "index", "qdii"] as const;
     const apiRows = Array.isArray((categoryMetricsData as any)?.rows) ? (categoryMetricsData as any).rows : [];
     if (!showWatchlistOnly && apiRows.length > 0) {
       const rowByCategory = new Map(apiRows.map((r: any) => [String(r.category || ""), r]));
-      return preferredOrder.map((label) => {
-        const row = rowByCategory.get(label);
+      return preferredOrder.map((key) => {
+        const row = rowByCategory.get(key);
+        const label = typeLabels[key] || key;
         return {
           label,
           count: Number(row?.total_count || 0),
