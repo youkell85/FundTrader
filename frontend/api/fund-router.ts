@@ -594,6 +594,11 @@ if (process.env.FUNDTRADER_DISABLE_AUTO_PREWARM !== "true") {
   scheduleDailyHomePrewarm();
 }
 
+// === 基金详情页新增的 12 个 tRPC procedure（直连 Python 后端） ===
+// 每个都直接调 ftFetch('/fund/<endpoint>')，跟现有 tRPC procedure 走同一通道。
+
+const _codeOnlySchema = z.object({ code: z.string().min(4).max(10) });
+
 export const fundRouter = createRouter({
   // 基金列表查询（支持筛选和排序?
   list: publicQuery
@@ -1707,6 +1712,186 @@ export const fundRouter = createRouter({
         return result;
       } catch (err) {
         wrapError(err, "资产配置生成失败");
+      }
+    }),
+
+  // === 基金详情页：12 个新接口（薄包装到 Python 后端） ===
+
+  rating: publicQuery
+    .input(_codeOnlySchema)
+    .query(async ({ input }) => {
+      try {
+        return await ftFetch<{
+          code: string;
+          rating3y: number | null;
+          rating5y: number | null;
+          score: number | null;
+          source: string | null;
+        }>(`/fund/rating?code=${encodeURIComponent(input.code)}`);
+      } catch (err) {
+        console.warn(`[fundRouter] 评级失败 ${input.code}:`, err);
+        return { code: input.code, rating3y: null, rating5y: null, score: null, source: null };
+      }
+    }),
+
+  purchaseInfo: publicQuery
+    .input(_codeOnlySchema)
+    .query(async ({ input }) => {
+      try {
+        return await ftFetch<any>(`/fund/purchase-info?code=${encodeURIComponent(input.code)}`);
+      } catch (err) {
+        console.warn(`[fundRouter] 购买信息失败 ${input.code}:`, err);
+        return { code: input.code };
+      }
+    }),
+
+  holderStructure: publicQuery
+    .input(_codeOnlySchema.extend({ periods: z.number().min(1).max(80).optional() }))
+    .query(async ({ input }) => {
+      try {
+        const periods = input.periods ?? 40;
+        return await ftFetch<{ code: string; rows: any[] }>(
+          `/fund/holder-structure?code=${encodeURIComponent(input.code)}&periods=${periods}`,
+        );
+      } catch (err) {
+        console.warn(`[fundRouter] 持有人结构失败 ${input.code}:`, err);
+        return { code: input.code, rows: [] };
+      }
+    }),
+
+  bondAllocation: publicQuery
+    .input(_codeOnlySchema)
+    .query(async ({ input }) => {
+      try {
+        return await ftFetch<{ code: string; rows: any[] }>(
+          `/fund/bond-allocation?code=${encodeURIComponent(input.code)}`,
+        );
+      } catch (err) {
+        console.warn(`[fundRouter] 券种配置失败 ${input.code}:`, err);
+        return { code: input.code, rows: [] };
+      }
+    }),
+
+  bondHoldings: publicQuery
+    .input(_codeOnlySchema)
+    .query(async ({ input }) => {
+      try {
+        return await ftFetch<{ code: string; rows: any[] }>(
+          `/fund/bond-holdings?code=${encodeURIComponent(input.code)}`,
+        );
+      } catch (err) {
+        console.warn(`[fundRouter] 重仓债券失败 ${input.code}:`, err);
+        return { code: input.code, rows: [] };
+      }
+    }),
+
+  yearReturns: publicQuery
+    .input(_codeOnlySchema)
+    .query(async ({ input }) => {
+      try {
+        return await ftFetch<{ code: string; rows: any[] }>(
+          `/fund/year-returns?code=${encodeURIComponent(input.code)}`,
+        );
+      } catch (err) {
+        console.warn(`[fundRouter] 历史回报失败 ${input.code}:`, err);
+        return { code: input.code, rows: [] };
+      }
+    }),
+
+  peerPerformance: publicQuery
+    .input(_codeOnlySchema)
+    .query(async ({ input }) => {
+      try {
+        return await ftFetch<any>(`/fund/peer-performance?code=${encodeURIComponent(input.code)}`);
+      } catch (err) {
+        console.warn(`[fundRouter] peer 业绩失败 ${input.code}:`, err);
+        return { code: input.code };
+      }
+    }),
+
+  scaleHistory: publicQuery
+    .input(_codeOnlySchema.extend({ periods: z.number().min(1).max(80).optional() }))
+    .query(async ({ input }) => {
+      try {
+        const periods = input.periods ?? 40;
+        return await ftFetch<{ code: string; rows: any[] }>(
+          `/fund/scale-history?code=${encodeURIComponent(input.code)}&periods=${periods}`,
+        );
+      } catch (err) {
+        console.warn(`[fundRouter] 规模历史失败 ${input.code}:`, err);
+        return { code: input.code, rows: [] };
+      }
+    }),
+
+  turnoverHistory: publicQuery
+    .input(_codeOnlySchema.extend({ periods: z.number().min(1).max(80).optional() }))
+    .query(async ({ input }) => {
+      try {
+        const periods = input.periods ?? 40;
+        return await ftFetch<{ code: string; rows: any[] }>(
+          `/fund/turnover-history?code=${encodeURIComponent(input.code)}&periods=${periods}`,
+        );
+      } catch (err) {
+        console.warn(`[fundRouter] 换手率历史失败 ${input.code}:`, err);
+        return { code: input.code, rows: [] };
+      }
+    }),
+
+  managerHistory: publicQuery
+    .input(_codeOnlySchema)
+    .query(async ({ input }) => {
+      try {
+        return await ftFetch<{ code: string; rows: any[]; managerCount: number }>(
+          `/fund/manager-history?code=${encodeURIComponent(input.code)}`,
+        );
+      } catch (err) {
+        console.warn(`[fundRouter] 经理变更失败 ${input.code}:`, err);
+        return { code: input.code, rows: [], managerCount: 0 };
+      }
+    }),
+
+  managerReport: publicQuery
+    .input(_codeOnlySchema)
+    .query(async ({ input }) => {
+      try {
+        return await ftFetch<{ code: string; report: string | null; period: string | null }>(
+          `/fund/manager-report?code=${encodeURIComponent(input.code)}`,
+        );
+      } catch (err) {
+        console.warn(`[fundRouter] 运作分析失败 ${input.code}:`, err);
+        return { code: input.code, report: null, period: null };
+      }
+    }),
+
+  riskSummary: publicQuery
+    .input(_codeOnlySchema.extend({ window: z.enum(["1y", "3y", "5y", "inception"]).optional() }))
+    .query(async ({ input }) => {
+      try {
+        const window = input.window ?? "1y";
+        return await ftFetch<{
+          code: string;
+          window: string;
+          level: "low" | "medium" | "high" | null;
+          maxDrawdown: number | null;
+          peerMaxDrawdown: number | null;
+          downsideRisk: number | null;
+          peerDownsideRisk: number | null;
+          summary: string | null;
+          source: string | null;
+        }>(`/fund/risk-summary?code=${encodeURIComponent(input.code)}&window=${window}`);
+      } catch (err) {
+        console.warn(`[fundRouter] 风险摘要失败 ${input.code}:`, err);
+        return {
+          code: input.code,
+          window: input.window ?? "1y",
+          level: null,
+          maxDrawdown: null,
+          peerMaxDrawdown: null,
+          downsideRisk: null,
+          peerDownsideRisk: null,
+          summary: null,
+          source: null,
+        };
       }
     }),
 });

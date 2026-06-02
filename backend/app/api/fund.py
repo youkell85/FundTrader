@@ -379,3 +379,237 @@ async def compute_fund_metrics(
     except Exception as e:
         logger.error(f"Metrics compute failed: {e}")
         return {"status": "error", "message": str(e)[:200]}
+
+
+# ============================================================
+#  P0: 基金评级（3y / 5y 1~5 颗星）/ 购买信息 / 持有人结构
+# ============================================================
+
+@router.get("/rating")
+async def fund_rating(code: str = Query(..., min_length=4, max_length=10, description="基金代码")):
+    """基金评级：3 年 / 5 年 1~5 颗星。来自 tushare fund_rating。"""
+    from ..services.fund_service import get_fund_rating
+
+    try:
+        data = await run_in_threadpool(get_fund_rating, code=code)
+        return data or {
+            "code": code,
+            "rating3y": None,
+            "rating5y": None,
+            "score": None,
+            "source": None,
+        }
+    except Exception as e:
+        logger.error(f"fund.rating failed for {code}: {e}")
+        return {"code": code, "rating3y": None, "rating5y": None, "score": None, "source": None, "error": str(e)[:120]}
+
+
+@router.get("/purchase-info")
+async def fund_purchase_info(code: str = Query(..., min_length=4, max_length=10, description="基金代码")):
+    """购买信息：申购/赎回状态、起购金额、4 类费率、总费率。来自基金销售文件/天天基金。"""
+    from ..services.fund_service import get_fund_purchase_info
+
+    try:
+        data = await run_in_threadpool(get_fund_purchase_info, code=code)
+        return data or {
+            "code": code,
+            "purchaseStatus": None,
+            "redeemStatus": None,
+            "minPurchaseAmount": None,
+            "subscriptionFeeRate": None,
+            "redemptionFeeRate": None,
+            "managementFeeRate": None,
+            "custodyFeeRate": None,
+            "serviceFeeRate": None,
+            "totalFeeRate1y": None,
+        }
+    except Exception as e:
+        logger.error(f"fund.purchaseInfo failed for {code}: {e}")
+        return {"code": code, "error": str(e)[:120]}
+
+
+@router.get("/holder-structure")
+async def fund_holder_structure(
+    code: str = Query(..., min_length=4, max_length=10, description="基金代码"),
+    periods: int = Query(40, ge=1, le=80, description="返回最近多少个季度"),
+):
+    """持有人结构：季度机构/个人占比堆叠柱数据。来自 tushare fund_portfolio 季报。"""
+    from ..services.fund_service import get_fund_holder_structure
+
+    try:
+        data = await run_in_threadpool(get_fund_holder_structure, code=code, periods=periods)
+        return {"code": code, "rows": data or []}
+    except Exception as e:
+        logger.error(f"fund.holderStructure failed for {code}: {e}")
+        return {"code": code, "rows": [], "error": str(e)[:120]}
+
+
+# ============================================================
+#  P1: 券种配置 / 重仓债券 / 历史回报 / 偏股混合均值与基准
+# ============================================================
+
+@router.get("/bond-allocation")
+async def fund_bond_allocation(code: str = Query(..., min_length=4, max_length=10, description="基金代码")):
+    """券种配置：11 类债券占净值比 + 较上期。来自 tushare fund_portfolio。"""
+    from ..services.fund_service import get_fund_bond_allocation
+
+    try:
+        data = await run_in_threadpool(get_fund_bond_allocation, code=code)
+        return {"code": code, "rows": data or []}
+    except Exception as e:
+        logger.error(f"fund.bondAllocation failed for {code}: {e}")
+        return {"code": code, "rows": [], "error": str(e)[:120]}
+
+
+@router.get("/bond-holdings")
+async def fund_bond_holdings(code: str = Query(..., min_length=4, max_length=10, description="基金代码")):
+    """重仓债券：7 列（证券简称/持仓市值/占净值比/票面利率/发行主体/债券类型/发行信用评级）。"""
+    from ..services.fund_service import get_fund_bond_holdings
+
+    try:
+        data = await run_in_threadpool(get_fund_bond_holdings, code=code)
+        return {"code": code, "rows": data or []}
+    except Exception as e:
+        logger.error(f"fund.bondHoldings failed for {code}: {e}")
+        return {"code": code, "rows": [], "error": str(e)[:120]}
+
+
+@router.get("/year-returns")
+async def fund_year_returns(code: str = Query(..., min_length=4, max_length=10, description="基金代码")):
+    """历年回报：每年本基金/沪深300/偏股混合均值/同类排名。"""
+    from ..services.fund_service import get_fund_year_returns
+
+    try:
+        data = await run_in_threadpool(get_fund_year_returns, code=code)
+        return {"code": code, "rows": data or []}
+    except Exception as e:
+        logger.error(f"fund.yearReturns failed for {code}: {e}")
+        return {"code": code, "rows": [], "error": str(e)[:120]}
+
+
+@router.get("/peer-performance")
+async def fund_peer_performance(
+    code: str = Query(..., min_length=4, max_length=10, description="基金代码"),
+):
+    """偏股混合均值 / 沪深300 / 业绩比较基准 同期收益率（3m/6m/1y/3y/5y/成立至今/年化）。"""
+    from ..services.fund_service import get_fund_peer_performance
+
+    try:
+        data = await run_in_threadpool(get_fund_peer_performance, code=code)
+        return {"code": code, **data}
+    except Exception as e:
+        logger.error(f"fund.peerPerformance failed for {code}: {e}")
+        return {
+            "code": code,
+            "peer": {"return3m": None, "return6m": None, "return1y": None, "return3y": None, "return5y": None, "returnSinceInception": None, "annualizedReturn": None},
+            "index": {"return3m": None, "return6m": None, "return1y": None, "return3y": None, "return5y": None, "returnSinceInception": None, "annualizedReturn": None},
+            "benchmark": {"return3m": None, "return6m": None, "return1y": None, "return3y": None, "return5y": None, "returnSinceInception": None, "annualizedReturn": None},
+            "error": str(e)[:120],
+        }
+
+
+# ============================================================
+#  P2: 历年规模变化 / 基金换手率 / 基金经理变更
+# ============================================================
+
+@router.get("/scale-history")
+async def fund_scale_history(
+    code: str = Query(..., min_length=4, max_length=10, description="基金代码"),
+    periods: int = Query(40, ge=1, le=80, description="返回最近多少个季度"),
+):
+    """历年规模变化：本基金净资产 + 同类 25% 分位（季度）。"""
+    from ..services.fund_service import get_fund_scale_history
+
+    try:
+        data = await run_in_threadpool(get_fund_scale_history, code=code, periods=periods)
+        return {"code": code, "rows": data or []}
+    except Exception as e:
+        logger.error(f"fund.scaleHistory failed for {code}: {e}")
+        return {"code": code, "rows": [], "error": str(e)[:120]}
+
+
+@router.get("/turnover-history")
+async def fund_turnover_history(
+    code: str = Query(..., min_length=4, max_length=10, description="基金代码"),
+    periods: int = Query(40, ge=1, le=80, description="返回最近多少个季度"),
+):
+    """基金换手率（季度）。"""
+    from ..services.fund_service import get_fund_turnover_history
+
+    try:
+        data = await run_in_threadpool(get_fund_turnover_history, code=code, periods=periods)
+        return {"code": code, "rows": data or []}
+    except Exception as e:
+        logger.error(f"fund.turnoverHistory failed for {code}: {e}")
+        return {"code": code, "rows": [], "error": str(e)[:120]}
+
+
+@router.get("/manager-history")
+async def fund_manager_history(code: str = Query(..., min_length=4, max_length=10, description="基金代码")):
+    """基金经理变更：历任经理任职/离职日期/任职总回报/年化回报/同类排名。"""
+    from ..services.fund_service import get_fund_manager_history
+
+    try:
+        data = await run_in_threadpool(get_fund_manager_history, code=code)
+        return {"code": code, "rows": data or [], "managerCount": len(data or [])}
+    except Exception as e:
+        logger.error(f"fund.managerHistory failed for {code}: {e}")
+        return {"code": code, "rows": [], "error": str(e)[:120]}
+
+
+# ============================================================
+#  P3: 运作分析（基金定期报告全文）
+# ============================================================
+
+@router.get("/manager-report")
+async def fund_manager_report(code: str = Query(..., min_length=4, max_length=10, description="基金代码")):
+    """运作分析：基金定期报告里的经理观点全文。"""
+    from ..services.fund_service import get_fund_manager_report
+
+    try:
+        data = await run_in_threadpool(get_fund_manager_report, code=code)
+        return data or {"code": code, "report": None, "period": None}
+    except Exception as e:
+        logger.error(f"fund.managerReport failed for {code}: {e}")
+        return {"code": code, "report": None, "period": None, "error": str(e)[:120]}
+
+
+# ============================================================
+#  风险摘要（规则引擎生成）
+# ============================================================
+
+@router.get("/risk-summary")
+async def fund_risk_summary(
+    code: str = Query(..., min_length=4, max_length=10, description="基金代码"),
+    window: str = Query("1y", description="时间窗口：1y / 3y / 5y / inception"),
+):
+    """风险摘要：基于 fund_metrics_snapshot + 同类均值，用规则模板生成中文自然语言摘要。"""
+    from ..services.fund_service import get_fund_risk_summary
+
+    try:
+        data = await run_in_threadpool(get_fund_risk_summary, code=code, window=window)
+        return data or {
+            "code": code,
+            "window": window,
+            "level": None,
+            "maxDrawdown": None,
+            "peerMaxDrawdown": None,
+            "downsideRisk": None,
+            "peerDownsideRisk": None,
+            "summary": None,
+            "source": None,
+        }
+    except Exception as e:
+        logger.error(f"fund.riskSummary failed for {code}: {e}")
+        return {
+            "code": code,
+            "window": window,
+            "level": None,
+            "maxDrawdown": None,
+            "peerMaxDrawdown": None,
+            "downsideRisk": None,
+            "peerDownsideRisk": None,
+            "summary": None,
+            "source": None,
+            "error": str(e)[:120],
+        }
