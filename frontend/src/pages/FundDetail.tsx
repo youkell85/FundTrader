@@ -2,6 +2,7 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useParams } from "react-router";
 import { ArrowLeft, RefreshCw, AlertCircle, Star } from "lucide-react";
 import {
+  Area,
   Bar,
   BarChart,
   CartesianGrid,
@@ -50,6 +51,16 @@ const SERIES_COLORS = {
 
 // 多分类饼图/柱图色板
 const chartColors = ["#3B6CFF", "#46C6C2", "#E9AB60", "#5CA8DF", "#9D7BFF", "#FFB800"];
+
+// 统一 Tooltip 样式：半透明背景+紧凑
+const TOOLTIP_STYLE = {
+  backgroundColor: "rgba(255,255,255,0.95)",
+  border: "1px solid hsl(var(--border))",
+  borderRadius: 6,
+  fontSize: 12,
+  padding: "6px 10px",
+  boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+};
 
 const ANCHOR_ITEMS = [
   { id: "perf", label: "业绩表现" },
@@ -778,14 +789,6 @@ function LeftSidebar({
         );
       })()}
 
-      {/* 投资目标 — 缺数 */}
-      <MissingPanel
-        title="投资目标"
-        reason={"依赖 fund.investmentObjective 长文本字段（PDF 顶部「通过品质投资策略……」段落）"}
-        endpoint="trpc.fund.detailByCode.investmentObjective"
-        height={140}
-      />
-
       {/* 比较基准 */}
       <Panel title="比较基准">
         <BenchmarkStack benchmark={String(fund.benchmark || "—")} />
@@ -972,7 +975,7 @@ function PerformanceSection({
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                 <XAxis dataKey="d" tick={{ fontSize: 11 }} />
                 <YAxis tick={{ fontSize: 11 }} />
-                <Tooltip />
+                <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(value: number) => [`${Number(value).toFixed(2)}%`, ""]} />
                 <Line dataKey="fund" stroke={SERIES_COLORS.fund} dot={false} name="本基金" />
                 <Line dataKey="fund" stroke={SERIES_COLORS.peer} dot={false} name="偏股混合均值" />
                 <Line dataKey="fund" stroke={SERIES_COLORS.index} dot={false} name="沪深300" />
@@ -985,7 +988,7 @@ function PerformanceSection({
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                 <XAxis dataKey="d" tick={{ fontSize: 11 }} />
                 <YAxis tick={{ fontSize: 11 }} />
-                <Tooltip />
+                <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(value: number) => [`${Number(value).toFixed(2)}%`, ""]} />
                 <Line
                   dataKey="fund"
                   stroke={SERIES_COLORS.fund}
@@ -1268,7 +1271,7 @@ function RiskSection({
         <div className="flex items-center gap-3">
           <div className="relative h-2 flex-1 overflow-hidden rounded-full bg-gradient-to-r from-[#16C784] via-[#FFB800] to-[#F5384B]">
             <div
-              className="absolute -top-1 h-4 w-4 rounded-full border-2 border-white shadow"
+              className="absolute -top-1.5 h-5 w-5 rounded-full border-[3px] border-white shadow-lg"
               style={{
                 left: level === "low" ? "15%" : level === "medium" ? "50%" : "85%",
                 background: levelColor,
@@ -1350,8 +1353,14 @@ function RiskSection({
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                 <XAxis dataKey="d" tick={{ fontSize: 11 }} />
                 <YAxis tick={{ fontSize: 11 }} />
-                <Tooltip />
-                <Line dataKey="dd" stroke={SERIES_COLORS.fund} dot={false} name="回撤(%)" />
+                <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(value: number) => [`${Number(value).toFixed(2)}%`, ""]} />
+                <defs>
+                  <linearGradient id="ddGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={SERIES_COLORS.fund} stopOpacity={0.15} />
+                    <stop offset="100%" stopColor={SERIES_COLORS.fund} stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <Area dataKey="dd" stroke={SERIES_COLORS.fund} fill="url(#ddGradient)" dot={false} name="回撤(%)" />
               </ComposedChart>
             </ResponsiveContainer>
           )}
