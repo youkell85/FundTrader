@@ -343,9 +343,8 @@ def _calc_period_returns(nav_data: List[Dict]) -> Dict[str, Any]:
 
 
 def _supplement_nav_with_efinance(code: str, current_navs: List[Dict]) -> List[Dict]:
-    """优先使用 efinance 抓取长周期全量净值历史（东财涵盖从成立以来）。
-    若当前数据不足 365 点或起始日期不够早，从 efinance 补充。并使用文件缓存避免重复拉取。
-    若 efinance 也失败，尝试 akshare 作为第三层 fallback。"""
+    """优先使用本地 fund_nav_history DB（已由 compute 阶段持久化），
+    不足时回退 efinance 在线 API。"""
     nav_cache_key = f"fund_nav_full_{code}"
     cached = cache.get(nav_cache_key, CACHE_TTL_NAV * 6)  # 6小时缓存
     if cached and isinstance(cached, list) and len(cached) > 200:
@@ -354,6 +353,31 @@ def _supplement_nav_with_efinance(code: str, current_navs: List[Dict]) -> List[D
             cache.set(nav_cache_key, normalized)
         return normalized
 
+    # 关键：先查本地 fund_nav_history DB（避免 efinance 拉不到时 navHistory 空）
+    db_nav: List[Dict] = []
+    try:
+        from ..storage.database import get_db
+        with get_db() as conn:
+            rows = conn.execute(
+                "SELECT nav_date, nav, accum_nav, day_growth FROM fund_nav_history "
+                "WHERE code = ? ORDER BY nav_date ASC",
+                (code,),
+            ).fetchall()
+        for r in rows:
+            db_nav.append({
+                "date": str(r["nav_date"]),
+                "nav": float(r["nav"]) if r["nav"] is not None else None,
+                "accum_nav": float(r["accum_nav"]) if r["accum_nav"] is not None else None,
+                "day_growth": float(r["day_growth"]) if r["day_growth"] is not None else None,
+            })
+        if len(db_nav) > 200:
+            db_nav = normalize_nav_data(db_nav)
+            cache.set(nav_cache_key, db_nav)
+            return db_nav
+    except Exception:
+        pass
+
+    # DB 不足时回退 efinance 在线 API
     ef_nav = []
     try:
         ef_nav = get_fund_nav_history(code)
