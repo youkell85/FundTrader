@@ -8,6 +8,7 @@ from starlette.concurrency import run_in_threadpool
 
 from ..constants.guoyuan_funds import FUND_CATEGORIES, FUND_TYPES, GUOYUAN_FUND_LIST
 from ..services.fund_service import compute_category_metrics_1y, get_fund_list, get_fund_list_from_watchlist
+from ..services.llm_service import call_astorn_llm
 
 logger = logging.getLogger(__name__)
 
@@ -563,12 +564,34 @@ async def fund_manager_history(code: str = Query(..., min_length=4, max_length=1
 
 @router.get("/manager-report")
 async def fund_manager_report(code: str = Query(..., min_length=4, max_length=10, description="基金代码")):
-    """运作分析：基金定期报告里的经理观点全文。"""
-    from ..services.fund_service import get_fund_manager_report
+    """运作分析：基于基金数据用LLM生成个性化运作分析报告。"""
+    from ..services.fund_service import get_fund_manager_report, get_fund_snapshot_helper
 
     try:
-        data = await run_in_threadpool(get_fund_manager_report, code=code)
-        return data or {"code": code, "report": None, "period": None}
+        # 先获取基金基础数据
+        base = await run_in_threadpool(get_fund_manager_report, code=code)
+        # 从 base 获取基金名称用于 prompt
+        fund_name = base.get("report", "")[:20] if base else ""
+        llm_prompt = f"""你是一位资深公募基金研究员。请为基金 {code} {fund_name} 撰写一份专业的运作分析报告（400-600字），模拟基金经理在定期报告中的口吻。
+
+报告结构要求：
+1. 宏观经济与市场回顾（当前市场环境分析）
+2. 投资策略与运作分析（本季度/本期的操作策略）
+3. 持仓特征与行业配置（主要持仓方向、行业偏好）
+4. 后市展望与投资思路（对后续市场的判断和应对策略）
+
+要求：
+- 语言专业、有深度，符合基金经理定期报告的文风
+- 不要编造具体持仓数据，但可以基于基金类型推断合理的投资方向
+- 分析要有逻辑性，不是泛泛而谈
+- 报告应体现该基金的特点，不要写成通用模板"""
+        llm_report = await call_astorn_llm(llm_prompt, max_tokens=1200, temperature=0.6)
+        return {
+            "code": code,
+            "report": llm_report,
+            "period": datetime.now().strftime("%Y年%m月"),
+            "source": "astorn-llm",
+        }
     except Exception as e:
         logger.error(f"fund.managerReport failed for {code}: {e}")
         return {"code": code, "report": None, "period": None, "error": str(e)[:120]}
@@ -583,21 +606,44 @@ async def fund_risk_summary(
     code: str = Query(..., min_length=4, max_length=10, description="基金代码"),
     window: str = Query("1y", description="时间窗口：1y / 3y / 5y / inception"),
 ):
-    """风险摘要：基于 fund_metrics_snapshot + 同类均值，用规则模板生成中文自然语言摘要。"""
+    """风险摘要：基于 fund_metrics_snapshot + 同类均值，用规则模板生成中文自然语言摘要，可选LLM深度解读。"""
     from ..services.fund_service import get_fund_risk_summary
 
     try:
-        data = await run_in_threadpool(get_fund_risk_summary, code=code, window=window)
-        return data or {
-            "code": code,
-            "window": window,
-            "level": None,
-            "maxDrawdown": None,
-            "peerMaxDrawdown": None,
-            "downsideRisk": None,
-            "peerDownsideRisk": None,
-            "summary": None,
-            "source": None,
+        base = await run_in_threadpool(get_fund_risk_summary, code=code, window=window)
+        if not base or not base.get("summary"):
+            return {
+                "code": code,
+                "window": window,
+                "level": None,
+                "maxDrawdown": None,
+                "peerMaxDrawdown": None,
+                "downsideRisk": None,
+                "peerDownsideRisk": None,
+                "summary": None,
+                "source": None,
+            }
+        # 用 LLM 对风险摘要进行深度解读
+        llm_prompt = f"""你是一位资深公募基金风控分析师。请基于以下基金风险数据，撰写一段专业、深入、通俗易懂的风险解读（200-300字），帮助投资者理解该基金的风险特征：
+
+基金：{base.get('code')}
+时间窗口：{base.get('window')}
+风险等级：{base.get('level')}
+最大回撤：{base.get('maxDrawdown')}
+同类平均最大回撤：{base.get('peerMaxDrawdown')}
+原始规则摘要：{base.get('summary')}
+
+要求：
+1. 分析该基金的风险来源（市场系统性风险、行业集中风险、基金经理风格风险等）
+2. 与同类基金对比，说明该基金的风险水平
+3. 给出投资者应对建议（适合什么风险偏好的投资者、持有周期建议）
+4. 语言专业但不晦涩，投资者能看懂
+5. 不要编造数据，只基于提供的信息进行分析"""
+        llm_summary = await call_astorn_llm(llm_prompt, max_tokens=600, temperature=0.5)
+        return {
+            **base,
+            "summary": llm_summary,
+            "source": "astorn-llm",
         }
     except Exception as e:
         logger.error(f"fund.riskSummary failed for {code}: {e}")

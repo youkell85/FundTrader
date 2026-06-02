@@ -36,6 +36,11 @@ LLM_API_URL = os.getenv("LLM_API_URL", "https://api.minimaxi.com/v1/chat/complet
 LLM_API_KEY = os.getenv("LLM_API_KEY", "")
 LLM_MODEL = os.getenv("LLM_MODEL", "MiniMax-M2.7")
 
+# Astorn DeepSeek v4 Flash 配置（用于风险摘要、运作分析等基金详情页文本生成）
+ASTORN_API_URL = os.getenv("ASTORN_API_URL", "https://maas-coding-api.cn-huabei-1.xf-yun.com/v2/chat/completions")
+ASTORN_API_KEY = os.getenv("ASTORN_API_KEY", "")
+ASTORN_MODEL = os.getenv("ASTORN_MODEL", "xopdeepseekv4flash")
+
 # CORS
 CORS_ORIGINS = os.getenv("CORS_ORIGINS", "")
 

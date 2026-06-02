@@ -11,7 +11,7 @@ from typing import Optional
 import httpx
 
 from ..utils import console_error
-from ..config import LLM_API_URL, LLM_API_KEY, LLM_MODEL
+from ..config import LLM_API_URL, LLM_API_KEY, LLM_MODEL, ASTORN_API_URL, ASTORN_API_KEY, ASTORN_MODEL
 
 
 # ======================== 熔断器 ========================
@@ -365,6 +365,45 @@ async def generate_recommendation_analysis(
     except Exception as e:
         console_error(f"LLM recommendation error: {e}")
         return None
+
+
+# ======================== Astorn DeepSeek v4 Flash 调用 ========================
+
+async def call_astorn_llm(
+    prompt: str,
+    max_tokens: int = 800,
+    temperature: float = 0.7,
+    timeout: float = 60.0,
+) -> str:
+    """调用 Astorn DeepSeek v4 Flash API 生成文本。"""
+    if not ASTORN_API_KEY:
+        return "AI分析服务未配置（缺少 ASTORN_API_KEY），请联系管理员配置 API 密钥"
+
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {ASTORN_API_KEY}",
+    }
+    payload = {
+        "model": ASTORN_MODEL,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+
+    try:
+        client = _get_client()
+        resp = await client.post(
+            ASTORN_API_URL,
+            json=payload,
+            headers=headers,
+            timeout=httpx.Timeout(timeout, connect=15.0),
+        )
+        resp.raise_for_status()
+        result = resp.json()
+        return _choice_content(result)
+    except Exception as e:
+        console_error(f"[Astorn LLM] error: {e}")
+        return "AI 分析暂不可用，请稍后重试"
 
 
 async def close_llm_client():

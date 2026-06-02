@@ -1085,11 +1085,11 @@ function HistorySection({
         <>
           <div className="h-[300px]">
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={yearReturns}>
+              <BarChart data={data}>
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                 <XAxis dataKey="year" tick={{ fontSize: 11 }} />
                 <YAxis tick={{ fontSize: 11 }} />
-                <Tooltip />
+                <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(value: number) => [`${Number(value).toFixed(2)}%`, ""]} />
                 <Legend />
                 <Bar dataKey="fund" fill={SERIES_COLORS.fund} name="本基金">
                   {data.map((_y, i) => (
