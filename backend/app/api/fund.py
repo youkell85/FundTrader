@@ -1,4 +1,5 @@
 """基金排名筛选API"""
+import asyncio
 import json
 import logging
 from datetime import datetime
@@ -585,12 +586,21 @@ async def fund_manager_report(code: str = Query(..., min_length=4, max_length=10
 - 不要编造具体持仓数据，但可以基于基金类型推断合理的投资方向
 - 分析要有逻辑性，不是泛泛而谈
 - 报告应体现该基金的特点，不要写成通用模板"""
-        llm_report = await call_astorn_llm(llm_prompt, max_tokens=1200, temperature=0.6)
+        llm_report: str | None = None
+        try:
+            llm_report = await asyncio.wait_for(
+                call_astorn_llm(llm_prompt, max_tokens=1200, temperature=0.6),
+                timeout=20.0,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(f"managerReport LLM timeout for {code}")
+            llm_report = None
+        # call_astorn_llm 内部已捕获常见异常并返回 None/空串；此处不重复 except Exception
         return {
             "code": code,
             "report": llm_report,
             "period": datetime.now().strftime("%Y年%m月"),
-            "source": "astorn-llm",
+            "source": "astorn-llm" if llm_report else "rule-engine",
         }
     except Exception as e:
         logger.error(f"fund.managerReport failed for {code}: {e}")
@@ -623,28 +633,78 @@ async def fund_risk_summary(
                 "summary": None,
                 "source": None,
             }
-        # 用 LLM 对风险摘要进行深度解读
-        llm_prompt = f"""你是一位资深公募基金风控分析师。请基于以下基金风险数据，撰写一段专业、深入、通俗易懂的风险解读（200-300字），帮助投资者理解该基金的风险特征：
+        # 用 LLM 对风险摘要进行深度解读（机构风控官视角，强制 JSON Schema 输出）
+        llm_prompt = f"""你是一家头部公募基金管理公司的首席风控官（CRO），请基于以下产品风险数据，输出**严格的 JSON**（不要任何额外说明文字）。
 
-基金：{base.get('code')}
-时间窗口：{base.get('window')}
-风险等级：{base.get('level')}
-最大回撤：{base.get('maxDrawdown')}
-同类平均最大回撤：{base.get('peerMaxDrawdown')}
-原始规则摘要：{base.get('summary')}
+【产品信息】
+· 产品代码：{base.get('code')}
+· 考察周期：{base.get('window')}
+· 风险等级：{base.get('level')}
+· 最大回撤：{base.get('maxDrawdown')}
+· 同类平均最大回撤：{base.get('peerMaxDrawdown')}
+· 夏普比率：{base.get('sharpeRatio', '暂无')}
 
-要求：
-1. 分析该基金的风险来源（市场系统性风险、行业集中风险、基金经理风格风险等）
-2. 与同类基金对比，说明该基金的风险水平
-3. 给出投资者应对建议（适合什么风险偏好的投资者、持有周期建议）
-4. 语言专业但不晦涩，投资者能看懂
-5. 不要编造数据，只基于提供的信息进行分析"""
-        llm_summary = await call_astorn_llm(llm_prompt, max_tokens=600, temperature=0.5)
-        return {
-            **base,
-            "summary": llm_summary,
-            "source": "astorn-llm",
-        }
+【输出 JSON Schema（严格遵守，不要多余字段）】
+{{
+  "core_conclusion": "string, 30-50字，一句话风控结论",
+  "risk_sources": ["string", "string", "string"],
+  "quantitative_positioning": "string, 30-50字，定量对标（回撤为同类 X 倍）",
+  "suitability_advice": "string, 30-60字，明确适合/不适合何种风险偏好投资者",
+  "monitoring_focus": "string, 20-40字，后续重点监控的指标"
+}}
+
+【硬性约束】
+1. 严禁编造数据，所有数值必须基于上述产品信息
+2. 严禁客套话、严禁"综上所述"
+3. 中文输出，专业机构口吻
+"""
+        llm_summary: str | None = None
+        source = "rule-engine"
+        llm_summary_raw = ""
+        try:
+            llm_summary_raw = await asyncio.wait_for(
+                call_astorn_llm(llm_prompt, max_tokens=600, temperature=0.2),
+                timeout=20.0,
+            )
+        except asyncio.TimeoutError:
+            logger.warning(f"riskSummary LLM timeout for {code}")
+            llm_summary_raw = ""
+
+        # 解析 + 类型校验
+        candidate = None
+        if llm_summary_raw:
+            try:
+                candidate = json.loads(llm_summary_raw)
+            except json.JSONDecodeError:
+                logger.warning(f"riskSummary LLM 非JSON输出, 回落规则引擎: {code}")
+                candidate = None
+
+        if isinstance(candidate, dict):
+            core = str(candidate.get("core_conclusion") or "").strip()[:200]
+            sources = candidate.get("risk_sources")
+            if not isinstance(sources, list):
+                sources = []
+            sources = [str(s)[:200] for s in sources if s][:5]
+            positioning = str(candidate.get("quantitative_positioning") or "").strip()[:200]
+            suitability = str(candidate.get("suitability_advice") or "").strip()[:200]
+            monitoring = str(candidate.get("monitoring_focus") or "").strip()[:200]
+            # 至少要有 core_conclusion 非空才视为有效 LLM 输出
+            if core:
+                llm_summary = (
+                    f"【风险定级】{core}\n"
+                    f"【风险来源】{'；'.join(sources) if sources else '暂无'}\n"
+                    f"【同业对标】{positioning or '暂无'}\n"
+                    f"【适当性建议】{suitability or '暂无'}\n"
+                    f"【监控重点】{monitoring or '暂无'}"
+                )
+                source = "astorn-llm"
+            else:
+                llm_summary = base.get("summary")
+                source = "rule-engine"
+        else:
+            llm_summary = base.get("summary")
+            source = "rule-engine"
+        return {**base, "summary": llm_summary, "source": source}
     except Exception as e:
         logger.error(f"fund.riskSummary failed for {code}: {e}")
         return {

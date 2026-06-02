@@ -26,6 +26,20 @@ SORT_FIELD_MAP: dict[str, str] = {
     "近1年": "near_1y", "近3年": "near_3y", "今年来": "ytd",
 }
 
+# 基金类型 → 英文桶映射（首页 categoryMetrics 使用）
+_TYPE_BUCKET_MAP: dict[str, str] = {
+    "股票型": "equity", "混合型": "hybrid", "债券型": "bond",
+    "指数型": "index", "ETF": "etf", "QDII": "qdii",
+    "货币型": "money", "货币": "money", "FOF": "fof", "REITs": "reits",
+    "ETF联接": "etf", "联接基金": "etf",
+}
+
+
+def _normalize_fund_type_to_bucket(raw: str) -> str:
+    """把 fund_master.fund_type 中文归类为首页统一的英文桶 key."""
+    s = (raw or "").strip()
+    return _TYPE_BUCKET_MAP.get(s) or s or "other"
+
 BULK_PERFORMANCE_TIMEOUT_SECONDS = float(os.getenv("FUNDTRADER_BULK_PERFORMANCE_TIMEOUT_SECONDS", "8"))
 _bulk_performance_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="fund-perf")
 
@@ -128,7 +142,7 @@ def compute_category_metrics_1y(
     category_bucket: dict[str, dict[str, Any]] = {}
     for row in masters:
         code = row["code"]
-        category = (row["fund_type"] or "unknown").strip() or "unknown"
+        category = _normalize_fund_type_to_bucket(row["fund_type"] or "")
         bucket = category_bucket.setdefault(category, {
             "category": category,
             "annualized_returns": [],
@@ -1293,13 +1307,25 @@ def get_fund_risk_summary(code: str, window: str = "1y") -> dict | None:
                 compare_verb = "与同类平均相近"
             compare = f"该基金的最大回撤 {compare_verb}"
 
-        summary = (
-            f"在近 1 年中，{fund_name}的下行风险为 {_format_dd(risk_downside_estimate(row, peer_max_dd))}，"
-            f"{compare}；最大回撤为 {_format_pct(max_dd)}，"
-            f"在同类基金中的综合排名显示，该基金过去一年风险为"
-        )
+        # 4 段式机构风控官口径
         level_zh = {"low": "低", "medium": "中", "high": "高"}[level]
-        summary += level_zh + "。"
+        peer_compare = compare
+        downside = _format_dd(risk_downside_estimate(row, peer_max_dd))
+        sharpe_str = _format_pct(row["sharpe_ratio"]) if row["sharpe_ratio"] else "暂无"
+        if level == "high":
+            suitability = "适合 C4 及以上风险偏好的投资者配置，建议作为权益组合的卫星仓位。"
+        elif level == "medium":
+            suitability = "适合 C3 风险偏高的投资者作为核心配置。"
+        else:
+            suitability = "适合 C1-C2 风险偏好投资者作为底仓配置。"
+        summary = (
+            f"【风险定级】过去 1 年本基金 {fund_name}（{fund_type}）综合风险等级为【{level_zh}】。\n"
+            f"【核心指标】近一年最大回撤 {_format_pct(max_dd)}，"
+            f"下行风险代理指标 {downside}；"
+            f"夏普比率 {sharpe_str}。\n"
+            f"【同业对标】与同类（{fund_type}）平均最大回撤 {_format_pct(peer_max_dd)} 相比，{peer_compare}。\n"
+            f"【适当性建议】本产品风险等级{level_zh}，{suitability}"
+        )
         return {
             "code": code,
             "window": window,

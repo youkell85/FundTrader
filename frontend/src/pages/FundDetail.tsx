@@ -180,6 +180,16 @@ function EmptyState({ label = "暂无数据" }: { label?: string }) {
   );
 }
 
+function PartialBanner({ code }: { code: string }) {
+  return (
+    <div className="mb-3 flex items-center gap-2 rounded-md border border-[#FFB800]/30 bg-[#FFB800]/10 px-3 py-2 text-xs text-[#FFB800]">
+      <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+      <span>该产品的持仓/历史净值尚未同步完成，已发起后台回填（约 30s）。</span>
+      <span className="ml-auto font-mono text-[10px] text-white/40">{code}</span>
+    </div>
+  );
+}
+
 function Metric({
   label,
   value,
@@ -255,8 +265,24 @@ export default function FundDetail() {
     { enabled },
   );
   const managerHistoryQ = trpc.fund.managerHistory.useQuery({ code }, { enabled });
-  const managerReportQ = trpc.fund.managerReport.useQuery({ code }, { enabled });
-  const riskSummaryQ = trpc.fund.riskSummary.useQuery({ code }, { enabled });
+
+  // 延后启动 LLM 类查询，避免阻塞首屏
+  const [llmReady, setLlmReady] = useState(false);
+  useEffect(() => {
+    if (!loading && fund && !llmReady) {
+      const t = window.setTimeout(() => setLlmReady(true), 300);
+      return () => window.clearTimeout(t);
+    }
+  }, [loading, fund, llmReady]);
+
+  const managerReportQ = trpc.fund.managerReport.useQuery(
+    { code },
+    { enabled: enabled && llmReady, staleTime: 30 * 60 * 1000 },
+  );
+  const riskSummaryQ = trpc.fund.riskSummary.useQuery(
+    { code },
+    { enabled: enabled && llmReady, staleTime: 30 * 60 * 1000 },
+  );
 
   const [range, setRange] = useState<RangeKey>("1Y");
   const [partialRetries, setPartialRetries] = useState(0);
@@ -485,6 +511,7 @@ export default function FundDetail() {
 
   const fundName = fund.fundName || fund.fundAbbr || fund.fundCode || "--";
   const isPartial = Boolean((fund as any)?._partial);
+  const showPartialBanner = Boolean(fund?._partial);
   const navDate =
     fund.navDate || fund.nav_date || navPoints[navPoints.length - 1]?.d || "—";
 
@@ -563,6 +590,8 @@ export default function FundDetail() {
 
         {/* === 锚点导航 === */}
         <AnchorNav items={ANCHOR_ITEMS} />
+
+        {showPartialBanner && <PartialBanner code={code} />}
 
         {/* === 长页面布局 === */}
         <ReportLayout

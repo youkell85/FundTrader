@@ -57,7 +57,24 @@ function generateTags(name: string, _type: string): string[] {
 function inferFundType(code: string, name: string, rawType: string): string {
   const text = `${rawType || ""}${name || ""}`.toUpperCase();
   if (/REIT/.test(text) || /^508\d{3}$/.test(code)) return "REITs";
+  // ETF 识别：名称含 ETF/LOF，或场内基金代码格式
   if (/ETF/.test(text) || /LOF/.test(text) || /^(15\d{4}|16\d{4}|18\d{4}|5\d{5})$/.test(code)) return "ETF";
+  // 数据库中指数型基金，若名称含 ETF 也应识别为 ETF
+  if ((rawType === "指数型" || rawType === "指数") && /ETF/.test((name || "").toUpperCase())) return "ETF";
+  // 类型映射：数据库中文类型 → 前端标识
+  const typeMapReverse: Record<string, string> = {
+    "股票型": "equity",
+    "混合型": "hybrid",
+    "债券型": "bond",
+    "指数型": "index",
+    "货币型": "money",
+    "货币": "money",
+    "QDII": "qdii",
+    "FOF": "fof",
+    "REITs": "reits",
+    "ETF": "etf",
+  };
+  if (typeMapReverse[rawType]) return typeMapReverse[rawType];
   return rawType || "";
 }
 

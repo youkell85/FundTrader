@@ -175,18 +175,21 @@ function hasRiskMetrics(fund: any): boolean {
 
 function hasDetailPayload(fund: any): boolean {
   if (!fund || typeof fund !== "object") return false;
-  const hasNavSeries = Array.isArray(fund?.nav_data) && fund.nav_data.length > 20;
-  const hasHoldings = Array.isArray(fund?.holdings) && fund.holdings.length > 0;
-  const hasAssetAllocation = (
+  const hasRich = (
+    (Array.isArray(fund?.nav_data) && fund.nav_data.length > 20) ||
+    (Array.isArray(fund?.holdings) && fund.holdings.length > 0) ||
     (Array.isArray(fund?.asset_allocation) && fund.asset_allocation.length > 0) ||
-    (Array.isArray(fund?.assetAllocation) && fund.assetAllocation.length > 0)
-  );
-  const hasIndustryHistory = (
+    (Array.isArray(fund?.assetAllocation) && fund.assetAllocation.length > 0) ||
     (Array.isArray(fund?.industry_history) && fund.industry_history.length > 0) ||
-    (Array.isArray(fund?.industryHistory) && fund.industryHistory.length > 0)
+    (Array.isArray(fund?.industryHistory) && fund.industryHistory.length > 0) ||
+    (Array.isArray(fund?.dividends) && fund.dividends.length > 0)
   );
-  const hasDividends = Array.isArray(fund?.dividends) && fund.dividends.length > 0;
-  return hasNavSeries || hasHoldings || hasAssetAllocation || hasIndustryHistory || hasDividends;
+  const hasBasic = (
+    fund?.nav != null && fund.nav !== "" && fund.nav !== "—" &&
+    (fund?.sharpe_ratio != null || fund?.performance?.sharpeRatio != null) &&
+    (fund?.max_drawdown != null || fund?.performance?.maxDrawdown != null)
+  );
+  return hasRich || hasBasic;
 }
 
 function isUsableFundName(name: unknown, code: string) {
