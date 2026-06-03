@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect } from 'react'
 import { AllocationProvider } from './store/allocationStore'
-import { Routes, Route, useLocation, Navigate } from 'react-router'
+import { Routes, Route, useLocation, Navigate, Outlet } from 'react-router'
 import { useAuth } from './hooks/useAuth'
 import Home from './pages/Home'
 import Login from './pages/Login'
@@ -77,7 +77,7 @@ export default function App() {
         <Suspense fallback={<PageLoader />}>
           <Routes>
             <Route path="/" element={<Home />} />
-            <Route path="/fund/:code" element={<FundDetail />} />
+            <Route path="/:code" element={<FundDetail />} />
             <Route path="/login" element={<Login />} />
 
             {/* 管理员 */}
@@ -87,19 +87,22 @@ export default function App() {
             <Route path="/backtest" element={<RequireAuth><Backtest /></RequireAuth>} />
             <Route path="/recommend" element={<RequireAuth><Recommend /></RequireAuth>} />
             <Route path="/analysis" element={<RequireAuth><Analysis /></RequireAuth>} />
-            <Route path="/allocation" element={<AllocationProvider><RequireAuth><AllocationWizard /></RequireAuth></AllocationProvider>} />
-            <Route path="/allocation/result" element={<AllocationProvider><RequireAuth><AllocationLayout /></RequireAuth></AllocationProvider>}>
-              <Route index element={<OverviewPage />} />
-              <Route path="market" element={<MarketPage />} />
-              <Route path="strategy" element={<StrategyPage />} />
-              <Route path="funds" element={<FundsPage />} />
-              <Route path="risk" element={<RiskPage />} />
-              <Route path="ops" element={<OpsPage />} />
-              <Route path="plans" element={<PlansPage />} />
-              <Route path="simulator" element={<SimulatorPage />} />
-              <Route path="backtest" element={<BacktestPage />} />
+            {/* AllocationProvider 共享同一个实例，Wizard → Result 状态不丢失 */}
+            <Route path="/allocation" element={<AllocationProvider><RequireAuth><Outlet /></RequireAuth></AllocationProvider>}>
+              <Route index element={<AllocationWizard />} />
+              <Route path="result" element={<AllocationLayout />}>
+                <Route index element={<OverviewPage />} />
+                <Route path="market" element={<MarketPage />} />
+                <Route path="strategy" element={<StrategyPage />} />
+                <Route path="funds" element={<FundsPage />} />
+                <Route path="risk" element={<RiskPage />} />
+                <Route path="ops" element={<OpsPage />} />
+                <Route path="plans" element={<PlansPage />} />
+                <Route path="simulator" element={<SimulatorPage />} />
+                <Route path="backtest" element={<BacktestPage />} />
+              </Route>
+              <Route path=":id" element={<LegacyAllocationDashboard />} />
             </Route>
-            <Route path="/allocation/:id" element={<RequireAuth><LegacyAllocationDashboard /></RequireAuth>} />
 
             <Route path="*" element={<NotFound />} />
           </Routes>

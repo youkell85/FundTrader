@@ -35,6 +35,8 @@ _TYPE_BUCKET_MAP: dict[str, str] = {
     "ETF联接": "etf", "联接基金": "etf",
 }
 
+HS300_BENCHMARK_CODE = "000300"
+
 
 def _normalize_fund_type_to_bucket(raw: str) -> str:
     """把 fund_master.fund_type 中文归类为首页统一的英文桶 key."""
@@ -1119,7 +1121,7 @@ def get_fund_bond_holdings(code: str) -> dict:
 
 
 def get_fund_year_returns(code: str) -> dict:
-    """历年回报：从真实净值历史计算本基金年度收益，缺失项保持 null。"""
+    """历年回报：从真实净值历史计算本基金年度收益，同时计算沪深300同期年度收益。"""
     nav_rows, source, as_of = _get_nav_history_for_detail(code)
     if len(nav_rows) < 2:
         return _rows_response(
@@ -1129,25 +1131,156 @@ def get_fund_year_returns(code: str) -> dict:
         )
     years = sorted({_to_date(row.get("nav_date")).year for row in nav_rows if _to_date(row.get("nav_date"))})
     latest_years = years[-5:]
+
+    # 获取沪深300净值历史用于计算同期年度收益
+    index_nav_rows = []
+    try:
+        index_nav_rows = _get_index_nav_history(HS300_BENCHMARK_CODE)
+    except Exception as e:
+        console_error(f"yearReturns: index nav fetch failed: {e}")
+
     rows = [
         {
             "year": year,
             "fundReturn": _annual_return_from_nav(nav_rows, year),
-            "hs300Return": None,
+            "hs300Return": _annual_return_from_nav(index_nav_rows, year) if index_nav_rows else None,
             "peerReturn": None,
             "rank": None,
         }
         for year in latest_years
     ]
+    has_hs300 = any(r["hs300Return"] is not None for r in rows)
     return _rows_response(
         code,
         rows,
         status=DETAIL_STATUS_PARTIAL,
         source=source,
         as_of=as_of,
-        coverage=0.35,
-        missing_reason="本基金年度收益已按真实净值计算；沪深300、同类均值、排名需补基准/同类历史表。",
+        coverage=0.5 if has_hs300 else 0.35,
+        missing_reason="本基金年度收益已按真实净值计算；沪深300同期收益来自指数净值；同类均值、排名需补基准/同类历史表。",
     )
+
+
+def _get_index_nav_history(benchmark_code: str = HS300_BENCHMARK_CODE) -> list[dict[str, Any]]:
+    """获取指数（默认沪深300）的收盘价历史，优先从 fund_benchmark_nav_history 表读取，
+    回退到 efinance / akshare 在线获取并持久化。
+
+    返回 [{"nav_date": str, "nav": float}, ...] 按 nav_date 升序。
+    """
+    # 1. 从 fund_benchmark_nav_history 读取
+    rows = _safe_table_query(
+        """SELECT nav_date, nav
+           FROM fund_benchmark_nav_history
+           WHERE benchmark_code = ?
+           ORDER BY nav_date ASC""",
+        (benchmark_code,),
+    )
+    if len(rows) >= 50:
+        return [{"nav_date": str(r["nav_date"]), "nav": _safe_float(r["nav"])} for r in rows if _safe_float(r["nav"]) is not None]
+
+    # 2. efinance 回退（沪深300 用 stock.get_quote_history）
+    try:
+        import efinance as ef
+        df = ef.stock.get_quote_history(benchmark_code, klt=101)
+        if df is not None and not df.empty:
+            rename_map = {"日期": "date", "收盘": "close", "close": "close"}
+            df = df.rename(columns={k: v for k, v in rename_map.items() if k in df.columns})
+            if "date" in df.columns and "close" in df.columns:
+                records = []
+                for _, row in df.iterrows():
+                    d = str(row.get("date", ""))[:10]
+                    v = _safe_float(row.get("close"))
+                    if d and v is not None and v > 0:
+                        records.append({"nav_date": d, "nav": v})
+                records.sort(key=lambda x: x["nav_date"])
+                if len(records) >= 50:
+                    # 持久化到 fund_benchmark_nav_history
+                    try:
+                        from ..storage.database import get_db_context
+                        now = datetime.now().isoformat()
+                        with get_db_context() as conn:
+                            conn.executemany(
+                                """INSERT INTO fund_benchmark_nav_history
+                                   (benchmark_code, nav_date, nav, source, fetched_at)
+                                   VALUES (?, ?, ?, 'efinance', ?)
+                                   ON CONFLICT(benchmark_code, nav_date) DO UPDATE SET
+                                     nav = excluded.nav, source = excluded.source, fetched_at = excluded.fetched_at""",
+                                [(benchmark_code, r["nav_date"], r["nav"], now) for r in records],
+                            )
+                    except Exception:
+                        pass
+                    return records
+    except Exception as e:
+        console_error(f"efinance index nav fetch failed for {benchmark_code}: {e}")
+
+    # 3. akshare 回退
+    try:
+        import akshare as ak
+        import pandas as pd
+        df = ak.stock_zh_index_daily(symbol=f"sh{benchmark_code}")
+        if df is not None and not df.empty:
+            for col in ["close", "收盘"]:
+                if col in df.columns:
+                    date_col = "date" if "date" in df.columns else df.columns[0]
+                    records = []
+                    for _, row in df.iterrows():
+                        d = str(row.get(date_col, ""))[:10]
+                        v = _safe_float(pd.to_numeric(row.get(col), errors="coerce"))
+                        if d and v is not None and v > 0:
+                            records.append({"nav_date": d, "nav": v})
+                    records.sort(key=lambda x: x["nav_date"])
+                    if len(records) >= 50:
+                        try:
+                            from ..storage.database import get_db_context
+                            now = datetime.now().isoformat()
+                            with get_db_context() as conn:
+                                conn.executemany(
+                                    """INSERT INTO fund_benchmark_nav_history
+                                       (benchmark_code, nav_date, nav, source, fetched_at)
+                                       VALUES (?, ?, ?, 'akshare', ?)
+                                       ON CONFLICT(benchmark_code, nav_date) DO UPDATE SET
+                                         nav = excluded.nav, source = excluded.source, fetched_at = excluded.fetched_at""",
+                                    [(benchmark_code, r["nav_date"], r["nav"], now) for r in records],
+                                )
+                        except Exception:
+                            pass
+                        return records
+    except Exception as e:
+        console_error(f"akshare index nav fetch failed for {benchmark_code}: {e}")
+
+    return []
+
+
+def _calc_cumulative_return_series(
+    nav_rows: list[dict[str, Any]],
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> list[dict[str, Any]]:
+    """从净值序列计算累计收益率序列 [{"date": str, "return": float}, ...]。
+
+    以 start_date 对应的净值为基准（如果 start_date 为 None 则用首条），
+    return = (nav / base_nav - 1) * 100。
+    """
+    if not nav_rows:
+        return []
+    filtered = nav_rows
+    if start_date:
+        filtered = [r for r in filtered if r.get("nav_date", "") >= start_date]
+    if end_date:
+        filtered = [r for r in filtered if r.get("nav_date", "") <= end_date]
+    if not filtered:
+        return []
+    base_nav = _safe_float(filtered[0].get("nav"))
+    if not base_nav or base_nav <= 0:
+        return []
+    return [
+        {
+            "date": str(r["nav_date"]),
+            "return": round((_safe_float(r["nav"]) / base_nav - 1.0) * 100, 4),
+        }
+        for r in filtered
+        if _safe_float(r.get("nav")) is not None
+    ]
 
 
 def get_fund_peer_performance(code: str) -> dict:
@@ -1164,28 +1297,97 @@ def get_fund_peer_performance(code: str) -> dict:
                 (code,),
             ).fetchone()
             cat = conn.execute(
-                """SELECT avg_annual_return_eq, as_of_date, coverage_ratio
+                """SELECT avg_annual_return_eq, avg_max_drawdown_eq, avg_sharpe_eq, as_of_date, coverage_ratio
                    FROM fund_category_metrics_snapshot
                    WHERE category = ? AND window_days = 365
                    ORDER BY as_of_date DESC LIMIT 1""",
                 (master["fund_type"] if master else "",),
             ).fetchone()
+            # 查询沪深300在 fund_quote_snapshot 中的收益率（如果存在）
+            index_quote = conn.execute(
+                "SELECT near_3m, near_6m, near_1y, near_3y FROM fund_quote_snapshot WHERE code = '000300'",
+                (),
+            ).fetchone()
+
         peer_1y = _pct_for_api(cat["avg_annual_return_eq"]) if cat else None
         source = "fund_quote_snapshot"
         coverage = 0.25 + (0.25 if peer_1y is not None else 0)
+
+        # 填充 peer 字段：从同类均值获取更多期限数据
+        peer_row = {
+            "return3m": None,
+            "return6m": None,
+            "return1y": peer_1y,
+            "return3y": None,
+            "return5y": None,
+            "returnSinceInception": None,
+            "annualizedReturn": None,
+        }
+        # 如果同类均值有 3y 数据，用 avg_annual_return_eq 近似
+        if cat and cat["avg_annual_return_eq"] is not None:
+            peer_row["annualizedReturn"] = _pct_for_api(cat["avg_annual_return_eq"])
+
+        # 填充 index 字段：沪深300收益率
+        index_row = {
+            "return3m": _pct_for_api(index_quote["near_3m"]) if index_quote else None,
+            "return6m": _pct_for_api(index_quote["near_6m"]) if index_quote else None,
+            "return1y": _pct_for_api(index_quote["near_1y"]) if index_quote else None,
+            "return3y": _pct_for_api(index_quote["near_3y"]) if index_quote else None,
+            "return5y": None,
+            "returnSinceInception": None,
+            "annualizedReturn": None,
+        }
+        if index_quote:
+            coverage += 0.25
+
+        # === 计算 series 曲线数据 ===
+        series_data: dict[str, list[dict[str, Any]]] = {
+            "fund": [],
+            "peer": [],
+            "index": [],
+            "benchmark": [],
+        }
+
+        # 1) 本基金累计收益序列
+        try:
+            fund_nav_rows, _, _ = _get_nav_history_for_detail(code)
+            if fund_nav_rows:
+                fund_series = _calc_cumulative_return_series(fund_nav_rows)
+                series_data["fund"] = fund_series
+        except Exception as e:
+            console_error(f"fund series calc failed for {code}: {e}")
+
+        # 2) 沪深300累计收益序列（与本基金同期）
+        try:
+            index_nav_rows = _get_index_nav_history(HS300_BENCHMARK_CODE)
+            if index_nav_rows and series_data["fund"]:
+                # 截取与本基金同期的区间
+                fund_start = series_data["fund"][0]["date"] if series_data["fund"] else None
+                fund_end = series_data["fund"][-1]["date"] if series_data["fund"] else None
+                index_series = _calc_cumulative_return_series(index_nav_rows, start_date=fund_start, end_date=fund_end)
+                series_data["index"] = index_series
+        except Exception as e:
+            console_error(f"index series calc failed: {e}")
+
+        # 3) peer（同类均值）—— 用同类 1y 年化收益作为常量线（所有点返回相同值）
+        if peer_1y is not None and series_data["fund"]:
+            try:
+                # 同类均值 1y 收益作为水平线
+                series_data["peer"] = [
+                    {"date": pt["date"], "return": round(peer_1y, 4)}
+                    for pt in series_data["fund"]
+                ]
+            except Exception as e:
+                console_error(f"peer series calc failed: {e}")
+
         status = DETAIL_STATUS_PARTIAL if quote or peer_1y is not None else DETAIL_STATUS_MISSING
+        if series_data["index"]:
+            coverage = min(1.0, coverage + 0.15)
+
         return {
             "code": code,
-            "peer": {
-                "return3m": None,
-                "return6m": None,
-                "return1y": peer_1y,
-                "return3y": None,
-                "return5y": None,
-                "returnSinceInception": None,
-                "annualizedReturn": None,
-            },
-            "index": empty.copy(),
+            "peer": peer_row,
+            "index": index_row,
             "benchmark": empty.copy(),
             "fund": {
                 "return3m": _pct_for_api(quote["near_3m"]) if quote else None,
@@ -1196,13 +1398,13 @@ def get_fund_peer_performance(code: str) -> dict:
                 "returnSinceInception": None,
                 "annualizedReturn": None,
             },
-            "series": {"fund": [], "peer": [], "index": [], "benchmark": []},
+            "series": series_data,
             **_detail_meta(
                 status=status,
                 source=source if quote else None,
                 as_of=(quote["nav_date"] if quote else None) or (cat["as_of_date"] if cat else None),
                 coverage=coverage if status != DETAIL_STATUS_MISSING else 0.0,
-                missing_reason="本基金和1年同类均值来自快照；指数、业绩基准和曲线需补真实基准净值表。",
+                missing_reason="本基金和1年同类均值来自快照；指数曲线来自沪深300净值；业绩基准需补真实基准净值表。",
             ),
         }
     except Exception:

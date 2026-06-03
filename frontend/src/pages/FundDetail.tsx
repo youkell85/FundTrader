@@ -348,31 +348,58 @@ export default function FundDetail() {
   const risk = useMemo(() => computeRisk(scopedPoints), [scopedPoints]);
 
   // === 业绩曲线：4 系列 ===
-  //   - fund：本基金累计收益（已有）
-  //   - peer / index / bench：后端暂无，统一走 emptyPeerSeries 渲染空态图例
-  //   - 当 series.data 为空时，chart 仍渲染单条本基金线，图例行展示 "—"
+  //   - fund：本基金累计收益（前端从 navPoints 计算，或后端 series.fund 返回）
+  //   - peer / index / bench：后端 peerPerformance.series 返回
+  //   - 当后端 series 非空时使用后端数据，否则前端计算 fund 系列，其余走 emptyPeerSeries
   const series: PeerSeries[] = useMemo(() => {
-    if (!scopedPoints.length) {
-      return [
-        emptyPeerSeries("本基金累计收益", SERIES_COLORS.fund, null),
-        emptyPeerSeries("偏股混合均值", SERIES_COLORS.peer, null),
-        emptyPeerSeries("沪深300", SERIES_COLORS.index, null),
-        emptyPeerSeries("业绩比较基准", SERIES_COLORS.bench, null),
-      ];
-    }
-    const base = scopedPoints[0].nav;
-    const fundSeries = scopedPoints.map<{ d: string; value: number }>((x) => ({
-      d: x.d.slice(5),
-      value: base > 0 ? ((x.nav / base) - 1) * 100 : 0,
-    }));
-    const last = fundSeries[fundSeries.length - 1]?.value ?? 0;
+    // 后端返回的 series 数据
+    const ppSeries = (peerPerformanceQ.data as
+      | { series?: { fund?: Array<{ date: string; return: number }>; peer?: Array<{ date: string; return: number }>; index?: Array<{ date: string; return: number }>; benchmark?: Array<{ date: string; return: number }> } }
+      | undefined)?.series;
+
+    // 本基金累计收益（前端计算）
+    const fundData = !scopedPoints.length
+      ? []
+      : (() => {
+          const base = scopedPoints[0].nav;
+          return scopedPoints.map<{ d: string; value: number }>((x) => ({
+            d: x.d.slice(5),
+            value: base > 0 ? ((x.nav / base) - 1) * 100 : 0,
+          }));
+        })();
+    const fundRangeReturn = fundData.length > 0 ? fundData[fundData.length - 1].value : null;
+
+    // 映射后端 series 数据到 PeerSeries 格式
+    const mapSeries = (raw: Array<{ date: string; return: number }> | undefined, fallbackData: Array<{ d: string; value: number }>) => {
+      if (raw && raw.length > 0) {
+        const mapped = raw.map<{ d: string; value: number }>((pt) => ({
+          d: pt.date.slice(5),
+          value: pt.return,
+        }));
+        const lastVal = mapped.length > 0 ? mapped[mapped.length - 1].value : null;
+        return { data: mapped, rangeReturn: lastVal };
+      }
+      return { data: fallbackData, rangeReturn: null };
+    };
+
+    const fundSeries = mapSeries(ppSeries?.fund, fundData);
+    const peerSeries = mapSeries(ppSeries?.peer, []);
+    const indexSeries = mapSeries(ppSeries?.index, []);
+    const benchSeries = mapSeries(ppSeries?.benchmark, []);
+
     return [
-      { name: "本基金累计收益", data: fundSeries, rangeReturn: last, color: SERIES_COLORS.fund },
-      emptyPeerSeries("偏股混合均值", SERIES_COLORS.peer),
-      emptyPeerSeries("沪深300", SERIES_COLORS.index),
-      emptyPeerSeries("业绩比较基准", SERIES_COLORS.bench),
+      { name: "本基金累计收益", data: fundSeries.data, rangeReturn: fundRangeReturn, color: SERIES_COLORS.fund },
+      peerSeries.data.length > 0
+        ? { name: "偏股混合均值", data: peerSeries.data, rangeReturn: peerSeries.rangeReturn, color: SERIES_COLORS.peer }
+        : emptyPeerSeries("偏股混合均值", SERIES_COLORS.peer, peerSeries.rangeReturn),
+      indexSeries.data.length > 0
+        ? { name: "沪深300", data: indexSeries.data, rangeReturn: indexSeries.rangeReturn, color: SERIES_COLORS.index }
+        : emptyPeerSeries("沪深300", SERIES_COLORS.index, indexSeries.rangeReturn),
+      benchSeries.data.length > 0
+        ? { name: "业绩比较基准", data: benchSeries.data, rangeReturn: benchSeries.rangeReturn, color: SERIES_COLORS.bench }
+        : emptyPeerSeries("业绩比较基准", SERIES_COLORS.bench, benchSeries.rangeReturn),
     ];
-  }, [scopedPoints]);
+  }, [scopedPoints, peerPerformanceQ.data]);
 
   // 把 peerPerformance 数据融合到 4 行矩阵
   // peer = 偏股混合均值 / index = 沪深300 / benchmark = 业绩比较基准
@@ -500,18 +527,22 @@ export default function FundDetail() {
   }, [fund]);
 
   // === 历史回报：5 年柱图 + 表格 ===
-  // 数据：当前无 yearReturn 字段，统一走 null 空态，避免把缺数画成 0%。
+  // 优先使用 yearReturnsQ API 数据，fallback 到全 null 默认值
   const yearReturns = useMemo(() => {
     const currentYear = new Date().getFullYear();
     const years = Array.from({ length: 5 }, (_, index) => currentYear - 4 + index);
-    return years.map((year) => ({
-      year: String(year),
-      ytd: year === currentYear,
-      fund: null as number | null,
-      index: null as number | null,
-      peer: null as number | null,
-    }));
-  }, []);
+    const apiRows = (yearReturnsQ.data?.rows || []) as Array<{ year: number; fundReturn: number | null; hs300Return: number | null; peerReturn: number | null }>;
+    return years.map((year) => {
+      const apiRow = apiRows.find((r) => r.year === year);
+      return {
+        year: String(year),
+        ytd: year === currentYear,
+        fund: apiRow?.fundReturn ?? null,
+        index: apiRow?.hs300Return ?? null,
+        peer: apiRow?.peerReturn ?? null,
+      };
+    });
+  }, [yearReturnsQ.data]);
 
   if (loading) {
     return <div className="min-h-screen pt-20 text-center text-muted-foreground">加载基金详情中...</div>;
@@ -662,7 +693,7 @@ export default function FundDetail() {
 
               <ReportSection id="scale" title="规模 · 换手">
                 <ScaleSection
-                  scaleRows={(scaleHistoryQ.data?.rows || []) as Array<{ quarter: string; totalScale: number; peer25Scale: number }>}
+                  scaleRows={(scaleHistoryQ.data?.rows || []) as Array<{ quarter: string; totalScale: number; peer25Scale: number | null }>}
                   turnoverRows={(turnoverHistoryQ.data?.rows || []) as Array<{ quarter: string; turnoverRate: number }>}
                 />
               </ReportSection>
@@ -1249,11 +1280,13 @@ function ScaleSection({
   scaleRows,
   turnoverRows,
 }: {
-  scaleRows: Array<{ quarter: string; totalScale: number; peer25Scale: number }>;
+  scaleRows: Array<{ quarter: string; totalScale: number; peer25Scale: number | null }>;
   turnoverRows: Array<{ quarter: string; turnoverRate: number }>;
 }) {
   const hasScale = scaleRows.length > 0;
   const hasTurnover = turnoverRows.length > 0;
+  // 检查 peer25Scale 是否全为 null / 0
+  const hasPeerScale = hasScale && scaleRows.some((r) => r.peer25Scale != null && r.peer25Scale !== 0);
   return (
     <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
       <Panel title="历年规模变化">
@@ -1264,13 +1297,20 @@ function ScaleSection({
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                 <XAxis dataKey="quarter" tick={{ fontSize: 10 }} />
                 <YAxis yAxisId="left" tick={{ fontSize: 11 }} />
-                <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11 }} />
+                {hasPeerScale && <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11 }} />}
                 <Tooltip />
                 <Legend wrapperStyle={{ fontSize: 11 }} />
                 <Bar yAxisId="left" dataKey="totalScale" fill={chartColors[0]} name="净资产(亿元)" />
-                <Line yAxisId="right" dataKey="peer25Scale" stroke={chartColors[1]} dot={false} name="同类 25% 分位" />
+                {hasPeerScale && (
+                  <Line yAxisId="right" dataKey="peer25Scale" stroke={chartColors[1]} dot={false} name="同类 25% 分位" />
+                )}
               </ComposedChart>
             </ResponsiveContainer>
+            {!hasPeerScale && (
+              <div className="mt-1 text-xs text-muted-foreground">
+                🛈 同类 25% 分位数据暂缺，仅展示本基金规模曲线。
+              </div>
+            )}
           </div>
         ) : (
           <EmptyState label="历年规模变化数据待补" />
