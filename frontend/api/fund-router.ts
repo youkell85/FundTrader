@@ -59,7 +59,7 @@ const DETAIL_ANALYSIS_TIMEOUT_MS = Number(process.env.FUNDTRADER_DETAIL_TIMEOUT_
 /** LLM 分析超时独立配置 — MiniMax 等第三方模型需 30-60s，不能与数据查询共享 12s 限制 */
 const LLM_ANALYSIS_TIMEOUT_MS = Number(process.env.FUNDTRADER_LLM_TIMEOUT_MS ?? 60_000);
 
-/** 默认缓存TTL按数据层级分配*/
+/** 默认缓存TTL按数据层级分配 */
 const BFF_CACHE_TTL = 30 * 60 * 1000;                     // 默认 30分钟
 const PARTIAL_DETAIL_TTL = 2 * 60 * 1000;
 const DAILY_PREWARM_HOUR = Number(process.env.FUNDTRADER_PREWARM_HOUR ?? 6);
@@ -67,8 +67,10 @@ const DAILY_PREWARM_MINUTE = Number(process.env.FUNDTRADER_PREWARM_MINUTE ?? 20)
 const DAILY_CACHE_FLOOR_TTL = 60 * 60 * 1000;
 const DAILY_CACHE_MAX_TTL = 24 * 60 * 60 * 1000;
 const HOME_ANALYSIS_LIMIT = Number(process.env.FUNDTRADER_HOME_ANALYSIS_LIMIT ?? 80);
-const ANALYSIS_TTL = DAILY_CACHE_MAX_TTL;                  // 风险指标/净值历史日频更新
 const HOLDINGS_TTL = 6 * 60 * 60 * 1000;                   // 持仓/行业 6小时（季报级别）
+const DETAIL_STATIC_TTL = DAILY_CACHE_MAX_TTL;
+const DETAIL_QUARTERLY_TTL = HOLDINGS_TTL;
+const DETAIL_LLM_TTL = BFF_CACHE_TTL;
 
 function msUntilDailyPrewarm(now = new Date()): number {
   const next = new Date(now);
@@ -101,6 +103,25 @@ function setCache<T>(key: string, data: T, ttlMs = BFF_CACHE_TTL): void {
     keysToDelete.forEach(k => bffCache.delete(k));
   }
   bffCache.set(key, { expiresAt: Date.now() + ttlMs, data });
+}
+
+function hasBackendError(data: unknown): boolean {
+  return Boolean(
+    data &&
+    typeof data === "object" &&
+    "error" in data &&
+    (data as { error?: unknown }).error
+  );
+}
+
+async function cachedFtFetch<T>(cacheKey: string, ttlMs: number, fetcher: () => Promise<T>): Promise<T> {
+  const cached = getCached<T>(cacheKey);
+  if (cached) return cached;
+  return dedupe(cacheKey, async () => {
+    const data = await fetcher();
+    if (!hasBackendError(data)) setCache(cacheKey, data, ttlMs);
+    return data;
+  });
 }
 
 function normalizeLlmReview(data: any): any {
@@ -547,7 +568,7 @@ async function fetchAndCacheFundAnalysis(code: string, cacheKey = `analysis_${co
     ]);
     const merged = analysis ? { ...(snapshot || {}), ...analysis } : snapshot;
     const enriched = await enrichFundAnalysis(merged, code);
-    if (enriched) setCache(cacheKey, enriched, hasDetailPayload(enriched) ? ANALYSIS_TTL : PARTIAL_DETAIL_TTL);
+    if (enriched) setCache(cacheKey, enriched, hasDetailPayload(enriched) ? dailyCacheTtl() : PARTIAL_DETAIL_TTL);
     return enriched;
   });
 }
@@ -762,7 +783,7 @@ export const fundRouter = createRouter({
         if (cached && hasDetailPayload(cached)) return mapFundDetail(cached);
 
         if (hasRiskMetrics(fund) && Array.isArray(fund.nav_data)) {
-          setCache(cacheKey, fund, hasDetailPayload(fund) ? ANALYSIS_TTL : PARTIAL_DETAIL_TTL);
+          setCache(cacheKey, fund, hasDetailPayload(fund) ? dailyCacheTtl() : PARTIAL_DETAIL_TTL);
           if (!hasDetailPayload(fund)) scheduleFundAnalysisWarmup(fund.code, cacheKey);
           return mapFundDetail(fund);
         }
@@ -775,7 +796,7 @@ export const fundRouter = createRouter({
 
         // 如果 fallback 已经是完整的，直接返回
         if (fallback && hasDetailPayload(fallback)) {
-          setCache(cacheKey, fallback, ANALYSIS_TTL);
+          setCache(cacheKey, fallback, dailyCacheTtl());
           return mapFundDetail(fallback);
         }
 
@@ -816,7 +837,7 @@ export const fundRouter = createRouter({
         const cachedHomeFunds = getCached<any[]>("homeFunds");
         const cachedHomeFund = cachedHomeFunds?.find((fund: any) => fund?.code === input.code);
         if (cachedHomeFund && hasRiskMetrics(cachedHomeFund) && Array.isArray(cachedHomeFund.nav_data)) {
-          setCache(cacheKey, cachedHomeFund, hasDetailPayload(cachedHomeFund) ? ANALYSIS_TTL : PARTIAL_DETAIL_TTL);
+          setCache(cacheKey, cachedHomeFund, hasDetailPayload(cachedHomeFund) ? dailyCacheTtl() : PARTIAL_DETAIL_TTL);
           if (!hasDetailPayload(cachedHomeFund)) scheduleFundAnalysisWarmup(input.code, cacheKey);
           return mapFundDetail(cachedHomeFund);
         }
@@ -829,7 +850,7 @@ export const fundRouter = createRouter({
 
         // 如果 fallback 已经是完整的，直接返回
         if (fallback && hasDetailPayload(fallback)) {
-          setCache(cacheKey, fallback, ANALYSIS_TTL);
+          setCache(cacheKey, fallback, dailyCacheTtl());
           return mapFundDetail(fallback);
         }
 
@@ -1633,12 +1654,19 @@ export const fundRouter = createRouter({
     .query(async ({ input }) => {
       try {
         const opts = input || {};
-        const result = await getFundCategoryMetrics({
+        const params = {
           window_days: opts.windowDays ?? 365,
           risk_free_rate: opts.riskFreeRate ?? 0.02,
           xinjihui_only: opts.xinjihuiOnly ?? false,
           force_refresh: opts.forceRefresh ?? false,
-        });
+        };
+        const cacheKey = `categoryMetrics_${params.window_days}_${params.risk_free_rate}_${params.xinjihui_only}`;
+        if (!params.force_refresh) {
+          const cached = getCached<any>(cacheKey);
+          if (cached) return cached;
+        }
+        const result = await getFundCategoryMetrics(params);
+        setCache(cacheKey, result, HOLDINGS_TTL);
         return result;
       } catch (err) {
         wrapError(err, "获取分类指标失败");
@@ -1765,13 +1793,13 @@ export const fundRouter = createRouter({
     .input(_codeOnlySchema)
     .query(async ({ input }) => {
       try {
-        return await ftFetch<{
+        return await cachedFtFetch(`detail_rating_${input.code}`, DETAIL_STATIC_TTL, () => ftFetch<{
           code: string;
           rating3y: number | null;
           rating5y: number | null;
           score: number | null;
           source: string | null;
-        }>(`/fund/rating?code=${encodeURIComponent(input.code)}`);
+        }>(`/fund/rating?code=${encodeURIComponent(input.code)}`));
       } catch (err) {
         console.warn(`[fundRouter] 评级失败 ${input.code}:`, err);
         return { code: input.code, rating3y: null, rating5y: null, score: null, source: null };
@@ -1782,7 +1810,11 @@ export const fundRouter = createRouter({
     .input(_codeOnlySchema)
     .query(async ({ input }) => {
       try {
-        return await ftFetch<any>(`/fund/purchase-info?code=${encodeURIComponent(input.code)}`);
+        return await cachedFtFetch(
+          `detail_purchaseInfo_${input.code}`,
+          DETAIL_STATIC_TTL,
+          () => ftFetch<any>(`/fund/purchase-info?code=${encodeURIComponent(input.code)}`),
+        );
       } catch (err) {
         console.warn(`[fundRouter] 购买信息失败 ${input.code}:`, err);
         return { code: input.code };
@@ -1794,8 +1826,12 @@ export const fundRouter = createRouter({
     .query(async ({ input }) => {
       try {
         const periods = input.periods ?? 40;
-        return await ftFetch<{ code: string; rows: any[] }>(
-          `/fund/holder-structure?code=${encodeURIComponent(input.code)}&periods=${periods}`,
+        return await cachedFtFetch(
+          `detail_holderStructure_${input.code}_${periods}`,
+          DETAIL_QUARTERLY_TTL,
+          () => ftFetch<{ code: string; rows: any[] }>(
+            `/fund/holder-structure?code=${encodeURIComponent(input.code)}&periods=${periods}`,
+          ),
         );
       } catch (err) {
         console.warn(`[fundRouter] 持有人结构失败 ${input.code}:`, err);
@@ -1807,8 +1843,12 @@ export const fundRouter = createRouter({
     .input(_codeOnlySchema)
     .query(async ({ input }) => {
       try {
-        return await ftFetch<{ code: string; rows: any[] }>(
-          `/fund/bond-allocation?code=${encodeURIComponent(input.code)}`,
+        return await cachedFtFetch(
+          `detail_bondAllocation_${input.code}`,
+          DETAIL_QUARTERLY_TTL,
+          () => ftFetch<{ code: string; rows: any[] }>(
+            `/fund/bond-allocation?code=${encodeURIComponent(input.code)}`,
+          ),
         );
       } catch (err) {
         console.warn(`[fundRouter] 券种配置失败 ${input.code}:`, err);
@@ -1820,8 +1860,12 @@ export const fundRouter = createRouter({
     .input(_codeOnlySchema)
     .query(async ({ input }) => {
       try {
-        return await ftFetch<{ code: string; rows: any[] }>(
-          `/fund/bond-holdings?code=${encodeURIComponent(input.code)}`,
+        return await cachedFtFetch(
+          `detail_bondHoldings_${input.code}`,
+          DETAIL_QUARTERLY_TTL,
+          () => ftFetch<{ code: string; rows: any[] }>(
+            `/fund/bond-holdings?code=${encodeURIComponent(input.code)}`,
+          ),
         );
       } catch (err) {
         console.warn(`[fundRouter] 重仓债券失败 ${input.code}:`, err);
@@ -1833,8 +1877,12 @@ export const fundRouter = createRouter({
     .input(_codeOnlySchema)
     .query(async ({ input }) => {
       try {
-        return await ftFetch<{ code: string; rows: any[] }>(
-          `/fund/year-returns?code=${encodeURIComponent(input.code)}`,
+        return await cachedFtFetch(
+          `detail_yearReturns_${input.code}`,
+          DETAIL_QUARTERLY_TTL,
+          () => ftFetch<{ code: string; rows: any[] }>(
+            `/fund/year-returns?code=${encodeURIComponent(input.code)}`,
+          ),
         );
       } catch (err) {
         console.warn(`[fundRouter] 历史回报失败 ${input.code}:`, err);
@@ -1846,7 +1894,11 @@ export const fundRouter = createRouter({
     .input(_codeOnlySchema)
     .query(async ({ input }) => {
       try {
-        return await ftFetch<any>(`/fund/peer-performance?code=${encodeURIComponent(input.code)}`);
+        return await cachedFtFetch(
+          `detail_peerPerformance_${input.code}`,
+          DETAIL_QUARTERLY_TTL,
+          () => ftFetch<any>(`/fund/peer-performance?code=${encodeURIComponent(input.code)}`),
+        );
       } catch (err) {
         console.warn(`[fundRouter] peer 业绩失败 ${input.code}:`, err);
         return { code: input.code };
@@ -1858,8 +1910,12 @@ export const fundRouter = createRouter({
     .query(async ({ input }) => {
       try {
         const periods = input.periods ?? 40;
-        return await ftFetch<{ code: string; rows: any[] }>(
-          `/fund/scale-history?code=${encodeURIComponent(input.code)}&periods=${periods}`,
+        return await cachedFtFetch(
+          `detail_scaleHistory_${input.code}_${periods}`,
+          DETAIL_QUARTERLY_TTL,
+          () => ftFetch<{ code: string; rows: any[] }>(
+            `/fund/scale-history?code=${encodeURIComponent(input.code)}&periods=${periods}`,
+          ),
         );
       } catch (err) {
         console.warn(`[fundRouter] 规模历史失败 ${input.code}:`, err);
@@ -1872,8 +1928,12 @@ export const fundRouter = createRouter({
     .query(async ({ input }) => {
       try {
         const periods = input.periods ?? 40;
-        return await ftFetch<{ code: string; rows: any[] }>(
-          `/fund/turnover-history?code=${encodeURIComponent(input.code)}&periods=${periods}`,
+        return await cachedFtFetch(
+          `detail_turnoverHistory_${input.code}_${periods}`,
+          DETAIL_QUARTERLY_TTL,
+          () => ftFetch<{ code: string; rows: any[] }>(
+            `/fund/turnover-history?code=${encodeURIComponent(input.code)}&periods=${periods}`,
+          ),
         );
       } catch (err) {
         console.warn(`[fundRouter] 换手率历史失败 ${input.code}:`, err);
@@ -1885,8 +1945,12 @@ export const fundRouter = createRouter({
     .input(_codeOnlySchema)
     .query(async ({ input }) => {
       try {
-        return await ftFetch<{ code: string; rows: any[]; managerCount: number }>(
-          `/fund/manager-history?code=${encodeURIComponent(input.code)}`,
+        return await cachedFtFetch(
+          `detail_managerHistory_${input.code}`,
+          DETAIL_QUARTERLY_TTL,
+          () => ftFetch<{ code: string; rows: any[]; managerCount: number }>(
+            `/fund/manager-history?code=${encodeURIComponent(input.code)}`,
+          ),
         );
       } catch (err) {
         console.warn(`[fundRouter] 经理变更失败 ${input.code}:`, err);
@@ -1898,8 +1962,12 @@ export const fundRouter = createRouter({
     .input(_codeOnlySchema)
     .query(async ({ input }) => {
       try {
-        return await ftFetch<{ code: string; report: string | null; period: string | null }>(
-          `/fund/manager-report?code=${encodeURIComponent(input.code)}`,
+        return await cachedFtFetch(
+          `detail_managerReport_${input.code}`,
+          DETAIL_LLM_TTL,
+          () => ftFetch<{ code: string; report: string | null; period: string | null }>(
+            `/fund/manager-report?code=${encodeURIComponent(input.code)}`,
+          ),
         );
       } catch (err) {
         console.warn(`[fundRouter] 运作分析失败 ${input.code}:`, err);
@@ -1912,17 +1980,21 @@ export const fundRouter = createRouter({
     .query(async ({ input }) => {
       try {
         const window = input.window ?? "1y";
-        return await ftFetch<{
-          code: string;
-          window: string;
-          level: "low" | "medium" | "high" | null;
-          maxDrawdown: number | null;
-          peerMaxDrawdown: number | null;
-          downsideRisk: number | null;
-          peerDownsideRisk: number | null;
-          summary: string | null;
-          source: string | null;
-        }>(`/fund/risk-summary?code=${encodeURIComponent(input.code)}&window=${window}`);
+        return await cachedFtFetch(
+          `detail_riskSummary_${input.code}_${window}`,
+          DETAIL_LLM_TTL,
+          () => ftFetch<{
+            code: string;
+            window: string;
+            level: "low" | "medium" | "high" | null;
+            maxDrawdown: number | null;
+            peerMaxDrawdown: number | null;
+            downsideRisk: number | null;
+            peerDownsideRisk: number | null;
+            summary: string | null;
+            source: string | null;
+          }>(`/fund/risk-summary?code=${encodeURIComponent(input.code)}&window=${window}`),
+        );
       } catch (err) {
         console.warn(`[fundRouter] 风险摘要失败 ${input.code}:`, err);
         return {

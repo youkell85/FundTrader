@@ -40,6 +40,9 @@ import { ChangeCell } from "@/components/report/ChangeCell";
 // 沿用旧 range 切换（与 PDF 8 个区间一致）
 const RANGE_OPTIONS = ["1M", "3M", "6M", "YTD", "1Y", "3Y", "5Y", "MAX"] as const;
 type RangeKey = (typeof RANGE_OPTIONS)[number];
+const DETAIL_STATIC_STALE_MS = 24 * 60 * 60 * 1000;
+const DETAIL_QUARTERLY_STALE_MS = 6 * 60 * 60 * 1000;
+const DETAIL_LLM_STALE_MS = 30 * 60 * 1000;
 
 // 4 系列颜色：与 PDF 一致
 const SERIES_COLORS = {
@@ -240,7 +243,7 @@ export default function FundDetail() {
 
   const detailQuery = trpc.fund.detailByCode.useQuery(
     { code },
-    { enabled: /^\d{6}$/.test(code) },
+    { enabled: /^\d{6}$/.test(code), staleTime: DETAIL_LLM_STALE_MS, refetchOnWindowFocus: false },
   );
   const fund = detailQuery.data;
   const loading = detailQuery.isLoading;
@@ -248,26 +251,45 @@ export default function FundDetail() {
 
   // === 详情页 9 个新接口（与 detailByCode 并行） ===
   const enabled = /^\d{6}$/.test(code);
-  const ratingQ = trpc.fund.rating.useQuery({ code }, { enabled });
-  const purchaseInfoQ = trpc.fund.purchaseInfo.useQuery({ code }, { enabled });
+  const ratingQ = trpc.fund.rating.useQuery(
+    { code },
+    { enabled, staleTime: DETAIL_STATIC_STALE_MS, refetchOnWindowFocus: false },
+  );
+  const purchaseInfoQ = trpc.fund.purchaseInfo.useQuery(
+    { code },
+    { enabled, staleTime: DETAIL_STATIC_STALE_MS, refetchOnWindowFocus: false },
+  );
   const holderStructureQ = trpc.fund.holderStructure.useQuery(
     { code, periods: 40 },
-    { enabled },
+    { enabled, staleTime: DETAIL_QUARTERLY_STALE_MS, refetchOnWindowFocus: false },
   );
-  const yearReturnsQ = trpc.fund.yearReturns.useQuery({ code }, { enabled });
-  const peerPerformanceQ = trpc.fund.peerPerformance.useQuery({ code }, { enabled });
+  const yearReturnsQ = trpc.fund.yearReturns.useQuery(
+    { code },
+    { enabled, staleTime: DETAIL_QUARTERLY_STALE_MS, refetchOnWindowFocus: false },
+  );
+  const peerPerformanceQ = trpc.fund.peerPerformance.useQuery(
+    { code },
+    { enabled, staleTime: DETAIL_QUARTERLY_STALE_MS, refetchOnWindowFocus: false },
+  );
   const scaleHistoryQ = trpc.fund.scaleHistory.useQuery(
     { code, periods: 40 },
-    { enabled },
+    { enabled, staleTime: DETAIL_QUARTERLY_STALE_MS, refetchOnWindowFocus: false },
   );
   const turnoverHistoryQ = trpc.fund.turnoverHistory.useQuery(
     { code, periods: 40 },
-    { enabled },
+    { enabled, staleTime: DETAIL_QUARTERLY_STALE_MS, refetchOnWindowFocus: false },
   );
-  const managerHistoryQ = trpc.fund.managerHistory.useQuery({ code }, { enabled });
+  const managerHistoryQ = trpc.fund.managerHistory.useQuery(
+    { code },
+    { enabled, staleTime: DETAIL_QUARTERLY_STALE_MS, refetchOnWindowFocus: false },
+  );
 
   // 延后启动 LLM 类查询，避免阻塞首屏
   const [llmReady, setLlmReady] = useState(false);
+  useEffect(() => {
+    setLlmReady(false);
+  }, [code]);
+
   useEffect(() => {
     if (!loading && fund && !llmReady) {
       const t = window.setTimeout(() => setLlmReady(true), 300);
@@ -277,11 +299,11 @@ export default function FundDetail() {
 
   const managerReportQ = trpc.fund.managerReport.useQuery(
     { code },
-    { enabled: enabled && llmReady, staleTime: 30 * 60 * 1000 },
+    { enabled: enabled && llmReady, staleTime: DETAIL_LLM_STALE_MS, refetchOnWindowFocus: false },
   );
   const riskSummaryQ = trpc.fund.riskSummary.useQuery(
     { code },
-    { enabled: enabled && llmReady, staleTime: 30 * 60 * 1000 },
+    { enabled: enabled && llmReady, staleTime: DETAIL_LLM_STALE_MS, refetchOnWindowFocus: false },
   );
 
   const [range, setRange] = useState<RangeKey>("1Y");
@@ -465,15 +487,16 @@ export default function FundDetail() {
   }, [fund]);
 
   // === 历史回报：5 年柱图 + 表格 ===
-  // 数据：当前无 yearReturn 字段，统一走 0 占位；保留图表槽位。
+  // 数据：当前无 yearReturn 字段，统一走 null 空态，避免把缺数画成 0%。
   const yearReturns = useMemo(() => {
-    const years = [2022, 2023, 2024, 2025, 2026];
+    const currentYear = new Date().getFullYear();
+    const years = Array.from({ length: 5 }, (_, index) => currentYear - 4 + index);
     return years.map((year) => ({
       year: String(year),
-      ytd: year === 2026,
-      fund: 0 as number | null,
-      index: 0 as number | null,
-      peer: 0 as number | null,
+      ytd: year === currentYear,
+      fund: null as number | null,
+      index: null as number | null,
+      peer: null as number | null,
     }));
   }, []);
 
@@ -960,6 +983,17 @@ function PerformanceSection({
   // 当一条 series.data 为空时（缺数），键仍存在但值为 null，recharts 会画"断点"
   // 这里我们仅当 4 条都有数据时才合并；否则只画本基金单线。
   const hasAll = series.every((s) => s.data.length > 0);
+  const comparisonChartData = hasAll
+    ? series[0].data.map((point) => {
+        const keys = ["fund", "peer", "index", "bench"] as const;
+        const row: Record<string, string | number | null> = { d: point.d };
+        series.forEach((s, index) => {
+          const matched = s.data.find((item) => item.d === point.d);
+          row[keys[index]] = matched?.value ?? null;
+        });
+        return row;
+      })
+    : navSeries;
 
   return (
     <>
@@ -1003,15 +1037,15 @@ function PerformanceSection({
             <EmptyState />
           ) : hasAll ? (
             <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={navSeries}>
+              <ComposedChart data={comparisonChartData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                 <XAxis dataKey="d" tick={{ fontSize: 11 }} />
                 <YAxis tick={{ fontSize: 11 }} />
                 <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(value: number) => [`${Number(value).toFixed(2)}%`, ""]} />
                 <Line dataKey="fund" stroke={SERIES_COLORS.fund} dot={false} name="本基金" />
-                <Line dataKey="fund" stroke={SERIES_COLORS.peer} dot={false} name="偏股混合均值" />
-                <Line dataKey="fund" stroke={SERIES_COLORS.index} dot={false} name="沪深300" />
-                <Line dataKey="fund" stroke={SERIES_COLORS.bench} dot={false} name="业绩比较基准" />
+                <Line dataKey="peer" stroke={SERIES_COLORS.peer} dot={false} name="偏股混合均值" />
+                <Line dataKey="index" stroke={SERIES_COLORS.index} dot={false} name="沪深300" />
+                <Line dataKey="bench" stroke={SERIES_COLORS.bench} dot={false} name="业绩比较基准" />
               </ComposedChart>
             </ResponsiveContainer>
           ) : (
@@ -1100,7 +1134,9 @@ function HistorySection({
   apiRows: Array<{ year: number; fundReturn: number | null; hs300Return: number | null; peerReturn: number | null; rank: { rank: number; total: number } | null }>;
 }) {
   const hasApi = apiRows.length > 0;
-  const hasData = hasApi || yearReturns.some((y) => y.fund !== 0 || y.index !== 0 || y.peer !== 0);
+  const hasData = hasApi
+    ? apiRows.some((y) => y.fundReturn !== null || y.hs300Return !== null || y.peerReturn !== null)
+    : yearReturns.some((y) => y.fund !== null || y.index !== null || y.peer !== null);
   const data = hasApi
     ? apiRows.map((r) => ({
         year: String(r.year),
