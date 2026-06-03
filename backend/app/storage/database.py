@@ -1265,6 +1265,19 @@ def _init_fund_data_center_tables() -> None:
                 PRIMARY KEY (code, report_date, report_type)
             );
 
+            CREATE TABLE IF NOT EXISTS fund_drawdown_series (
+                code TEXT NOT NULL,
+                nav_date TEXT NOT NULL,
+                window_days INTEGER NOT NULL DEFAULT 365,
+                drawdown REAL NOT NULL,
+                peak_nav REAL,
+                current_nav REAL,
+                source TEXT DEFAULT 'compute',
+                computed_at TEXT NOT NULL,
+                PRIMARY KEY (code, nav_date, window_days),
+                FOREIGN KEY (code) REFERENCES fund_master(code) ON DELETE CASCADE
+            );
+
             CREATE TABLE IF NOT EXISTS fund_data_job (
                 id TEXT PRIMARY KEY,
                 job_type TEXT NOT NULL,
@@ -1297,6 +1310,7 @@ def _init_fund_data_center_tables() -> None:
             CREATE INDEX IF NOT EXISTS idx_fund_quote_quality ON fund_quote_snapshot(data_quality, stale_level);
             CREATE INDEX IF NOT EXISTS idx_fund_nav_history_code_date ON fund_nav_history(code, nav_date);
             CREATE INDEX IF NOT EXISTS idx_fund_data_job_status ON fund_data_job(status, priority, created_at);
+            CREATE INDEX IF NOT EXISTS idx_fund_drawdown_code_window ON fund_drawdown_series(code, window_days, nav_date);
             CREATE INDEX IF NOT EXISTS idx_external_api_call_log_source ON external_api_call_log(source, created_at);
             CREATE INDEX IF NOT EXISTS idx_category_metrics_asof ON fund_category_metrics_snapshot(as_of_date, window_days);
             CREATE INDEX IF NOT EXISTS idx_fund_detail_quarterly_code_date ON fund_detail_quarterly_snapshot(code, report_date);
@@ -1735,6 +1749,58 @@ class FundDataStore:
                      day_growth = COALESCE(excluded.day_growth, fund_nav_history.day_growth),
                      source = excluded.source,
                      fetched_at = excluded.fetched_at""",
+                rows,
+            )
+        return len(rows)
+
+    @staticmethod
+    def save_drawdown_series_batch(
+        code: str,
+        drawdown_records: list[dict[str, Any]],
+        window_days: int = 365,
+        source: str = "compute",
+    ) -> int:
+        """Upsert fund_drawdown_series rows for a single fund.
+
+        drawdown_records: [{"date": "2024-01-02", "drawdown": -2.15, "peak_nav": 1.5, "current_nav": 1.467}, ...]
+        Returns count of rows upserted.
+        """
+        if not drawdown_records:
+            return 0
+        now = datetime.now().isoformat()
+        rows = []
+        for r in drawdown_records:
+            d = str(r.get("date") or r.get("nav_date") or "").strip()
+            try:
+                drawdown = float(r.get("drawdown", 0) or 0)
+            except (TypeError, ValueError):
+                continue
+            if not d:
+                continue
+            peak_nav = r.get("peak_nav")
+            current_nav = r.get("current_nav")
+            try:
+                peak_nav = float(peak_nav) if peak_nav is not None else None
+            except (TypeError, ValueError):
+                peak_nav = None
+            try:
+                current_nav = float(current_nav) if current_nav is not None else None
+            except (TypeError, ValueError):
+                current_nav = None
+            rows.append((code, d, window_days, drawdown, peak_nav, current_nav, source, now))
+        if not rows:
+            return 0
+        with get_db() as conn:
+            conn.executemany(
+                """INSERT INTO fund_drawdown_series
+                   (code, nav_date, window_days, drawdown, peak_nav, current_nav, source, computed_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(code, nav_date, window_days) DO UPDATE SET
+                     drawdown = excluded.drawdown,
+                     peak_nav = excluded.peak_nav,
+                     current_nav = excluded.current_nav,
+                     source = excluded.source,
+                     computed_at = excluded.computed_at""",
                 rows,
             )
         return len(rows)

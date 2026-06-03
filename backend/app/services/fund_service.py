@@ -18,7 +18,7 @@ from typing import Any
 from ..config import CACHE_TTL_RANKING
 from ..constants.guoyuan_funds import FUND_CATEGORIES, FUND_TYPES, GUOYUAN_FUND_LIST
 from ..data.cache_manager import cache
-from ..storage.database import get_db_context
+from ..storage.database import FundDataStore, get_db_context
 from ..utils import console_error
 
 # 排序字段映射（提取为模块级常量，避免重复定义）
@@ -1283,6 +1283,37 @@ def _calc_cumulative_return_series(
     ]
 
 
+def _calc_drawdown_series(
+    nav_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """从净值序列计算逐日回撤序列 [{"date": str, "drawdown": float, "peak_nav": float, "current_nav": float}, ...]。
+
+    drawdown = (current_nav / peak_nav - 1) * 100，peak_nav 为历史最高净值。
+    """
+    if not nav_rows:
+        return []
+    # 按日期升序排列
+    sorted_rows = sorted(nav_rows, key=lambda r: str(r.get("nav_date", "")))
+    peak_nav = None
+    result = []
+    for r in sorted_rows:
+        nav = _safe_float(r.get("nav"))
+        if nav is None or nav <= 0:
+            continue
+        if peak_nav is None or nav > peak_nav:
+            peak_nav = nav
+        drawdown = (nav / peak_nav - 1.0) * 100
+        result.append(
+            {
+                "date": str(r["nav_date"]),
+                "drawdown": round(drawdown, 4),
+                "peak_nav": round(peak_nav, 6),
+                "current_nav": round(nav, 6),
+            }
+        )
+    return result
+
+
 def get_fund_peer_performance(code: str) -> dict:
     """同类/指数/基准同期收益率。只返回真实或可追溯快照，缺口保留 null。"""
     empty = _empty_perf_row()
@@ -1379,6 +1410,22 @@ def get_fund_peer_performance(code: str) -> dict:
                 ]
             except Exception as e:
                 console_error(f"peer series calc failed: {e}")
+
+        # 4) 本基金回撤序列
+        try:
+            if fund_nav_rows:
+                dd_series = _calc_drawdown_series(fund_nav_rows)
+                series_data["fund_drawdown"] = [
+                    {"date": d["date"], "drawdown": d["drawdown"]}
+                    for d in dd_series
+                ]
+                # 持久化到 SQLite
+                try:
+                    FundDataStore.save_drawdown_series_batch(code, dd_series, window_days=365)
+                except Exception:
+                    pass
+        except Exception as e:
+            console_error(f"drawdown series calc failed for {code}: {e}")
 
         status = DETAIL_STATUS_PARTIAL if quote or peer_1y is not None else DETAIL_STATUS_MISSING
         if series_data["index"]:

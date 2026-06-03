@@ -367,8 +367,6 @@ export default function FundDetail() {
             value: base > 0 ? ((x.nav / base) - 1) * 100 : 0,
           }));
         })();
-    const fundRangeReturn = fundData.length > 0 ? fundData[fundData.length - 1].value : null;
-
     // 映射后端 series 数据到 PeerSeries 格式
     const mapSeries = (raw: Array<{ date: string; return: number }> | undefined, fallbackData: Array<{ d: string; value: number }>) => {
       if (raw && raw.length > 0) {
@@ -383,12 +381,14 @@ export default function FundDetail() {
     };
 
     const fundSeries = mapSeries(ppSeries?.fund, fundData);
+    // fundRangeReturn 优先使用后端数据，后端无数据时用前端计算值
+    const finalFundRangeReturn = fundSeries.rangeReturn ?? fundRangeReturn;
     const peerSeries = mapSeries(ppSeries?.peer, []);
     const indexSeries = mapSeries(ppSeries?.index, []);
     const benchSeries = mapSeries(ppSeries?.benchmark, []);
 
     return [
-      { name: "本基金累计收益", data: fundSeries.data, rangeReturn: fundRangeReturn, color: SERIES_COLORS.fund },
+      { name: "本基金累计收益", data: fundSeries.data, rangeReturn: finalFundRangeReturn, color: SERIES_COLORS.fund },
       peerSeries.data.length > 0
         ? { name: "偏股混合均值", data: peerSeries.data, rangeReturn: peerSeries.rangeReturn, color: SERIES_COLORS.peer }
         : emptyPeerSeries("偏股混合均值", SERIES_COLORS.peer, peerSeries.rangeReturn),
@@ -472,15 +472,30 @@ export default function FundDetail() {
     return [rowFund, rowPeer, rowIndex, rowBench];
   }, [fund, peerPerformanceQ.data]);
 
+  // navSeries：用于单线模式（只画本基金）和动态回撤
+  // 优先使用前端 navPoints（来自 fund.navHistory），当 navHistory 为空时降级使用后端 series.fund
   const navSeries = useMemo(() => {
-    if (!scopedPoints.length) return [];
-    const base = scopedPoints[0].nav;
-    return scopedPoints.map((x) => ({
-      d: x.d.slice(5),
-      fund: base > 0 ? ((x.nav / base) - 1) * 100 : 0,
-      dd: risk.drawdownSeries.find((dd) => dd.d === x.d)?.dd ?? 0,
-    }));
-  }, [scopedPoints, risk.drawdownSeries]);
+    if (scopedPoints.length > 0) {
+      const base = scopedPoints[0].nav;
+      return scopedPoints.map((x) => ({
+        d: x.d.slice(5),
+        fund: base > 0 ? ((x.nav / base) - 1) * 100 : 0,
+        dd: risk.drawdownSeries.find((dd) => dd.d === x.d)?.dd ?? 0,
+      }));
+    }
+    // 降级：使用后端 peerPerformance.series.fund
+    // 后端返回的是累计收益率（%），转换为虚拟净值（初始 1.0）使 drawdownSeries 能正确计算回撤
+    const ppFund = (peerPerformanceQ.data as any)?.series?.fund as Array<{ date: string; return: number }> | undefined;
+    const ppDrawdown = (peerPerformanceQ.data as any)?.series?.fund_drawdown as Array<{ date: string; drawdown: number }> | undefined;
+    if (ppFund && ppFund.length > 0) {
+      return ppFund.map((x, i) => ({
+        d: x.date.slice(5),
+        fund: x.return,
+        dd: ppDrawdown?.[i]?.drawdown ?? 0,
+      }));
+    }
+    return [];
+  }, [scopedPoints, risk.drawdownSeries, peerPerformanceQ.data]);
 
   // === 行业配置历史：取最近 8 个季度 × Top 6 行业 ===
   const industryHistoryData = useMemo(() => {
