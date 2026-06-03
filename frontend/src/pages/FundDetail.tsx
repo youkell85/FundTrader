@@ -1821,7 +1821,7 @@ function HoldingsSection({
                     <td className="px-2 py-2">{bond.bondName || "—"}</td>
                     <td className="px-2 py-2 text-right">{numFmt(bond.marketValue)}</td>
                     <td className="px-2 py-2 text-right">
-                      {bond.navRatio == null ? "—" : pct(ratioPct(bond.navRatio))}
+                      {bond.navRatio == null ? "—" : pct(bond.navRatio)}
                     </td>
                     <td className="px-2 py-2 text-right">{pct(bond.couponRate)}</td>
                     <td className="px-2 py-2 text-muted-foreground">{bond.issuer || "—"}</td>
