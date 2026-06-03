@@ -1219,6 +1219,52 @@ def _init_fund_data_center_tables() -> None:
                 PRIMARY KEY (category, as_of_date, window_days)
             );
 
+            CREATE TABLE IF NOT EXISTS fund_detail_quarterly_snapshot (
+                code TEXT NOT NULL,
+                report_date TEXT NOT NULL,
+                holder_structure_json TEXT DEFAULT '[]',
+                bond_allocation_json TEXT DEFAULT '[]',
+                bond_holdings_json TEXT DEFAULT '[]',
+                total_scale REAL,
+                turnover_rate REAL,
+                source TEXT DEFAULT 'snapshot',
+                data_quality TEXT DEFAULT 'unknown',
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (code, report_date)
+            );
+
+            CREATE TABLE IF NOT EXISTS fund_benchmark_nav_history (
+                benchmark_code TEXT NOT NULL,
+                nav_date TEXT NOT NULL,
+                nav REAL NOT NULL,
+                source TEXT DEFAULT 'api',
+                fetched_at TEXT NOT NULL,
+                PRIMARY KEY (benchmark_code, nav_date)
+            );
+
+            CREATE TABLE IF NOT EXISTS fund_manager_history_snapshot (
+                code TEXT NOT NULL,
+                manager_name TEXT NOT NULL,
+                start_date TEXT DEFAULT '',
+                end_date TEXT DEFAULT '',
+                total_return REAL,
+                annualized_return REAL,
+                rank_json TEXT DEFAULT '',
+                source TEXT DEFAULT 'snapshot',
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (code, manager_name, start_date)
+            );
+
+            CREATE TABLE IF NOT EXISTS fund_report_snapshot (
+                code TEXT NOT NULL,
+                report_date TEXT NOT NULL,
+                report_type TEXT DEFAULT '',
+                report_text TEXT NOT NULL,
+                source TEXT DEFAULT 'snapshot',
+                updated_at TEXT NOT NULL,
+                PRIMARY KEY (code, report_date, report_type)
+            );
+
             CREATE TABLE IF NOT EXISTS fund_data_job (
                 id TEXT PRIMARY KEY,
                 job_type TEXT NOT NULL,
@@ -1253,6 +1299,10 @@ def _init_fund_data_center_tables() -> None:
             CREATE INDEX IF NOT EXISTS idx_fund_data_job_status ON fund_data_job(status, priority, created_at);
             CREATE INDEX IF NOT EXISTS idx_external_api_call_log_source ON external_api_call_log(source, created_at);
             CREATE INDEX IF NOT EXISTS idx_category_metrics_asof ON fund_category_metrics_snapshot(as_of_date, window_days);
+            CREATE INDEX IF NOT EXISTS idx_fund_detail_quarterly_code_date ON fund_detail_quarterly_snapshot(code, report_date);
+            CREATE INDEX IF NOT EXISTS idx_fund_benchmark_nav_code_date ON fund_benchmark_nav_history(benchmark_code, nav_date);
+            CREATE INDEX IF NOT EXISTS idx_manager_history_code ON fund_manager_history_snapshot(code);
+            CREATE INDEX IF NOT EXISTS idx_fund_report_code_date ON fund_report_snapshot(code, report_date);
         """)
 
 

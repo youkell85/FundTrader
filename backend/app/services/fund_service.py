@@ -10,6 +10,7 @@
 """
 import math
 import os
+import json
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from datetime import date, datetime, timedelta
 from typing import Any
@@ -39,6 +40,204 @@ def _normalize_fund_type_to_bucket(raw: str) -> str:
     """把 fund_master.fund_type 中文归类为首页统一的英文桶 key."""
     s = (raw or "").strip()
     return _TYPE_BUCKET_MAP.get(s) or s or "other"
+
+
+DETAIL_STATUS_AVAILABLE = "available"
+DETAIL_STATUS_PARTIAL = "partial"
+DETAIL_STATUS_MISSING = "missing"
+DETAIL_STATUS_SIMULATED = "simulated"
+
+
+def _detail_meta(
+    *,
+    status: str,
+    source: str | None = None,
+    as_of: str | None = None,
+    coverage: float | None = None,
+    missing_reason: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "dataStatus": status,
+        "source": source,
+        "asOf": as_of,
+        "coverage": coverage,
+        "missingReason": missing_reason,
+    }
+
+
+def _rows_response(
+    code: str,
+    rows: list[dict[str, Any]] | None,
+    *,
+    status: str | None = None,
+    source: str | None = None,
+    as_of: str | None = None,
+    coverage: float | None = None,
+    missing_reason: str | None = None,
+) -> dict[str, Any]:
+    clean_rows = rows or []
+    resolved_status = status or (DETAIL_STATUS_AVAILABLE if clean_rows else DETAIL_STATUS_MISSING)
+    return {
+        "code": code,
+        "rows": clean_rows,
+        **_detail_meta(
+            status=resolved_status,
+            source=source,
+            as_of=as_of,
+            coverage=coverage if coverage is not None else (1.0 if clean_rows else 0.0),
+            missing_reason=missing_reason
+            if missing_reason and resolved_status in {DETAIL_STATUS_PARTIAL, DETAIL_STATUS_MISSING, DETAIL_STATUS_SIMULATED}
+            else None,
+        ),
+    }
+
+
+def _empty_perf_row() -> dict[str, float | None]:
+    return {
+        "return3m": None,
+        "return6m": None,
+        "return1y": None,
+        "return3y": None,
+        "return5y": None,
+        "returnSinceInception": None,
+        "annualizedReturn": None,
+    }
+
+
+def _pct_for_api(value: Any) -> float | None:
+    """Normalize return fields to display percent units without double-scaling."""
+    x = _safe_float(value)
+    if x is None:
+        return None
+    return round(x * 100, 4) if abs(x) <= 1 else round(x, 4)
+
+
+def _parse_json_array(value: Any) -> list[dict[str, Any]]:
+    if not value:
+        return []
+    try:
+        parsed = json.loads(value) if isinstance(value, str) else value
+    except Exception:
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return [item for item in parsed if isinstance(item, dict)]
+
+
+def _safe_table_query(sql: str, params: tuple[Any, ...] = ()) -> list[Any]:
+    try:
+        with get_db_context() as conn:
+            return conn.execute(sql, params).fetchall()
+    except Exception:
+        return []
+
+
+def _get_nav_history_for_detail(code: str) -> tuple[list[dict[str, Any]], str | None, str | None]:
+    rows = _safe_table_query(
+        """SELECT nav_date, nav, accum_nav, day_growth
+           FROM fund_nav_history
+           WHERE code = ?
+           ORDER BY nav_date ASC""",
+        (code,),
+    )
+    nav_rows = [
+        {
+            "nav_date": str(row["nav_date"]),
+            "nav": _safe_float(row["nav"]),
+            "accum_nav": _safe_float(row["accum_nav"]),
+            "day_growth": _safe_float(row["day_growth"]),
+        }
+        for row in rows
+        if _safe_float(row["nav"]) is not None and str(row["nav_date"] or "")
+    ]
+    if len(nav_rows) >= 2:
+        return nav_rows, "fund_nav_history", nav_rows[-1]["nav_date"]
+
+    try:
+        from ..data.efinance_fetcher import get_fund_nav_history
+        from ..storage.database import FundDataStore
+
+        fetched = get_fund_nav_history(code)
+        clean: list[dict[str, Any]] = []
+        for item in fetched or []:
+            nav_date = str(item.get("date") or item.get("nav_date") or item.get("净值日期") or "")[:10]
+            nav = _safe_float(item.get("nav") or item.get("单位净值") or item.get("nav_value"))
+            if nav_date and nav is not None and nav > 0:
+                clean.append({
+                    "nav_date": nav_date,
+                    "nav": nav,
+                    "accum_nav": _safe_float(item.get("acc_nav") or item.get("accum_nav") or item.get("累计净值")),
+                    "day_growth": _safe_float(item.get("day_growth") or item.get("日增长率") or item.get("增长率")),
+                })
+        clean.sort(key=lambda row: row["nav_date"])
+        if len(clean) >= 2:
+            try:
+                FundDataStore.save_nav_history_batch(code, clean, source="efinance")
+            except Exception:
+                pass
+            return clean, "efinance", clean[-1]["nav_date"]
+    except Exception as e:
+        console_error(f"detail nav history fetch failed for {code}: {e}")
+    return [], None, None
+
+
+def _window_return_from_nav(nav_rows: list[dict[str, Any]], days: int) -> float | None:
+    if len(nav_rows) < 2:
+        return None
+    latest = _to_date(nav_rows[-1].get("nav_date"))
+    if not latest:
+        return None
+    start = latest - timedelta(days=days)
+    start_row = None
+    for row in nav_rows:
+        d = _to_date(row.get("nav_date"))
+        if d and d >= start:
+            start_row = row
+            break
+    if not start_row:
+        return None
+    start_nav = _safe_float(start_row.get("nav"))
+    end_nav = _safe_float(nav_rows[-1].get("nav"))
+    if not start_nav or start_nav <= 0 or end_nav is None:
+        return None
+    return round((end_nav / start_nav - 1.0) * 100, 4)
+
+
+def _annual_return_from_nav(nav_rows: list[dict[str, Any]], year: int) -> float | None:
+    points: list[dict[str, Any]] = []
+    for row in nav_rows:
+        d = _to_date(row.get("nav_date"))
+        nav = _safe_float(row.get("nav"))
+        if d and d.year == year and nav is not None and nav > 0:
+            points.append(row)
+    if len(points) < 2:
+        return None
+    start_nav = _safe_float(points[0].get("nav"))
+    end_nav = _safe_float(points[-1].get("nav"))
+    if not start_nav or start_nav <= 0 or end_nav is None:
+        return None
+    return round((end_nav / start_nav - 1.0) * 100, 4)
+
+
+def _risk_metrics_from_nav(nav_rows: list[dict[str, Any]]) -> dict[str, float] | None:
+    import numpy as np
+
+    values = [_safe_float(row.get("nav")) for row in nav_rows]
+    navs = np.array([v for v in values if v is not None and v > 0], dtype=np.float64)
+    if len(navs) < 30:
+        return None
+    daily_returns = np.diff(navs) / navs[:-1]
+    daily_returns = np.nan_to_num(daily_returns, nan=0.0, posinf=0.0, neginf=0.0)
+    annualized_vol = float(np.std(daily_returns, ddof=1) * np.sqrt(252)) if len(daily_returns) > 1 else 0.0
+    downside = daily_returns[daily_returns < 0]
+    downside_risk = float(np.std(downside, ddof=1) * np.sqrt(252)) if len(downside) > 1 else 0.0
+    peak = np.maximum.accumulate(navs)
+    max_dd = float(np.min((navs - peak) / peak))
+    return {
+        "max_drawdown": max_dd,
+        "volatility": annualized_vol,
+        "downside_risk": downside_risk,
+    }
 
 BULK_PERFORMANCE_TIMEOUT_SECONDS = float(os.getenv("FUNDTRADER_BULK_PERFORMANCE_TIMEOUT_SECONDS", "8"))
 _bulk_performance_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="fund-perf")
@@ -770,187 +969,190 @@ def get_fund_purchase_info(code: str) -> dict | None:
         return None
 
 
-def get_fund_holder_structure(code: str, periods: int = 40) -> list[dict]:
-    """持有人结构：季度机构/个人占比。表不存在 → 行业标准 mock。"""
-    try:
-        with get_db_context() as conn:
-            row = conn.execute(
-                "SELECT fund_type FROM fund_master WHERE code = ?",
-                (code,),
-            ).fetchone()
-        fund_type = row["fund_type"] if row else ""
-        # 行业典型：偏股混合近年个人占比上升，机构占比下降
-        institution_start = 0.45 if "货币" in fund_type else 0.25
-        institution_end = 0.30 if "货币" in fund_type else 0.15
-        rows: list[dict] = []
-        from datetime import date
-        end = date.today()
-        for i in range(periods):
-            # t = (年*4 + 季序号) 倒推 i 季度前
-            t = (end.year * 4 + (end.month - 1) // 3) - i
-            yy, qqq = t // 4, (t % 4) + 1
-            month = qqq * 3 if qqq > 0 else 12  # 1月 = 12月
-            day = "31" if month not in (4, 6, 9, 11) else "30"
-            period = f"{yy}{month:02d}{day}"  # 季末月份 03/06/09/12
-            ratio = institution_start + (institution_end - institution_start) * (i / max(periods - 1, 1))
-            rows.append({
-                "quarter": period,
-                "institution": round(ratio, 4),
-                "individual": round(1 - ratio, 4),
-            })
-        rows.reverse()
-        return rows
-    except Exception:
-        return []
+def get_fund_holder_structure(code: str, periods: int = 40) -> dict:
+    """持有人结构：只返回已入库的季报真实数据，不再生成行业模板。"""
+    rows = _safe_table_query(
+        """SELECT report_date, holder_structure_json, source, data_quality, updated_at
+           FROM fund_detail_quarterly_snapshot
+           WHERE code = ? AND holder_structure_json IS NOT NULL AND holder_structure_json != ''
+           ORDER BY report_date DESC
+           LIMIT ?""",
+        (code, max(1, min(periods, 80))),
+    )
+    out: list[dict[str, Any]] = []
+    source = None
+    as_of = None
+    for row in reversed(rows):
+        items = _parse_json_array(row["holder_structure_json"])
+        if items:
+            source = row["source"] or source
+            as_of = row["report_date"] or as_of
+        for item in items:
+            quarter = str(item.get("quarter") or item.get("report_date") or row["report_date"] or "")
+            inst = _safe_float(item.get("institution") or item.get("institution_ratio"))
+            indiv = _safe_float(item.get("individual") or item.get("individual_ratio"))
+            if quarter and inst is not None and indiv is not None:
+                out.append({"quarter": quarter, "institution": inst, "individual": indiv})
+    return _rows_response(
+        code,
+        out[-periods:],
+        source=source,
+        as_of=as_of,
+        missing_reason="缺少真实持有人结构季报数据；不再使用行业模板模拟。",
+    )
 
 
 # ============================================================
 #  P1: 券种配置 / 重仓债券 / 历史回报 / 偏股混合均值与基准
 # ============================================================
 
-def get_fund_bond_allocation(code: str) -> list[dict]:
-    """券种配置：11 类债券占净值比 + 较上期。表不存在 → 基于基金类型的合理 mock。"""
+def get_fund_bond_allocation(code: str) -> dict:
+    """券种配置：只返回季报快照中的真实券种占比。"""
+    rows = _safe_table_query(
+        """SELECT report_date, bond_allocation_json, source, updated_at
+           FROM fund_detail_quarterly_snapshot
+           WHERE code = ? AND bond_allocation_json IS NOT NULL AND bond_allocation_json != ''
+           ORDER BY report_date DESC
+           LIMIT 1""",
+        (code,),
+    )
+    if not rows:
+        return _rows_response(
+            code,
+            [],
+            missing_reason="缺少真实券种配置季报数据；不再使用按基金类型生成的模拟配置。",
+        )
+    row = rows[0]
+    out: list[dict[str, Any]] = []
+    for item in _parse_json_array(row["bond_allocation_json"]):
+        bond_type = str(item.get("bondType") or item.get("bond_type") or item.get("name") or "")
+        ratio = _safe_float(item.get("ratio") or item.get("navRatio") or item.get("nav_ratio"))
+        if bond_type and ratio is not None:
+            out.append({
+                "bondType": bond_type,
+                "ratio": ratio,
+                "changeRatio": _safe_float(item.get("changeRatio") or item.get("change_ratio")),
+            })
+    return _rows_response(
+        code,
+        out,
+        source=row["source"] or "fund_detail_quarterly_snapshot",
+        as_of=row["report_date"],
+        missing_reason="券种配置快照为空。",
+    )
+
+
+def get_fund_bond_holdings(code: str) -> dict:
+    """重仓债券：优先读取快照，其次尝试 AkShare 东方财富真实债券持仓。"""
+    snapshot_rows = _safe_table_query(
+        """SELECT report_date, bond_holdings_json, source, updated_at
+           FROM fund_detail_quarterly_snapshot
+           WHERE code = ? AND bond_holdings_json IS NOT NULL AND bond_holdings_json != ''
+           ORDER BY report_date DESC
+           LIMIT 1""",
+        (code,),
+    )
+    if snapshot_rows:
+        row = snapshot_rows[0]
+        out = []
+        for item in _parse_json_array(row["bond_holdings_json"]):
+            name = str(item.get("bondName") or item.get("bond_name") or item.get("name") or "")
+            ratio = _safe_float(item.get("navRatio") or item.get("nav_ratio") or item.get("ratio"))
+            if name:
+                out.append({
+                    "bondName": name,
+                    "marketValue": _safe_float(item.get("marketValue") or item.get("market_value")),
+                    "navRatio": ratio,
+                    "couponRate": _safe_float(item.get("couponRate") or item.get("coupon_rate")),
+                    "issuer": item.get("issuer"),
+                    "bondType": item.get("bondType") or item.get("bond_type"),
+                    "creditRating": item.get("creditRating") or item.get("credit_rating"),
+                })
+        return _rows_response(
+            code,
+            out,
+            source=row["source"] or "fund_detail_quarterly_snapshot",
+            as_of=row["report_date"],
+            missing_reason="债券持仓快照为空。",
+        )
+
     try:
-        with get_db_context() as conn:
-            row = conn.execute(
-                "SELECT fund_type FROM fund_master WHERE code = ?",
-                (code,),
-            ).fetchone()
-        fund_type = row["fund_type"] if row else ""
+        from ..data.akshare_fetcher import get_fund_bond_portfolio
 
-        # 根据基金类型生成合理的券种配置
-        if "货币" in fund_type:
-            return [
-                {"bondType": "国家债券", "ratio": 18.0, "changeRatio": 2.0},
-                {"bondType": "金融债券", "ratio": 30.0, "changeRatio": -5.0},
-                {"bondType": "企业债券", "ratio": 28.0, "changeRatio": 3.0},
-                {"bondType": "企业短期融资券", "ratio": 10.0, "changeRatio": 1.0},
-                {"bondType": "中期票据", "ratio": 8.0, "changeRatio": 0.0},
-                {"bondType": "同业存单", "ratio": 6.0, "changeRatio": -1.0},
-            ]
-        elif "债" in fund_type:
-            # 纯债型：国债+金融债+企业债为主
-            return [
-                {"bondType": "国家债券", "ratio": 25.0, "changeRatio": -2.0},
-                {"bondType": "金融债券", "ratio": 35.0, "changeRatio": 3.0},
-                {"bondType": "企业债券", "ratio": 20.0, "changeRatio": -1.0},
-                {"bondType": "中期票据", "ratio": 12.0, "changeRatio": 1.0},
-                {"bondType": "可转债", "ratio": 8.0, "changeRatio": 2.0},
-            ]
-        elif "混合" in fund_type:
-            # 混合型：可转债+企业债+国债组合
-            return [
-                {"bondType": "可转债", "ratio": 8.5, "changeRatio": 1.2},
-                {"bondType": "企业债券", "ratio": 3.2, "changeRatio": -0.5},
-                {"bondType": "国家债券", "ratio": 2.1, "changeRatio": 0.3},
-                {"bondType": "金融债券", "ratio": 1.8, "changeRatio": -0.2},
-                {"bondType": "中期票据", "ratio": 0.8, "changeRatio": 0.1},
-            ]
-        else:
-            # 股票型/偏股型：可转债为主，少量国债
-            return [
-                {"bondType": "可转债", "ratio": 3.2, "changeRatio": 0.8},
-                {"bondType": "国家债券", "ratio": 0.8, "changeRatio": -0.2},
-                {"bondType": "企业债券", "ratio": 0.5, "changeRatio": 0.1},
-                {"bondType": "金融债券", "ratio": 0.3, "changeRatio": 0.0},
-            ]
-    except Exception:
-        return []
+        portfolio = get_fund_bond_portfolio(code) or {}
+        holdings = portfolio.get("bond_holdings") or []
+        out = []
+        as_of = None
+        for item in holdings:
+            name = str(item.get("name") or item.get("bondName") or "")
+            ratio = _safe_float(item.get("ratio") or item.get("navRatio"))
+            if not name:
+                continue
+            as_of = str(item.get("quarter") or item.get("updated_at") or as_of or "")
+            out.append({
+                "bondName": name,
+                "marketValue": None,
+                "navRatio": ratio,
+                "couponRate": None,
+                "issuer": None,
+                "bondType": None,
+                "creditRating": None,
+            })
+        if out:
+            return _rows_response(
+                code,
+                out,
+                status=DETAIL_STATUS_PARTIAL,
+                source="AkShare 东方财富F10 债券持仓",
+                as_of=as_of or None,
+                coverage=0.45,
+                missing_reason="债券名称和占净值比可用，票息/发行主体/评级暂缺。",
+            )
+    except Exception as e:
+        console_error(f"bond holdings fetch failed for {code}: {e}")
+
+    return _rows_response(
+        code,
+        [],
+        missing_reason="缺少真实重仓债券数据；AkShare/Tushare 当前未返回可用持仓。",
+    )
 
 
-def get_fund_bond_holdings(code: str) -> list[dict]:
-    """重仓债券：7 列。表不存在 → 基于基金类型生成合理的 mock 数据。"""
-    try:
-        with get_db_context() as conn:
-            row = conn.execute(
-                "SELECT fund_type FROM fund_master WHERE code = ?",
-                (code,),
-            ).fetchone()
-        fund_type = row["fund_type"] if row else ""
-
-        if "债" in fund_type and "混合" not in fund_type:
-            # 纯债型：国债+金融债+企业债
-            return [
-                {"bondName": "24国债01", "marketValue": 1250.80, "navRatio": 8.52, "couponRate": 2.45, "issuer": "财政部", "bondType": "国家债券", "creditRating": "AAA"},
-                {"bondName": "24国开10", "marketValue": 980.50, "navRatio": 6.68, "couponRate": 2.52, "issuer": "国家开发银行", "bondType": "金融债券", "creditRating": "AAA"},
-                {"bondName": "24农行二级资本债", "marketValue": 756.30, "navRatio": 5.15, "couponRate": 2.78, "issuer": "农业银行", "bondType": "金融债券", "creditRating": "AAA"},
-                {"bondName": "24华为MTN001", "marketValue": 625.40, "navRatio": 4.26, "couponRate": 3.15, "issuer": "华为投资", "bondType": "中期票据", "creditRating": "AAA"},
-            ]
-        else:
-            # 混合型/股票型：可转债为主
-            return [
-                {"bondName": "金盘转债", "marketValue": 245.80, "navRatio": 1.85, "couponRate": 0.60, "issuer": "金盘科技", "bondType": "可转债", "creditRating": "AA+"},
-                {"bondName": "晶能转债", "marketValue": 198.60, "navRatio": 1.50, "couponRate": 0.50, "issuer": "晶能科技", "bondType": "可转债", "creditRating": "AA"},
-                {"bondName": "24国债11", "marketValue": 85.40, "navRatio": 0.64, "couponRate": 2.35, "issuer": "财政部", "bondType": "国家债券", "creditRating": "AAA"},
-            ]
-    except Exception:
-        return []
-
-
-def get_fund_year_returns(code: str) -> list[dict]:
-    """历年回报：年度本基金/沪深300/偏股混合均值/同类排名。
-
-    数据源：
-      1. fund_metrics_snapshot：历史 sharpe / max_dd（但不含年度收益）
-      2. 模拟：根据近 1y 收益 + 同类均值 + 历年沪深 300 模拟 5 年
-    """
-    try:
-        with get_db_context() as conn:
-            fund = conn.execute(
-                "SELECT near_1y FROM fund_quote_snapshot WHERE code = ?",
-                (code,),
-            ).fetchone()
-            master = conn.execute(
-                "SELECT fund_type FROM fund_master WHERE code = ?",
-                (code,),
-            ).fetchone()
-        fund_1y = _safe_float(fund["near_1y"]) if fund else None
-        fund_type = master["fund_type"] if master else ""
-        # 模拟 5 年（2022~2026）
-        # 沪深 300 历年：2022 -21.63% / 2023 -11.38% / 2024 +14.68% / 2025 +17.66% / 2026 YTD +4.63%
-        # 偏股混合均值历年（参考）
-        years = [2022, 2023, 2024, 2025, 2026]
-        hs300 = [-21.63, -11.38, 14.68, 17.66, 4.63]
-        peer_means = [-20.99, -13.77, 3.43, 34.00, 10.93]
-        # 本基金历年：按近 1y 推算（粗略）
-        if fund_1y is None:
-            fund_yearly = [None, None, None, None, None]
-        else:
-            # 用近 1y 收益按 0.5~1.5 倍波动生成历年（mock）
-            base = fund_1y / 100
-            fund_yearly = [round(base * m, 2) for m in [-0.6, -0.2, 0.0, 0.5, 0.3]]
-        return [
-            {
-                "year": years[i],
-                "fundReturn": fund_yearly[i],
-                "hs300Return": hs300[i],
-                "peerReturn": peer_means[i],
-                "rank": (
-                    {"rank": int(1500 + i * 100 + (hash(code + str(years[i])) % 2000)), "total": 5000 + i * 50}
-                    if fund_yearly[i] is not None
-                    else None
-                ),
-            }
-            for i in range(5)
-        ]
-    except Exception:
-        return []
+def get_fund_year_returns(code: str) -> dict:
+    """历年回报：从真实净值历史计算本基金年度收益，缺失项保持 null。"""
+    nav_rows, source, as_of = _get_nav_history_for_detail(code)
+    if len(nav_rows) < 2:
+        return _rows_response(
+            code,
+            [],
+            missing_reason="缺少净值历史，无法计算年度收益。",
+        )
+    years = sorted({_to_date(row.get("nav_date")).year for row in nav_rows if _to_date(row.get("nav_date"))})
+    latest_years = years[-5:]
+    rows = [
+        {
+            "year": year,
+            "fundReturn": _annual_return_from_nav(nav_rows, year),
+            "hs300Return": None,
+            "peerReturn": None,
+            "rank": None,
+        }
+        for year in latest_years
+    ]
+    return _rows_response(
+        code,
+        rows,
+        status=DETAIL_STATUS_PARTIAL,
+        source=source,
+        as_of=as_of,
+        coverage=0.35,
+        missing_reason="本基金年度收益已按真实净值计算；沪深300、同类均值、排名需补基准/同类历史表。",
+    )
 
 
 def get_fund_peer_performance(code: str) -> dict:
-    """偏股混合均值 / 沪深300 / 业绩比较基准 同期收益率。
-
-    数据源：
-      1. 偏股混合均值：fund_category_metrics_snapshot（1y 窗口均值，3y/5y 暂缺）
-      2. 本基金：fund_quote_snapshot（near_1y / near_3y）
-      3. 沪深300：硬编码历史数据
-      4. 业绩比较基准：80% 沪深300 + 20% 中证全债 计算
-    """
-    empty = {
-        "return3m": None, "return6m": None, "return1y": None,
-        "return3y": None, "return5y": None, "returnSinceInception": None,
-        "annualizedReturn": None,
-    }
+    """同类/指数/基准同期收益率。只返回真实或可追溯快照，缺口保留 null。"""
+    empty = _empty_perf_row()
     try:
         with get_db_context() as conn:
             master = conn.execute(
@@ -958,216 +1160,206 @@ def get_fund_peer_performance(code: str) -> dict:
                 (code,),
             ).fetchone()
             quote = conn.execute(
-                "SELECT near_1y, near_3y FROM fund_quote_snapshot WHERE code = ?",
+                "SELECT near_3m, near_6m, near_1y, near_3y, ytd, nav_date, updated_at FROM fund_quote_snapshot WHERE code = ?",
                 (code,),
             ).fetchone()
             cat = conn.execute(
-                """SELECT avg_annual_return_eq FROM fund_category_metrics_snapshot
+                """SELECT avg_annual_return_eq, as_of_date, coverage_ratio
+                   FROM fund_category_metrics_snapshot
                    WHERE category = ? AND window_days = 365
                    ORDER BY as_of_date DESC LIMIT 1""",
                 (master["fund_type"] if master else "",),
             ).fetchone()
-        # 本基金真实收益
-        fund_1y = _safe_float(quote["near_1y"]) if quote else None
-        fund_3y = _safe_float(quote["near_3y"]) if quote else None
-        # 偏股混合均值（1y 真实，3y/5y 暂无）
-        peer_1y = _safe_float(cat["avg_annual_return_eq"]) if cat else None
-        # 沪深 300 历年（已硬编码）
-        hs300_history = {"return3m": 2.84, "return6m": 7.02, "return1y": 26.14, "return3y": 27.53, "return5y": -9.31, "annualizedReturn": 5.06}
-        # 业绩比较基准：80% 沪深300 + 20% 中证全债
-        bond_history = {"return3m": 1.0, "return6m": 2.1, "return1y": 4.0, "return3y": 12.0, "return5y": 20.0, "annualizedReturn": 3.7}
-        bench_1y = hs300_history["return1y"] * 0.8 + bond_history["return1y"] * 0.2
-        bench_3y = hs300_history["return3y"] * 0.8 + bond_history["return3y"] * 0.2
-        bench_5y = hs300_history["return5y"] * 0.8 + bond_history["return5y"] * 0.2
+        peer_1y = _pct_for_api(cat["avg_annual_return_eq"]) if cat else None
+        source = "fund_quote_snapshot"
+        coverage = 0.25 + (0.25 if peer_1y is not None else 0)
+        status = DETAIL_STATUS_PARTIAL if quote or peer_1y is not None else DETAIL_STATUS_MISSING
         return {
+            "code": code,
             "peer": {
                 "return3m": None,
                 "return6m": None,
-                "return1y": (peer_1y * 100) if peer_1y is not None else None,
-                "return3y": None,  # 数据库暂无 3y 窗口同类均值
-                "return5y": None,  # 数据库暂无 5y 窗口同类均值
-                "returnSinceInception": None,
-                "annualizedReturn": None,
-            },
-            "index": {
-                "return3m": hs300_history["return3m"],
-                "return6m": hs300_history["return6m"],
-                "return1y": hs300_history["return1y"],
-                "return3y": hs300_history["return3y"],
-                "return5y": hs300_history["return5y"],
-                "returnSinceInception": None,
-                "annualizedReturn": hs300_history["annualizedReturn"],
-            },
-            "benchmark": {
-                "return3m": round(hs300_history["return3m"] * 0.8 + bond_history["return3m"] * 0.2, 2),
-                "return6m": round(hs300_history["return6m"] * 0.8 + bond_history["return6m"] * 0.2, 2),
-                "return1y": round(bench_1y, 2),
-                "return3y": round(bench_3y, 2),
-                "return5y": round(bench_5y, 2),
-                "returnSinceInception": None,
-                "annualizedReturn": round(hs300_history["annualizedReturn"] * 0.8 + bond_history["annualizedReturn"] * 0.2, 2),
-            },
-            # 新增：本基金真实收益（用于前端显示）
-            "fund": {
-                "return3m": None,
-                "return6m": None,
-                "return1y": (fund_1y * 100) if fund_1y is not None else None,
-                "return3y": (fund_3y * 100) if fund_3y is not None else None,
+                "return1y": peer_1y,
+                "return3y": None,
                 "return5y": None,
                 "returnSinceInception": None,
                 "annualizedReturn": None,
             },
+            "index": empty.copy(),
+            "benchmark": empty.copy(),
+            "fund": {
+                "return3m": _pct_for_api(quote["near_3m"]) if quote else None,
+                "return6m": _pct_for_api(quote["near_6m"]) if quote else None,
+                "return1y": _pct_for_api(quote["near_1y"]) if quote else None,
+                "return3y": _pct_for_api(quote["near_3y"]) if quote else None,
+                "return5y": None,
+                "returnSinceInception": None,
+                "annualizedReturn": None,
+            },
+            "series": {"fund": [], "peer": [], "index": [], "benchmark": []},
+            **_detail_meta(
+                status=status,
+                source=source if quote else None,
+                as_of=(quote["nav_date"] if quote else None) or (cat["as_of_date"] if cat else None),
+                coverage=coverage if status != DETAIL_STATUS_MISSING else 0.0,
+                missing_reason="本基金和1年同类均值来自快照；指数、业绩基准和曲线需补真实基准净值表。",
+            ),
         }
     except Exception:
-        return {"peer": empty, "index": empty, "benchmark": empty}
+        return {
+            "code": code,
+            "peer": empty.copy(),
+            "index": empty.copy(),
+            "benchmark": empty.copy(),
+            "fund": empty.copy(),
+            "series": {"fund": [], "peer": [], "index": [], "benchmark": []},
+            **_detail_meta(
+                status=DETAIL_STATUS_MISSING,
+                missing_reason="同期收益读取失败。",
+            ),
+        }
 
 
 # ============================================================
 #  P2: 历年规模变化 / 基金换手率 / 基金经理变更
 # ============================================================
 
-def get_fund_scale_history(code: str, periods: int = 40) -> list[dict]:
-    """历年规模变化：本基金净资产 + 同类 25% 分位。
+def get_fund_scale_history(code: str, periods: int = 40) -> dict:
+    """规模历史：读取真实季报快照；只有最新规模时返回 partial 单点。"""
+    snapshot_rows = _safe_table_query(
+        """SELECT report_date, total_scale, source, updated_at
+           FROM fund_detail_quarterly_snapshot
+           WHERE code = ? AND total_scale IS NOT NULL
+           ORDER BY report_date DESC
+           LIMIT ?""",
+        (code, max(1, min(periods, 80))),
+    )
+    out = [
+        {"quarter": str(row["report_date"]), "totalScale": _safe_float(row["total_scale"]), "peer25Scale": None}
+        for row in reversed(snapshot_rows)
+        if _safe_float(row["total_scale"]) is not None
+    ]
+    if out:
+        return _rows_response(
+            code,
+            out,
+            source=snapshot_rows[0]["source"] or "fund_detail_quarterly_snapshot",
+            as_of=snapshot_rows[0]["report_date"],
+            coverage=min(1.0, len(out) / max(1, periods)),
+            missing_reason=None if len(out) >= 4 else "规模历史样本不足，仅展示已入库真实点。",
+        )
 
-    数据源：fund_pool.aum（最新）+ 模拟历史。
-    """
+    rows = _safe_table_query(
+        """SELECT total_scale, updated_at, source
+           FROM fund_metrics_snapshot
+           WHERE code = ? AND total_scale IS NOT NULL
+           ORDER BY updated_at DESC LIMIT 1""",
+        (code,),
+    )
+    if rows:
+        total_scale = _safe_float(rows[0]["total_scale"])
+        if total_scale is not None and total_scale > 0:
+            return _rows_response(
+                code,
+                [{"quarter": str(rows[0]["updated_at"])[:10], "totalScale": total_scale, "peer25Scale": None}],
+                status=DETAIL_STATUS_PARTIAL,
+                source=rows[0]["source"] or "fund_metrics_snapshot",
+                as_of=str(rows[0]["updated_at"])[:10],
+                coverage=0.1,
+                missing_reason="仅有最新真实规模，缺少季度历史和同类25%分位。",
+            )
+    return _rows_response(
+        code,
+        [],
+        missing_reason="缺少真实规模历史数据；不再生成模拟规模曲线。",
+    )
+
+
+def get_fund_turnover_history(code: str, periods: int = 40) -> dict:
+    """基金换手率：只读取真实季报快照。"""
+    rows = _safe_table_query(
+        """SELECT report_date, turnover_rate, source, updated_at
+           FROM fund_detail_quarterly_snapshot
+           WHERE code = ? AND turnover_rate IS NOT NULL
+           ORDER BY report_date DESC
+           LIMIT ?""",
+        (code, max(1, min(periods, 80))),
+    )
+    out = [
+        {"quarter": str(row["report_date"]), "turnoverRate": _safe_float(row["turnover_rate"])}
+        for row in reversed(rows)
+        if _safe_float(row["turnover_rate"]) is not None
+    ]
+    return _rows_response(
+        code,
+        out,
+        source=rows[0]["source"] if rows else None,
+        as_of=rows[0]["report_date"] if rows else None,
+        coverage=min(1.0, len(out) / max(1, periods)) if out else 0.0,
+        missing_reason="缺少真实基金换手率季报数据；不再生成周期波动模拟值。",
+    )
+
+
+def get_fund_manager_history(code: str) -> dict:
+    """基金经理变更：读取真实快照或 provider 当前经理，不生成历任经理。"""
+    rows = _safe_table_query(
+        """SELECT manager_name, start_date, end_date, total_return, annualized_return, rank_json, source, updated_at
+           FROM fund_manager_history_snapshot
+           WHERE code = ?
+           ORDER BY COALESCE(start_date, '') ASC""",
+        (code,),
+    )
+    out = []
+    for row in rows:
+        rank = None
+        if row["rank_json"]:
+            try:
+                rank = json.loads(row["rank_json"])
+            except Exception:
+                rank = None
+        out.append({
+            "managerName": row["manager_name"],
+            "startDate": row["start_date"],
+            "endDate": row["end_date"],
+            "totalReturn": _safe_float(row["total_return"]),
+            "annualizedReturn": _safe_float(row["annualized_return"]),
+            "rank": rank,
+        })
+    if out:
+        return _rows_response(
+            code,
+            out,
+            source=rows[-1]["source"] or "fund_manager_history_snapshot",
+            as_of=rows[-1]["updated_at"],
+        )
+
     try:
-        with get_db_context() as conn:
-            row = conn.execute(
-                "SELECT total_scale FROM fund_metrics_snapshot WHERE code = ?",
-                (code,),
-            ).fetchone()
-            fund_type_row = conn.execute(
-                "SELECT fund_type FROM fund_master WHERE code = ?",
-                (code,),
-            ).fetchone()
-        if not fund_type_row:
-            return []
-        latest_scale = _safe_float(row["total_scale"]) if row else None
-        if latest_scale is None or latest_scale <= 0:
-            latest_scale = 5.0
-        from datetime import date
-        end = date.today()
-        rows: list[dict] = []
-        for i in range(periods):
-            t = (end.year * 4 + (end.month - 1) // 3) - i
-            yy, qqq = t // 4, t % 4 + 1
-            month = qqq * 3 if qqq > 0 else 12  # 1月 = 12月
-            day = "31" if month not in (4, 6, 9, 11) else "30"
-            period = f"{yy}{month:02d}{day}"
-            ratio = 0.5 + (i / max(periods - 1, 1)) * 4.5
-            rows.append({
-                "quarter": period,
-                "totalScale": round(latest_scale * ratio, 2),
-                "peer25Scale": round(latest_scale * 0.3, 2),
-            })
-        rows.reverse()
-        return rows
-    except Exception:
-        return []
+        from ..data.providers.tushare_provider import TushareProvider
 
-
-def get_fund_turnover_history(code: str, periods: int = 40) -> list[dict]:
-    """基金换手率（季度）。"""
-    try:
-        from datetime import date
-        end = date.today()
-        rows: list[dict] = []
-        for i in range(periods):
-            t = (end.year * 4 + (end.month - 1) // 3) - i
-            yy, qqq = t // 4, t % 4 + 1
-            month = qqq * 3 if qqq > 0 else 12  # 1月 = 12月
-            day = "31" if month not in (4, 6, 9, 11) else "30"
-            period = f"{yy}{month:02d}{day}"
-            # 模拟换手率：100~600% 周期波动
-            import math
-            turnover = 200 + 150 * abs(math.sin(i * 0.7)) + 50 * (i % 4)
-            rows.append({
-                "quarter": period,
-                "turnoverRate": round(turnover, 1),
-            })
-        rows.reverse()
-        return rows
-    except Exception:
-        return []
-
-
-def get_fund_manager_history(code: str) -> list[dict]:
-    """基金经理变更。
-
-    数据源：akshare.get_fund_manager_info 拿到当前经理（在职 + 任职回报 / 年化回报）；
-    历任经理：表 fund_manager_history 不存在 → 基于成立日期生成合理的 mock 前任。
-    """
-    try:
-        rows: list[dict] = []
-        # 获取基金信息
-        with get_db_context() as conn:
-            fund = conn.execute(
-                "SELECT name, fund_type, establish_date FROM fund_master WHERE code = ?",
-                (code,),
-            ).fetchone()
-        fund_name = fund["name"] if fund else ""
-        fund_type = fund["fund_type"] if fund else ""
-        establish_date = fund["establish_date"] if fund and fund.get("establish_date") else "2015-01-01"
-
-        # 当前经理
-        try:
-            from ..data.akshare_fetcher import get_fund_manager_info
-            m = get_fund_manager_info(code) or {}
-        except Exception:
-            m = {}
-        if m and m.get("name"):
-            rows.append({
-                "managerName": m.get("name"),
-                "startDate": m.get("career_start") or "2019-01-01",
-                "endDate": None,
-                "totalReturn": _safe_float(m.get("returnSinceTenure")) or _safe_float(m.get("bestReturn")),
-                "annualizedReturn": _safe_float(m.get("annualizedReturn")),
-                "rank": None,
-            })
-        else:
-            # 没有真实经理数据时，生成合理的当前经理
-            rows.append({
-                "managerName": "詹成" if "混合" in fund_type else "张坤" if "股票" in fund_type else "王崇",
-                "startDate": "2019-06-01",
-                "endDate": None,
-                "totalReturn": 68.33,
-                "annualizedReturn": 12.5,
-                "rank": None,
-            })
-
-        # 根据成立日期生成合理的历任经理
-        import hashlib
-        h = int(hashlib.md5(code.encode()).hexdigest()[:4], 16)
-
-        # 只有成立超过 5 年的基金才有历任经理
-        try:
-            from datetime import datetime
-            est = datetime.strptime(str(establish_date)[:10], "%Y-%m-%d")
-            years_since_est = (datetime.now() - est).days / 365
-        except Exception:
-            years_since_est = 5
-
-        if years_since_est > 5:
-            # 生成 1-2 位前任经理
-            former_managers = [
-                {"managerName": "余广", "startDate": establish_date[:10], "endDate": "2017-01-05", "totalReturn": 64.40, "annualizedReturn": 13.97, "rank": {"rank": 208, "total": 337}},
-                {"managerName": "王亚伟", "startDate": "2008-01-01", "endDate": "2012-05-01", "totalReturn": 119.83, "annualizedReturn": 22.15, "rank": {"rank": 12, "total": 256}},
-                {"managerName": "刘彦春", "startDate": "2010-03-01", "endDate": "2015-08-01", "totalReturn": 85.20, "annualizedReturn": 15.80, "rank": {"rank": 45, "total": 312}},
-            ]
-            # 根据 hash 选择 1-2 位前任
-            num_former = 1 + (h % 2)
-            for i in range(num_former):
-                idx = (h + i * 7) % len(former_managers)
-                former = former_managers[idx].copy()
-                # 调整日期使其合理
-                former["startDate"] = establish_date[:10]
-                former["endDate"] = f"{int(establish_date[:4]) + 4 + (h % 3)}-0{(1 + h % 9):01d}-01"
-                rows.insert(0, former)
-
-        return rows
-    except Exception:
-        return []
+        manager = TushareProvider().get_fund_manager(code) or {}
+        if manager.get("name"):
+            return _rows_response(
+                code,
+                [{
+                    "managerName": manager.get("name"),
+                    "startDate": manager.get("begin_date") or None,
+                    "endDate": manager.get("end_date") or None,
+                    "totalReturn": _safe_float(manager.get("reward")),
+                    "annualizedReturn": None,
+                    "rank": None,
+                }],
+                status=DETAIL_STATUS_PARTIAL,
+                source="Tushare fund_manager",
+                coverage=0.35,
+                missing_reason="仅获取到当前/最近基金经理，历任经理和同类排名需补快照表。",
+            )
+    except Exception as e:
+        console_error(f"manager history fetch failed for {code}: {e}")
+    return _rows_response(
+        code,
+        [],
+        missing_reason="缺少真实基金经理变更数据；不再生成虚拟历任经理。",
+    )
 
 
 # ============================================================
@@ -1175,52 +1367,37 @@ def get_fund_manager_history(code: str) -> list[dict]:
 # ============================================================
 
 def get_fund_manager_report(code: str) -> dict | None:
-    """运作分析（基金定期报告全文）。表不存在 → 行业典型 markdown 长文。"""
-    try:
-        with get_db_context() as conn:
-            row = conn.execute(
-                """SELECT name, fund_type FROM fund_master WHERE code = ?""",
-                (code,),
-            ).fetchone()
-        if not row:
-            return None
-        fund_name = row["name"]
+    """运作分析：仅返回真实定期报告文本，不再生成模板长文。"""
+    rows = _safe_table_query(
+        """SELECT report_date, report_text, source, updated_at
+           FROM fund_report_snapshot
+           WHERE code = ? AND report_text IS NOT NULL AND report_text != ''
+           ORDER BY report_date DESC
+           LIMIT 1""",
+        (code,),
+    )
+    if not rows:
         return {
             "code": code,
-            "report": (
-                f"2026年一季度{row['fund_type']}{fund_name}运作分析\n\n"
-                "一、宏观经济与市场回顾\n\n"
-                "2026年一季度中国宏观经济实现稳健开局，整体呈现平稳复苏、质效提升的良好态势，"
-                "经济韧性持续显现。生产端，工业与服务业同步回暖，工业生产活力增强，"
-                "高技术制造业引领增长，新质生产力加速培育。\n\n"
-                "海外宏观经济呈现「分化复苏、风险凸显」的整体态势，地缘冲突与货币政策调整"
-                "成为影响全局的核心变量。美联储与欧央行维持高利率基调，降息预期持续收敛。\n\n"
-                "二、A股市场表现\n\n"
-                "2026年一季度A股整体呈现震荡调整、结构分化的态势，整体表现偏弱。"
-                "主要指数多数收跌，存量资金博弈特征显著，增量资金入场乏力。"
-                "板块表现分化极致，能源、资源等周期类板块逆市领涨，而消费、非银金融等板块表现疲软。\n\n"
-                "三、本季度操作策略\n\n"
-                "本季度操作策略主要体现在：\n"
-                "1）增持新能源，主要聚焦具备全球竞争力的储能和供需紧张的锂电中游环节。\n"
-                "2）增持海外AI，我们长期看好AI创新的投资机会，个股股价调整过程中我们做了一定比例的增持。\n"
-                "3）增持创新药，中国创新药企业依托临床数据落地与管线价值兑现，全球竞争力逐步提升。\n\n"
-                "四、2026年展望\n\n"
-                "展望2026年，中国宏观将处于「温和再通胀、结构再平衡、政策稳中有进」的新阶段，"
-                "预计物价中枢小幅抬升，PPI全年有望转正，财政维持约4%赤字率并通过超长期特别国债"
-                "与准财政工具前置发力，货币「适度宽松」小步慢行。\n\n"
-                "投资策略上，我们依然坚定围绕中国未来5-10年确定的产业方向来构建组合，"
-                "我们重点关注三大方向：1）科技成长：科技创新是时代的主旋律，同时政策会持续在"
-                "「卡脖子」相关的高端制造领域发力；2）高端制造：在安全发展的大战略下，"
-                "我们将重点挖掘能够实现自主可控和进口替代的高端制造行业的投资机会；"
-                "3）医药：医药长期受益于人口老龄化和创新升级，核心标的长期业绩增长确定强。\n\n"
-                "高估值肯定是回报率的敌人，透支未来价值很多的公司，我们会规避，"
-                "组合构建的时候会保持一定的均衡性，尽可能的降低净值的波动，追求复利，"
-                "积小胜为大胜，希望能够在中长期为持有人创造稳定的净值增长。"
+            "report": None,
+            "period": None,
+            **_detail_meta(
+                status=DETAIL_STATUS_MISSING,
+                missing_reason="缺少真实基金定期报告原文；不再生成模板化运作分析。",
             ),
-            "period": "2026Q1",
         }
-    except Exception:
-        return None
+    row = rows[0]
+    return {
+        "code": code,
+        "report": row["report_text"],
+        "period": row["report_date"],
+        **_detail_meta(
+            status=DETAIL_STATUS_AVAILABLE,
+            source=row["source"] or "fund_report_snapshot",
+            as_of=row["report_date"],
+            coverage=1.0,
+        ),
+    }
 
 
 # ============================================================
@@ -1277,7 +1454,7 @@ def get_fund_risk_summary(code: str, window: str = "1y") -> dict | None:
     try:
         with get_db_context() as conn:
             row = conn.execute(
-                """SELECT max_drawdown, volatility, sharpe_ratio, fee_manage, fee_custody
+                """SELECT max_drawdown, volatility, sharpe_ratio, fee_manage, fee_custody, updated_at, source
                    FROM fund_metrics_snapshot WHERE code = ?""",
                 (code,),
             ).fetchone()
@@ -1285,18 +1462,29 @@ def get_fund_risk_summary(code: str, window: str = "1y") -> dict | None:
                 "SELECT fund_type, name FROM fund_master WHERE code = ?",
                 (code,),
             ).fetchone()
-        if not row or not master:
+            cat = conn.execute(
+                """SELECT avg_max_drawdown_eq, avg_sharpe_eq, as_of_date
+                   FROM fund_category_metrics_snapshot
+                   WHERE category = ? AND window_days = 365
+                   ORDER BY as_of_date DESC LIMIT 1""",
+                (master["fund_type"] if master else "",),
+            ).fetchone()
+        if not master:
             return None
         fund_name = master["name"] or "本基金"
         fund_type = master["fund_type"] or "基金"
-        max_dd = _safe_float(row["max_drawdown"])
-        # 同类均值（1y 窗口）
-        cat = conn.execute(
-            """SELECT avg_max_drawdown_eq, avg_sharpe_eq FROM fund_category_metrics_snapshot
-               WHERE category = ? AND window_days = 365
-               ORDER BY as_of_date DESC LIMIT 1""",
-            (fund_type,),
-        ).fetchone()
+        window_days = {"1y": 365, "3y": 365 * 3, "5y": 365 * 5}.get(window)
+        nav_rows, nav_source, nav_as_of = _get_nav_history_for_detail(code)
+        if window_days and nav_rows:
+            latest = _to_date(nav_rows[-1].get("nav_date"))
+            if latest:
+                start = latest - timedelta(days=window_days)
+                nav_rows = [r for r in nav_rows if (_to_date(r.get("nav_date")) or latest) >= start]
+        nav_metrics = _risk_metrics_from_nav(nav_rows)
+        max_dd = nav_metrics["max_drawdown"] if nav_metrics else (_safe_float(row["max_drawdown"]) if row else None)
+        volatility = nav_metrics["volatility"] if nav_metrics else (_safe_float(row["volatility"]) if row else None)
+        downside_risk = nav_metrics["downside_risk"] if nav_metrics else None
+        sharpe = _safe_float(row["sharpe_ratio"]) if row else None
         peer_max_dd = _safe_float(cat["avg_max_drawdown_eq"]) if cat else None
 
         # 等级
@@ -1319,8 +1507,8 @@ def get_fund_risk_summary(code: str, window: str = "1y") -> dict | None:
         # 4 段式机构风控官口径
         level_zh = {"low": "低", "medium": "中", "high": "高"}[level]
         peer_compare = compare
-        downside = _format_dd(risk_downside_estimate(row, peer_max_dd))
-        sharpe_str = _format_pct(row["sharpe_ratio"]) if row["sharpe_ratio"] else "暂无"
+        downside = _format_pct(downside_risk) if downside_risk is not None else "暂无"
+        sharpe_str = f"{sharpe:.2f}" if sharpe is not None else "暂无"
         if level == "high":
             suitability = "适合 C4 及以上风险偏好的投资者配置，建议作为权益组合的卫星仓位。"
         elif level == "medium":
@@ -1328,8 +1516,8 @@ def get_fund_risk_summary(code: str, window: str = "1y") -> dict | None:
         else:
             suitability = "适合 C1-C2 风险偏好投资者作为底仓配置。"
         summary = (
-            f"【风险定级】过去 1 年本基金 {fund_name}（{fund_type}）综合风险等级为【{level_zh}】。\n"
-            f"【核心指标】近一年最大回撤 {_format_pct(max_dd)}，"
+            f"【风险定级】{window} 窗口下本基金 {fund_name}（{fund_type}）综合风险等级为【{level_zh}】。\n"
+            f"【核心指标】最大回撤 {_format_pct(max_dd)}，"
             f"下行风险代理指标 {downside}；"
             f"夏普比率 {sharpe_str}。\n"
             f"【同业对标】与同类（{fund_type}）平均最大回撤 {_format_pct(peer_max_dd)} 相比，{peer_compare}。\n"
@@ -1341,10 +1529,17 @@ def get_fund_risk_summary(code: str, window: str = "1y") -> dict | None:
             "level": level,
             "maxDrawdown": max_dd,
             "peerMaxDrawdown": peer_max_dd,
-            "downsideRisk": None,  # 后端暂无下行风险字段
+            "downsideRisk": downside_risk,
             "peerDownsideRisk": None,
             "summary": summary,
-            "source": "rule-engine",
+            "volatility": volatility,
+            **_detail_meta(
+                status=DETAIL_STATUS_PARTIAL if nav_metrics else DETAIL_STATUS_PARTIAL if row else DETAIL_STATUS_MISSING,
+                source=nav_source or (row["source"] if row else None) or "rule-engine",
+                as_of=nav_as_of or (row["updated_at"] if row else None),
+                coverage=0.7 if nav_metrics else 0.35 if row else 0.0,
+                missing_reason=None if nav_metrics else "缺少足量净值历史，仅能使用指标快照生成摘要。",
+            ),
         }
     except Exception:
         return None

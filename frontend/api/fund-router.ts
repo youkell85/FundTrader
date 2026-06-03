@@ -1835,7 +1835,7 @@ export const fundRouter = createRouter({
         );
       } catch (err) {
         console.warn(`[fundRouter] 持有人结构失败 ${input.code}:`, err);
-        return { code: input.code, rows: [] };
+        return { code: input.code, rows: [], dataStatus: "missing", missingReason: "持有人结构读取失败" };
       }
     }),
 
@@ -1852,7 +1852,7 @@ export const fundRouter = createRouter({
         );
       } catch (err) {
         console.warn(`[fundRouter] 券种配置失败 ${input.code}:`, err);
-        return { code: input.code, rows: [] };
+        return { code: input.code, rows: [], dataStatus: "missing", missingReason: "券种配置读取失败" };
       }
     }),
 
@@ -1869,7 +1869,7 @@ export const fundRouter = createRouter({
         );
       } catch (err) {
         console.warn(`[fundRouter] 重仓债券失败 ${input.code}:`, err);
-        return { code: input.code, rows: [] };
+        return { code: input.code, rows: [], dataStatus: "missing", missingReason: "重仓债券读取失败" };
       }
     }),
 
@@ -1886,7 +1886,7 @@ export const fundRouter = createRouter({
         );
       } catch (err) {
         console.warn(`[fundRouter] 历史回报失败 ${input.code}:`, err);
-        return { code: input.code, rows: [] };
+        return { code: input.code, rows: [], dataStatus: "missing", missingReason: "历史回报读取失败" };
       }
     }),
 
@@ -1901,7 +1901,7 @@ export const fundRouter = createRouter({
         );
       } catch (err) {
         console.warn(`[fundRouter] peer 业绩失败 ${input.code}:`, err);
-        return { code: input.code };
+        return { code: input.code, dataStatus: "missing", missingReason: "同期收益读取失败" };
       }
     }),
 
@@ -1919,7 +1919,7 @@ export const fundRouter = createRouter({
         );
       } catch (err) {
         console.warn(`[fundRouter] 规模历史失败 ${input.code}:`, err);
-        return { code: input.code, rows: [] };
+        return { code: input.code, rows: [], dataStatus: "missing", missingReason: "规模历史读取失败" };
       }
     }),
 
@@ -1937,7 +1937,7 @@ export const fundRouter = createRouter({
         );
       } catch (err) {
         console.warn(`[fundRouter] 换手率历史失败 ${input.code}:`, err);
-        return { code: input.code, rows: [] };
+        return { code: input.code, rows: [], dataStatus: "missing", missingReason: "换手率读取失败" };
       }
     }),
 
@@ -1954,7 +1954,7 @@ export const fundRouter = createRouter({
         );
       } catch (err) {
         console.warn(`[fundRouter] 经理变更失败 ${input.code}:`, err);
-        return { code: input.code, rows: [], managerCount: 0 };
+        return { code: input.code, rows: [], managerCount: 0, dataStatus: "missing", missingReason: "经理变更读取失败" };
       }
     }),
 
@@ -1971,7 +1971,7 @@ export const fundRouter = createRouter({
         );
       } catch (err) {
         console.warn(`[fundRouter] 运作分析失败 ${input.code}:`, err);
-        return { code: input.code, report: null, period: null };
+        return { code: input.code, report: null, period: null, dataStatus: "missing", missingReason: "运作分析读取失败" };
       }
     }),
 
@@ -2007,7 +2007,24 @@ export const fundRouter = createRouter({
           peerDownsideRisk: null,
           summary: null,
           source: null,
+          dataStatus: "missing",
+          missingReason: "风险摘要读取失败",
         };
+      }
+    }),
+
+  detailCompleteness: publicQuery
+    .input(_codeOnlySchema)
+    .query(async ({ input }) => {
+      try {
+        return await cachedFtFetch(
+          `detail_completeness_${input.code}`,
+          DETAIL_QUARTERLY_TTL,
+          () => ftFetch<any>(`/fund/detail-completeness?code=${encodeURIComponent(input.code)}`),
+        );
+      } catch (err) {
+        console.warn(`[fundRouter] 详情完整度失败 ${input.code}:`, err);
+        return { code: input.code, sections: {}, available: 0, partial: 0, total: 0, coverage: 0 };
       }
     }),
 });

@@ -29,6 +29,34 @@ DEFAULT_SORT_ORDER = "desc"
 DEFAULT_TAG = "鑫基荟"
 
 
+def _detail_rows_payload(code: str, data, *, default_reason: str = "") -> dict:
+    if isinstance(data, dict):
+        return {"code": code, **data}
+    rows = data if isinstance(data, list) else []
+    return {
+        "code": code,
+        "rows": rows,
+        "dataStatus": "available" if rows else "missing",
+        "source": None,
+        "asOf": None,
+        "coverage": 1.0 if rows else 0.0,
+        "missingReason": None if rows else default_reason,
+    }
+
+
+def _empty_rows_payload(code: str, error: Exception, reason: str) -> dict:
+    return {
+        "code": code,
+        "rows": [],
+        "dataStatus": "missing",
+        "source": None,
+        "asOf": None,
+        "coverage": 0.0,
+        "missingReason": reason,
+        "error": str(error)[:120],
+    }
+
+
 @router.get("/list")
 async def fund_list(
     category: str = Query(DEFAULT_CATEGORY, description="基金类型"),
@@ -154,6 +182,88 @@ async def fund_metrics_snapshot(code: str):
         "total_scale": snapshot.get("total_scale"),
         "updated_at": snapshot.get("metrics_updated_at"),
         "data_quality": snapshot.get("data_quality"),
+    }
+
+
+@router.get("/detail-completeness")
+async def fund_detail_completeness(code: str = Query(..., min_length=4, max_length=10, description="基金代码")):
+    """Return local real-data coverage by detail-page section without external fetches."""
+    from ..storage.database import FundDataStore, get_db_context
+
+    snapshot = await run_in_threadpool(FundDataStore.get_snapshot, code)
+
+    def status(ok: bool, *, partial: bool = False, reason: str = ""):
+        return {
+            "dataStatus": "available" if ok and not partial else "partial" if ok else "missing",
+            "missingReason": None if ok else reason,
+        }
+
+    try:
+        with get_db_context() as conn:
+            quarterly = conn.execute(
+                """SELECT
+                      SUM(CASE WHEN holder_structure_json IS NOT NULL AND holder_structure_json != '' AND holder_structure_json != '[]' THEN 1 ELSE 0 END) AS holder_count,
+                      SUM(CASE WHEN bond_allocation_json IS NOT NULL AND bond_allocation_json != '' AND bond_allocation_json != '[]' THEN 1 ELSE 0 END) AS bond_alloc_count,
+                      SUM(CASE WHEN bond_holdings_json IS NOT NULL AND bond_holdings_json != '' AND bond_holdings_json != '[]' THEN 1 ELSE 0 END) AS bond_hold_count,
+                      SUM(CASE WHEN total_scale IS NOT NULL THEN 1 ELSE 0 END) AS scale_count,
+                      SUM(CASE WHEN turnover_rate IS NOT NULL THEN 1 ELSE 0 END) AS turnover_count
+                   FROM fund_detail_quarterly_snapshot
+                   WHERE code = ?""",
+                (code,),
+            ).fetchone()
+            manager_count = conn.execute(
+                "SELECT COUNT(*) AS c FROM fund_manager_history_snapshot WHERE code = ?",
+                (code,),
+            ).fetchone()["c"]
+            report_count = conn.execute(
+                "SELECT COUNT(*) AS c FROM fund_report_snapshot WHERE code = ? AND report_text != ''",
+                (code,),
+            ).fetchone()["c"]
+    except Exception:
+        quarterly = None
+        manager_count = 0
+        report_count = 0
+
+    nav_count = len(snapshot.get("nav_data") or []) if snapshot else 0
+    holdings_count = len(snapshot.get("holdings") or []) if snapshot else 0
+    asset_count = len(snapshot.get("asset_allocation") or []) if snapshot else 0
+    def qcount(name: str) -> int:
+        try:
+            return int(quarterly[name] or 0) if quarterly else 0
+        except Exception:
+            return 0
+
+    holder_count = qcount("holder_count")
+    scale_count = qcount("scale_count")
+    turnover_count = qcount("turnover_count")
+    bond_alloc_count = qcount("bond_alloc_count")
+    bond_hold_count = qcount("bond_hold_count")
+
+    sections = {
+        "performance": status(nav_count >= 2, reason="缺少净值历史"),
+        "history": status(nav_count >= 2, partial=True, reason="缺少净值历史"),
+        "scale": status(scale_count > 0, partial=scale_count < 4, reason="缺少真实规模历史"),
+        "turnover": status(turnover_count > 0, partial=turnover_count < 4, reason="缺少真实换手率历史"),
+        "risk": status(bool(snapshot and (snapshot.get("max_drawdown") is not None or nav_count >= 30)), partial=True, reason="缺少风险指标"),
+        "assetAllocation": status(asset_count > 0, reason="缺少真实资产配置"),
+        "holdings": status(holdings_count > 0, reason="缺少真实重仓股票"),
+        "holderStructure": status(holder_count > 0, reason="缺少真实持有人结构"),
+        "bondAllocation": status(bond_alloc_count > 0, reason="缺少真实券种配置"),
+        "bondHoldings": status(bond_hold_count > 0, reason="缺少真实重仓债券"),
+        "managerHistory": status(manager_count > 0, reason="缺少真实经理变更"),
+        "managerReport": status(report_count > 0, reason="缺少真实定期报告原文"),
+    }
+    total = len(sections)
+    available = sum(1 for item in sections.values() if item["dataStatus"] == "available")
+    partial = sum(1 for item in sections.values() if item["dataStatus"] == "partial")
+    return {
+        "code": code,
+        "sections": sections,
+        "available": available,
+        "partial": partial,
+        "total": total,
+        "coverage": round((available + partial * 0.5) / total, 4),
+        "asOf": snapshot.get("nav_date") if snapshot else None,
     }
 
 
@@ -394,16 +504,29 @@ async def fund_rating(code: str = Query(..., min_length=4, max_length=10, descri
 
     try:
         data = await run_in_threadpool(get_fund_rating, code=code)
-        return data or {
+        if data:
+            has_rating = data.get("rating3y") is not None or data.get("rating5y") is not None
+            return {
+                **data,
+                "dataStatus": "available" if data.get("source") == "tushare" else "partial" if has_rating else "missing",
+                "asOf": None,
+                "coverage": 1.0 if data.get("source") == "tushare" else 0.5 if has_rating else 0.0,
+                "missingReason": None if has_rating else "缺少真实评级数据",
+            }
+        return {
             "code": code,
             "rating3y": None,
             "rating5y": None,
             "score": None,
             "source": None,
+            "dataStatus": "missing",
+            "asOf": None,
+            "coverage": 0.0,
+            "missingReason": "缺少真实评级数据",
         }
     except Exception as e:
         logger.error(f"fund.rating failed for {code}: {e}")
-        return {"code": code, "rating3y": None, "rating5y": None, "score": None, "source": None, "error": str(e)[:120]}
+        return {"code": code, "rating3y": None, "rating5y": None, "score": None, "source": None, "dataStatus": "missing", "asOf": None, "coverage": 0.0, "missingReason": "评级读取失败", "error": str(e)[:120]}
 
 
 @router.get("/purchase-info")
@@ -413,7 +536,16 @@ async def fund_purchase_info(code: str = Query(..., min_length=4, max_length=10,
 
     try:
         data = await run_in_threadpool(get_fund_purchase_info, code=code)
-        return data or {
+        if data:
+            return {
+                **data,
+                "dataStatus": "partial",
+                "source": "fund_metrics_snapshot+industry-defaults",
+                "asOf": None,
+                "coverage": 0.5,
+                "missingReason": "申赎状态和起购金额含行业默认值，待接入真实销售文件。",
+            }
+        return {
             "code": code,
             "purchaseStatus": None,
             "redeemStatus": None,
@@ -424,10 +556,15 @@ async def fund_purchase_info(code: str = Query(..., min_length=4, max_length=10,
             "custodyFeeRate": None,
             "serviceFeeRate": None,
             "totalFeeRate1y": None,
+            "dataStatus": "missing",
+            "source": None,
+            "asOf": None,
+            "coverage": 0.0,
+            "missingReason": "缺少购买信息",
         }
     except Exception as e:
         logger.error(f"fund.purchaseInfo failed for {code}: {e}")
-        return {"code": code, "error": str(e)[:120]}
+        return {"code": code, "dataStatus": "missing", "source": None, "asOf": None, "coverage": 0.0, "missingReason": "购买信息读取失败", "error": str(e)[:120]}
 
 
 @router.get("/holder-structure")
@@ -440,10 +577,10 @@ async def fund_holder_structure(
 
     try:
         data = await run_in_threadpool(get_fund_holder_structure, code=code, periods=periods)
-        return {"code": code, "rows": data or []}
+        return _detail_rows_payload(code, data, default_reason="缺少真实持有人结构数据")
     except Exception as e:
         logger.error(f"fund.holderStructure failed for {code}: {e}")
-        return {"code": code, "rows": [], "error": str(e)[:120]}
+        return _empty_rows_payload(code, e, "持有人结构读取失败")
 
 
 # ============================================================
@@ -457,10 +594,10 @@ async def fund_bond_allocation(code: str = Query(..., min_length=4, max_length=1
 
     try:
         data = await run_in_threadpool(get_fund_bond_allocation, code=code)
-        return {"code": code, "rows": data or []}
+        return _detail_rows_payload(code, data, default_reason="缺少真实券种配置数据")
     except Exception as e:
         logger.error(f"fund.bondAllocation failed for {code}: {e}")
-        return {"code": code, "rows": [], "error": str(e)[:120]}
+        return _empty_rows_payload(code, e, "券种配置读取失败")
 
 
 @router.get("/bond-holdings")
@@ -470,10 +607,10 @@ async def fund_bond_holdings(code: str = Query(..., min_length=4, max_length=10,
 
     try:
         data = await run_in_threadpool(get_fund_bond_holdings, code=code)
-        return {"code": code, "rows": data or []}
+        return _detail_rows_payload(code, data, default_reason="缺少真实重仓债券数据")
     except Exception as e:
         logger.error(f"fund.bondHoldings failed for {code}: {e}")
-        return {"code": code, "rows": [], "error": str(e)[:120]}
+        return _empty_rows_payload(code, e, "重仓债券读取失败")
 
 
 @router.get("/year-returns")
@@ -483,10 +620,10 @@ async def fund_year_returns(code: str = Query(..., min_length=4, max_length=10, 
 
     try:
         data = await run_in_threadpool(get_fund_year_returns, code=code)
-        return {"code": code, "rows": data or []}
+        return _detail_rows_payload(code, data, default_reason="缺少净值历史，无法计算年度收益")
     except Exception as e:
         logger.error(f"fund.yearReturns failed for {code}: {e}")
-        return {"code": code, "rows": [], "error": str(e)[:120]}
+        return _empty_rows_payload(code, e, "历史回报读取失败")
 
 
 @router.get("/peer-performance")
@@ -498,7 +635,7 @@ async def fund_peer_performance(
 
     try:
         data = await run_in_threadpool(get_fund_peer_performance, code=code)
-        return {"code": code, **data}
+        return {"code": code, **(data or {})}
     except Exception as e:
         logger.error(f"fund.peerPerformance failed for {code}: {e}")
         return {
@@ -506,6 +643,12 @@ async def fund_peer_performance(
             "peer": {"return3m": None, "return6m": None, "return1y": None, "return3y": None, "return5y": None, "returnSinceInception": None, "annualizedReturn": None},
             "index": {"return3m": None, "return6m": None, "return1y": None, "return3y": None, "return5y": None, "returnSinceInception": None, "annualizedReturn": None},
             "benchmark": {"return3m": None, "return6m": None, "return1y": None, "return3y": None, "return5y": None, "returnSinceInception": None, "annualizedReturn": None},
+            "fund": {"return3m": None, "return6m": None, "return1y": None, "return3y": None, "return5y": None, "returnSinceInception": None, "annualizedReturn": None},
+            "dataStatus": "missing",
+            "source": None,
+            "asOf": None,
+            "coverage": 0.0,
+            "missingReason": "同期收益读取失败",
             "error": str(e)[:120],
         }
 
@@ -524,10 +667,10 @@ async def fund_scale_history(
 
     try:
         data = await run_in_threadpool(get_fund_scale_history, code=code, periods=periods)
-        return {"code": code, "rows": data or []}
+        return _detail_rows_payload(code, data, default_reason="缺少真实规模历史数据")
     except Exception as e:
         logger.error(f"fund.scaleHistory failed for {code}: {e}")
-        return {"code": code, "rows": [], "error": str(e)[:120]}
+        return _empty_rows_payload(code, e, "规模历史读取失败")
 
 
 @router.get("/turnover-history")
@@ -540,10 +683,10 @@ async def fund_turnover_history(
 
     try:
         data = await run_in_threadpool(get_fund_turnover_history, code=code, periods=periods)
-        return {"code": code, "rows": data or []}
+        return _detail_rows_payload(code, data, default_reason="缺少真实换手率数据")
     except Exception as e:
         logger.error(f"fund.turnoverHistory failed for {code}: {e}")
-        return {"code": code, "rows": [], "error": str(e)[:120]}
+        return _empty_rows_payload(code, e, "换手率读取失败")
 
 
 @router.get("/manager-history")
@@ -553,10 +696,12 @@ async def fund_manager_history(code: str = Query(..., min_length=4, max_length=1
 
     try:
         data = await run_in_threadpool(get_fund_manager_history, code=code)
-        return {"code": code, "rows": data or [], "managerCount": len(data or [])}
+        payload = _detail_rows_payload(code, data, default_reason="缺少真实基金经理变更数据")
+        return {**payload, "managerCount": len(payload.get("rows") or [])}
     except Exception as e:
         logger.error(f"fund.managerHistory failed for {code}: {e}")
-        return {"code": code, "rows": [], "error": str(e)[:120]}
+        payload = _empty_rows_payload(code, e, "基金经理变更读取失败")
+        return {**payload, "managerCount": 0}
 
 
 # ============================================================
@@ -565,46 +710,34 @@ async def fund_manager_history(code: str = Query(..., min_length=4, max_length=1
 
 @router.get("/manager-report")
 async def fund_manager_report(code: str = Query(..., min_length=4, max_length=10, description="基金代码")):
-    """运作分析：基于基金数据用LLM生成个性化运作分析报告。"""
+    """运作分析：返回真实定期报告文本；不再用模板或 LLM 编造报告。"""
     from ..services.fund_service import get_fund_manager_report
 
     try:
-        # 先获取基金基础数据
         base = await run_in_threadpool(get_fund_manager_report, code=code)
-        # 从 base 获取基金名称用于 prompt
-        fund_name = base.get("report", "")[:20] if base else ""
-        llm_prompt = f"""你是一位资深公募基金研究员。请为基金 {code} {fund_name} 撰写一份专业的运作分析报告（400-600字），模拟基金经理在定期报告中的口吻。
-
-报告结构要求：
-1. 宏观经济与市场回顾（当前市场环境分析）
-2. 投资策略与运作分析（本季度/本期的操作策略）
-3. 持仓特征与行业配置（主要持仓方向、行业偏好）
-4. 后市展望与投资思路（对后续市场的判断和应对策略）
-
-要求：
-- 语言专业、有深度，符合基金经理定期报告的文风
-- 不要编造具体持仓数据，但可以基于基金类型推断合理的投资方向
-- 分析要有逻辑性，不是泛泛而谈
-- 报告应体现该基金的特点，不要写成通用模板"""
-        llm_report: str | None = None
-        try:
-            llm_report = await asyncio.wait_for(
-                call_astorn_llm(llm_prompt, max_tokens=1200, temperature=0.6),
-                timeout=20.0,
-            )
-        except asyncio.TimeoutError:
-            logger.warning(f"managerReport LLM timeout for {code}")
-            llm_report = None
-        # call_astorn_llm 内部已捕获常见异常并返回 None/空串；此处不重复 except Exception
-        return {
+        return base or {
             "code": code,
-            "report": llm_report,
-            "period": datetime.now().strftime("%Y年%m月"),
-            "source": "astorn-llm" if llm_report else "rule-engine",
+            "report": None,
+            "period": None,
+            "dataStatus": "missing",
+            "source": None,
+            "asOf": None,
+            "coverage": 0.0,
+            "missingReason": "缺少真实基金定期报告原文",
         }
     except Exception as e:
         logger.error(f"fund.managerReport failed for {code}: {e}")
-        return {"code": code, "report": None, "period": None, "error": str(e)[:120]}
+        return {
+            "code": code,
+            "report": None,
+            "period": None,
+            "dataStatus": "missing",
+            "source": None,
+            "asOf": None,
+            "coverage": 0.0,
+            "missingReason": "运作分析读取失败",
+            "error": str(e)[:120],
+        }
 
 
 # ============================================================
@@ -632,6 +765,10 @@ async def fund_risk_summary(
                 "peerDownsideRisk": None,
                 "summary": None,
                 "source": None,
+                "dataStatus": "missing",
+                "asOf": None,
+                "coverage": 0.0,
+                "missingReason": "缺少风险指标或净值历史，无法生成风险摘要",
             }
         # 用 LLM 对风险摘要进行深度解读（机构风控官视角，强制 JSON Schema 输出）
         llm_prompt = f"""你是一家头部公募基金管理公司的首席风控官（CRO），请基于以下产品风险数据，输出**严格的 JSON**（不要任何额外说明文字）。
@@ -717,5 +854,9 @@ async def fund_risk_summary(
             "peerDownsideRisk": None,
             "summary": None,
             "source": None,
+            "dataStatus": "missing",
+            "asOf": None,
+            "coverage": 0.0,
+            "missingReason": "风险摘要读取失败",
             "error": str(e)[:120],
         }

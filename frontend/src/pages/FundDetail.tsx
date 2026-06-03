@@ -30,6 +30,7 @@ import {
   emptyPerfCell,
   ratioPct,
 } from "@/lib/fund-data";
+import { type DetailRowsPayload, missingReason, realRows } from "@/lib/detail-status";
 import { Panel } from "@/components/report/Panel";
 import { ReportLayout } from "@/components/report/ReportLayout";
 import { ReportSection } from "@/components/report/ReportSection";
@@ -280,6 +281,18 @@ export default function FundDetail() {
     { enabled, staleTime: DETAIL_QUARTERLY_STALE_MS, refetchOnWindowFocus: false },
   );
   const managerHistoryQ = trpc.fund.managerHistory.useQuery(
+    { code },
+    { enabled, staleTime: DETAIL_QUARTERLY_STALE_MS, refetchOnWindowFocus: false },
+  );
+  const bondAllocationQ = trpc.fund.bondAllocation.useQuery(
+    { code },
+    { enabled, staleTime: DETAIL_QUARTERLY_STALE_MS, refetchOnWindowFocus: false },
+  );
+  const bondHoldingsQ = trpc.fund.bondHoldings.useQuery(
+    { code },
+    { enabled, staleTime: DETAIL_QUARTERLY_STALE_MS, refetchOnWindowFocus: false },
+  );
+  const detailCompletenessQ = trpc.fund.detailCompleteness.useQuery(
     { code },
     { enabled, staleTime: DETAIL_QUARTERLY_STALE_MS, refetchOnWindowFocus: false },
   );
@@ -619,13 +632,14 @@ export default function FundDetail() {
         {/* === 长页面布局 === */}
         <ReportLayout
           left={
-            <LeftSidebar
-              fund={fund}
-              navPoints={navPoints}
-              risk={risk}
-              rating={ratingQ.data}
-              purchaseInfo={purchaseInfoQ.data}
-            />
+              <LeftSidebar
+                fund={fund}
+                navPoints={navPoints}
+                risk={risk}
+                rating={ratingQ.data}
+                purchaseInfo={purchaseInfoQ.data}
+                completeness={detailCompletenessQ.data}
+              />
           }
           right={
             <div className="space-y-6">
@@ -665,12 +679,19 @@ export default function FundDetail() {
                 <AllocationSection
                   fund={fund}
                   industryHistoryData={industryHistoryData}
-                  holderStructure={(holderStructureQ.data?.rows || []) as Array<{ quarter: string; institution: number; individual: number }>}
+                  holderStructure={realRows(holderStructureQ.data as DetailRowsPayload<{ quarter: string; institution: number; individual: number }>)}
+                  holderStatus={holderStructureQ.data as DetailRowsPayload<{ quarter: string; institution: number; individual: number }>}
+                  bondAllocation={realRows(bondAllocationQ.data as DetailRowsPayload<{ bondType: string; ratio: number; changeRatio: number | null }>)}
+                  bondAllocationStatus={bondAllocationQ.data as DetailRowsPayload<{ bondType: string; ratio: number; changeRatio: number | null }>}
                 />
               </ReportSection>
 
               <ReportSection id="holdings" title="重仓明细">
-                <HoldingsSection fund={fund} />
+                <HoldingsSection
+                  fund={fund}
+                  bondHoldings={realRows(bondHoldingsQ.data as DetailRowsPayload<any>)}
+                  bondHoldingsStatus={bondHoldingsQ.data as DetailRowsPayload<any>}
+                />
               </ReportSection>
 
               <ReportSection id="manager" title="基金经理">
@@ -696,6 +717,7 @@ function LeftSidebar({
   risk,
   rating,
   purchaseInfo,
+  completeness,
 }: {
   fund: any;
   navPoints: Array<{ d: string; nav: number }>;
@@ -721,6 +743,7 @@ function LeftSidebar({
     serviceFeeRate?: string | null;
     totalFeeRate1y?: string | number | null;
   } | null;
+  completeness?: { coverage?: number; available?: number; partial?: number; total?: number } | null;
 }) {
   const rows: Array<[string, string]> = [
     ["成立日期", fund.establishDate || "—"],
@@ -890,7 +913,10 @@ function LeftSidebar({
           <Metric label="净值点数" value={String(navPoints.length)} />
           <Metric label="持仓数" value={String(fund.holdings?.length || 0)} />
           <Metric label="资产项" value={String(fund.assetAllocation?.length || 0)} />
-          <Metric label="Sharpe" value={pct(risk.sharpe)} />
+          <Metric
+            label="真实覆盖"
+            value={completeness?.total ? `${Math.round((completeness.coverage || 0) * 100)}%` : "—"}
+          />
         </div>
       </Panel>
     </>
@@ -1500,13 +1526,23 @@ function AllocationSection({
   fund,
   industryHistoryData,
   holderStructure,
+  holderStatus,
+  bondAllocation,
+  bondAllocationStatus,
 }: {
   fund: any;
   industryHistoryData: Array<Record<string, string | number>>;
   holderStructure: Array<{ quarter: string; institution: number; individual: number }>;
+  holderStatus?: DetailRowsPayload<{ quarter: string; institution: number; individual: number }>;
+  bondAllocation: Array<{ bondType: string; ratio: number; changeRatio: number | null }>;
+  bondAllocationStatus?: DetailRowsPayload<{ bondType: string; ratio: number; changeRatio: number | null }>;
 }) {
   const alloc = (fund.assetAllocation || []) as any[];
   const industries = (fund.industries || []) as Array<{ industry: string; ratio: number | string }>;
+  const bondRows = bondAllocation
+    .map((row) => ({ ...row, ratioPct: ratioPct(row.ratio) }))
+    .filter((row) => row.bondType && row.ratioPct > 0)
+    .sort((a, b) => b.ratioPct - a.ratioPct);
   return (
     <>
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
@@ -1549,7 +1585,7 @@ function AllocationSection({
 
         <Panel title="持有人结构">
           {holderStructure.length === 0 ? (
-            <EmptyState label="持有人结构数据待补" />
+            <EmptyState label={missingReason(holderStatus, "持有人结构数据待补")} />
           ) : (
             <div className="h-[260px]">
               <ResponsiveContainer width="100%" height="100%">
@@ -1620,19 +1656,65 @@ function AllocationSection({
         )}
       </Panel>
 
-      <MissingPanel
-        title="券种配置"
-        reason="依赖 fund.bondAllocation（国家债券 / 央行票据 / 金融债券 / 可转债 / 同业存单等）"
-        endpoint="trpc.fund.bondAllocation"
-        height={200}
-      />
+      {bondRows.length === 0 ? (
+        <MissingPanel
+          title="券种配置"
+          reason={missingReason(
+            bondAllocationStatus,
+            "依赖 fund.bondAllocation（国家债券 / 央行票据 / 金融债券 / 可转债 / 同业存单等）",
+          )}
+          endpoint="trpc.fund.bondAllocation"
+          height={200}
+        />
+      ) : (
+        <Panel
+          title="券种配置"
+          extra={
+            bondAllocationStatus?.asOf ? (
+              <span className="text-xs text-muted-foreground">{bondAllocationStatus.asOf}</span>
+            ) : null
+          }
+        >
+          <div className="h-[260px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart
+                layout="vertical"
+                data={bondRows}
+                margin={{ left: 20, right: 20 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                <XAxis type="number" tick={{ fontSize: 11 }} />
+                <YAxis type="category" dataKey="bondType" width={120} tick={{ fontSize: 11 }} />
+                <Tooltip formatter={(value: number) => [`${Number(value).toFixed(2)}%`, "占净值比"]} />
+                <Bar dataKey="ratioPct" fill={SERIES_COLORS.bench} name="占净值比(%)" />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </Panel>
+      )}
     </>
   );
 }
 
 // ===================== 重仓明细 =====================
 
-function HoldingsSection({ fund }: { fund: any }) {
+function HoldingsSection({
+  fund,
+  bondHoldings,
+  bondHoldingsStatus,
+}: {
+  fund: any;
+  bondHoldings: Array<{
+    bondName?: string;
+    marketValue?: number | null;
+    navRatio?: number | null;
+    couponRate?: number | null;
+    issuer?: string | null;
+    bondType?: string | null;
+    creditRating?: string | null;
+  }>;
+  bondHoldingsStatus?: DetailRowsPayload<any>;
+}) {
   const holdings = (fund.holdings || []) as any[];
   return (
     <>
@@ -1701,12 +1783,57 @@ function HoldingsSection({ fund }: { fund: any }) {
         </div>
       </Panel>
 
-      <MissingPanel
-        title="重仓债券"
-        reason="依赖 fund.bondHoldings（证券简称 / 持仓市值 / 占净值比 / 票面利率 / 发行主体 / 债券类型 / 发行信用评级）"
-        endpoint="trpc.fund.bondHoldings"
-        height={140}
-      />
+      {bondHoldings.length === 0 ? (
+        <MissingPanel
+          title="重仓债券"
+          reason={missingReason(
+            bondHoldingsStatus,
+            "依赖 fund.bondHoldings（证券简称 / 持仓市值 / 占净值比 / 票面利率 / 发行主体 / 债券类型 / 发行信用评级）",
+          )}
+          endpoint="trpc.fund.bondHoldings"
+          height={140}
+        />
+      ) : (
+        <Panel
+          title="重仓债券"
+          extra={
+            bondHoldingsStatus?.asOf ? (
+              <span className="text-xs text-muted-foreground">{bondHoldingsStatus.asOf}</span>
+            ) : null
+          }
+        >
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[760px] border-collapse text-sm">
+              <thead>
+                <tr className="border-b bg-blue-50/60 text-muted-foreground dark:bg-blue-950/30">
+                  <th className="px-2 py-2 text-left">证券简称</th>
+                  <th className="px-2 py-2 text-right">持仓市值(万元)</th>
+                  <th className="px-2 py-2 text-right">占净值比</th>
+                  <th className="px-2 py-2 text-right">票面利率</th>
+                  <th className="px-2 py-2 text-left">发行主体</th>
+                  <th className="px-2 py-2 text-left">债券类型</th>
+                  <th className="px-2 py-2 text-left">信用评级</th>
+                </tr>
+              </thead>
+              <tbody>
+                {bondHoldings.map((bond, index) => (
+                  <tr key={`${bond.bondName || "bond"}-${index}`} className="border-b">
+                    <td className="px-2 py-2">{bond.bondName || "—"}</td>
+                    <td className="px-2 py-2 text-right">{numFmt(bond.marketValue)}</td>
+                    <td className="px-2 py-2 text-right">
+                      {bond.navRatio == null ? "—" : pct(ratioPct(bond.navRatio))}
+                    </td>
+                    <td className="px-2 py-2 text-right">{pct(bond.couponRate)}</td>
+                    <td className="px-2 py-2 text-muted-foreground">{bond.issuer || "—"}</td>
+                    <td className="px-2 py-2 text-muted-foreground">{bond.bondType || "—"}</td>
+                    <td className="px-2 py-2 text-muted-foreground">{bond.creditRating || "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Panel>
+      )}
     </>
   );
 }
