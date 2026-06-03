@@ -40,9 +40,9 @@ export default function StatCards({ currentOverview, categoryStats, category, on
         {categoryStats.map((item) => (
           <button
             key={item.label}
-            onClick={() => onCategoryClick(item.label)}
+            onClick={() => onCategoryClick(item.key ?? item.label)}
             className={`rounded-lg border px-3 py-3 text-left transition-colors ${
-              category === item.label
+              category === (item.key ?? item.label)
                 ? "border-[#3B6CFF]/35 bg-[#3B6CFF]/[0.10]"
                 : "border-white/[0.06] bg-white/[0.025] hover:bg-white/[0.05]"
             }`}

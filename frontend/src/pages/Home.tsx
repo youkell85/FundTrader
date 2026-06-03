@@ -172,6 +172,7 @@ export default function Home() {
         const row = rowByCategory.get(key);
         const label = typeLabels[key] || key;
         return {
+          key,
           label,
           count: Number(row?.total_count || 0),
           avgReturn: row?.avg_annual_return_eq != null ? (Number(row.avg_annual_return_eq) * 100).toFixed(2) : "—",
@@ -182,24 +183,26 @@ export default function Home() {
     }
     const groups = new Map<string, any[]>();
     for (const fund of baseFundsForCategoryStats) {
-      const key = typeLabels[fund.fundType] || fund.category || fund.fundType || "other";
-      groups.set(key, [...(groups.get(key) || []), fund]);
+      const ft = fund.fundType || "other";
+      groups.set(ft, [...(groups.get(ft) || []), fund]);
     }
-    const mapped = Array.from(groups.entries()).map(([label, funds]) => {
+    const mapped = Array.from(groups.entries()).map(([ft, funds]) => {
       const avg = (values: Array<number | null>) => {
         const valid = values.filter((v): v is number => v !== null);
         return valid.length ? (valid.reduce((sum, v) => sum + v, 0) / valid.length).toFixed(2) : "—";
       };
       return {
-        label,
+        key: ft,
+        label: typeLabels[ft] || ft,
         count: funds.length,
         avgReturn: avg(funds.map((f) => parseMetric(f.performance?.annualizedReturn || f.performance?.return1y))),
         avgMaxDrawdown: avg(funds.map((f) => parseMetric(f.performance?.maxDrawdown))),
         avgSharpe: avg(funds.map((f) => parseMetric(f.performance?.sharpeRatio))),
       };
     });
-    return preferredOrder.map((label) => mapped.find((item) => item.label === label) || {
-      label,
+    return preferredOrder.map((key) => mapped.find((item) => item.key === key) || {
+      key,
+      label: typeLabels[key] || key,
       count: 0,
       avgReturn: "—",
       avgMaxDrawdown: "—",
@@ -242,9 +245,9 @@ export default function Home() {
     setPage(1);
   };
 
-  const handleCategoryClick = (label: string) => {
-    setFundType("__all__");
-    setCategory(category === label ? "__all__" : label);
+  const handleCategoryClick = (key: string) => {
+    setCategory("__all__");
+    setFundType(fundType === key ? "__all__" : key);
     setPage(1);
   };
 
@@ -259,7 +262,7 @@ export default function Home() {
         <StatCards
           currentOverview={currentOverview}
           categoryStats={categoryStats}
-          category={category}
+          category={fundType}
           onCategoryClick={handleCategoryClick}
         />
 
