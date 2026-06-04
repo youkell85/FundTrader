@@ -382,7 +382,7 @@ export default function FundDetail() {
 
     const fundSeries = mapSeries(ppSeries?.fund, fundData);
     // fundRangeReturn 优先使用后端数据，后端无数据时用前端计算值
-    const finalFundRangeReturn = fundSeries.rangeReturn ?? fundRangeReturn;
+    const finalFundRangeReturn = fundSeries.rangeReturn;
     const peerSeries = mapSeries(ppSeries?.peer, []);
     const indexSeries = mapSeries(ppSeries?.index, []);
     const benchSeries = mapSeries(ppSeries?.benchmark, []);
