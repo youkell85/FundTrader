@@ -1600,6 +1600,63 @@ class FundDataStore:
                         }
                         for r in reversed(nav_rows)
                     ]
+
+                # 补充持仓数据（如有）
+                holdings_row = conn.execute(
+                    """SELECT holdings_json, asset_allocation_json, report_date
+                       FROM fund_holdings_snapshot
+                       WHERE code = ?
+                       ORDER BY report_date DESC
+                       LIMIT 1""",
+                    (code,),
+                ).fetchone()
+                if holdings_row and holdings_row["holdings_json"]:
+                    try:
+                        holdings = json.loads(holdings_row["holdings_json"])
+                        if holdings:
+                            result["holdings"] = holdings
+                    except json.JSONDecodeError:
+                        pass
+                if holdings_row and holdings_row["asset_allocation_json"]:
+                    try:
+                        asset_alloc = json.loads(holdings_row["asset_allocation_json"])
+                        if asset_alloc:
+                            result["asset_allocation"] = asset_alloc
+                    except json.JSONDecodeError:
+                        pass
+
+                # 补充季报数据（规模、换手、持有人结构等）
+                quarterly_row = conn.execute(
+                    """SELECT holder_structure_json, bond_allocation_json, bond_holdings_json,
+                              total_scale, turnover_rate, report_date
+                       FROM fund_detail_quarterly_snapshot
+                       WHERE code = ?
+                       ORDER BY report_date DESC
+                       LIMIT 1""",
+                    (code,),
+                ).fetchone()
+                if quarterly_row:
+                    if quarterly_row["total_scale"] is not None:
+                        result["total_scale"] = float(quarterly_row["total_scale"])
+
+                # 补充基金经理信息
+                manager_rows = conn.execute(
+                    """SELECT manager_name, start_date, end_date, total_return
+                       FROM fund_manager_history_snapshot
+                       WHERE code = ?
+                       ORDER BY start_date DESC
+                       LIMIT 1""",
+                    (code,),
+                ).fetchall()
+                if manager_rows:
+                    mgr = manager_rows[0]
+                    if mgr["manager_name"]:
+                        result["manager"] = {
+                            "name": mgr["manager_name"],
+                            "start_date": mgr["start_date"],
+                            "end_date": mgr["end_date"],
+                        }
+
                 _qcache.set(cache_key, result, 120)
                 return result
             legacy = conn.execute("SELECT * FROM fund_snapshot WHERE code = ?", (code,)).fetchone()

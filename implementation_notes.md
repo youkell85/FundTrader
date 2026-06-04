@@ -1,53 +1,51 @@
-# Implementation Notes — 资产配置 Bug 修复
+# 回撤时间序列功能实现记录
 
 ## 改动清单
 
-### Blocker 修复
+### 1. backend/app/storage/database.py
+- **新增表 `fund_drawdown_series`**（在 `_init_fund_data_center_tables()` 中）：
+  - 字段：`code`, `nav_date`, `window_days`, `drawdown`, `peak_nav`, `current_nav`, `source`, `computed_at`
+  - 主键：`(code, nav_date, window_days)`
+  - 外键：`code -> fund_master(code) ON DELETE CASCADE`
+- **新增索引 `idx_fund_drawdown_code_window`**：`ON fund_drawdown_series(code, window_days, nav_date)`
+- **新增 `FundDataStore.save_drawdown_series_batch()` 静态方法**：
+  - 接收 `code`, `drawdown_records`, `window_days=365`, `source="compute"`
+  - 使用 `INSERT ... ON CONFLICT(code, nav_date, window_days) DO UPDATE SET` 进行 upsert
+  - `computed_at` 使用 `datetime.now().isoformat()`
+  - 过滤无效记录（缺失日期、无法解析的 drawdown）
 
-| ID | 文件 | 行号 | 改动描述 |
-|----|------|------|----------|
-| B1 | `backend/app/allocation/data/macro_fetcher.py` | L46 | 指标名从"社融增量"改为"社融增速" |
-| B1 | `backend/app/allocation/data/macro_fetcher.py` | L266-289 | `_fetch_social_financing()` 重写：获取25个月数据，计算滚动12月累计的YoY增速(%)，而非返回增量绝对值 |
-| B1 | `backend/app/allocation/data/macro_fetcher.py` | L280-289 | `_ak_sf()` 重写：优先查找"社会融资规模存量同比"列，否则从增量数据计算YoY |
-| B2 | `frontend/src/pages/AllocationWizard.tsx` | L29-32 | q3选项值从 `vhigh/vmid/vlow/vnone` 改为 `high/medium/low/none`，匹配后端 `_BEHAVIOR_ADJUSTMENTS` 的 key |
-| B3 | `backend/app/allocation/monte_carlo.py` | L80-82 | 跳跃概率统一使用 `jp["prob"]`（不乘sensitivity），仅跳跃大小乘sensitivity：`rng.normal(jp["mean"] * sensitivity, ...)` |
-| B4 | `backend/app/allocation/cma_manager.py` | L17 | 新增导入 `ASSET_TO_GROUP` |
-| B4 | `backend/app/allocation/cma_manager.py` | L253-264 | `_get_regime_adjustments()` 中 `"equity" in a or "share" in a` / `"share" in a` 全部改为 `ASSET_TO_GROUP.get(a) == "equity"`，修复 hk_equity/us_equity 匹配遗漏 |
-| B5 | `backend/app/allocation/taa_engine.py` | L261 | `_generate_live_signals()` 中，当 `conf < 0.5` 时增加 `score = 0`，低置信度指标不再影响TAA评分 |
+### 2. backend/app/services/fund_service.py
+- **新增 `_calc_drawdown_series(nav_rows)` 函数**：
+  - 从净值序列计算逐日回撤
+  - 按 `nav_date` 升序排序
+  - 维护历史最高净值 `peak_nav`
+  - `drawdown = (current_nav / peak_nav - 1) * 100`
+  - 返回 `[{"date", "drawdown", "peak_nav", "current_nav"}, ...]`
+- **在 `get_fund_peer_performance()` 中追加步骤 4）**：
+  - 在 `fund_nav_rows` 存在时调用 `_calc_drawdown_series`
+  - 将结果写入 `series_data["fund_drawdown"]`（仅保留 `date` + `drawdown`）
+  - 调用 `FundDataStore.save_drawdown_series_batch()` 持久化到 SQLite（内层 try/except 包裹，失败不抛异常）
+  - 外层 try/except 记录 `console_error` 降级继续
+- **导入调整**：将 `from ..storage.database import get_db_context` 改为 `from ..storage.database import FundDataStore, get_db_context`
 
-### 高严重度修复
+### 3. frontend/api/fund-router.ts
+- `peerPerformance` 路由使用 `ftFetch<any>(...)` 返回类型，无需修改 Zod schema；`fund_drawdown` 字段已通过 `any` 透传。
 
-| ID | 文件 | 行号 | 改动描述 |
-|----|------|------|----------|
-| H1 | `backend/app/allocation/orchestrator.py` | L369-377 | SAA summary 的 `expected_max_drawdown` 优先使用 MC MDD95（取绝对值），MC不可用时才用 `vol × 2.5` 估算 |
-| H2 | `backend/app/allocation/monte_carlo.py` | L54 | 月度收益从 `annual_returns / 12.0` 改为 `np.power(1 + annual_returns, 1/12) - 1`（复利法） |
-| H3 | `backend/app/allocation/orchestrator.py` | L485-516 | `_compute_sharpe()` 的 `rf` 参数默认值改为 None，新增 `_get_risk_free_rate()` 函数从宏观数据获取10Y国债收益率，不可用时回退 2.0% |
-| H4 | `backend/app/allocation/regime_detector.py` | L199 | Regime 分类阈值从 0.1 提高到 0.2 |
-| H5 | `backend/app/allocation/orchestrator.py` | L496-507 | `_compute_portfolio_metrics()` 的 MDD 和 Calmar 均使用 MC MDD95，MC不可用时才用 vol×2.5 |
-| H6 | `backend/app/allocation/saa_engine.py` | L101-124 | L1目标函数从"组内等分target_rc"改为"组级别约束"：按组汇总风险贡献后与组目标比较，优化器自行决定组内分配 |
-| H7 | `backend/app/allocation/data/macro_fetcher.py` | L229-268 | DR007获取顺序改为：优先FR007(akshare) → Shibor 1W(Tushare, confidence降至0.7) → LPR 1Y(最终回退) |
-| H8 | `backend/app/allocation/data/macro_fetcher.py` | L69-70 | 美元指数(DXY)的confidence从0.9降为0.7 |
+### 4. frontend/src/pages/FundDetail.tsx
+- **修改 `navSeries` useMemo 降级分支**（约第 486-495 行）：
+  - 新增读取 `ppDrawdown`：`peerPerformanceQ.data?.series?.fund_drawdown`
+  - `ppFund.map((x, i) => ...)` 中 `dd` 从硬编码 `0` 改为 `ppDrawdown?.[i]?.drawdown ?? 0`
+  - 保持与 `ppFund` 同索引对齐（假设后端 `fund_drawdown` 与 `fund` 序列一一对应）
 
-## 设计取舍说明
+## 编译/语法检查结果
 
-1. **B1 社融增速计算**：由于 Tushare 6000pts 无法获取社融存量数据（`sf_year` 需要更高权限），采用从增量数据推算YoY的方式：当年12月累计增量 / 去年同期12月累计增量 - 1。这是增量数据能给出的最接近存量增速的近似。
+| 检查项 | 命令 | 结果 |
+|--------|------|------|
+| 前端 TypeScript | `npx tsc --noEmit` | ✅ 通过（exit 0） |
+| 后端 Python 语法 | `python -m py_compile app/storage/database.py app/services/fund_service.py` | ✅ 通过（exit 0） |
 
-2. **B3 跳跃扩散**：修复方案保留了sensitivity对跳跃大小的影响（高波动资产跳跃更大），但移除了概率上的双重放大。这符合金融直觉：跳跃事件的发生概率对所有资产相同，但影响幅度因资产特性而异。
+## 关键设计决策
 
-3. **B5 低置信度阈值**：选择0.5作为cutoff，低于此值的指标score直接置0。这比加权衰减更简单且更安全，避免了低质量数据对TAA的任何影响。
-
-4. **H3 无风险利率**：每次计算Sharpe时都调用 `_get_risk_free_rate()`，该函数会读取缓存的宏观数据（非实时请求），性能影响可忽略。2.0%的默认值对应中国10Y国债的历史中位水平。
-
-5. **H6 SAA L1目标函数**：改为组级别约束后，优化器在满足组风险预算的前提下，可以根据各资产的风险特征自由分配组内权重。这比强制等分更合理——高波动资产自然获得较少权重。
-
-6. **H7 DR007代理**：FR007是银行间回购定盘利率，与DR007高度相关（均反映银行间短期流动性），比Shibor更准确。当使用Shibor代理时confidence降至0.7，反映其作为代理的不精确性。
-
-## 未修复项及原因
-
-无。所有指定的 Blocker 和高严重度问题均已修复。
-
-## 自测结果
-
-- Python 语法检查：7个修改文件全部通过 `py_compile`
-- 前端构建：`vite build` 成功（9.12s）
-- 前端 TS 错误均为项目已有问题（路径别名、JSX flag配置），与本次修改无关
+1. **索引对齐假设**：前端降级分支使用 `ppDrawdown?.[i]?.drawdown ?? 0`，依赖后端 `fund_drawdown` 与 `fund` 数组按相同日期顺序、相同长度返回。由于两者均从同一 `fund_nav_rows` 计算，该假设成立。
+2. **持久化降级**：`save_drawdown_series_batch` 调用被双层 try/except 包裹，确保 SQLite 写入失败不影响 API 返回。
+3. **window_days 默认值**：使用 `365` 作为默认窗口，与同类均值计算口径一致，未来可扩展支持多窗口。
