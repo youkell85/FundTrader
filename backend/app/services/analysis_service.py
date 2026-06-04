@@ -530,6 +530,7 @@ def analyze_fund(code: str) -> Dict[str, Any]:
         # 从净值历史计算风控指标（Sharpe / 最大回撤）
         sharpe_ratio = None
         max_drawdown = None
+        volatility = None
         if nav_data and len(nav_data) >= 2:
             try:
                 from ..api.analysis import _calc_nav_risk_metrics
@@ -538,6 +539,53 @@ def analyze_fund(code: str) -> Dict[str, Any]:
                 max_drawdown = metrics.get("maxDrawdown")
             except Exception:
                 pass
+
+        # === 自动持久化指标到 fund_metrics_snapshot ===
+        try:
+            from ..storage.database import FundDataStore
+            metrics_row = {
+                "code": code,
+                "sharpe_ratio": sharpe_ratio,
+                "max_drawdown": max_drawdown,
+                "volatility": volatility,
+                "annualized_return": period.get("annualized_return"),
+                "score": score,
+                "fee_manage": fee_manage,
+                "fee_custody": fee_custody,
+                "total_scale": total_scale,
+                "nav_points": len(nav_data) if nav_data else 0,
+            }
+            FundDataStore.save_metrics_batch([metrics_row], source="analysis")
+        except Exception:
+            pass
+
+        # === 自动持久化回撤序列到 fund_drawdown_series ===
+        try:
+            if nav_data and len(nav_data) >= 2:
+                from ..storage.database import FundDataStore
+                peak = None
+                drawdown_records = []
+                for item in nav_data:
+                    nav = item.get("accum_nav") or item.get("nav")
+                    date = item.get("date") or item.get("nav_date")
+                    if nav is None or nav <= 0 or not date:
+                        continue
+                    nav_f = float(nav)
+                    peak = nav_f if peak is None else max(peak, nav_f)
+                    if peak > 0:
+                        dd = (nav_f - peak) / peak * 100
+                        drawdown_records.append({
+                            "date": str(date),
+                            "drawdown": round(dd, 4),
+                            "peak_nav": round(peak, 6),
+                            "current_nav": round(nav_f, 6),
+                        })
+                if drawdown_records:
+                    FundDataStore.save_drawdown_series_batch(
+                        code, drawdown_records, window_days=365, source="analysis"
+                    )
+        except Exception:
+            pass
 
         return {
             "code": code,

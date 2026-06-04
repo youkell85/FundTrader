@@ -1140,6 +1140,7 @@ def _init_fund_data_center_tables() -> None:
                 is_xinjihui INTEGER DEFAULT 0,
                 is_preferred INTEGER DEFAULT 0,
                 is_active INTEGER DEFAULT 1,
+                data_version INTEGER DEFAULT 0,
                 data_quality TEXT DEFAULT 'unknown',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
@@ -1305,6 +1306,7 @@ def _init_fund_data_center_tables() -> None:
             );
 
             CREATE INDEX IF NOT EXISTS idx_fund_master_pool ON fund_master(is_xinjihui, is_preferred, is_active);
+            CREATE INDEX IF NOT EXISTS idx_fund_master_active ON fund_master(is_active);
             CREATE INDEX IF NOT EXISTS idx_fund_master_type ON fund_master(fund_type);
             CREATE INDEX IF NOT EXISTS idx_fund_quote_updated ON fund_quote_snapshot(updated_at DESC);
             CREATE INDEX IF NOT EXISTS idx_fund_quote_quality ON fund_quote_snapshot(data_quality, stale_level);
@@ -1808,6 +1810,8 @@ class FundDataStore:
                      fetched_at = excluded.fetched_at""",
                 rows,
             )
+        # Bump data_version for the fund
+        FundDataStore.bump_data_version(code)
         return len(rows)
 
     @staticmethod
@@ -1860,6 +1864,8 @@ class FundDataStore:
                      computed_at = excluded.computed_at""",
                 rows,
             )
+        # Bump data_version for the fund
+        FundDataStore.bump_data_version(code)
         return len(rows)
 
     @staticmethod
@@ -1911,8 +1917,41 @@ class FundDataStore:
                         now,
                     ),
                 )
+        # Bump data_version for affected funds to invalidate downstream caches
+        with get_db() as conn:
+            for r in rows:
+                code = r.get("code")
+                if code:
+                    conn.execute(
+                        "UPDATE fund_master SET data_version = data_version + 1 WHERE code = ?",
+                        (code,),
+                    )
         _qcache.invalidate()
         return len(rows)
+
+    @staticmethod
+    def bump_data_version(code: str) -> int:
+        """Increment data_version for a fund and return new version."""
+        with get_db() as conn:
+            conn.execute(
+                "UPDATE fund_master SET data_version = data_version + 1 WHERE code = ?",
+                (code,),
+            )
+            row = conn.execute(
+                "SELECT data_version FROM fund_master WHERE code = ?",
+                (code,),
+            ).fetchone()
+            return row["data_version"] if row else 0
+
+    @staticmethod
+    def get_data_version(code: str) -> int:
+        """Get current data_version for a fund."""
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT data_version FROM fund_master WHERE code = ?",
+                (code,),
+            ).fetchone()
+            return row["data_version"] if row else 0
 
     @staticmethod
     def save_category_metrics_snapshot(

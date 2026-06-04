@@ -297,11 +297,17 @@ function toSnapshotSortField(sortBy: string) {
 const inflightRequests = new Map<string, Promise<any>>();
 let homeFundsPrewarmStartedAt = 0;
 
-function dedupe<T>(key: string, fn: () => Promise<T>): Promise<T> {
+function dedupe<T>(key: string, fn: () => Promise<T>, timeoutMs = 30_000): Promise<T> {
   const existing = inflightRequests.get(key);
   if (existing) return existing as Promise<T>;
   const promise = fn().finally(() => inflightRequests.delete(key));
   inflightRequests.set(key, promise);
+  // 防挂起：超时时自动清理 inflight 状态
+  setTimeout(() => {
+    if (inflightRequests.get(key) === promise) {
+      inflightRequests.delete(key);
+    }
+  }, timeoutMs);
   return promise;
 }
 
