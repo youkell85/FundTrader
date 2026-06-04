@@ -34,3 +34,22 @@ Qoder_Lighthouse_MCP_*.md
 # Claude / 浏览器自动化
 .claude/
 .browser-profile/
+.agents/
+
+# 数据文件与报告
+backend/pdf/
+docs/*.png
+docs/*.jpg
+docs/*.pdf
+
+# 临时报告（保留在本地，不入库）
+code_review*.md
+qa_report*.md
+research_report*.md
+implementation_notes*.md
+final_review_report.md
+e2e_verify_drawdown.py
+xreview_input.md
+
+# 脚本产出
+output/
