@@ -38,9 +38,16 @@ _TYPE_BUCKET_MAP: dict[str, str] = {
 HS300_BENCHMARK_CODE = "000300"
 
 
-def _normalize_fund_type_to_bucket(raw: str) -> str:
-    """把 fund_master.fund_type 中文归类为首页统一的英文桶 key."""
+def _normalize_fund_type_to_bucket(raw: str, name: str = "") -> str:
+    """把 fund_master.fund_type 中文归类为首页统一的英文桶 key.
+
+    含 ETF/LOF 名称的基金即使 fund_type 为"指数型"也归入 etf bucket，
+    与前端 inferFundType 保持一致。
+    """
     s = (raw or "").strip()
+    text = (s + (name or "")).upper()
+    if "ETF" in text or "LOF" in text:
+        return "etf"
     return _TYPE_BUCKET_MAP.get(s) or s or "other"
 
 
@@ -325,7 +332,7 @@ def compute_category_metrics_1y(
         if xinjihui_only:
             where += " AND (is_xinjihui = 1 OR is_preferred = 1)"
         masters = conn.execute(
-            f"""SELECT m.code, m.fund_type,
+            f"""SELECT m.code, m.name, m.fund_type,
                        ms.annualized_return, ms.max_drawdown, ms.sharpe_ratio, ms.nav_points
                 FROM fund_master m
                 LEFT JOIN fund_metrics_snapshot ms ON ms.code = m.code
@@ -343,7 +350,7 @@ def compute_category_metrics_1y(
     category_bucket: dict[str, dict[str, Any]] = {}
     for row in masters:
         code = row["code"]
-        category = _normalize_fund_type_to_bucket(row["fund_type"] or "")
+        category = _normalize_fund_type_to_bucket(row["fund_type"] or "", row["name"] or "")
         bucket = category_bucket.setdefault(category, {
             "category": category,
             "annualized_returns": [],
