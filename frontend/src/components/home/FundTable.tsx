@@ -1,5 +1,5 @@
 import { Link } from "react-router";
-import { TrendingUp, TrendingDown, Star, Loader2, Trash2, Plus } from "lucide-react";
+import { TrendingUp, TrendingDown, Star, Loader2, Trash2, Plus, AlertCircle, RefreshCw } from "lucide-react";
 import { RISK_COLOR, POSITIVE_METRIC_COLOR, getChangeTextClass } from "@/lib/colors";
 
 const typeLabels: Record<string, string> = {
@@ -17,6 +17,11 @@ const typeLabels: Record<string, string> = {
 interface FundTableProps {
   paginatedFunds: any[];
   listLoading: boolean;
+  listIsError?: boolean;
+  listError?: string | null;
+  listDegraded?: boolean;
+  listMissingReason?: string | null;
+  isLocalFilterLimited?: boolean;
   showXinjihui: boolean;
   showWatchlistOnly: boolean;
   hasSearch: boolean;
@@ -25,11 +30,21 @@ interface FundTableProps {
   onPageChange: (page: number) => void;
   onAddFund: (code: string) => void;
   onRemoveFund: (code: string) => void;
+  onRetry?: () => void;
+}
+
+function MetricSkeleton() {
+  return <span className="inline-block w-12 h-4 rounded bg-white/[0.08] animate-pulse" />;
 }
 
 export default function FundTable({
   paginatedFunds,
   listLoading,
+  listIsError,
+  listError,
+  listDegraded,
+  listMissingReason,
+  isLocalFilterLimited,
   showXinjihui,
   showWatchlistOnly,
   hasSearch,
@@ -38,6 +53,7 @@ export default function FundTable({
   onPageChange,
   onAddFund,
   onRemoveFund,
+  onRetry,
 }: FundTableProps) {
   return (
     <section className="px-4 md:px-6 max-w-7xl mx-auto">
@@ -52,15 +68,81 @@ export default function FundTable({
           <div>类型/标签</div>
         </div>
 
+        {listIsError ? (
+          <div className="p-8 text-center">
+            <div className="flex items-center justify-center gap-2 text-[#F5384B] text-sm mb-2">
+              <AlertCircle className="w-4 h-4" />请求失败: {listError || "未知错误"}
+            </div>
+            {onRetry && (
+              <button
+                onClick={onRetry}
+                className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs text-white/70 bg-white/[0.06] hover:bg-white/[0.10] transition-colors"
+              >
+                <RefreshCw className="w-3 h-3" />重试
+              </button>
+            )}
+          </div>
+        ) : listDegraded && paginatedFunds.length === 0 ? (
+          <div className="p-8 text-center">
+            <div className="flex items-center justify-center gap-2 text-[#FFB800] text-sm mb-2">
+              <AlertCircle className="w-4 h-4" />数据降级: {listMissingReason || "基础数据暂不可用"}
+            </div>
+            <p className="text-xs text-white/40">后端数据源响应超时，数据正在后台预热中。</p>
+            {onRetry && (
+              <button
+                onClick={onRetry}
+                className="mt-2 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs text-white/70 bg-white/[0.06] hover:bg-white/[0.10] transition-colors"
+              >
+                <RefreshCw className="w-3 h-3" />重试
+              </button>
+            )}
+          </div>
+        ) : listDegraded && paginatedFunds.length > 0 ? (
+          <div className="px-5 py-2 text-center">
+            <p className="text-[#FFB800] text-xs">
+              <AlertCircle className="w-3 h-3 inline mr-1" />
+              数据降级中，部分数据可能不完整。{listMissingReason && `原因: ${listMissingReason}`}
+            </p>
+          </div>
+        ) : null}
+
+        {/* 本地过滤提示：快照路径不支持 fundType/company/riskLevel/watchlist，仅过滤前 100 条 */}
+        {isLocalFilterLimited && !listLoading && !listIsError && paginatedFunds.length > 0 && (
+          <div className="px-5 py-1.5 text-center border-b border-[#FFB800]/20 bg-[#FFB800]/5">
+            <p className="text-[#FFB800] text-[11px]">
+              当前处于轻量模式，基金类型/公司/风险/自选筛选仅作用于已加载的前 100 条基金，结果可能不完整。完整筛选将在风险指标加载后生效。
+            </p>
+          </div>
+        )}
+
         {listLoading ? (
           <div className="p-8 text-center text-white/50 flex items-center justify-center gap-2">
             <Loader2 className="w-4 h-4 animate-spin" />加载中...
           </div>
-        ) : paginatedFunds.length === 0 ? (
-          <div className="p-8 text-center text-white/50">
-            {showXinjihui ? "暂无鑫基荟产品" : showWatchlistOnly ? "暂无自选基金" : "暂无基金数据"}
-          </div>
-        ) : (
+        ) : paginatedFunds.length === 0 && !listDegraded ? (
+          isLocalFilterLimited ? (
+            <div className="p-8 text-center">
+              <div className="flex items-center justify-center gap-2 text-[#FFB800] text-sm mb-2">
+                <AlertCircle className="w-4 h-4" />轻量模式筛选举措
+              </div>
+              <p className="text-xs text-white/60 max-w-md mx-auto">
+                当前处于轻量模式，类型/公司/风险/自选筛选仅作用于已加载的前 100 条基金，结果可能不完整。请稍后重试或等待完整指标加载。
+              </p>
+              {onRetry && (
+                <button
+                  onClick={onRetry}
+                  className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs text-white/70 bg-white/[0.06] hover:bg-white/[0.10] transition-colors"
+                >
+                  <RefreshCw className="w-3 h-3" />重试
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="p-8 text-center text-white/50">
+              {showXinjihui ? "暂无鑫基荟产品" : showWatchlistOnly ? "暂无自选基金" : "暂无基金数据"}
+            </div>
+          )
+        ) : !listLoading && paginatedFunds.length > 0 ? (
           paginatedFunds.map((fund: any) => {
             const perf = fund.performance;
             const dailyChange = parseFloat(fund.dailyChange || "0");
@@ -90,10 +172,14 @@ export default function FundTable({
                     </span>
                   </div>
                   <div className={`text-right data-number ${getChangeTextClass(return1y)}`}>
-                    {return1y >= 0 ? "+" : ""}{perf?.return1y}%
+                    {perf?.return1y === "—" || perf?.return1y === undefined ? <MetricSkeleton /> : `${return1y >= 0 ? "+" : ""}${perf?.return1y}%`}
                   </div>
-                  <div className="text-right data-number" style={{ color: POSITIVE_METRIC_COLOR }}>{sharpe !== null ? sharpe.toFixed(2) : "—"}</div>
-                  <div className="text-right data-number" style={{ color: RISK_COLOR }}>{maxDD !== null ? `${maxDD.toFixed(2)}%` : "—"}</div>
+                  <div className="text-right data-number" style={{ color: POSITIVE_METRIC_COLOR }}>
+                    {sharpe !== null ? sharpe.toFixed(2) : <MetricSkeleton />}
+                  </div>
+                  <div className="text-right data-number" style={{ color: RISK_COLOR }}>
+                    {maxDD !== null ? `${maxDD.toFixed(2)}%` : <MetricSkeleton />}
+                  </div>
                   <div className="flex items-center gap-1.5 flex-wrap">
                     <span className="px-2 py-0.5 rounded text-xs bg-white/[0.05] text-white/60">{typeLabels[fund.fundType] || fund.fundType}</span>
                     {(fund.tags || []).slice(0, 2).map((tag: string) => (
@@ -132,7 +218,7 @@ export default function FundTable({
               </div>
             );
           })
-        )}
+        ) : null}
       </div>
 
       {totalPages > 1 && (

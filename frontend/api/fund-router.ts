@@ -302,7 +302,7 @@ function dedupe<T>(key: string, fn: () => Promise<T>, timeoutMs = 30_000): Promi
   if (existing) return existing as Promise<T>;
   const promise = fn().finally(() => inflightRequests.delete(key));
   inflightRequests.set(key, promise);
-  // 防挂起：超时时自动清理 inflight 状态
+  // 防挂起：超时时自动清理 inflight 状态，不阻塞后续请求
   setTimeout(() => {
     if (inflightRequests.get(key) === promise) {
       inflightRequests.delete(key);
@@ -403,17 +403,22 @@ async function fetchHomeFundSummaries() {
     const fundsByCode = new Map<string, any>();
     const watchlistCodes = new Set<string>();
 
-    for (const fund of await fetchAllFundList({ guoyuan_only: true })) {
+    for (const fund of await withTimeout(
+      fetchAllFundList({ guoyuan_only: true }),
+      8_000,
+      () => [] as any[],
+    )) {
       if (fund?.code) fundsByCode.set(fund.code, { ...fund, _source: "xinjihui", is_xinjihui: true });
     }
 
     const watchlist = await getWatchlist().catch(() => null);
     const watchlistFunds = Array.isArray(watchlist?.funds) ? watchlist.funds : [];
     if (watchlistFunds.length > 0) {
-      const watchlistResult = await fetchAllFundList({ use_watchlist: true }).catch((err) => {
-        console.error("[fetchHomeFundSummaries] 获取自选基金失败，跳过自选合并", err);
-        return [] as any[];
-      });
+      const watchlistResult = await withTimeout(
+        fetchAllFundList({ use_watchlist: true }).catch(() => [] as any[]),
+        5_000,
+        () => [] as any[],
+      );
       for (const fund of watchlistResult) {
         if (fund?.code) {
           watchlistCodes.add(fund.code);
@@ -429,15 +434,19 @@ async function fetchHomeFundSummaries() {
     }
 
     const funds = Array.from(fundsByCode.values());
-    // 补充基金名称（对仍然缺少名称的基金用实时报价补全
+    // 补充基金名称（对仍然缺少名称的基金用实时报价补全），超时不阻塞
     const enriched = funds.length > HOME_ANALYSIS_LIMIT
       ? funds
-      : await concurrentMap(funds, enrichFundSummary, 6);
+      : await withTimeout(
+          concurrentMap(funds, enrichFundSummary, 6),
+          5_000,
+          () => funds,
+        );
 
-    // ?TTL?5min（净值日频，排名数据下一个交易日才更新）
+    // TTL 5min（净值日频，排名数据下一个交易日才更新）
     setCache("homeFundSummaries", enriched, dailyCacheTtl());
     return enriched;
-  });
+  }, 8_000);
 }
 
 /**
@@ -465,7 +474,7 @@ async function fetchHomeFunds() {
     const summaryOnly = Array.from(fundsByCode.values());
     setCache("homeFunds", summaryOnly, dailyCacheTtl());
     return summaryOnly;
-  });
+  }, 8_000);
 }
 
 function needsFundName(fund: any, code: string) {
@@ -669,26 +678,51 @@ export const fundRouter = createRouter({
         const sortBy = opts.sortBy ?? "dailyChange";
         const sortOrder = opts.sortOrder ?? "desc";
 
-        if (!opts.withMetrics && !ctx.user && !opts.fundType && !opts.company && !opts.riskLevel && opts.isContinuousMarketing === undefined) {
-          const snapshotResult = await getFundSnapshotList({
-            page,
-            page_size: Math.min(pageSize, 500),
-            xinjihui_only: true,
-            keyword: opts.search,
-            category: opts.category,
-            sort_by: toSnapshotSortField(sortBy),
-            sort_order: sortOrder,
-          });
+        // 轻量快照路径：withMetrics=false 时直连后端 snapshot API，7 秒超时
+        // 超时不返回空列表（会被前端误认为"暂无基金数据"），
+        // 而是返回 degraded=true + missingReason，让前端显示降级提示
+        // snapshot API 不支持 fundType/company/riskLevel 过滤，这些字段在前端本地过滤
+        // 标记 filteredLocally 供前端显示筛选举措说明
+        if (!opts.withMetrics) {
+          const snapshotResult = await withTimeout(
+            getFundSnapshotList({
+              page,
+              page_size: Math.min(pageSize, 500),
+              xinjihui_only: true,
+              keyword: opts.search,
+              category: opts.category,
+              sort_by: toSnapshotSortField(sortBy),
+              sort_order: sortOrder,
+            }),
+            7_000,
+            () => ({ funds: null, total: 0, degraded: true }),
+          );
+          if ((snapshotResult as any)?.degraded) {
+            return {
+              funds: [],
+              total: 0,
+              page,
+              pageSize,
+              degraded: true,
+              missingReason: "基础数据暂不可用，请稍后重试",
+            };
+          }
           const raw = Array.isArray(snapshotResult?.funds) ? snapshotResult.funds : [];
+          // 标记本地过滤维度：snapshot 仅支持 category/search/sort，
+          // fundType/company/riskLevel 全在前端过滤；watchlist 场景下快照只有 xinjihui 数据
+          const hasLocalFilter = Boolean(opts.fundType ?? opts.company ?? opts.riskLevel);
           return {
             funds: raw.map(mapFundItem).filter(Boolean),
             total: Number(snapshotResult?.total || raw.length),
             page,
             pageSize,
+            filteredLocally: hasLocalFilter,
+            // 快照路径固定拉 xinjihui，watchlist 场景必然不全
+            watchlistLimited: true,
           };
         }
 
-        // 首页优先返回已预热的完整缓存；冷启动时先返回轻量列表，后台继续预热风险指标?
+        // 完整指标路径：优先缓存，冷启动时用 fetchHomeFundSummaries 并预热
         let rawFunds = getCached<any[]>("homeFunds");
         if (!rawFunds) {
           rawFunds = await fetchHomeFundSummaries();

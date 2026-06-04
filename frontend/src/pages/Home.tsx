@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { trpc } from "@/providers/trpc";
 import StatCards from "@/components/home/StatCards";
 import FilterBar from "@/components/home/FilterBar";
@@ -46,11 +46,18 @@ export default function Home() {
   const pageSize = 15;
   const [searchError, setSearchError] = useState<string | null>(null);
 
-  const { data: listData, isLoading: listLoading, refetch: refetchList } = trpc.fund.list.useQuery(
+  // 首屏轻量加载：小分页、不带重指标，确保 3 秒内渲染
+  const {
+    data: listData,
+    isLoading: listLoading,
+    isError: listIsError,
+    error: listError,
+    refetch: refetchList,
+  } = trpc.fund.list.useQuery(
     {
       page: 1,
-      pageSize: 5000,
-      withMetrics: true,
+      pageSize: 100,
+      withMetrics: false,
       fundType: fundType !== "__all__" ? fundType : undefined,
       category: category !== "__all__" ? category : undefined,
       company: company !== "__all__" ? company : undefined,
@@ -59,7 +66,7 @@ export default function Home() {
       sortBy,
       sortOrder,
     },
-    { staleTime: 30 * 60 * 1000, refetchOnWindowFocus: false }
+    { staleTime: 5 * 60 * 1000, refetchOnWindowFocus: false, retry: 1 }
   );
   const { data: filterOptsData } = trpc.fund.filterOptions.useQuery(
     undefined,
@@ -86,17 +93,17 @@ export default function Home() {
   });
 
   const allFunds = listData?.funds ?? [];
+  const listDegraded = (listData as any)?.degraded === true;
+  const listMissingReason = (listData as any)?.missingReason;
+  const listFilteredLocally = (listData as any)?.filteredLocally === true;
+  const listWatchlistLimited = (listData as any)?.watchlistLimited === true;
   const filterOpts = filterOptsData ?? { types: [], categories: [], companies: [], riskLevels: [] };
-
-  useEffect(() => {
-    const hasRiskMetrics = allFunds.some((fund: any) => {
-      const perf = fund.performance || {};
-      return !isMissingMetric(perf.sharpeRatio) && !isMissingMetric(perf.maxDrawdown);
-    });
-    if (allFunds.length === 0 || hasRiskMetrics) return;
-    const timers = [6000, 14000].map((delay) => window.setTimeout(() => refetchList(), delay));
-    return () => timers.forEach((timer) => window.clearTimeout(timer));
-  }, [allFunds.length, refetchList]);
+  // 快照路径只拉 xinjihui 前 100 条，以下筛选维度是本地过滤，结果可能不完整：
+  //   fundType / company / riskLevel / watchlist
+  // category 和 search 由后端 snapshot API 直接支持，不在此列
+  const isLocalFilterLimited =
+    (listFilteredLocally || listWatchlistLimited) &&
+    (fundType !== "__all__" || company !== "__all__" || riskLevel !== "__all__" || showWatchlistOnly);
 
   const filteredFunds = useMemo(() => {
     let result = [...allFunds];
@@ -162,8 +169,6 @@ export default function Home() {
   }, [allFunds, company, riskLevel, search, showXinjihuiOnly, showWatchlistOnly]);
 
   const categoryStats = useMemo(() => {
-    // 关键：后端 _normalize_fund_type_to_bucket 已把 category 归一为英文桶（etf/equity/...）
-    // 因此 rowByCategory 用英文 key 查询，preferredOrder 必须是英文 fundType 列表，不能用 typeLabels 转中文
     const preferredOrder = ["etf", "equity", "hybrid", "bond", "index", "qdii"] as const;
     const apiRows = Array.isArray((categoryMetricsData as any)?.rows) ? (categoryMetricsData as any).rows : [];
     if (!showWatchlistOnly && apiRows.length > 0) {
@@ -308,6 +313,11 @@ export default function Home() {
       <FundTable
         paginatedFunds={paginatedFunds}
         listLoading={listLoading}
+        listIsError={listIsError}
+        listError={listError?.message ?? null}
+        listDegraded={listDegraded}
+        listMissingReason={listMissingReason}
+        isLocalFilterLimited={isLocalFilterLimited}
         showXinjihui={showXinjihuiOnly}
         showWatchlistOnly={showWatchlistOnly}
         hasSearch={Boolean(search.trim())}
@@ -316,6 +326,7 @@ export default function Home() {
         onPageChange={setPage}
         onAddFund={(code) => addFundByCode.mutate({ code })}
         onRemoveFund={(code) => removeFund.mutate({ code })}
+        onRetry={() => refetchList()}
       />
     </div>
   );
