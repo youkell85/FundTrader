@@ -1,16 +1,19 @@
-import { describe, expect, test, vi } from 'vitest';
+import { beforeEach, describe, expect, test, vi } from 'vitest';
 
-const runDcaBacktest = vi.fn();
+const mocks = vi.hoisted(() => ({
+  runDcaBacktest: vi.fn(),
+  getFundSnapshotList: vi.fn(),
+}));
 
 vi.mock('./lib/fundtrader-client', () => ({
   getFundList: vi.fn(async () => ({ total: 0, funds: [] })),
-  getFundSnapshotList: vi.fn(async () => ({ total: 0, funds: [] })),
+  getFundSnapshotList: mocks.getFundSnapshotList,
   getFundSnapshot: vi.fn(async () => ({})),
   requestFundBackfill: vi.fn(async () => ({})),
   getCategories: vi.fn(async () => ({ categories: [] })),
   getFundAnalysis: vi.fn(async () => ({})),
   getFundAnalysisBatch: vi.fn(async () => ({ results: {} })),
-  runDcaBacktest,
+  runDcaBacktest: mocks.runDcaBacktest,
   getWatchlist: vi.fn(async () => ({ funds: [] })),
   addToWatchlist: vi.fn(async () => ({})),
   removeFromWatchlist: vi.fn(async () => ({})),
@@ -25,20 +28,29 @@ vi.mock('./lib/fund-quote', () => ({
 }));
 
 const { fundRouter } = await import('./fund-router');
+const { mapFundItem } = await import('./lib/mapper');
+
+const backendResult = {
+  portfolio: {
+    total_invested: 12000,
+    total_value: 15000,
+    total_profit_rate: 25,
+    annual_return: 12,
+    max_drawdown: -8,
+    sharpe_ratio: 1.5,
+    feeCost: 30,
+  },
+};
+
+beforeEach(() => {
+  mocks.runDcaBacktest.mockReset();
+  mocks.getFundSnapshotList.mockReset();
+  mocks.getFundSnapshotList.mockResolvedValue({ total: 0, funds: [] });
+});
 
 describe('fund runBacktest', () => {
   test('fundCodes path calls runDcaBacktest with codes directly', async () => {
-    runDcaBacktest.mockResolvedValueOnce({
-      portfolio: {
-        total_invested: 12000,
-        total_value: 15000,
-        total_profit_rate: 25,
-        annual_return: 12,
-        max_drawdown: -8,
-        sharpe_ratio: 1.5,
-        feeCost: 30,
-      },
-    });
+    mocks.runDcaBacktest.mockResolvedValueOnce(backendResult);
 
     const caller = fundRouter.createCaller({ user: null } as any);
     const result = await caller.runBacktest({
@@ -51,7 +63,7 @@ describe('fund runBacktest', () => {
       investFrequency: 'monthly',
     });
 
-    expect(runDcaBacktest).toHaveBeenCalledWith({
+    expect(mocks.runDcaBacktest).toHaveBeenCalledWith({
       codes: ['000001', '000002'],
       amount: 1000,
       frequency: 'monthly',
@@ -63,32 +75,35 @@ describe('fund runBacktest', () => {
   });
 
   test('fundIds path resolves ids to codes via fund list', async () => {
-    runDcaBacktest.mockResolvedValueOnce({
-      portfolio: {
-        total_invested: 12000,
-        total_value: 15000,
-        total_profit_rate: 25,
-        annual_return: 12,
-        max_drawdown: -8,
-        sharpe_ratio: 1.5,
-        feeCost: 30,
-      },
-    });
+    const funds = [
+      { code: '000001', name: '华夏成长混合', type: '混合型' },
+      { code: '000002', name: '中银证券现金管家货币', type: '货币型' },
+    ];
+    const fundIds = funds.map((f) => mapFundItem(f).id);
+
+    mocks.getFundSnapshotList.mockResolvedValue({ total: funds.length, funds });
+    mocks.runDcaBacktest.mockResolvedValueOnce(backendResult);
 
     const caller = fundRouter.createCaller({ user: null } as any);
-    // fundIds 路径需要底层 mock 返回有 id 映射的基金列表，
-    // 但 getFundSnapshotList 已 mock 返回空，所以预期会抛错
-    await expect(
-      caller.runBacktest({
-        fundIds: [1, 2],
-        weights: [50, 50],
-        strategy: 'fixed_amount',
-        startDate: '2023-01-01',
-        endDate: '2024-01-01',
-        investAmount: 1000,
-        investFrequency: 'monthly',
-      })
-    ).rejects.toThrow(/Fund id 1 not found/);
+    const result = await caller.runBacktest({
+      fundIds,
+      weights: [50, 50],
+      strategy: 'fixed_amount',
+      startDate: '2023-01-01',
+      endDate: '2024-01-01',
+      investAmount: 1000,
+      investFrequency: 'monthly',
+    });
+
+    expect(mocks.runDcaBacktest).toHaveBeenCalledWith({
+      codes: ['000001', '000002'],
+      amount: 1000,
+      frequency: 'monthly',
+      strategy: 'fixed',
+      start_date: '2023-01-01',
+      end_date: '2024-01-01',
+    });
+    expect(result).toBeDefined();
   });
 
   test('neither fundIds nor fundCodes throws error', async () => {

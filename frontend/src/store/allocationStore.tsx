@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useReducer, ReactNode } from "react";
+import React, { createContext, useContext, useReducer } from "react";
+import type { ReactNode } from "react";
 import type { AllocationRequest, AllocationResponse } from "@/types/allocation";
 import type { ExecutionPlan, DcaConfig, DcaResult } from "@/lib/execution-plan";
 

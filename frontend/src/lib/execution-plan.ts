@@ -1,4 +1,4 @@
-import type { AllocationResponse, AllocationRequest, FundItem } from "@/types/allocation";
+import type { AllocationResponse, FundItem } from "@/types/allocation";
 
 export interface DcaConfig {
   codes: string[];
@@ -41,6 +41,8 @@ export interface ParsedDcaResult {
   frequency: string;
   fundMeta?: Array<{ code: string; name: string; weight: number }>;
 }
+
+export type DcaResult = ParsedDcaResult;
 
 export interface ExecutionPlan {
   funds: Array<{ code: string; name: string; weight: number; amount: number; role: string }>;

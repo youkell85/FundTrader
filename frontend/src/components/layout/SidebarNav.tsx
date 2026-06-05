@@ -1,11 +1,7 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback } from 'react';
 import { NavLink, useLocation, matchPath } from 'react-router';
 import {
   LayoutDashboard,
-  BarChart3,
-  SlidersHorizontal,
-  PieChart,
-  ShieldAlert,
   Wrench,
   FolderOpen,
   FlaskConical,
@@ -64,11 +60,6 @@ export default function SidebarNav() {
   const toggleGroup = (path: string) => {
     setExpandedGroup((prev) => (prev === path ? null : path));
   };
-
-  const executeActive = useMemo(() =>
-    location.pathname === '/allocation/result/execute',
-    [location.pathname]
-  );
 
   return (
     <>
