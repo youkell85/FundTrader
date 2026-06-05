@@ -12,8 +12,23 @@ export interface DcaConfig {
   slippageRate?: number;
 }
 
-export interface DcaResult {
-  curve: Array<{ date: string; invested: number; value: number; feeCost?: number }>;
+/** BFF mapBacktestResult 返回的原始字段（字符串数字） */
+export interface RawDcaResult {
+  totalInvested: string;
+  finalValue: string;
+  totalReturn: string;
+  annualizedReturn: string;
+  maxDrawdown: string;
+  sharpeRatio: string;
+  feeCost: string;
+  curve?: Array<{ date: string; invested: number; value: number; feeCost?: number }>;
+  strategy: string;
+  frequency: string;
+  fundMeta?: Array<{ code: string; name: string; weight: number }>;
+}
+
+/** 前端展示用的已解析数字类型 */
+export interface ParsedDcaResult {
   totalInvested: number;
   finalValue: number;
   totalReturn: number;
@@ -21,9 +36,10 @@ export interface DcaResult {
   maxDrawdown: number;
   sharpeRatio: number;
   feeCost: number;
+  curve?: Array<{ date: string; invested: number; value: number; feeCost?: number }>;
   strategy: string;
   frequency: string;
-  fundMeta: Array<{ code: string; name: string; weight: number }>;
+  fundMeta?: Array<{ code: string; name: string; weight: number }>;
 }
 
 export interface ExecutionPlan {
@@ -31,6 +47,28 @@ export interface ExecutionPlan {
   totalAmount: number;
   riskProfile: string;
   createdAt: string;
+}
+
+function toNum(v: unknown): number {
+  const n = typeof v === "number" ? v : parseFloat(String(v ?? ""));
+  return Number.isFinite(n) ? n : 0;
+}
+
+export function parseDcaResultForExecution(raw: RawDcaResult | unknown): ParsedDcaResult {
+  const r = raw as RawDcaResult;
+  return {
+    totalInvested: toNum(r?.totalInvested),
+    finalValue: toNum(r?.finalValue),
+    totalReturn: toNum(r?.totalReturn),
+    annualizedReturn: toNum(r?.annualizedReturn),
+    maxDrawdown: toNum(r?.maxDrawdown),
+    sharpeRatio: toNum(r?.sharpeRatio),
+    feeCost: toNum(r?.feeCost),
+    curve: r?.curve,
+    strategy: String(r?.strategy || ""),
+    frequency: String(r?.frequency || ""),
+    fundMeta: r?.fundMeta,
+  };
 }
 
 export function normalizeWeights(count: number, current: number[] = [], lockedIndex?: number, lockedValue?: number): number[] {
@@ -75,6 +113,7 @@ export function normalizeWeights(count: number, current: number[] = [], lockedIn
 }
 
 export function buildExecutionPlanFromAllocation(output: AllocationResponse): ExecutionPlan {
+  const fundAmountSum = output.funds.reduce((s, f) => s + (f.amount || 0), 0);
   return {
     funds: output.funds.map((f: FundItem) => ({
       code: f.code,
@@ -83,7 +122,7 @@ export function buildExecutionPlanFromAllocation(output: AllocationResponse): Ex
       amount: f.amount,
       role: f.role,
     })),
-    totalAmount: output.user_profile?.amount || output.saa?.expected_return || 500000,
+    totalAmount: output.user_profile?.amount || fundAmountSum || 500000,
     riskProfile: output.user_profile?.risk_tolerance || "balanced",
     createdAt: output.meta?.generated_at || new Date().toISOString(),
   };
@@ -122,9 +161,7 @@ export function validateExecutionPlan(plan: ExecutionPlan | null): { valid: bool
 
 export function isMockOutput(output: AllocationResponse | null): boolean {
   if (!output) return true;
-  // MOCK_DATA 的 meta.generated_at 是硬编码的固定时间戳
   if (output.meta?.generated_at === "2025-01-15T08:30:00Z") return true;
-  // 或者检查 engine_version 是否为空
   if (!output.meta?.engine_version) return true;
   return false;
 }

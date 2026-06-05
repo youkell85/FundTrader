@@ -13,13 +13,22 @@ import { useAllocationData } from '@/hooks/useAllocationData';
 import { useAllocationStore } from '@/store/allocationStore';
 import PageHeader from '@/components/ui/PageHeader';
 import SectionCard from '@/components/ui/SectionCard';
+import { trpc } from '@/providers/trpc';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   normalizeWeights,
   buildExecutionPlanFromAllocation,
   buildDcaBacktestInput,
   validateExecutionPlan,
+  parseDcaResultForExecution,
 } from '@/lib/execution-plan';
-import type { ExecutionPlan, DcaConfig, DcaResult } from '@/lib/execution-plan';
+import type { ExecutionPlan, DcaConfig, ParsedDcaResult } from '@/lib/execution-plan';
 
 const strategies: { value: DcaConfig['strategy']; label: string }[] = [
   { value: 'fixed_amount', label: '固定金额' },
@@ -43,10 +52,11 @@ export default function ExecutePage() {
   const { d, meta, isReal } = useAllocationData();
   const { state, dispatch } = useAllocationStore();
   const navigate = useNavigate();
+  const utils = trpc.useUtils();
 
   const [plan, setPlan] = useState<ExecutionPlan | null>(state.executionPlan);
   const [config, setConfig] = useState<DcaConfig | null>(state.dcaConfig);
-  const [result, setResult] = useState<DcaResult | null>(state.dcaResult);
+  const [result, setResult] = useState<ParsedDcaResult | null>(state.dcaResult);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -107,31 +117,20 @@ export default function ExecutePage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/fund/api/trpc/fund.runBacktest', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          json: {
-            fundCodes: plan.funds.map((f) => f.code),
-            weights: plan.funds.map((f) => f.weight),
-            strategy: config.strategy,
-            startDate: config.startDate,
-            endDate: config.endDate,
-            investAmount: config.investAmount,
-            investFrequency: config.investFrequency,
-            feeRate: config.feeRate,
-            slippageRate: config.slippageRate,
-          },
-        }),
-        credentials: 'include',
-      });
-      const payload = await res.json();
-      if (!res.ok || payload.error) {
-        throw new Error(payload.error?.message || '回测请求失败');
-      }
-      const mapped = payload.result?.data as DcaResult;
-      setResult(mapped);
-      dispatch({ type: 'SET_DCA_RESULT', result: mapped });
+      const raw = await utils.fund.runBacktest.fetch({
+        fundCodes: plan.funds.map((f) => f.code),
+        weights: plan.funds.map((f) => f.weight),
+        strategy: config.strategy,
+        startDate: config.startDate,
+        endDate: config.endDate,
+        investAmount: config.investAmount,
+        investFrequency: config.investFrequency,
+        feeRate: config.feeRate,
+        slippageRate: config.slippageRate,
+      } as any);
+      const parsed = parseDcaResultForExecution(raw);
+      setResult(parsed);
+      dispatch({ type: 'SET_DCA_RESULT', result: parsed });
     } catch (e: any) {
       setError(e?.message || '回测失败，请检查参数后重试');
     } finally {
@@ -219,33 +218,39 @@ export default function ExecutePage() {
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <label className="text-[11px] text-white/40 mb-1 block">策略</label>
-              <div className="relative">
-                <select
-                  value={config.strategy}
-                  onChange={(e) => handleConfigChange({ strategy: e.target.value as DcaConfig['strategy'] })}
-                  className="w-full h-10 px-3 rounded-lg bg-[#0B1021] border border-white/[0.08] text-white text-xs appearance-none cursor-pointer focus:outline-none focus:border-[#3B6CFF]/50"
-                >
+              <Select
+                value={config.strategy}
+                onValueChange={(v) => handleConfigChange({ strategy: v as DcaConfig['strategy'] })}
+              >
+                <SelectTrigger className="w-full h-10 bg-[#0B1021] border-white/[0.08] text-white text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-[#0B1021] border-white/[0.08]">
                   {strategies.map((s) => (
-                    <option key={s.value} value={s.value}>{s.label}</option>
+                    <SelectItem key={s.value} value={s.value} className="text-white text-xs focus:bg-white/[0.06] focus:text-white">
+                      {s.label}
+                    </SelectItem>
                   ))}
-                </select>
-                <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-white/40 text-[10px]">▼</div>
-              </div>
+                </SelectContent>
+              </Select>
             </div>
             <div>
               <label className="text-[11px] text-white/40 mb-1 block">频率</label>
-              <div className="relative">
-                <select
-                  value={config.investFrequency}
-                  onChange={(e) => handleConfigChange({ investFrequency: e.target.value as DcaConfig['investFrequency'] })}
-                  className="w-full h-10 px-3 rounded-lg bg-[#0B1021] border border-white/[0.08] text-white text-xs appearance-none cursor-pointer focus:outline-none focus:border-[#3B6CFF]/50"
-                >
+              <Select
+                value={config.investFrequency}
+                onValueChange={(v) => handleConfigChange({ investFrequency: v as DcaConfig['investFrequency'] })}
+              >
+                <SelectTrigger className="w-full h-10 bg-[#0B1021] border-white/[0.08] text-white text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-[#0B1021] border-white/[0.08]">
                   {frequencies.map((f) => (
-                    <option key={f.value} value={f.value}>{f.label}</option>
+                    <SelectItem key={f.value} value={f.value} className="text-white text-xs focus:bg-white/[0.06] focus:text-white">
+                      {f.label}
+                    </SelectItem>
                   ))}
-                </select>
-                <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-white/40 text-[10px]">▼</div>
-              </div>
+                </SelectContent>
+              </Select>
             </div>
             <div>
               <label className="text-[11px] text-white/40 mb-1 block">单期金额 (元)</label>
