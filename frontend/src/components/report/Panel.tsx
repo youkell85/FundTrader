@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 
 /**
- * 通用面板容器：浅边框 + 浅蓝标题栏（与 PDF 视觉一致）。
+ * 通用面板容器：暗色 liquid-glass 风格，与 FundTable 头部一致。
+ * 限定用于基金详情页（FundDetail.tsx）。
  */
 type PanelProps = {
   title: ReactNode;
@@ -12,8 +13,10 @@ type PanelProps = {
 
 export function Panel({ title, extra, children, className = "" }: PanelProps) {
   return (
-    <section className={`rounded-lg border bg-card text-card-foreground ${className}`}>
-      <div className="flex items-center justify-between gap-2 border-b bg-blue-50/60 px-4 py-2.5 text-sm font-medium dark:bg-blue-950/30">
+    <section
+      className={`rounded-lg border border-white/[0.06] bg-white/[0.02] text-white/80 ${className}`}
+    >
+      <div className="flex items-center justify-between gap-2 border-b border-white/[0.06] px-4 py-2.5 text-sm font-medium text-white/80">
         <div className="flex min-w-0 items-center gap-2">
           <span className="truncate">{title}</span>
         </div>

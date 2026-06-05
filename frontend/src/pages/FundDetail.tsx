@@ -30,7 +30,7 @@ import {
   emptyPerfCell,
   ratioPct,
 } from "@/lib/fund-data";
-import { type DetailRowsPayload, missingReason, realRows } from "@/lib/detail-status";
+import { type DetailRowsPayload, missingReason, realRows, summarizeDetailCoverage, deriveStatus, type CoverageInput, type CoverageKey, type CoverageEntry, COVERAGE_LABELS, STATUS_LABELS, STATUS_TONES } from "@/lib/detail-status";
 import { Panel } from "@/components/report/Panel";
 import { ReportLayout } from "@/components/report/ReportLayout";
 import { ReportSection } from "@/components/report/ReportSection";
@@ -204,9 +204,9 @@ function Metric({
   tone?: string;
 }) {
   return (
-    <div className="rounded-md border bg-popover px-3 py-2">
-      <div className="text-xs text-muted-foreground">{label}</div>
-      <div className={`mt-1 data-number text-lg font-semibold ${tone || "text-foreground"}`}>
+    <div className="rounded-md border border-white/[0.06] bg-white/[0.02] px-3 py-2">
+      <div className="text-xs text-white/45">{label}</div>
+      <div className={`mt-1 data-number text-lg font-semibold ${tone || "text-white/85"}`}>
         {value}
       </div>
     </div>
@@ -346,6 +346,57 @@ export default function FundDetail() {
   );
   const scopedPoints = useMemo(() => filterByRange(navPoints, range), [navPoints, range]);
   const risk = useMemo(() => computeRisk(scopedPoints), [scopedPoints]);
+
+  // === 数据覆盖度 / 待补项摘要：13 个 trpc useQuery 状态聚合成统一摘要 ===
+  const coverage = useMemo(() => {
+    const build = (
+      key: CoverageKey,
+      q: { isLoading: boolean; isError: boolean; data?: unknown },
+      reason: string,
+    ): CoverageEntry => {
+      const payload = q.data as
+        | { dataStatus?: string; missingReason?: string | null; source?: string | null; asOf?: string | null; rows?: unknown[] }
+        | undefined;
+      const hasData = Boolean(
+        payload && (Array.isArray(payload.rows) ? payload.rows.length > 0 : true) && !payload.dataStatus,
+      );
+      return {
+        key,
+        label: COVERAGE_LABELS[key],
+        endpoint: payload?.source ? `${COVERAGE_LABELS[key]} · ${payload.source}` : COVERAGE_LABELS[key],
+        status: deriveStatus({
+          isLoading: q.isLoading,
+          isError: q.isError,
+          hasData,
+          dataStatus: payload?.dataStatus ?? null,
+        }),
+        reason: q.isError ? "tRPC 接口调用失败" : payload?.missingReason || reason,
+        asOf: payload?.asOf ?? null,
+        source: payload?.source ?? null,
+      };
+    };
+    const entries: CoverageInput = {
+      detailByCode: build("detailByCode", detailQuery, "基金主数据（基金主表 / 净值历史 / 持仓）"),
+      rating: build("rating", ratingQ, "3 年 / 5 年评级（1~5 颗星）"),
+      purchaseInfo: build("purchaseInfo", purchaseInfoQ, "申购 / 赎回 / 起购 / 费率"),
+      holderStructure: build("holderStructure", holderStructureQ, "机构 / 个人 持有人比例（按季度）"),
+      yearReturns: build("yearReturns", yearReturnsQ, "近 5 年本基金 / 沪深300 / 偏股混合 均值"),
+      peerPerformance: build("peerPerformance", peerPerformanceQ, "近 N 月 / 近 N 年 同类对比"),
+      scaleHistory: build("scaleHistory", scaleHistoryQ, "近 40 个季度 净资产"),
+      turnoverHistory: build("turnoverHistory", turnoverHistoryQ, "近 40 个季度 换手率"),
+      managerHistory: build("managerHistory", managerHistoryQ, "历任经理 / 任职 / 离职 / 回报 / 同类排名"),
+      bondAllocation: build("bondAllocation", bondAllocationQ, "国家债券 / 央行票据 / 金融债券 / 可转债 等"),
+      bondHoldings: build("bondHoldings", bondHoldingsQ, "前 N 大债券持仓（简称 / 净值比 / 票面利率 / 主体 / 评级）"),
+      detailCompleteness: build("detailCompleteness", detailCompletenessQ, "后端按字段粒度统计的覆盖度"),
+      managerReport: build("managerReport", managerReportQ, "基金定期报告全文（LLM 类，延后启动）"),
+      riskSummary: build("riskSummary", riskSummaryQ, "风险等级 + 自然语言摘要（LLM 类，延后启动）"),
+    };
+    return summarizeDetailCoverage(entries);
+  }, [
+    detailQuery, ratingQ, purchaseInfoQ, holderStructureQ, yearReturnsQ, peerPerformanceQ,
+    scaleHistoryQ, turnoverHistoryQ, managerHistoryQ, bondAllocationQ, bondHoldingsQ,
+    detailCompletenessQ, managerReportQ, riskSummaryQ,
+  ]);
 
   // === 业绩曲线：4 系列 ===
   //   - fund：本基金累计收益（前端从 navPoints 计算，或后端 series.fund 返回）
@@ -566,7 +617,7 @@ export default function FundDetail() {
     const errMessage = err instanceof Error ? err.message : String(err || "");
     return (
       <div className="min-h-screen pt-20 text-center">
-        <div className="inline-flex flex-col items-center gap-3 rounded-lg border bg-card p-6 text-card-foreground">
+        <div className="inline-flex flex-col items-center gap-3 rounded-lg border border-white/[0.06] bg-white/[0.02] p-6 text-white/85">
           <AlertCircle className="h-8 w-8 text-destructive" />
           <div className="text-lg font-medium">基金详情加载失败</div>
           {errMessage ? <div className="max-w-md text-sm text-muted-foreground">{errMessage}</div> : null}
@@ -625,7 +676,7 @@ export default function FundDetail() {
         </div>
 
         {/* === 极简 Header === */}
-        <section className="rounded-lg border bg-card text-card-foreground">
+        <section className="rounded-lg border border-white/[0.06] bg-white/[0.02] text-white/85">
           <div className="flex flex-wrap items-center justify-between gap-3 p-4">
             <div className="flex min-w-0 flex-wrap items-center gap-3">
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-blue-500 to-blue-700 text-base font-bold text-white">
@@ -634,13 +685,13 @@ export default function FundDetail() {
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <h1 className="truncate text-xl font-semibold md:text-2xl">{fundName}</h1>
-                  <span className="rounded-md border px-2 py-0.5 font-mono text-sm text-muted-foreground">
+                  <span className="rounded-md border border-white/[0.08] bg-white/[0.04] px-2 py-0.5 font-mono text-sm text-white/65">
                     {fund.fundCode}
                   </span>
                   {chips.map((c) => (
                     <span
                       key={c}
-                      className="rounded-md bg-secondary px-2 py-0.5 text-xs text-muted-foreground"
+                      className="rounded-md border border-white/[0.08] bg-white/[0.04] px-2 py-0.5 text-xs text-white/55"
                     >
                       {c}
                     </span>
@@ -674,6 +725,8 @@ export default function FundDetail() {
         <AnchorNav items={ANCHOR_ITEMS} />
 
         {showPartialBanner && <PartialBanner code={code} />}
+
+        <CoverageSummary summary={coverage} />
 
         {/* === 长页面布局 === */}
         <ReportLayout
@@ -1150,7 +1203,7 @@ function PerformanceSection({
         <div className="overflow-x-auto">
           <table className="w-full min-w-[640px] border-collapse text-sm">
             <thead>
-              <tr className="border-b bg-blue-50/60 text-muted-foreground dark:bg-blue-950/30">
+              <tr className="border-b border-white/[0.06] text-[11px] uppercase tracking-wider text-white/45">
                 <th className="px-2 py-2 text-left">指标</th>
                 {PERF_COLS.map((c) => (
                   <th key={c.key} className="px-2 py-2 text-right">
@@ -1177,10 +1230,10 @@ function PerformanceSection({
                   })}
                 </tr>
               ))}
-              <tr className="bg-secondary/30 text-xs">
-                <td className="px-2 py-1.5 text-muted-foreground">同类排名</td>
+              <tr className="border-b border-white/[0.04] bg-white/[0.02] text-xs text-white/45">
+                <td className="px-2 py-1.5">同类排名</td>
                 {PERF_COLS.map((c) => (
-                  <td key={c.key} className="px-2 py-1.5 text-right text-muted-foreground">
+                  <td key={c.key} className="px-2 py-1.5 text-right text-white/45">
                     —
                   </td>
                 ))}
@@ -1244,7 +1297,7 @@ function HistorySection({
           <div className="mt-3 overflow-x-auto">
             <table className="w-full min-w-[480px] border-collapse text-sm">
               <thead>
-                <tr className="border-b bg-blue-50/60 text-muted-foreground dark:bg-blue-950/30">
+                <tr className="border-b border-white/[0.06] text-[11px] uppercase tracking-wider text-white/45">
                   <th className="px-2 py-2 text-left">年份</th>
                   <th className="px-2 py-2 text-right">本基金</th>
                   <th className="px-2 py-2 text-right">沪深300</th>
@@ -1280,7 +1333,7 @@ function HistorySection({
           <div className="max-w-md text-xs text-muted-foreground/70">
             依赖 fund.yearReturns（年度本基金 / 沪深300 / 偏股混合均值 / 同类排名）
           </div>
-          <code className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+          <code className="rounded border border-white/[0.06] bg-white/[0.02] px-1.5 py-0.5 text-[10px] text-white/45">
             trpc.fund.yearReturns
           </code>
         </div>
@@ -1473,7 +1526,7 @@ function RiskSection({
         }
       >
         {riskSummary?.summary ? (
-          <div className="rounded-md border bg-popover p-3 text-sm leading-relaxed">
+          <div className="rounded-md border border-white/[0.06] bg-white/[0.02] p-3 text-sm leading-relaxed text-white/80">
             {riskSummary.summary}
           </div>
         ) : (
@@ -1485,7 +1538,7 @@ function RiskSection({
             <div className="text-xs text-muted-foreground/70">
               依赖 fund.riskSummary（规则引擎生成的中文自然语言摘要）
             </div>
-            <code className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+            <code className="rounded border border-white/[0.06] bg-white/[0.02] px-1.5 py-0.5 text-[10px] text-white/45">
               trpc.fund.riskSummary
             </code>
           </div>
@@ -1527,7 +1580,7 @@ function RiskSection({
         <div className="overflow-x-auto">
           <table className="w-full min-w-[520px] border-collapse text-sm">
             <thead>
-              <tr className="border-b bg-blue-50/60 text-muted-foreground dark:bg-blue-950/30">
+              <tr className="border-b border-white/[0.06] text-[11px] uppercase tracking-wider text-white/45">
                 <th className="px-2 py-2 text-left">指标</th>
                 {peerCols.map((c) => (
                   <th key={c.key} className="px-2 py-2 text-right">
@@ -1551,8 +1604,8 @@ function RiskSection({
                       </td>
                     ))}
                   </tr>
-                  <tr className="border-b bg-secondary/30 text-xs">
-                    <td className="px-2 py-1.5 pl-4 text-muted-foreground">±同类</td>
+                  <tr className="border-b border-white/[0.04] bg-white/[0.02] text-xs text-white/45">
+                    <td className="px-2 py-1.5 pl-4">±同类</td>
                     {r.values.map((_, i) => (
                       <td
                         key={i}
@@ -1784,7 +1837,7 @@ function HoldingsSection({
         <div className="overflow-x-auto">
           <table className="w-full min-w-[760px] border-collapse text-sm">
             <thead>
-              <tr className="border-b bg-blue-50/60 text-muted-foreground dark:bg-blue-950/30">
+              <tr className="border-b border-white/[0.06] text-[11px] uppercase tracking-wider text-white/45">
                 <th className="px-2 py-2 text-left">证券简称</th>
                 <th className="px-2 py-2 text-right">持仓市值(万元)</th>
                 <th className="px-2 py-2 text-right">持仓数量(股)</th>
@@ -1860,7 +1913,7 @@ function HoldingsSection({
           <div className="overflow-x-auto">
             <table className="w-full min-w-[760px] border-collapse text-sm">
               <thead>
-                <tr className="border-b bg-blue-50/60 text-muted-foreground dark:bg-blue-950/30">
+                <tr className="border-b border-white/[0.06] text-[11px] uppercase tracking-wider text-white/45">
                   <th className="px-2 py-2 text-left">证券简称</th>
                   <th className="px-2 py-2 text-right">持仓市值(万元)</th>
                   <th className="px-2 py-2 text-right">占净值比</th>
@@ -1930,7 +1983,7 @@ function ManagerSection({
             <div className="text-xs text-muted-foreground/70">
               依赖 fund.managerHistory（历任经理任职/离职/回报/同类排名）
             </div>
-            <code className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+            <code className="rounded border border-white/[0.06] bg-white/[0.02] px-1.5 py-0.5 text-[10px] text-white/45">
               trpc.fund.managerHistory
             </code>
           </div>
@@ -1938,7 +1991,7 @@ function ManagerSection({
           <div className="overflow-x-auto">
             <table className="w-full min-w-[560px] border-collapse text-sm">
               <thead>
-                <tr className="border-b bg-blue-50/60 text-muted-foreground dark:bg-blue-950/30">
+                <tr className="border-b border-white/[0.06] text-[11px] uppercase tracking-wider text-white/45">
                   <th className="px-2 py-2 text-left">基金经理</th>
                   <th className="px-2 py-2 text-left">任职日期</th>
                   <th className="px-2 py-2 text-left">离职日期</th>
@@ -1991,13 +2044,94 @@ function ManagerSection({
             <div className="max-w-md text-xs text-muted-foreground/70">
               依赖 fund.managerReport（基金定期报告全文：宏观展望 / 操作策略 / 后市观点 / 三大投资方向）
             </div>
-            <code className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+            <code className="rounded border border-white/[0.06] bg-white/[0.02] px-1.5 py-0.5 text-[10px] text-white/45">
               trpc.fund.managerReport
             </code>
           </div>
         )}
       </Panel>
     </>
+  );
+}
+
+// ===================== 数据覆盖度摘要 =====================
+
+type CoverageSummary = ReturnType<typeof summarizeDetailCoverage>;
+
+function CoverageSummary({ summary }: { summary: CoverageSummary }) {
+  const { items, total, available, partial, missing, pending, error } = summary;
+  if (total === 0) return null;
+  const order: Array<keyof typeof STATUS_LABELS> = ["available", "partial", "pending", "missing", "error"];
+  const counts: Record<string, number> = { available, partial, pending, missing, error };
+  return (
+    <section className="mb-3 rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-sm font-medium text-white/80">数据覆盖度</span>
+        <span className="text-[11px] text-white/40">共 {total} 个数据源</span>
+        <div className="ml-auto flex flex-wrap gap-1.5">
+          {order.map((k) => {
+            const c = counts[k] || 0;
+            if (c === 0) return null;
+            return (
+              <span
+                key={k}
+                className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-medium ${STATUS_TONES[k]}`}
+              >
+                <span className="font-semibold data-number">{c}</span>
+                <span>{STATUS_LABELS[k]}</span>
+              </span>
+            );
+          })}
+        </div>
+      </div>
+      <div className="mt-2.5 grid grid-cols-2 gap-x-3 gap-y-1.5 sm:grid-cols-3 lg:grid-cols-4">
+        {items.map((it) => (
+          <div
+            key={it.key}
+            className="flex min-w-0 items-center gap-2 text-xs"
+            title={it.reason || it.label}
+          >
+            <span
+              className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${
+                it.status === "available"
+                  ? "bg-[#16C784]"
+                  : it.status === "partial"
+                    ? "bg-[#FFB800]"
+                    : it.status === "pending"
+                      ? "bg-[#5AA9FF]"
+                      : it.status === "error"
+                        ? "bg-[#F5384B]"
+                        : "bg-white/30"
+              }`}
+            />
+            <span className="truncate text-white/65">{it.label}</span>
+            <span className={`ml-auto shrink-0 text-[10px] ${STATUS_TONES[it.status].split(" ")[0]}`}>
+              {STATUS_LABELS[it.status]}
+            </span>
+          </div>
+        ))}
+      </div>
+      {error > 0 || partial > 0 || missing > 0 ? (
+        <div className="mt-2.5 flex flex-wrap gap-1.5">
+          {items
+            .filter((it) => it.status === "missing" || it.status === "error" || it.status === "partial")
+            .slice(0, 6)
+            .map((it) => (
+              <span
+                key={`miss-${it.key}`}
+                className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] ${STATUS_TONES[it.status]}`}
+                title={it.reason || ""}
+              >
+                <span className="font-mono">trpc.fund.{it.key}</span>
+                <span>· {STATUS_LABELS[it.status]}</span>
+              </span>
+            ))}
+          {items.filter((it) => it.status === "missing" || it.status === "error" || it.status === "partial").length > 6 ? (
+            <span className="text-[10px] text-white/40">…</span>
+          ) : null}
+        </div>
+      ) : null}
+    </section>
   );
 }
 

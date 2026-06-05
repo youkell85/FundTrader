@@ -17,7 +17,7 @@ export function ReportSection({ id, title, badge, children }: ReportSectionProps
         <div className="flex items-center gap-2">
           <h2 className="text-base font-semibold tracking-tight">{title}</h2>
           {badge ? (
-            <span className="rounded border border-dashed border-muted-foreground/40 px-2 py-0.5 text-[11px] font-normal text-muted-foreground">
+            <span className="rounded border border-dashed border-white/15 px-2 py-0.5 text-[11px] font-normal text-white/50">
               {badge}
             </span>
           ) : null}
