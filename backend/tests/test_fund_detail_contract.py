@@ -24,6 +24,14 @@ class FundDetailContractTest(unittest.TestCase):
             fund_service,
             "_get_nav_history_for_detail",
             return_value=(nav_rows, "unit-test", "2025-12-31"),
+        ), patch.object(
+            fund_service,
+            "_get_index_nav_history",
+            return_value=[],
+        ), patch.object(
+            fund_service,
+            "_peer_year_return",
+            return_value=None,
         ):
             payload = fund_service.get_fund_year_returns("000001")
 

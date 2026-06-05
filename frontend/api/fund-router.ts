@@ -1842,7 +1842,7 @@ export const fundRouter = createRouter({
         }>(`/fund/rating?code=${encodeURIComponent(input.code)}`));
       } catch (err) {
         console.warn(`[fundRouter] 评级失败 ${input.code}:`, err);
-        return { code: input.code, rating3y: null, rating5y: null, score: null, source: null };
+        return { code: input.code, rating3y: null, rating5y: null, score: null, source: null, dataStatus: "missing", missingReason: "基金评级读取失败" };
       }
     }),
 
@@ -1857,7 +1857,7 @@ export const fundRouter = createRouter({
         );
       } catch (err) {
         console.warn(`[fundRouter] 购买信息失败 ${input.code}:`, err);
-        return { code: input.code };
+        return { code: input.code, dataStatus: "missing", missingReason: "购买信息读取失败" };
       }
     }),
 
@@ -2064,7 +2064,7 @@ export const fundRouter = createRouter({
         );
       } catch (err) {
         console.warn(`[fundRouter] 详情完整度失败 ${input.code}:`, err);
-        return { code: input.code, sections: {}, available: 0, partial: 0, total: 0, coverage: 0 };
+        return { code: input.code, sections: {}, available: 0, partial: 0, total: 0, coverage: 0, dataStatus: "missing", missingReason: "详情完整度读取失败" };
       }
     }),
 });
