@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { TrendingUp, Loader2 } from 'lucide-react';
+import { TrendingUp, Loader2, AlertCircle } from 'lucide-react';
 import { useAllocationData } from '@/hooks/useAllocationData';
 import PageHeader from '@/components/ui/PageHeader';
 import SectionCard from '@/components/ui/SectionCard';
@@ -9,12 +9,16 @@ import { runAllocationBacktest } from '@/lib/api';
 import type { BacktestRequest, BacktestResponse } from '@/types/backtest';
 
 export default function BacktestPage() {
-  const { meta, d } = useAllocationData();
+  const { meta, d, isReal } = useAllocationData();
   const [backtestResult, setBacktestResult] = useState<BacktestResponse | null>(null);
   const [backtestLoading, setBacktestLoading] = useState(false);
   const [backtestError, setBacktestError] = useState<string | null>(null);
 
   const handleQuickBacktest = async () => {
+    if (!isReal) {
+      setBacktestError('当前为演示数据，请先生成真实配置方案');
+      return;
+    }
     const riskProfile = d?.user_profile?.risk_tolerance;
     if (!riskProfile) {
       setBacktestError('请先生成配置方案');
@@ -44,11 +48,17 @@ export default function BacktestPage() {
     <div className="space-y-5">
       <PageHeader title="回测中心" regime={meta.regime} regimeLabel={meta.regime_label} generatedAt={meta.generated_at} />
 
-      <SectionCard title="快速回测 (当前配置)" icon={TrendingUp} iconColor="#16C784">
+      <SectionCard title="资产配置策略回测 (SAA/TAA)" icon={TrendingUp} iconColor="#16C784">
+        {!isReal && (
+          <div className="flex items-center gap-3 mb-3 p-3 rounded-lg border border-[#3B6CFF]/20 bg-[#3B6CFF]/[0.05]">
+            <AlertCircle className="w-4 h-4 text-[#5AA9FF]" />
+            <p className="text-xs text-white/55">当前为演示数据，策略回测不可用。请先生成真实配置方案。</p>
+          </div>
+        )}
         <div className="flex items-center gap-3">
           <button
             onClick={handleQuickBacktest}
-            disabled={backtestLoading}
+            disabled={backtestLoading || !isReal}
             className="px-4 py-2 rounded-lg bg-[#16C784]/20 text-[#16C784] text-xs font-medium hover:bg-[#16C784]/30 disabled:opacity-50 flex items-center gap-2"
           >
             {backtestLoading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}

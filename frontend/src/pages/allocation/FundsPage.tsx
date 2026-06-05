@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { List, TrendingUp, DollarSign, Loader2 } from 'lucide-react';
+import { List, TrendingUp, DollarSign, Loader2, AlertCircle } from 'lucide-react';
 import { useAllocationData } from '@/hooks/useAllocationData';
 import PageHeader from '@/components/ui/PageHeader';
 import SectionCard from '@/components/ui/SectionCard';
@@ -10,7 +10,7 @@ import type { FundRankingResponse } from '@/types/allocation';
 import { useAllocationStore } from '@/store/allocationStore';
 
 export default function FundsPage() {
-  const { d, funds, constraints, meta } = useAllocationData();
+  const { d, funds, constraints, meta, isReal } = useAllocationData();
   const [rankingData, setRankingData] = useState<FundRankingResponse | null>(null);
   const [rankingLoading, setRankingLoading] = useState(false);
   const [rankingError, setRankingError] = useState<string | null>(null);
@@ -19,6 +19,11 @@ export default function FundsPage() {
   try { preferredTags = useAllocationStore().state.config.preferred_tags; } catch {}
 
   useEffect(() => {
+    if (!isReal) {
+      setRankingData(null);
+      setRankingError(null);
+      return;
+    }
     const fetchRankings = async () => {
       setRankingLoading(true);
       setRankingError(null);
@@ -32,7 +37,7 @@ export default function FundsPage() {
       }
     };
     fetchRankings();
-  }, [preferredTags.join(',')]);
+  }, [preferredTags.join(','), isReal]);
 
   return (
     <div className="space-y-5">
@@ -76,18 +81,25 @@ export default function FundsPage() {
         </div>
       </SectionCard>
 
-      {rankingLoading && (
+      {!isReal && (
+        <div className="liquid-glass p-4 border border-[#3B6CFF]/20 bg-[#3B6CFF]/[0.05] flex items-center gap-3">
+          <AlertCircle className="w-4 h-4 text-[#5AA9FF]" />
+          <p className="text-xs text-white/55">当前为演示数据，排名接口未调用。请先生成真实配置方案以查看基金排名。</p>
+        </div>
+      )}
+
+      {isReal && rankingLoading && (
         <div className="flex items-center gap-2 text-xs text-white/50 px-1">
           <Loader2 className="w-3.5 h-3.5 animate-spin" />
           <span>正在加载基金排名...</span>
         </div>
       )}
-      {rankingError && (
+      {isReal && rankingError && (
         <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-3 text-xs text-red-300">
           {rankingError}（使用面板内刷新重试）
         </div>
       )}
-      {rankingData && (
+      {isReal && rankingData && (
         <SectionCard title={`API 基金排名 (${Object.keys(rankingData.rankings).length} 类)`} icon={TrendingUp} iconColor="#5AA9FF">
           <div className="flex flex-wrap gap-2">
             {Object.entries(rankingData.rankings).map(([cls, items]) => (

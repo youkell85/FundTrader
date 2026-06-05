@@ -1557,7 +1557,8 @@ export const fundRouter = createRouter({
   runBacktest: publicQuery
     .input(
       z.object({
-        fundIds: z.array(z.number()),
+        fundIds: z.array(z.number()).optional(),
+        fundCodes: z.array(z.string()).optional(),
         weights: z.array(z.number()).optional(),
         strategy: z.enum(["compare", "fixed_amount", "fixed_ratio", "value_averaging", "smart_beta", "martingale"]),
         startDate: z.string(),
@@ -1573,19 +1574,37 @@ export const fundRouter = createRouter({
     )
     .query(async ({ input, ctx }) => {
       try {
-        // 同时获取国元基金和自选基金，list 查询保持一致
-        const [rawGuoyuan, rawWatchlist] = await Promise.all([
-          fetchAllFundList({ guoyuan_only: true }),
-          fetchAllFundList({ use_watchlist: true }).catch(() => [] as any[]),
-        ]);
-        const codeMap = new Map<string, any>();
-        [...rawGuoyuan, ...rawWatchlist].forEach((f: any) => { if (f?.code) codeMap.set(f.code, f); });
-        const allFunds = Array.from(codeMap.values()).map(mapFundItem).filter(Boolean);
-        const codes = input.fundIds.map((id) => {
-          const f = allFunds.find((x: any) => x.id === id);
-          if (!f) throw new Error(`Fund id ${id} not found`);
-          return f.fundCode;
-        });
+        let codes: string[];
+        let selectedFundMeta: any[];
+
+        if (input.fundCodes && input.fundCodes.length > 0) {
+          // 新路径：直接传入 fundCodes（来自 allocation output）
+          codes = input.fundCodes;
+          // 尝试用快照补全基金元数据
+          selectedFundMeta = await Promise.all(
+            codes.map(async (code) => {
+              const snap = await getFundSnapshot(code, false).catch(() => null);
+              return snap ? mapFundItem(snap) : { fundCode: code, fundName: code, id: 0 };
+            })
+          );
+        } else if (input.fundIds && input.fundIds.length > 0) {
+          // 老路径：通过 fundIds 查 code（独立 /backtest 页面）
+          const [rawGuoyuan, rawWatchlist] = await Promise.all([
+            fetchAllFundList({ guoyuan_only: true }),
+            fetchAllFundList({ use_watchlist: true }).catch(() => [] as any[]),
+          ]);
+          const codeMap = new Map<string, any>();
+          [...rawGuoyuan, ...rawWatchlist].forEach((f: any) => { if (f?.code) codeMap.set(f.code, f); });
+          const allFunds = Array.from(codeMap.values()).map(mapFundItem).filter(Boolean);
+          codes = input.fundIds.map((id) => {
+            const f = allFunds.find((x: any) => x.id === id);
+            if (!f) throw new Error(`Fund id ${id} not found`);
+            return f.fundCode;
+          });
+          selectedFundMeta = input.fundIds.map((id) => allFunds.find((x: any) => x.id === id)).filter(Boolean);
+        } else {
+          throw new Error("必须提供 fundIds 或 fundCodes");
+        }
 
         const backendStrategy = strategyMap[input.strategy];
         if (!backendStrategy) {
@@ -1601,7 +1620,6 @@ export const fundRouter = createRouter({
           end_date: input.endDate,
         });
 
-        const selectedFundMeta = input.fundIds.map((id) => allFunds.find((x: any) => x.id === id)).filter(Boolean);
         const mapped = mapBacktestResult(ftResult, {
           weights: input.weights,
           strategy: input.strategy,

@@ -118,6 +118,9 @@ export default function AllocationWizard() {
         stopTimer();
         setGenerating(false);
         dispatch({ type: "SET_OUTPUT", output: result });
+        dispatch({ type: "SET_EXECUTION_PLAN", plan: null });
+        dispatch({ type: "SET_DCA_CONFIG", config: null });
+        dispatch({ type: "SET_DCA_RESULT", result: null });
         navigate("/allocation/result");
       },
       // onError

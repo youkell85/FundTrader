@@ -14,6 +14,7 @@ import {
   ChevronRight,
   Menu,
   X,
+  PlayCircle,
 } from 'lucide-react';
 
 interface NavItem {
@@ -36,6 +37,7 @@ const NAV_ITEMS: NavItem[] = [
       { label: '风险管理', path: '/allocation/result/risk' },
     ],
   },
+  { label: '执行计划', path: '/allocation/result/execute', icon: PlayCircle },
   { label: '运维工具', path: '/allocation/result/ops', icon: Wrench },
   { label: '方案管理', path: '/allocation/result/plans', icon: FolderOpen },
   { label: '模拟器', path: '/allocation/result/simulator', icon: FlaskConical },
@@ -62,6 +64,11 @@ export default function SidebarNav() {
   const toggleGroup = (path: string) => {
     setExpandedGroup((prev) => (prev === path ? null : path));
   };
+
+  const executeActive = useMemo(() =>
+    location.pathname === '/allocation/result/execute',
+    [location.pathname]
+  );
 
   return (
     <>

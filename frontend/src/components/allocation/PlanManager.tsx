@@ -4,6 +4,7 @@ import { savePlan, listPlans, deletePlan, updatePlan } from '@/lib/api';
 import type { SavedPlanItem, PlanListResponse } from '@/types/allocation';
 import { useAllocationStore } from '@/store/allocationStore';
 import { RISK_LABELS } from '@/types/allocation';
+import { isMockOutput } from '@/lib/execution-plan';
 
 interface PlanManagerProps {
   onSave?: () => void;
@@ -19,8 +20,9 @@ export default function PlanManager({ onSave }: PlanManagerProps) {
 
   let storeOutput: any = null;
   let storeConfig: any = null;
+  let store: any = null;
   try {
-    const store = useAllocationStore();
+    store = useAllocationStore();
     storeOutput = store.state.output;
     storeConfig = store.state.config;
   } catch {}
@@ -46,13 +48,25 @@ export default function PlanManager({ onSave }: PlanManagerProps) {
       setMessage({ type: 'error', text: '请先生成配置方案' });
       return;
     }
+    if (isMockOutput(storeOutput)) {
+      setMessage({ type: 'error', text: '演示数据不可保存，请生成真实配置方案' });
+      return;
+    }
     setSaving(true);
     try {
       const name = planName.trim() || `配置方案 ${new Date().toLocaleDateString()}`;
+      const responseWithExecution = {
+        ...(storeOutput as any),
+        execution_plan: store.executionPlan,
+        dca_plan: {
+          config: store.dcaConfig,
+          result: store.dcaResult,
+        },
+      };
       await savePlan({
         name,
         request: storeConfig as any,
-        response: storeOutput as any,
+        response: responseWithExecution,
       });
       setMessage({ type: 'success', text: `方案"${name}"已保存` });
       setPlanName('');
@@ -97,6 +111,10 @@ export default function PlanManager({ onSave }: PlanManagerProps) {
       setMessage({ type: 'error', text: '请先生成配置方案' });
       return;
     }
+    if (isMockOutput(storeOutput)) {
+      setMessage({ type: 'error', text: '演示数据不可导出，请生成真实配置方案' });
+      return;
+    }
     // Create a blob URL with the HTML content
     const html = generateQuickReport(storeOutput);
     const blob = new Blob([html], { type: 'text/html' });
@@ -131,7 +149,7 @@ export default function PlanManager({ onSave }: PlanManagerProps) {
           />
           <button
             onClick={handleSave}
-            disabled={saving || !storeOutput}
+            disabled={saving || !storeOutput || isMockOutput(storeOutput)}
             className="px-4 py-2 rounded-lg bg-[#5470C6]/20 text-[#5470C6] text-xs font-medium hover:bg-[#5470C6]/30 transition-colors disabled:opacity-50"
           >
             {saving ? '保存中...' : '保存'}
@@ -147,7 +165,7 @@ export default function PlanManager({ onSave }: PlanManagerProps) {
         <div className="flex gap-2">
           <button
             onClick={handleExportCurrent}
-            disabled={!storeOutput}
+            disabled={!storeOutput || isMockOutput(storeOutput)}
             className="flex-1 px-4 py-2 rounded-lg bg-[#FAC858]/10 text-[#FAC858] text-xs font-medium hover:bg-[#FAC858]/20 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
           >
             <Download className="w-3.5 h-3.5" />导出当前方案 PDF

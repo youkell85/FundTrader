@@ -30,6 +30,7 @@ const OpsPage = lazy(() => import('./pages/allocation/OpsPage'))
 const PlansPage = lazy(() => import('./pages/allocation/PlansPage'))
 const SimulatorPage = lazy(() => import('./pages/allocation/SimulatorPage'))
 const BacktestPage = lazy(() => import('./pages/allocation/BacktestPage'))
+const ExecutePage = lazy(() => import('./pages/allocation/ExecutePage'))
 
 // 兼容旧路由：/allocation/result 重定向到新的配置中心
 const LegacyAllocationDashboard = lazy(() => import('./pages/LegacyAllocationDashboard'))
@@ -100,6 +101,7 @@ export default function App() {
                 <Route path="plans" element={<PlansPage />} />
                 <Route path="simulator" element={<SimulatorPage />} />
                 <Route path="backtest" element={<BacktestPage />} />
+                <Route path="execute" element={<ExecutePage />} />
               </Route>
               <Route path=":id" element={<LegacyAllocationDashboard />} />
             </Route>
