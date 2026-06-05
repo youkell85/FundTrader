@@ -30,7 +30,7 @@ import {
   emptyPerfCell,
   ratioPct,
 } from "@/lib/fund-data";
-import { type DetailRowsPayload, missingReason, realRows, summarizeDetailCoverage, deriveStatus, type CoverageInput, type CoverageKey, type CoverageEntry, COVERAGE_LABELS, STATUS_LABELS, STATUS_TONES } from "@/lib/detail-status";
+import { type DetailRowsPayload, missingReason, realRows, summarizeDetailCoverage, deriveStatus, type CoverageInput, type CoverageKey, type CoverageEntry, COVERAGE_LABELS, COVERAGE_ENDPOINTS, STATUS_LABELS, STATUS_TONES } from "@/lib/detail-status";
 import { Panel } from "@/components/report/Panel";
 import { ReportLayout } from "@/components/report/ReportLayout";
 import { ReportSection } from "@/components/report/ReportSection";
@@ -357,13 +357,16 @@ export default function FundDetail() {
       const payload = q.data as
         | { dataStatus?: string; missingReason?: string | null; source?: string | null; asOf?: string | null; rows?: unknown[] }
         | undefined;
+      // hasData 判定：rows 型接口用 rows.length，非 rows 型只要 payload 存在即可。
+      // 注意：不要用 !payload.dataStatus 把"available"等明确状态排除掉，
+      // dataStatus 留给 deriveStatus() 处理。
       const hasData = Boolean(
-        payload && (Array.isArray(payload.rows) ? payload.rows.length > 0 : true) && !payload.dataStatus,
+        payload && (Array.isArray(payload.rows) ? payload.rows.length > 0 : true),
       );
       return {
         key,
         label: COVERAGE_LABELS[key],
-        endpoint: payload?.source ? `${COVERAGE_LABELS[key]} · ${payload.source}` : COVERAGE_LABELS[key],
+        endpoint: COVERAGE_ENDPOINTS[key],
         status: deriveStatus({
           isLoading: q.isLoading,
           isError: q.isError,

@@ -76,7 +76,18 @@ export const STATUS_TONES: Record<DetailDataStatus, string> = {
   simulated: "text-white/45 border-white/10 bg-white/[0.02]",
 };
 
-/** 把 trpc 状态机压成 5 态。 */
+/** 把 trpc 状态机压成 5 态。
+ *
+ * 优先级（从高到低）：
+ *   1. isError                 → "error"
+ *   2. isLoading && !hasData   → "pending"
+ *   3. dataStatus === "available"    → "available"
+ *   4. dataStatus === "partial"      → "partial"
+ *   5. dataStatus === "missing" |
+ *      dataStatus === "simulated"    → "missing"
+ *   6. !dataStatus && hasData        → "available"
+ *   7. 其他                          → "missing"
+ */
 export function deriveStatus(args: {
   isLoading?: boolean;
   isError?: boolean;
@@ -85,9 +96,10 @@ export function deriveStatus(args: {
 }): DetailDataStatus {
   if (args.isError) return "error";
   if (args.isLoading && !args.hasData) return "pending";
+  if (args.dataStatus === "available") return "available";
   if (args.dataStatus === "partial") return "partial";
   if (args.dataStatus === "missing" || args.dataStatus === "simulated") return "missing";
-  if (args.hasData) return "available";
+  if (!args.dataStatus && args.hasData) return "available";
   return "missing";
 }
 
