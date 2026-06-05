@@ -1127,8 +1127,73 @@ def get_fund_bond_holdings(code: str) -> dict:
     )
 
 
+def _peer_year_return(code: str, year: int) -> float | None:
+    """P2.1: 计算指定基金所在 fund_type 同类在某年的均值年化收益（百分数）。
+
+    数据源：fund_nav_history + fund_master.fund_type。优先用首末日净值算年度 return，
+    同类取算术平均。失败/无样本时返回 None。
+    """
+    type_rows = _safe_table_query(
+        "SELECT fund_type FROM fund_master WHERE code = ? AND fund_type IS NOT NULL",
+        (code,),
+    )
+    if not type_rows or not type_rows[0]["fund_type"]:
+        return None
+    fund_type = type_rows[0]["fund_type"]
+    # 同 fund_type 基金集合（仅活跃且有 nav）
+    peer_rows = _safe_table_query(
+        """SELECT DISTINCT n.code
+           FROM fund_nav_history n
+           JOIN fund_master m ON m.code = n.code
+           WHERE m.fund_type = ? AND m.is_active = 1
+           LIMIT 500""",
+        (fund_type,),
+    )
+    if not peer_rows:
+        return None
+    peer_codes = [r["code"] for r in peer_rows if r["code"] and r["code"] != code]
+    if not peer_codes:
+        peer_codes = [r["code"] for r in peer_rows if r["code"]]
+    if not peer_codes:
+        return None
+    # 同类基金首末净值（按年度窗口）
+    year_start = f"{year}-01-01"
+    year_end = f"{year}-12-31"
+    placeholders = ",".join("?" for _ in peer_codes)
+    nav_rows = _safe_table_query(
+        f"""SELECT n.code,
+                   (SELECT nav FROM fund_nav_history
+                    WHERE code = n.code AND nav_date >= ?
+                      AND nav IS NOT NULL AND nav > 0
+                    ORDER BY nav_date ASC LIMIT 1) AS start_nav,
+                   (SELECT nav FROM fund_nav_history
+                    WHERE code = n.code AND nav_date <= ?
+                      AND nav IS NOT NULL AND nav > 0
+                    ORDER BY nav_date DESC LIMIT 1) AS end_nav
+            FROM fund_nav_history n
+            WHERE n.code IN ({placeholders})
+            GROUP BY n.code""",
+        (year_start, year_end, *peer_codes),
+    )
+    rets: list[float] = []
+    for r in nav_rows or []:
+        s = _safe_float(r["start_nav"])
+        e = _safe_float(r["end_nav"])
+        if s is None or e is None or s <= 0:
+            continue
+        rets.append((e / s - 1.0) * 100.0)
+    if len(rets) < 3:
+        return None
+    # 用 trim-mean（去掉最高最低各 10%）减少极端值干扰
+    rets.sort()
+    n = len(rets)
+    k = max(1, n // 10)
+    trimmed = rets[k : n - k] if n - k > k else rets
+    return round(sum(trimmed) / len(trimmed), 4)
+
+
 def get_fund_year_returns(code: str) -> dict:
-    """历年回报：从真实净值历史计算本基金年度收益，同时计算沪深300同期年度收益。"""
+    """历年回报：从真实净值历史计算本基金年度收益，同时计算沪深300同期年度收益和同类均值。"""
     nav_rows, source, as_of = _get_nav_history_for_detail(code)
     if len(nav_rows) < 2:
         return _rows_response(
@@ -1151,20 +1216,30 @@ def get_fund_year_returns(code: str) -> dict:
             "year": year,
             "fundReturn": _annual_return_from_nav(nav_rows, year),
             "hs300Return": _annual_return_from_nav(index_nav_rows, year) if index_nav_rows else None,
-            "peerReturn": None,
+            "peerReturn": _peer_year_return(code, year),
             "rank": None,
         }
         for year in latest_years
     ]
     has_hs300 = any(r["hs300Return"] is not None for r in rows)
+    has_peer = any(r["peerReturn"] is not None for r in rows)
+    coverage = 0.5 if has_hs300 else 0.35
+    if has_peer:
+        coverage = min(1.0, coverage + 0.2)
+    if has_hs300 and has_peer:
+        missing_reason = "本基金/沪深300/同类均值均按真实数据计算；排名需补基准/同类历史表。"
+    elif has_peer:
+        missing_reason = "本基金/同类均值按真实数据计算；沪深300 同期收益缺失，排名需补同类历史表。"
+    else:
+        missing_reason = "本基金年度收益已按真实净值计算；沪深300同期收益来自指数净值；同类均值、排名需补基准/同类历史表。"
     return _rows_response(
         code,
         rows,
         status=DETAIL_STATUS_PARTIAL,
         source=source,
         as_of=as_of,
-        coverage=0.5 if has_hs300 else 0.35,
-        missing_reason="本基金年度收益已按真实净值计算；沪深300同期收益来自指数净值；同类均值、排名需补基准/同类历史表。",
+        coverage=coverage,
+        missing_reason=missing_reason,
     )
 
 
@@ -1480,8 +1555,78 @@ def get_fund_peer_performance(code: str) -> dict:
 #  P2: 历年规模变化 / 基金换手率 / 基金经理变更
 # ============================================================
 
+def _backfill_scale_history_from_tushare(
+    code: str, periods: int, existing_rows: list
+) -> list[dict[str, Any]]:
+    """P2.1: 从 tushare fund_share × unit_nav 读取历史规模，回填并入库。
+
+    返回与 get_fund_scale_history 一致的 [{quarter, totalScale, peer25Scale}] 行。
+    失败 / 无数据时返回空列表（不抛异常）。
+    """
+    try:
+        from ..data.providers.tushare_provider import TushareProvider
+    except Exception:
+        return []
+
+    existing_dates = {str(r["report_date"])[:10] for r in (existing_rows or [])}
+    try:
+        provider = TushareProvider()
+        pro = provider._get_pro()  # type: ignore[attr-defined]
+        if pro is None:
+            return []
+        ts_code = f"{code}.OF"
+        share_df = provider._safe_call(pro.fund_share, ts_code=ts_code)  # type: ignore[attr-defined]
+        if share_df is None or share_df.empty:
+            return []
+    except Exception:
+        return []
+
+    out: list[dict[str, Any]] = []
+    persist_rows: list[tuple[str, float]] = []
+    try:
+        # 按 trade_date 倒序遍历，取最近 periods 个
+        share_df = share_df.sort_values(by="trade_date", ascending=False).head(periods)
+        for _, srow in share_df.iterrows():
+            trade_date = str(srow.get("trade_date", ""))[:10]
+            fd_share = provider._safe_float(srow.get("fd_share"))  # type: ignore[attr-defined]
+            if not trade_date or fd_share is None or fd_share <= 0:
+                continue
+            # 取同期 unit_nav
+            nav_df = provider._safe_call(pro.fund_nav, ts_code=ts_code, end_date=trade_date)  # type: ignore[attr-defined]
+            unit_nav: float | None = None
+            if nav_df is not None and not nav_df.empty:
+                nav_df = nav_df.sort_values(by="nav_date", ascending=False)
+                unit_nav = provider._safe_float(nav_df.iloc[0].get("unit_nav"))  # type: ignore[attr-defined]
+            if unit_nav is None or unit_nav <= 0:
+                continue
+            total_scale = round(fd_share * unit_nav / 100000.0, 4)  # 万份×净值/1e5=亿元
+            out.append({"quarter": trade_date, "totalScale": total_scale, "peer25Scale": None})
+            persist_rows.append((trade_date, total_scale))
+    except Exception:
+        return out
+
+    # 入库（仅插入 DB 没有的季度）
+    if persist_rows:
+        try:
+            from ..storage.database import get_db
+            now = datetime.now().isoformat()
+            with get_db() as conn:
+                for qdate, scale in persist_rows:
+                    if qdate in existing_dates:
+                        continue
+                    conn.execute(
+                        """INSERT OR IGNORE INTO fund_detail_quarterly_snapshot
+                           (code, report_date, total_scale, source, data_quality, updated_at)
+                           VALUES (?, ?, ?, ?, ?, ?)""",
+                        (code, qdate, scale, "tushare:fund_share", "backfill", now),
+                    )
+        except Exception:
+            pass
+    return out
+
+
 def get_fund_scale_history(code: str, periods: int = 40) -> dict:
-    """规模历史：读取真实季报快照；只有最新规模时返回 partial 单点。"""
+    """规模历史：读取真实季报快照；DB 不足 4 季度时，用 tushare fund_share×fund_nav 回填并入库。"""
     snapshot_rows = _safe_table_query(
         """SELECT report_date, total_scale, source, updated_at
            FROM fund_detail_quarterly_snapshot
@@ -1495,14 +1640,29 @@ def get_fund_scale_history(code: str, periods: int = 40) -> dict:
         for row in reversed(snapshot_rows)
         if _safe_float(row["total_scale"]) is not None
     ]
+    # DB 真实样本 < 4 时，用 tushare fund_share×unit_nav 历史回填（仅本期新写入）
+    if len(out) < min(4, periods):
+        tushare_rows = _backfill_scale_history_from_tushare(code, periods, snapshot_rows)
+        if tushare_rows:
+            # 用 (quarter, totalScale) 去重，保留 DB 优先
+            db_keys = {(r["quarter"], round(r["totalScale"], 4) if r["totalScale"] else None) for r in out}
+            for trow in tushare_rows:
+                tq = trow["quarter"]
+                tscale = round(trow["totalScale"], 4) if trow["totalScale"] else None
+                if tq and tscale and (tq, tscale) not in db_keys:
+                    out.append(trow)
+                    db_keys.add((tq, tscale))
+            out.sort(key=lambda r: r["quarter"])
+            # 截断到 periods
+            out = out[-periods:]
     if out:
         return _rows_response(
             code,
             out,
-            source=snapshot_rows[0]["source"] or "fund_detail_quarterly_snapshot",
-            as_of=snapshot_rows[0]["report_date"],
+            source=snapshot_rows[0]["source"] or "fund_detail_quarterly_snapshot" if snapshot_rows else "tushare:fund_share",
+            as_of=snapshot_rows[0]["report_date"] if snapshot_rows else (out[-1]["quarter"] if out else None),
             coverage=min(1.0, len(out) / max(1, periods)),
-            missing_reason=None if len(out) >= 4 else "规模历史样本不足，仅展示已入库真实点。",
+            missing_reason=None if len(out) >= 4 else "规模历史样本不足，已用 tushare fund_share×unit_nav 补齐部分季度。",
         )
 
     rows = _safe_table_query(

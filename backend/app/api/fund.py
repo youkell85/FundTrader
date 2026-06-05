@@ -219,14 +219,47 @@ async def fund_detail_completeness(code: str = Query(..., min_length=4, max_leng
                 "SELECT COUNT(*) AS c FROM fund_report_snapshot WHERE code = ? AND report_text != ''",
                 (code,),
             ).fetchone()["c"]
+            # rating: 详情页用 score 兜底（fund_metrics_snapshot.score），命中即说明评级通道就绪
+            rating_count = conn.execute(
+                "SELECT COUNT(*) AS c FROM fund_metrics_snapshot WHERE code = ? AND score IS NOT NULL",
+                (code,),
+            ).fetchone()["c"]
+            # purchaseInfo: 详情页读取 fee_manage/fee_custody 兜底，命中即说明费率通道就绪
+            purchase_count = conn.execute(
+                "SELECT COUNT(*) AS c FROM fund_metrics_snapshot WHERE code = ? AND (fee_manage IS NOT NULL OR fee_custody IS NOT NULL)",
+                (code,),
+            ).fetchone()["c"]
+            # peerPerformance: 详情页读取 fund_quote_snapshot.near_1y / near_3y
+            quote_row = conn.execute(
+                "SELECT near_1y, near_3y FROM fund_quote_snapshot WHERE code = ?",
+                (code,),
+            ).fetchone()
     except Exception:
         quarterly = None
         manager_count = 0
         report_count = 0
+        rating_count = 0
+        purchase_count = 0
+        quote_row = None
 
+    # yearReturns: real data if nav has >= 2 points（与 get_fund_year_returns 一致）
     nav_count = len(snapshot.get("nav_data") or []) if snapshot else 0
     holdings_count = len(snapshot.get("holdings") or []) if snapshot else 0
     asset_count = len(snapshot.get("asset_allocation") or []) if snapshot else 0
+    # peerPerformance partial iff peer.return1y is real (or series.fund rows present)
+    peer_has_data = bool(
+        (quote_row and (quote_row["near_1y"] is not None or quote_row["near_3y"] is not None))
+        or nav_count >= 250
+    )
+    # riskSummary: 来自 risk_summary 路由（rule-engine），只要 nav 历史 ≥30 或有 max_drawdown 即可生成
+    risk_has_data = bool(
+        (snapshot and (
+            snapshot.get("max_drawdown") is not None
+            or snapshot.get("sharpe_ratio") is not None
+            or snapshot.get("volatility") is not None
+        ))
+    ) or nav_count >= 30
+
     def qcount(name: str) -> int:
         try:
             return int(quarterly[name] or 0) if quarterly else 0
@@ -244,7 +277,7 @@ async def fund_detail_completeness(code: str = Query(..., min_length=4, max_leng
         "history": status(nav_count >= 2, partial=True, reason="缺少净值历史"),
         "scale": status(scale_count > 0, partial=scale_count < 4, reason="缺少真实规模历史"),
         "turnover": status(turnover_count > 0, partial=turnover_count < 4, reason="缺少真实换手率历史"),
-        "risk": status(bool(snapshot and (snapshot.get("max_drawdown") is not None or nav_count >= 30)), partial=True, reason="缺少风险指标"),
+        "risk": status(risk_has_data, partial=not risk_has_data and nav_count >= 30, reason="缺少风险指标"),
         "assetAllocation": status(asset_count > 0, reason="缺少真实资产配置"),
         "holdings": status(holdings_count > 0, reason="缺少真实重仓股票"),
         "holderStructure": status(holder_count > 0, reason="缺少真实持有人结构"),
@@ -252,6 +285,12 @@ async def fund_detail_completeness(code: str = Query(..., min_length=4, max_leng
         "bondHoldings": status(bond_hold_count > 0, reason="缺少真实重仓债券"),
         "managerHistory": status(manager_count > 0, reason="缺少真实经理变更"),
         "managerReport": status(report_count > 0, reason="缺少真实定期报告原文"),
+        # 13 接口中 detailCompleteness 原本未覆盖的 5 个 section（补齐后总数 12→17）
+        "rating": status(rating_count > 0, partial=rating_count == 0 and nav_count > 0, reason="缺 tushare fund_rating，详情页会用 score 兜底"),
+        "purchaseInfo": status(purchase_count > 0, partial=purchase_count == 0 and nav_count > 0, reason="缺真实销售文件，详情页用行业默认值"),
+        "yearReturns": status(nav_count >= 250, reason="净值历史不足 1 年，年度收益仅有部分年份"),
+        "peerPerformance": status(peer_has_data, reason="缺少同期同类 / 指数 / 基准数据"),
+        "riskSummary": status(risk_has_data, reason="缺 max_drawdown / sharpe，规则引擎无法定级"),
     }
     total = len(sections)
     available = sum(1 for item in sections.values() if item["dataStatus"] == "available")
