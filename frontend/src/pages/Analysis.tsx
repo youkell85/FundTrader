@@ -32,6 +32,7 @@ import {
   YAxis,
 } from "recharts";
 import { trpc } from "@/providers/trpc";
+import ResearchWorkbench from "@/components/analysis/ResearchWorkbench";
 import {
   ACCENT_HIGHLIGHT,
   ACCENT_INFO,
