@@ -61,6 +61,9 @@ app.all("/fund/api/*", async (c) => {
     const timeoutMs = isLong ? 120_000 : 30_000;
 
     const headers: Record<string, string> = {};
+    // Forward auth cookie so backend can authenticate REST requests
+    const cookieHeader = c.req.header("cookie");
+    if (cookieHeader) headers["Cookie"] = cookieHeader;
     if (c.req.method !== "GET" && c.req.method !== "HEAD") {
       headers["Content-Type"] = "application/json";
     }
