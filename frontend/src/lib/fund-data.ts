@@ -36,6 +36,14 @@ export function ratioPct(v: unknown): number {
   return x > 1 ? x : x * 100;
 }
 
+/** 费率显示：处理小数(0.015)或百分比(1.5)两种口径，统一显示为 x.xx% */
+export function feePct(v: unknown, digits = 2): string {
+  const x = num(v);
+  if (x === null) return "—";
+  const pct = Math.abs(x) > 1 ? x : x * 100;
+  return `${pct.toFixed(digits)}%`;
+}
+
 // === 已实现端点：业绩曲线需要的 4 条系列 ===
 //   - 本基金：navPoints（已有）
 //   - 偏股混合均值：暂无

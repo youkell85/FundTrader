@@ -14,6 +14,8 @@ import { getFundRanking } from '@/lib/api';
 import type { FundRankingResponse } from '@/types/allocation';
 import { useAllocationStore } from '@/store/allocationStore';
 
+import { feePct } from '@/lib/fund-data';
+
 function fmtNum(v: unknown, digits = 2, suffix = ''): string {
   if (v === undefined || v === null || v === '' || v === '—') return '—';
   const n = typeof v === 'number' ? v : parseFloat(String(v).replace('%', ''));
@@ -49,7 +51,7 @@ function generateCandidateNotes(fund: any): string[] {
     notes.push(`规模${fmtNum(scale, 1, '亿')}`);
   }
   if (feeM !== null) {
-    notes.push(`管理费${fmtNum(feeM * 100, 2, '%')}`);
+    notes.push(`管理费${feePct(fund.feeManage)}`);
   }
   if (notes.length === 0) {
     notes.push('部分指标缺失，评估可能不完整');
@@ -217,7 +219,7 @@ export default function FundsPage() {
                         <td className="py-2 px-2 data-number text-[#EE6666]">{fmtNum(perf.maxDrawdown, 2, '%')}</td>
                         <td className="py-2 px-2 data-number text-white/70">{fmtNum(perf.sharpeRatio, 2)}</td>
                         <td className="py-2 px-2 data-number text-white/50">{fmtNum(f.totalScale, 1, '亿')}</td>
-                        <td className="py-2 px-2 data-number text-white/50">{fmtNum(f.feeManage, 3)}</td>
+                        <td className="py-2 px-2 data-number text-white/50">{feePct(f.feeManage)}</td>
                         <td className="py-2 px-2 text-white/40 max-w-[200px] truncate">
                           {notes.map((n, i) => (
                             <span key={i} className="inline-block mr-2">• {n}</span>

@@ -10,6 +10,7 @@ import { useAuth } from "@/hooks/useAuth";
 import {
   RISK_COLOR, POSITIVE_METRIC_COLOR, getChangeTextClass,
 } from "@/lib/colors";
+import { feePct } from "@/lib/fund-data";
 
 const typeLabels: Record<string, string> = {
   equity: "股票型", hybrid: "混合型", bond: "债券型",
@@ -68,7 +69,9 @@ function generateResearchNotes(fund: any): string[] {
     notes.push(`规模${scale >= 10 ? `${fmtNum(scale, 1)}亿` : `${fmtNum(scale * 10000, 0)}万`}${scale > 100 ? "，超大规模" : scale > 10 ? "，中大型" : "，规模较小"}`);
   }
   if (feeM !== null) {
-    notes.push(`管理费率${fmtNum(feeM * 100, 2, "%")}${feeM > 0.015 ? "，费率偏高" : feeM < 0.008 ? "，费率较低" : ""}`);
+    const isPct = Math.abs(feeM) > 1;
+    const pctVal = isPct ? feeM : feeM * 100;
+    notes.push(`管理费率${feePct(fund.feeManage)}${pctVal > 1.5 ? "，费率偏高" : pctVal < 0.8 ? "，费率较低" : ""}`);
   }
   if (status === "missing") {
     notes.push("数据缺失严重，建议等待数据补充后再评估");
@@ -290,7 +293,7 @@ export default function ResearchWorkbench({ funds }: Props) {
                   { label: "Sharpe", get: (f: any) => fmtNum(f.performance?.sharpeRatio, 2) },
                   { label: "波动率", get: (f: any) => fmtNum(f.performance?.annualizedVolatility, 2, "%") },
                   { label: "规模", get: (f: any) => fmtNum(f.totalScale, 1, "亿") },
-                  { label: "管理费率", get: (f: any) => fmtNum(f.feeManage, 3) },
+                  { label: "管理费率", get: (f: any) => feePct(f.feeManage) },
                   { label: "数据状态", get: (f: any) => {
                     const s = getDataStatus(f);
                     const cfg = dataStatusConfig[s] || dataStatusConfig.partial;
@@ -455,7 +458,7 @@ export default function ResearchWorkbench({ funds }: Props) {
                   <div className="text-right data-number text-[#EE6666]">{fmtNum(perf.maxDrawdown, 2, "%")}</div>
                   <div className="text-right data-number" style={{ color: POSITIVE_METRIC_COLOR }}>{fmtNum(perf.sharpeRatio, 2)}</div>
                   <div className="text-right data-number text-white/50">{fmtNum(fund.totalScale, 1, "亿")}</div>
-                  <div className="text-right data-number text-white/50">{fmtNum(fund.feeManage, 3)}</div>
+                  <div className="text-right data-number text-white/50">{feePct(fund.feeManage)}</div>
                   <div className="text-[10px] text-white/40 leading-tight space-y-0.5">
                     {notes.map((n, i) => (
                       <div key={i} className="truncate" title={n}>• {n}</div>

@@ -1,4 +1,5 @@
 import { describe, expect, test, vi } from 'vitest';
+import { feePct } from '../src/lib/fund-data';
 
 vi.mock('./lib/fundtrader-client', () => ({
   getFundList: vi.fn(async () => ({ total: 0, funds: [] })),
@@ -144,5 +145,23 @@ describe('research candidate pool', () => {
   test('unauthenticated cannot list research candidates', async () => {
     const anon = fundRouter.createCaller({ user: null } as any);
     await expect(anon.listResearchCandidates()).rejects.toThrow();
+  });
+});
+
+describe('feePct helper', () => {
+  test('handles decimal fee (0.015 → 1.50%)', () => {
+    expect(feePct(0.015)).toBe('1.50%');
+  });
+  test('handles percent fee (1.5 → 1.50%)', () => {
+    expect(feePct(1.5)).toBe('1.50%');
+  });
+  test('handles null → —', () => {
+    expect(feePct(null)).toBe('—');
+  });
+  test('handles string decimal "0.012" → 1.20%', () => {
+    expect(feePct('0.012')).toBe('1.20%');
+  });
+  test('handles string percent "1.2" → 1.20%', () => {
+    expect(feePct('1.2')).toBe('1.20%');
   });
 });
