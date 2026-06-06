@@ -580,6 +580,8 @@ export default function Analysis() {
           </aside>
         </div>
 
+        <ResearchWorkbench funds={allFunds} />
+
         <section className="liquid-glass p-4 md:p-5 mt-4 md:mt-6">
           <h2 className="text-base font-medium text-white mb-3 flex items-center gap-2">
             <Shield className="w-5 h-5" style={{ color: RISK_COLOR }} />风险提示

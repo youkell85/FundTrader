@@ -6,6 +6,7 @@ import {
   ArrowUpDown, Database, Shield,
 } from "lucide-react";
 import { trpc } from "@/providers/trpc";
+import { useAuth } from "@/hooks/useAuth";
 import {
   RISK_COLOR, POSITIVE_METRIC_COLOR, getChangeTextClass,
 } from "@/lib/colors";
@@ -85,6 +86,7 @@ interface Props {
 
 export default function ResearchWorkbench({ funds }: Props) {
   const utils = trpc.useUtils();
+  const { user } = useAuth();
   const [search, setSearch] = useState("");
   const [fundType, setFundType] = useState("__all__");
   const [company, setCompany] = useState("__all__");
@@ -459,22 +461,24 @@ export default function ResearchWorkbench({ funds }: Props) {
                     <Link to={`/${fund.fundCode}`} className="p-1 rounded text-white/30 hover:text-white/60 hover:bg-white/[0.06]" title="查看详情">
                       <Eye className="w-3.5 h-3.5" />
                     </Link>
-                    {isWatchlist ? (
-                      <button
-                        onClick={() => removeFund.mutate({ code: fund.fundCode })}
-                        className="p-1 rounded text-[#EE6666]/60 hover:text-[#EE6666] hover:bg-[#EE6666]/10"
-                        title="移出自选"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    ) : (
-                      <button
-                        onClick={() => addByCode.mutate({ code: fund.fundCode })}
-                        className="p-1 rounded text-[#16C784]/60 hover:text-[#16C784] hover:bg-[#16C784]/10"
-                        title="加入自选"
-                      >
-                        <Star className="w-3.5 h-3.5" />
-                      </button>
+                    {user && (
+                      isWatchlist ? (
+                        <button
+                          onClick={() => removeFund.mutate({ code: fund.fundCode })}
+                          className="p-1 rounded text-[#EE6666]/60 hover:text-[#EE6666] hover:bg-[#EE6666]/10"
+                          title="移出自选"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => addByCode.mutate({ code: fund.fundCode })}
+                          className="p-1 rounded text-[#16C784]/60 hover:text-[#16C784] hover:bg-[#16C784]/10"
+                          title="加入自选"
+                        >
+                          <Star className="w-3.5 h-3.5" />
+                        </button>
+                      )
                     )}
                   </div>
                 </div>
@@ -496,14 +500,16 @@ export default function ResearchWorkbench({ funds }: Props) {
                       <button onClick={() => toggleCompare(fund.fundCode)} className={`p-1.5 rounded ${isCompare ? "bg-[#3B6CFF]/20 text-[#3B6CFF]" : "text-white/30"}`}>
                         {isCompare ? <Minus className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
                       </button>
-                      {isWatchlist ? (
-                        <button onClick={() => removeFund.mutate({ code: fund.fundCode })} className="p-1.5 rounded text-[#EE6666]/60">
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      ) : (
-                        <button onClick={() => addByCode.mutate({ code: fund.fundCode })} className="p-1.5 rounded text-[#16C784]/60">
-                          <Star className="w-3.5 h-3.5" />
-                        </button>
+                      {user && (
+                        isWatchlist ? (
+                          <button onClick={() => removeFund.mutate({ code: fund.fundCode })} className="p-1.5 rounded text-[#EE6666]/60">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        ) : (
+                          <button onClick={() => addByCode.mutate({ code: fund.fundCode })} className="p-1.5 rounded text-[#16C784]/60">
+                            <Star className="w-3.5 h-3.5" />
+                          </button>
+                        )
                       )}
                     </div>
                   </div>

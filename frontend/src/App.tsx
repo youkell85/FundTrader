@@ -87,7 +87,7 @@ export default function App() {
             {/* 需登录 */}
             <Route path="/backtest" element={<RequireAuth><Backtest /></RequireAuth>} />
             <Route path="/recommend" element={<RequireAuth><Recommend /></RequireAuth>} />
-            <Route path="/analysis" element={<RequireAuth><Analysis /></RequireAuth>} />
+            <Route path="/analysis" element={<Analysis />} />
             {/* AllocationProvider 共享同一个实例，Wizard → Result 状态不丢失 */}
             <Route path="/allocation" element={<AllocationProvider><RequireAuth><Outlet /></RequireAuth></AllocationProvider>}>
               <Route index element={<AllocationWizard />} />
