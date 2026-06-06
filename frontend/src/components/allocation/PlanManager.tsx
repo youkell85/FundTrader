@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router';
 import { Save, Download, Star, Trash2, FileText, Clock, FolderOpen } from 'lucide-react';
 import { savePlan, listPlans, deletePlan, updatePlan, getPlan } from '@/lib/api';
 import type { SavedPlanItem, PlanListResponse } from '@/types/allocation';
@@ -11,6 +12,7 @@ interface PlanManagerProps {
 }
 
 export default function PlanManager({ onSave }: PlanManagerProps) {
+  const navigate = useNavigate();
   const [plans, setPlans] = useState<PlanListResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -95,6 +97,7 @@ export default function PlanManager({ onSave }: PlanManagerProps) {
       dispatch({ type: 'SET_DCA_RESULT', result: res.dca_plan?.result || null });
       setMessage({ type: 'success', text: `方案"${plan.name}"已恢复` });
       setTimeout(() => setMessage(null), 3000);
+      navigate('/allocation/result');
     } catch (e: any) {
       setMessage({ type: 'error', text: e.message || '恢复失败' });
     } finally {

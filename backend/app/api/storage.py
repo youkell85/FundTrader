@@ -23,7 +23,7 @@ def _get_current_user(request: Request) -> Optional[dict]:
     """从 cookie 或 Authorization header 解析当前登录用户。"""
     token = None
     # 1. 从 cookie 读取
-    cookie = request.headers.get("cookie", "")
+    cookie = request.headers.get("cookie", "") or ""
     for part in cookie.split(";"):
         part = part.strip()
         if part.startswith("kimi_sid="):
@@ -31,7 +31,7 @@ def _get_current_user(request: Request) -> Optional[dict]:
             break
     # 2. 从 Authorization header 读取
     if not token:
-        auth = request.headers.get("authorization", "")
+        auth = request.headers.get("authorization", "") or ""
         if auth.lower().startswith("bearer "):
             token = auth[len("bearer "):].strip()
     if not token:
@@ -349,13 +349,14 @@ async def generate_comparison_report_endpoint(
 # ─── Portfolio Performance Tracking ───
 
 @router.get("/portfolio/track/{plan_id}")
-async def track_portfolio_performance(plan_id: str):
+async def track_portfolio_performance(plan_id: str, request: Request):
     """Track realized portfolio performance for a saved plan.
 
     Fetches actual ETF NAV data and computes cumulative returns,
     drawdown, and performance metrics.
     """
-    plan = await run_in_threadpool(Database.get_plan, plan_id)
+    user = _require_user(request)
+    plan = await run_in_threadpool(Database.get_plan, plan_id, owner_user_id=user["id"])
     if not plan:
         raise HTTPException(status_code=404, detail="Plan not found")
 
@@ -447,15 +448,16 @@ async def check_portfolio_alerts(body: dict):
 
 
 @router.post("/alerts/check/{plan_id}")
-async def check_plan_alerts(plan_id: str, body: dict = None):
+async def check_plan_alerts(plan_id: str, request: Request, body: dict = None):
     """Check alerts for a saved plan automatically.
 
     Loads the plan's target weights and computes current state from
     portfolio tracker, then runs alert checks.
     """
+    user = _require_user(request)
     from ..allocation.portfolio_tracker import compute_portfolio_performance, extract_weights_from_plan
 
-    plan = await run_in_threadpool(Database.get_plan, plan_id)
+    plan = await run_in_threadpool(Database.get_plan, plan_id, owner_user_id=user["id"])
     if not plan:
         raise HTTPException(status_code=404, detail="Plan not found")
 

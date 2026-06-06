@@ -305,10 +305,6 @@ class Database:
                 CREATE INDEX IF NOT EXISTS idx_fund_snapshot_type ON fund_snapshot(type);
                 CREATE INDEX IF NOT EXISTS idx_fund_snapshot_updated ON fund_snapshot(updated_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_fund_snapshot_company ON fund_snapshot(company);
-                CREATE INDEX IF NOT EXISTS idx_fund_master_type_active ON fund_master(fund_type, is_active);
-                CREATE INDEX IF NOT EXISTS idx_fund_metrics_code ON fund_metrics_snapshot(code);
-                CREATE INDEX IF NOT EXISTS idx_fund_holdings_code ON fund_holdings_snapshot(code);
-                CREATE INDEX IF NOT EXISTS idx_external_api_created ON external_api_call_log(created_at);
             """)
 
     # ─── Allocation Plans ───
@@ -339,11 +335,14 @@ class Database:
 
     @staticmethod
     def get_plan(plan_id: str, owner_user_id: str | None = None) -> dict[str, Any] | None:
-        """Get a single plan by ID. If owner_user_id provided, enforce ownership."""
+        """Get a single plan by ID. If owner_user_id provided, enforce exact ownership.
+
+        Legacy plans with NULL owner_user_id are NOT returned to any user.
+        """
         with get_db() as conn:
             if owner_user_id:
                 row = conn.execute(
-                    "SELECT * FROM allocation_plans WHERE id = ? AND (owner_user_id = ? OR owner_user_id IS NULL)",
+                    "SELECT * FROM allocation_plans WHERE id = ? AND owner_user_id = ?",
                     (plan_id, owner_user_id)
                 ).fetchone()
             else:
@@ -362,12 +361,15 @@ class Database:
         offset: int = 0,
         owner_user_id: str | None = None,
     ) -> list[dict[str, Any]]:
-        """List allocation plans. If owner_user_id provided, filter by owner."""
+        """List allocation plans. If owner_user_id provided, filter by exact owner.
+
+        Legacy plans with NULL owner_user_id are NEVER returned.
+        """
         query = "SELECT * FROM allocation_plans WHERE is_archived = 0"
         params: list[Any] = []
 
         if owner_user_id:
-            query += " AND (owner_user_id = ? OR owner_user_id IS NULL)"
+            query += " AND owner_user_id = ?"
             params.append(owner_user_id)
         else:
             # Without owner filter, only show plans that have an owner (not legacy global plans)
@@ -421,7 +423,7 @@ class Database:
 
         where_clause = "WHERE id = ?"
         if owner_user_id:
-            where_clause += " AND (owner_user_id = ? OR owner_user_id IS NULL)"
+            where_clause += " AND owner_user_id = ?"
             params.append(owner_user_id)
 
         with get_db() as conn:
@@ -433,11 +435,14 @@ class Database:
 
     @staticmethod
     def delete_plan(plan_id: str, owner_user_id: str | None = None) -> bool:
-        """Delete a plan. If owner_user_id provided, enforce ownership."""
+        """Delete a plan. If owner_user_id provided, enforce exact ownership.
+
+        Legacy plans with NULL owner_user_id cannot be deleted by any user.
+        """
         with get_db() as conn:
             if owner_user_id:
                 cursor = conn.execute(
-                    "DELETE FROM allocation_plans WHERE id = ? AND (owner_user_id = ? OR owner_user_id IS NULL)",
+                    "DELETE FROM allocation_plans WHERE id = ? AND owner_user_id = ?",
                     (plan_id, owner_user_id)
                 )
             else:
@@ -448,12 +453,15 @@ class Database:
 
     @staticmethod
     def count_plans(risk_profile: str | None = None, owner_user_id: str | None = None) -> int:
-        """Count plans. If owner_user_id provided, filter by owner."""
+        """Count plans. If owner_user_id provided, filter by exact owner.
+
+        Legacy plans with NULL owner_user_id are NEVER counted.
+        """
         query = "SELECT COUNT(*) as cnt FROM allocation_plans WHERE is_archived = 0"
         params: list[Any] = []
 
         if owner_user_id:
-            query += " AND (owner_user_id = ? OR owner_user_id IS NULL)"
+            query += " AND owner_user_id = ?"
             params.append(owner_user_id)
         else:
             query += " AND owner_user_id IS NOT NULL"
