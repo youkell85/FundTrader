@@ -177,7 +177,8 @@ class Database:
                     response_json TEXT NOT NULL,
                     risk_profile TEXT NOT NULL,
                     is_favorite INTEGER DEFAULT 0,
-                    is_archived INTEGER DEFAULT 0
+                    is_archived INTEGER DEFAULT 0,
+                    owner_user_id TEXT DEFAULT NULL
                 );
 
                 -- 调仓历史表
@@ -284,10 +285,17 @@ class Database:
                     company TEXT DEFAULT '',
                     updated_at TEXT NOT NULL
                 );
-
+            """)
+            # ─── Schema migration: add owner_user_id if missing ───
+            try:
+                conn.execute("ALTER TABLE allocation_plans ADD COLUMN owner_user_id TEXT DEFAULT NULL")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+            conn.executescript("""
                 -- 索引
                 CREATE INDEX IF NOT EXISTS idx_plans_created ON allocation_plans(created_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_plans_risk ON allocation_plans(risk_profile);
+                CREATE INDEX IF NOT EXISTS idx_plans_owner_created ON allocation_plans(owner_user_id, created_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_rebalance_date ON rebalance_history(executed_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_rebalance_plan ON rebalance_history(plan_id);
                 CREATE INDEX IF NOT EXISTS idx_macro_indicator ON macro_history(indicator, date DESC);
@@ -313,28 +321,35 @@ class Database:
         response: dict[str, Any],
         risk_profile: str,
         description: str = "",
+        owner_user_id: str | None = None,
     ) -> str:
         """Save an allocation plan."""
         now = datetime.now().isoformat()
         with get_db() as conn:
             conn.execute(
                 """INSERT OR REPLACE INTO allocation_plans
-                   (id, created_at, updated_at, name, description, request_json, response_json, risk_profile)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                   (id, created_at, updated_at, name, description, request_json, response_json, risk_profile, owner_user_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (plan_id, now, now, name, description,
                  json.dumps(request, ensure_ascii=False),
                  json.dumps(response, ensure_ascii=False),
-                 risk_profile)
+                 risk_profile, owner_user_id)
             )
         return plan_id
 
     @staticmethod
-    def get_plan(plan_id: str) -> dict[str, Any] | None:
-        """Get a single plan by ID."""
+    def get_plan(plan_id: str, owner_user_id: str | None = None) -> dict[str, Any] | None:
+        """Get a single plan by ID. If owner_user_id provided, enforce ownership."""
         with get_db() as conn:
-            row = conn.execute(
-                "SELECT * FROM allocation_plans WHERE id = ?", (plan_id,)
-            ).fetchone()
+            if owner_user_id:
+                row = conn.execute(
+                    "SELECT * FROM allocation_plans WHERE id = ? AND (owner_user_id = ? OR owner_user_id IS NULL)",
+                    (plan_id, owner_user_id)
+                ).fetchone()
+            else:
+                row = conn.execute(
+                    "SELECT * FROM allocation_plans WHERE id = ?", (plan_id,)
+                ).fetchone()
             if row:
                 return Database._plan_row_to_dict(row)
         return None
@@ -345,10 +360,18 @@ class Database:
         favorite_only: bool = False,
         limit: int = 50,
         offset: int = 0,
+        owner_user_id: str | None = None,
     ) -> list[dict[str, Any]]:
-        """List allocation plans."""
+        """List allocation plans. If owner_user_id provided, filter by owner."""
         query = "SELECT * FROM allocation_plans WHERE is_archived = 0"
         params: list[Any] = []
+
+        if owner_user_id:
+            query += " AND (owner_user_id = ? OR owner_user_id IS NULL)"
+            params.append(owner_user_id)
+        else:
+            # Without owner filter, only show plans that have an owner (not legacy global plans)
+            query += " AND owner_user_id IS NOT NULL"
 
         if risk_profile:
             query += " AND risk_profile = ?"
@@ -370,8 +393,9 @@ class Database:
         description: str | None = None,
         is_favorite: bool | None = None,
         is_archived: bool | None = None,
+        owner_user_id: str | None = None,
     ) -> bool:
-        """Update plan metadata."""
+        """Update plan metadata. If owner_user_id provided, enforce ownership."""
         updates = []
         params: list[Any] = []
 
@@ -395,27 +419,45 @@ class Database:
         params.append(datetime.now().isoformat())
         params.append(plan_id)
 
+        where_clause = "WHERE id = ?"
+        if owner_user_id:
+            where_clause += " AND (owner_user_id = ? OR owner_user_id IS NULL)"
+            params.append(owner_user_id)
+
         with get_db() as conn:
             cursor = conn.execute(
-                f"UPDATE allocation_plans SET {', '.join(updates)} WHERE id = ?",
+                f"UPDATE allocation_plans SET {', '.join(updates)} {where_clause}",
                 params
             )
             return cursor.rowcount > 0
 
     @staticmethod
-    def delete_plan(plan_id: str) -> bool:
-        """Delete a plan."""
+    def delete_plan(plan_id: str, owner_user_id: str | None = None) -> bool:
+        """Delete a plan. If owner_user_id provided, enforce ownership."""
         with get_db() as conn:
-            cursor = conn.execute(
-                "DELETE FROM allocation_plans WHERE id = ?", (plan_id,)
-            )
+            if owner_user_id:
+                cursor = conn.execute(
+                    "DELETE FROM allocation_plans WHERE id = ? AND (owner_user_id = ? OR owner_user_id IS NULL)",
+                    (plan_id, owner_user_id)
+                )
+            else:
+                cursor = conn.execute(
+                    "DELETE FROM allocation_plans WHERE id = ?", (plan_id,)
+                )
             return cursor.rowcount > 0
 
     @staticmethod
-    def count_plans(risk_profile: str | None = None) -> int:
-        """Count plans."""
+    def count_plans(risk_profile: str | None = None, owner_user_id: str | None = None) -> int:
+        """Count plans. If owner_user_id provided, filter by owner."""
         query = "SELECT COUNT(*) as cnt FROM allocation_plans WHERE is_archived = 0"
         params: list[Any] = []
+
+        if owner_user_id:
+            query += " AND (owner_user_id = ? OR owner_user_id IS NULL)"
+            params.append(owner_user_id)
+        else:
+            query += " AND owner_user_id IS NOT NULL"
+
         if risk_profile:
             query += " AND risk_profile = ?"
             params.append(risk_profile)
@@ -437,6 +479,7 @@ class Database:
             "risk_profile": row["risk_profile"],
             "is_favorite": bool(row["is_favorite"]),
             "is_archived": bool(row["is_archived"]),
+            "owner_user_id": row["owner_user_id"],
         }
 
     # ─── Rebalance History ───

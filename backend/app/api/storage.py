@@ -1,7 +1,7 @@
 """Storage API — 配置方案存储与调仓历史管理"""
 import uuid
-from typing import List
-from fastapi import APIRouter, HTTPException, Query
+from typing import List, Optional
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 from starlette.concurrency import run_in_threadpool
 
@@ -10,7 +10,7 @@ from ..allocation.models import (
     AddRebalanceRecordRequest, RebalanceStatsResponse,
     RebalanceHistoryItem, RebalanceHistoryResponse,
 )
-from ..storage.database import Database
+from ..storage.database import Database, UserStore
 from ..allocation.report_generator import generate_allocation_report, generate_comparison_report
 from ..allocation.alert_engine import (
     check_alerts, get_active_alerts, mark_alert_read, clear_alerts, DEFAULT_THRESHOLDS,
@@ -19,23 +19,53 @@ from ..allocation.alert_engine import (
 router = APIRouter(prefix="/storage", tags=["数据存储"])
 
 
+def _get_current_user(request: Request) -> Optional[dict]:
+    """从 cookie 或 Authorization header 解析当前登录用户。"""
+    token = None
+    # 1. 从 cookie 读取
+    cookie = request.headers.get("cookie", "")
+    for part in cookie.split(";"):
+        part = part.strip()
+        if part.startswith("kimi_sid="):
+            token = part[len("kimi_sid="):]
+            break
+    # 2. 从 Authorization header 读取
+    if not token:
+        auth = request.headers.get("authorization", "")
+        if auth.lower().startswith("bearer "):
+            token = auth[len("bearer "):].strip()
+    if not token:
+        return None
+    return UserStore.get_user_by_session(token)
+
+
+def _require_user(request: Request) -> dict:
+    """要求必须登录，否则 401。"""
+    user = _get_current_user(request)
+    if not user:
+        raise HTTPException(status_code=401, detail="请先登录")
+    return user
+
+
 # ─── Allocation Plans ───
 
 @router.post("/plans", response_model=SavedPlanItem)
-async def save_plan(request: SavePlanRequest):
+async def save_plan(req: SavePlanRequest, request: Request):
     """保存配置方案"""
+    user = _require_user(request)
     plan_id = str(uuid.uuid4())[:8]
 
     def _save():
         Database.save_plan(
             plan_id=plan_id,
-            name=request.name,
-            request=request.request,
-            response=request.response,
-            risk_profile=request.request.get("risk_tolerance", "balanced"),
-            description=request.description,
+            name=req.name,
+            request=req.request,
+            response=req.response,
+            risk_profile=req.request.get("risk_tolerance", "balanced"),
+            description=req.description,
+            owner_user_id=user["id"],
         )
-        return Database.get_plan(plan_id)
+        return Database.get_plan(plan_id, owner_user_id=user["id"])
 
     plan = await run_in_threadpool(_save)
     if plan:
@@ -45,20 +75,23 @@ async def save_plan(request: SavePlanRequest):
 
 @router.get("/plans", response_model=PlanListResponse)
 async def list_plans(
+    request: Request,
     risk_profile: str | None = None,
     favorite_only: bool = False,
     limit: int = 50,
     offset: int = 0,
 ):
     """获取配置方案列表"""
+    user = _require_user(request)
     def _list():
         plans = Database.list_plans(
             risk_profile=risk_profile,
             favorite_only=favorite_only,
             limit=limit,
             offset=offset,
+            owner_user_id=user["id"],
         )
-        total = Database.count_plans(risk_profile=risk_profile)
+        total = Database.count_plans(risk_profile=risk_profile, owner_user_id=user["id"])
         return plans, total
 
     plans, total = await run_in_threadpool(_list)
@@ -69,28 +102,31 @@ async def list_plans(
 
 
 @router.get("/plans/{plan_id}", response_model=SavedPlanItem)
-async def get_plan(plan_id: str):
+async def get_plan(plan_id: str, request: Request):
     """获取单个配置方案"""
-    plan = await run_in_threadpool(Database.get_plan, plan_id)
+    user = _require_user(request)
+    plan = await run_in_threadpool(Database.get_plan, plan_id, owner_user_id=user["id"])
     if plan:
         return SavedPlanItem(**plan)
     raise HTTPException(status_code=404, detail="Plan not found")
 
 
 @router.patch("/plans/{plan_id}", response_model=SavedPlanItem)
-async def update_plan(plan_id: str, request: UpdatePlanRequest):
+async def update_plan(plan_id: str, req: UpdatePlanRequest, request: Request):
     """更新配置方案"""
+    user = _require_user(request)
     def _update():
         success = Database.update_plan(
             plan_id=plan_id,
-            name=request.name,
-            description=request.description,
-            is_favorite=request.is_favorite,
-            is_archived=request.is_archived,
+            name=req.name,
+            description=req.description,
+            is_favorite=req.is_favorite,
+            is_archived=req.is_archived,
+            owner_user_id=user["id"],
         )
         if not success:
             return None
-        return Database.get_plan(plan_id)
+        return Database.get_plan(plan_id, owner_user_id=user["id"])
 
     plan = await run_in_threadpool(_update)
     if plan:
@@ -99,18 +135,20 @@ async def update_plan(plan_id: str, request: UpdatePlanRequest):
 
 
 @router.delete("/plans/{plan_id}")
-async def delete_plan(plan_id: str):
+async def delete_plan(plan_id: str, request: Request):
     """删除配置方案"""
-    success = await run_in_threadpool(Database.delete_plan, plan_id)
+    user = _require_user(request)
+    success = await run_in_threadpool(Database.delete_plan, plan_id, owner_user_id=user["id"])
     if success:
         return {"success": True}
     raise HTTPException(status_code=404, detail="Plan not found")
 
 
 @router.post("/plans/{plan_id}/clone")
-async def clone_plan(plan_id: str, name: str = Query(default=None, description="新方案名称")):
+async def clone_plan(plan_id: str, request: Request, name: str = Query(default=None, description="新方案名称")):
     """克隆一个已保存的配置方案"""
-    plan = await run_in_threadpool(Database.get_plan, plan_id)
+    user = _require_user(request)
+    plan = await run_in_threadpool(Database.get_plan, plan_id, owner_user_id=user["id"])
     if not plan:
         raise HTTPException(status_code=404, detail="Plan not found")
 
@@ -125,8 +163,9 @@ async def clone_plan(plan_id: str, name: str = Query(default=None, description="
             response=plan["response"],
             risk_profile=plan.get("risk_profile", "balanced"),
             description=plan.get("description", ""),
+            owner_user_id=user["id"],
         )
-        return Database.get_plan(new_id)
+        return Database.get_plan(new_id, owner_user_id=user["id"])
 
     new_plan = await run_in_threadpool(_clone)
     return SavedPlanItem(**new_plan)
@@ -134,9 +173,11 @@ async def clone_plan(plan_id: str, name: str = Query(default=None, description="
 
 @router.get("/plans/compare-metrics")
 async def compare_plan_metrics(
+    request: Request,
     plan_ids: str = Query(..., description="方案ID列表(逗号分隔, 最多5个)"),
 ):
     """Compare performance metrics across multiple saved plans."""
+    user = _require_user(request)
     from ..allocation.portfolio_tracker import compute_portfolio_performance, extract_weights_from_plan
 
     ids = [pid.strip() for pid in plan_ids.split(",")[:5]]
@@ -144,7 +185,7 @@ async def compare_plan_metrics(
     def _compare():
         results = []
         for pid in ids:
-            plan = Database.get_plan(pid)
+            plan = Database.get_plan(pid, owner_user_id=user["id"])
             if not plan:
                 continue
             weights = extract_weights_from_plan(plan["response"])
@@ -167,8 +208,9 @@ async def compare_plan_metrics(
 
 
 @router.post("/plans/batch-delete")
-async def batch_delete_plans(body: dict):
+async def batch_delete_plans(request: Request, body: dict):
     """批量删除方案"""
+    user = _require_user(request)
     plan_ids = body.get("plan_ids", [])
     if not plan_ids:
         raise HTTPException(status_code=400, detail="plan_ids required")
@@ -176,7 +218,7 @@ async def batch_delete_plans(body: dict):
     def _batch():
         deleted = []
         for pid in plan_ids[:20]:  # Limit to 20
-            if Database.delete_plan(pid):
+            if Database.delete_plan(pid, owner_user_id=user["id"]):
                 deleted.append(pid)
         return deleted
 
@@ -185,15 +227,16 @@ async def batch_delete_plans(body: dict):
 
 
 @router.post("/plans/batch-archive")
-async def batch_archive_plans(body: dict):
+async def batch_archive_plans(request: Request, body: dict):
     """批量归档/取消归档方案"""
+    user = _require_user(request)
     plan_ids = body.get("plan_ids", [])
     archive = body.get("archive", True)
 
     def _batch():
         updated = []
         for pid in plan_ids[:20]:
-            if Database.update_plan(pid, is_archived=archive):
+            if Database.update_plan(pid, is_archived=archive, owner_user_id=user["id"]):
                 updated.append(pid)
         return updated
 
@@ -271,9 +314,10 @@ async def get_rebalance_stats():
 # ─── Report Generation ───
 
 @router.get("/report/{plan_id}", response_class=HTMLResponse)
-async def generate_plan_report(plan_id: str):
+async def generate_plan_report(plan_id: str, request: Request):
     """生成配置方案报告 (HTML)"""
-    plan = await run_in_threadpool(Database.get_plan, plan_id)
+    user = _require_user(request)
+    plan = await run_in_threadpool(Database.get_plan, plan_id, owner_user_id=user["id"])
     if not plan:
         raise HTTPException(status_code=404, detail="Plan not found")
     html = await run_in_threadpool(generate_allocation_report, plan["response"])
@@ -282,14 +326,15 @@ async def generate_plan_report(plan_id: str):
 
 @router.get("/report/compare", response_class=HTMLResponse)
 async def generate_comparison_report_endpoint(
+    request: Request,
     plan_ids: str = Query(..., description="方案ID列表(逗号分隔)"),
 ):
     """生成方案对比报告 (HTML)"""
-    from typing import List as TypingList
+    user = _require_user(request)
     def _get_plans():
         plans = []
         for pid in plan_ids.split(",")[:5]:  # 最多对比5个方案
-            plan = Database.get_plan(pid.strip())
+            plan = Database.get_plan(pid.strip(), owner_user_id=user["id"])
             if plan:
                 plans.append(plan)
         return plans

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Save, Download, Star, Trash2, FileText, Clock } from 'lucide-react';
-import { savePlan, listPlans, deletePlan, updatePlan } from '@/lib/api';
+import { Save, Download, Star, Trash2, FileText, Clock, FolderOpen } from 'lucide-react';
+import { savePlan, listPlans, deletePlan, updatePlan, getPlan } from '@/lib/api';
 import type { SavedPlanItem, PlanListResponse } from '@/types/allocation';
 import { useAllocationStore } from '@/store/allocationStore';
 import { RISK_LABELS } from '@/types/allocation';
@@ -14,18 +14,15 @@ export default function PlanManager({ onSave }: PlanManagerProps) {
   const [plans, setPlans] = useState<PlanListResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [restoring, setRestoring] = useState<string | null>(null);
   const [planName, setPlanName] = useState('');
   const [showList, setShowList] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  let storeOutput: any = null;
-  let storeConfig: any = null;
-  let store: any = null;
-  try {
-    store = useAllocationStore();
-    storeOutput = store.state.output;
-    storeConfig = store.state.config;
-  } catch {}
+  const store = useAllocationStore();
+  const storeOutput = store.state.output;
+  const storeConfig = store.state.config;
+  const dispatch = store.dispatch;
 
   const fetchPlans = async () => {
     setLoading(true);
@@ -34,6 +31,7 @@ export default function PlanManager({ onSave }: PlanManagerProps) {
       setPlans(res);
     } catch (e: any) {
       console.error('Failed to fetch plans:', e);
+      setMessage({ type: 'error', text: e?.message || '获取方案列表失败' });
     } finally {
       setLoading(false);
     }
@@ -57,10 +55,10 @@ export default function PlanManager({ onSave }: PlanManagerProps) {
       const name = planName.trim() || `配置方案 ${new Date().toLocaleDateString()}`;
       const responseWithExecution = {
         ...(storeOutput as any),
-        execution_plan: store.executionPlan,
+        execution_plan: store.state.executionPlan,
         dca_plan: {
-          config: store.dcaConfig,
-          result: store.dcaResult,
+          config: store.state.dcaConfig,
+          result: store.state.dcaResult,
         },
       };
       await savePlan({
@@ -76,6 +74,31 @@ export default function PlanManager({ onSave }: PlanManagerProps) {
       setMessage({ type: 'error', text: e.message || '保存失败' });
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleRestore = async (planId: string) => {
+    setRestoring(planId);
+    try {
+      const plan = await getPlan(planId);
+      if (!plan || !plan.response) {
+        setMessage({ type: 'error', text: '方案数据无效，无法恢复' });
+        return;
+      }
+      // Restore to allocation store
+      const req = plan.request || {};
+      const res = plan.response as any;
+      dispatch({ type: 'UPDATE_CONFIG', patch: req });
+      dispatch({ type: 'SET_OUTPUT', output: res });
+      dispatch({ type: 'SET_EXECUTION_PLAN', plan: res.execution_plan || null });
+      dispatch({ type: 'SET_DCA_CONFIG', config: res.dca_plan?.config || null });
+      dispatch({ type: 'SET_DCA_RESULT', result: res.dca_plan?.result || null });
+      setMessage({ type: 'success', text: `方案"${plan.name}"已恢复` });
+      setTimeout(() => setMessage(null), 3000);
+    } catch (e: any) {
+      setMessage({ type: 'error', text: e.message || '恢复失败' });
+    } finally {
+      setRestoring(null);
     }
   };
 
@@ -215,6 +238,18 @@ export default function PlanManager({ onSave }: PlanManagerProps) {
                       </div>
                     </div>
                     <div className="flex items-center gap-1 ml-2">
+                      <button
+                        onClick={() => handleRestore(plan.id)}
+                        disabled={restoring === plan.id}
+                        className="p-1.5 rounded text-white/40 hover:text-[#3B6CFF] hover:bg-white/[0.06] transition-colors disabled:opacity-50"
+                        title="恢复/打开"
+                      >
+                        {restoring === plan.id ? (
+                          <span className="w-3.5 h-3.5 border border-[#3B6CFF] border-t-transparent rounded-full animate-spin inline-block" />
+                        ) : (
+                          <FolderOpen className="w-3.5 h-3.5" />
+                        )}
+                      </button>
                       <button
                         onClick={() => handleExport(plan.id)}
                         className="p-1.5 rounded text-white/40 hover:text-[#FAC858] hover:bg-white/[0.06] transition-colors"
