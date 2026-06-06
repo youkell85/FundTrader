@@ -10,6 +10,7 @@ import PageHeader from '@/components/ui/PageHeader';
 import SectionCard from '@/components/ui/SectionCard';
 import FundRankingPanel from '@/components/allocation/FundRankingPanel';
 import FeeAnalysisPanel from '@/components/allocation/FeeAnalysisPanel';
+import ResearchCandidateMatchPanel from '@/components/allocation/ResearchCandidateMatchPanel';
 import { getFundRanking } from '@/lib/api';
 import type { FundRankingResponse } from '@/types/allocation';
 import { useAllocationStore } from '@/store/allocationStore';
@@ -241,6 +242,17 @@ export default function FundsPage() {
               </table>
             </div>
           )}
+          <div className="mt-4 pt-4 border-t border-white/[0.04]">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-xs text-white/50 font-medium">候选池匹配分析</span>
+              <span className="text-[10px] text-white/25">仅研究建议，不自动改权重</span>
+            </div>
+            <ResearchCandidateMatchPanel
+              candidates={candidates}
+              portfolioFunds={funds}
+              loading={candidatesLoading}
+            />
+          </div>
         </SectionCard>
       ) : (
         <SectionCard title="研究候选池" icon={Shield} iconColor="#9D7BFF">

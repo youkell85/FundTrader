@@ -489,7 +489,7 @@ export default function ResearchWorkbench({ funds }: Props) {
                           <button
                             onClick={() => addResearchCandidate.mutate({ code: fund.fundCode })}
                             className="p-1 rounded text-white/30 hover:text-[#9D7BFF] hover:bg-[#9D7BFF]/10"
-                            title="加入候选池"
+                            title="加入配置候选"
                           >
                             <Shield className="w-3.5 h-3.5" />
                           </button>
