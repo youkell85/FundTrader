@@ -55,6 +55,7 @@ export default function PlansPage() {
       const res = plan.response as any;
       dispatch({ type: 'UPDATE_CONFIG', patch: req });
       dispatch({ type: 'SET_OUTPUT', output: res });
+      dispatch({ type: 'SET_VARIANTS', variants: res.variants || null });
       dispatch({ type: 'SET_EXECUTION_PLAN', plan: res.execution_plan || null });
       dispatch({ type: 'SET_DCA_CONFIG', config: res.dca_plan?.config || null });
       dispatch({ type: 'SET_DCA_RESULT', result: res.dca_plan?.result || null });
@@ -95,7 +96,8 @@ export default function PlansPage() {
     const hasExecution = !!res.execution_plan;
     const hasDca = !!res.dca_plan?.result;
     const hasBacktest = !!res.backtest_summary || !!res.backtest_results;
-    return { hasExecution, hasDca, hasBacktest };
+    const hasVariants = !!res.variants || !!res._variants_snapshot;
+    return { hasExecution, hasDca, hasBacktest, hasVariants };
   };
 
   const plans = plansData?.plans || [];
@@ -171,6 +173,11 @@ export default function PlansPage() {
                         {snap.hasDca && (
                           <span className="text-[10px] px-1 py-0.5 rounded bg-[#16C784]/10 text-[#16C784]/80 shrink-0">
                             DCA回测
+                          </span>
+                        )}
+                        {snap.hasVariants && (
+                          <span className="text-[10px] px-1 py-0.5 rounded bg-[#9D7BFF]/10 text-[#9D7BFF]/80 shrink-0">
+                            多方案对比
                           </span>
                         )}
                       </div>

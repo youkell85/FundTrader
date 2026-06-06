@@ -59,6 +59,9 @@ class SAASummary(BaseModel):
     sharpe_ratio: float
     glide_path_applied: bool = False
     risk_contributions: Dict[str, float]
+    risk_contribution_source: str = "covariance_matrix"
+    data_status: str = "real"
+    missing_reason: Optional[str] = None
 
 
 class MacroSignalItem(BaseModel):

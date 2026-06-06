@@ -44,14 +44,15 @@ class BacktestMetrics(BaseModel):
     """Aggregate performance metrics for one simulation mode."""
 
     annualized_return: float  # %
-    annualized_vol: float  # %
+    annualized_volatility: float  # % (frontend-aligned alias)
     max_drawdown: float  # % (positive number representing loss)
     max_drawdown_duration_days: int
     sharpe_ratio: float
     calmar_ratio: float
     sortino_ratio: float
-    win_rate_monthly: float  # % of positive months
+    monthly_win_rate: float  # % of positive months (frontend-aligned)
     avg_turnover: float  # % average per rebalance
+    total_rebalances: int = 0
     taa_value_added: Optional[float] = None  # excess vs saa_only
 
 

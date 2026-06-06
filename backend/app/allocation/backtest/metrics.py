@@ -73,13 +73,13 @@ def compute_metrics(
 
     return BacktestMetrics(
         annualized_return=round(ann_return * 100, 2),
-        annualized_vol=round(ann_vol * 100, 2),
+        annualized_volatility=round(ann_vol * 100, 2),
         max_drawdown=round(max_dd * 100, 2),
         max_drawdown_duration_days=max_dd_duration,
         sharpe_ratio=round(sharpe, 3),
         calmar_ratio=round(calmar, 3),
         sortino_ratio=round(sortino, 3),
-        win_rate_monthly=round(win_rate, 1),
+        monthly_win_rate=round(win_rate, 1),
         avg_turnover=round(avg_turnover, 2),
         taa_value_added=taa_value_added,
     )
@@ -203,8 +203,9 @@ def compute_regime_attribution(
             avg_monthly = (total_return / months) * 100 if months > 0 else 0.0
 
         result[regime] = {
-            "period_return": round(total_return * 100, 2),
+            "total_return": round(total_return * 100, 2),
             "period_count": count,
+            "total_days": total_days,
             "avg_monthly": round(avg_monthly, 2),
         }
 
@@ -276,13 +277,13 @@ def _empty_metrics() -> BacktestMetrics:
     """Return zero-filled metrics for edge cases."""
     return BacktestMetrics(
         annualized_return=0.0,
-        annualized_vol=0.0,
+        annualized_volatility=0.0,
         max_drawdown=0.0,
         max_drawdown_duration_days=0,
         sharpe_ratio=0.0,
         calmar_ratio=0.0,
         sortino_ratio=0.0,
-        win_rate_monthly=0.0,
+        monthly_win_rate=0.0,
         avg_turnover=0.0,
         taa_value_added=None,
     )

@@ -40,6 +40,7 @@ export interface BacktestMetrics {
   avg_turnover: number;
   total_rebalances: number;
   taa_value_added: number | null;
+  benchmark_status?: 'available' | 'missing' | 'partial';
 }
 
 export interface RegimeHistoryEntry {

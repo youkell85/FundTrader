@@ -1,8 +1,11 @@
-import { Target, TrendingUp, Zap, Shield, AlertTriangle, CheckCircle2, Info, BarChart3, Scale, Gauge, XCircle, Clock } from 'lucide-react';
+import { useState } from 'react';
+import { Target, TrendingUp, Zap, Shield, AlertTriangle, CheckCircle2, Info, BarChart3, Scale, Gauge, XCircle, Clock, Loader2, GitCompareArrows } from 'lucide-react';
 import { ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import { useAllocationData } from '@/hooks/useAllocationData';
+import { useAllocationStore } from '@/store/allocationStore';
 import { ASSET_CLASS_LABELS, ASSET_GROUP_LABELS, GROUP_COLORS, RISK_LABELS, GOAL_LABELS, HORIZON_LABELS, VARIANT_LABELS, VARIANT_COLORS } from '@/types/allocation';
 import type { VariantsResponse } from '@/types/allocation';
+import { generateVariants } from '@/lib/api';
 
 /** 缺值兜底 */
 function fmt(v: number | null | undefined, suffix?: string, digits = 1): string {
@@ -49,7 +52,12 @@ function ConstraintRow({ rule, value, limit, passed }: { rule: string; value: st
 }
 
 export default function StrategyPage() {
-  const { d, saa, taa, funds, pm, meta, constraints, isMock } = useAllocationData();
+  const { d, saa, taa, funds, pm, meta, constraints, isMock, variants } = useAllocationData();
+  const { dispatch, state: storeState } = useAllocationStore();
+
+  // ─── variants 生成状态 ───
+  const [variantsLoading, setVariantsLoading] = useState(false);
+  const [variantsError, setVariantsError] = useState<string | null>(null);
 
   // ─── 派生数据 ───
   const pieData = Object.entries(saa.group_allocations || {})
@@ -76,12 +84,36 @@ export default function StrategyPage() {
   // 优化目标推导：基于 SAA 特征判断
   const objectiveType = deriveObjective(saa);
 
-  // variants 数据（演示环境/无真实数据时显示待生成）
-  const variants = (d as any).variants as VariantsResponse | undefined;
+  // variants 数据（从 store 读取）
   const hasVariants = variants != null && Object.keys(variants.variants || {}).length > 0;
 
   // 数据新鲜度与降级状态
   const isDegraded = meta.circuit_breaker_triggered || meta.taa_skipped || failedCount > 0;
+
+  // 风险贡献元数据
+  const rcSource = saa.risk_contribution_source;
+  const rcDataStatus = saa.data_status;
+  const rcMissingReason = saa.missing_reason;
+  const rcIsPartial = rcDataStatus === 'partial' || (rcSource && rcSource !== 'covariance_matrix');
+
+  // ─── 生成多方案对比 ───
+  const handleGenerateVariants = async () => {
+    if (isMock) {
+      setVariantsError('当前为演示数据，无法生成多方案对比');
+      return;
+    }
+    setVariantsLoading(true);
+    setVariantsError(null);
+    try {
+      const req = storeState.config;
+      const resp = await generateVariants(req);
+      dispatch({ type: 'SET_VARIANTS', variants: resp });
+    } catch (e: any) {
+      setVariantsError(e?.message || '多方案对比生成失败');
+    } finally {
+      setVariantsLoading(false);
+    }
+  };
 
   return (
     <div className="space-y-5">
@@ -349,7 +381,13 @@ export default function StrategyPage() {
                 </ResponsiveContainer>
               </div>
               <div className="mt-2 text-[11px] text-white/30">
-                基于 SAA 协方差矩阵计算的边际风险贡献。总和 ≈ {totalRiskContrib.toFixed(1)}%。
+                {rcIsPartial ? (
+                  <span className="text-[#FAC858]">
+                    ⚠ 风险贡献来源：{rcSource || '近似计算'}。{rcMissingReason || '协方差矩阵降级，结果仅供参考。'}
+                  </span>
+                ) : (
+                  <span>基于 SAA 协方差矩阵计算的边际风险贡献。总和 ≈ {totalRiskContrib.toFixed(1)}%。</span>
+                )}
               </div>
             </>
           ) : (
@@ -420,16 +458,47 @@ export default function StrategyPage() {
 
       {/* ===== 组合对比 (Variants) ===== */}
       <section className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4">
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex flex-wrap items-center justify-between mb-3 gap-2">
           <h3 className="text-xs text-white/40 uppercase tracking-wider flex items-center gap-2">
             <TrendingUp className="w-3.5 h-3.5 text-[#5AA9FF]" />
             组合方案对比
           </h3>
-          {!hasVariants && (
-            <StatusBadge status="pending" text="待生成" />
-          )}
+          <div className="flex items-center gap-2">
+            {!hasVariants && !variantsLoading && (
+              <button
+                onClick={handleGenerateVariants}
+                disabled={variantsLoading || isMock}
+                className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] rounded-md bg-[#3B6CFF]/20 text-[#5AA9FF] hover:bg-[#3B6CFF]/30 disabled:opacity-50 transition-colors"
+              >
+                <GitCompareArrows className="w-3 h-3" />
+                生成多方案对比
+              </button>
+            )}
+            {!hasVariants && (
+              <StatusBadge status="pending" text="待生成" />
+            )}
+            {hasVariants && (
+              <StatusBadge status="real" text="已生成" />
+            )}
+          </div>
         </div>
-        {hasVariants ? (
+
+        {variantsLoading && (
+          <div className="py-6 text-center">
+            <Loader2 className="w-6 h-6 text-[#5AA9FF] mx-auto mb-2 animate-spin" />
+            <p className="text-sm text-white/35">正在生成三套方案对比（防御/均衡/进取）...</p>
+            <p className="text-[11px] text-white/25 mt-1">每次变体需运行完整 14 步管线，约需 30-90 秒</p>
+          </div>
+        )}
+
+        {variantsError && (
+          <div className="py-4 text-center">
+            <AlertTriangle className="w-6 h-6 text-[#EE6666] mx-auto mb-2" />
+            <p className="text-sm text-[#EE6666]">{variantsError}</p>
+          </div>
+        )}
+
+        {hasVariants && !variantsLoading && (
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
@@ -456,25 +525,18 @@ export default function StrategyPage() {
                     <td className="py-2 px-2 text-right data-number">{fmt(v.response.saa?.equity_center, '%')}</td>
                   </tr>
                 ))}
-                {/* 基准行 */}
-                <tr className="border-b border-white/[0.03]">
-                  <td className="py-2 px-2 text-white/45">等权基准</td>
-                  <td className="py-2 px-2 text-right text-white/35">—</td>
-                  <td className="py-2 px-2 text-right text-white/35">—</td>
-                  <td className="py-2 px-2 text-right text-white/35">—</td>
-                  <td className="py-2 px-2 text-right text-white/35">—</td>
-                  <td className="py-2 px-2 text-right text-white/35">—</td>
-                </tr>
               </tbody>
             </table>
           </div>
-        ) : (
+        )}
+
+        {!hasVariants && !variantsLoading && !variantsError && (
           <div className="py-8 text-center">
             <Info className="w-8 h-8 text-white/15 mx-auto mb-2" />
             <p className="text-sm text-white/35">组合方案对比数据待生成</p>
             <p className="text-[11px] text-white/25 mt-1 max-w-md mx-auto">
-              当前后端未返回多方案对比（variants）。需调用 /allocation/variants 接口获取防御型、均衡型、进取型三套方案。
-              样本外回测和训练/验证提示也将在后端支持后展示。
+              点击上方"生成多方案对比"按钮，获取防御型、均衡型、进取型三套真实方案。
+              三套方案基于当前配置请求的风险等级 ±1 偏移独立运行完整管线生成。
             </p>
           </div>
         )}

@@ -36,6 +36,9 @@ export interface SAASummary {
   equity_center: number; expected_return: number; expected_volatility: number;
   expected_max_drawdown: number; sharpe_ratio: number; glide_path_applied: boolean;
   risk_contributions: Record<string, number>;
+  risk_contribution_source?: string;
+  data_status?: string;
+  missing_reason?: string;
 }
 export interface TAASummary {
   taa_adjusted: Record<string, number>; adjustments: Record<string, number>;

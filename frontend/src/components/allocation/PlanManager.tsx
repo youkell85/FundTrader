@@ -62,6 +62,7 @@ export default function PlanManager({ onSave }: PlanManagerProps) {
           config: store.state.dcaConfig,
           result: store.state.dcaResult,
         },
+        variants: store.state.variants,
       };
       await savePlan({
         name,
@@ -92,6 +93,7 @@ export default function PlanManager({ onSave }: PlanManagerProps) {
       const res = plan.response as any;
       dispatch({ type: 'UPDATE_CONFIG', patch: req });
       dispatch({ type: 'SET_OUTPUT', output: res });
+      dispatch({ type: 'SET_VARIANTS', variants: res.variants || null });
       dispatch({ type: 'SET_EXECUTION_PLAN', plan: res.execution_plan || null });
       dispatch({ type: 'SET_DCA_CONFIG', config: res.dca_plan?.config || null });
       dispatch({ type: 'SET_DCA_RESULT', result: res.dca_plan?.result || null });

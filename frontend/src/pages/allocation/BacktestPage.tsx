@@ -8,8 +8,12 @@ import { useAllocationStore } from '@/store/allocationStore';
 import PageHeader from '@/components/ui/PageHeader';
 import BacktestPanel from '@/components/backtest/BacktestPanel';
 import RebalancePanel from '@/components/allocation/RebalancePanel';
+import EquityCurveChart from '@/components/backtest/EquityCurveChart';
+import DrawdownChart from '@/components/backtest/DrawdownChart';
+import RegimeTimeline from '@/components/backtest/RegimeTimeline';
+import BacktestMetricsTable from '@/components/backtest/BacktestMetricsTable';
 import { runAllocationBacktest } from '@/lib/api';
-import type { BacktestRequest, BacktestResponse, BacktestMetrics } from '@/types/backtest';
+import type { BacktestRequest, BacktestResponse, BacktestMetrics, ComparisonMode } from '@/types/backtest';
 import { MODE_LABELS, MODE_COLORS } from '@/types/backtest';
 import type { ParsedDcaResult } from '@/lib/execution-plan';
 
@@ -240,8 +244,74 @@ export default function BacktestPage() {
             </div>
           )}
 
-          {/* 配置回测详细组件（复用现有组件） */}
-          <BacktestPanel />
+          {/* 净值/回撤/月收益 图表 */}
+          {backtestResult?.curves && Object.keys(backtestResult.curves).length > 0 && (
+            <div className="space-y-4">
+              <EquityCurveChart curves={backtestResult.curves} initialAmount={backtestResult.metrics?.saa_taa ? d?.user_profile?.amount || 500000 : 500000} />
+              <DrawdownChart curves={backtestResult.curves} />
+            </div>
+          )}
+
+          {/* 月度收益表 */}
+          {backtestResult?.monthly_returns && Object.keys(backtestResult.monthly_returns).length > 0 && (
+            <section className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4 overflow-x-auto">
+              <h3 className="text-xs text-white/40 uppercase tracking-wider mb-3">月度收益</h3>
+              {Object.entries(backtestResult.monthly_returns).map(([mode, months]) => {
+                const entries = Object.entries(months).sort(([a], [b]) => a.localeCompare(b));
+                if (entries.length === 0) return null;
+                return (
+                  <div key={mode} className="mb-3">
+                    <div className="text-[11px] font-medium mb-1" style={{ color: MODE_COLORS[mode as ComparisonMode] || '#fff' }}>
+                      {MODE_LABELS[mode as ComparisonMode] || mode}
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {entries.slice(-24).map(([month, ret]) => (
+                        <div key={month} className="text-[10px] px-1.5 py-0.5 rounded border" style={{
+                          borderColor: ret >= 0 ? 'rgba(22,199,132,0.2)' : 'rgba(238,102,102,0.2)',
+                          backgroundColor: ret >= 0 ? 'rgba(22,199,132,0.05)' : 'rgba(238,102,102,0.05)',
+                          color: ret >= 0 ? '#16C784' : '#EE6666',
+                        }}>
+                          {month}: {ret >= 0 ? '+' : ''}{ret.toFixed(2)}%
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </section>
+          )}
+
+          {/* 绩效指标对比表 */}
+          {backtestResult?.metrics && Object.keys(backtestResult.metrics).length > 0 && (
+            <BacktestMetricsTable metrics={backtestResult.metrics} />
+          )}
+
+          {/* 市场体制时间线 */}
+          {backtestResult?.regime_history && backtestResult.regime_history.length > 0 && (
+            <RegimeTimeline regimeHistory={backtestResult.regime_history} attribution={backtestResult.attribution || {}} />
+          )}
+
+          {/* Benchmark 状态 */}
+          {backtestResult?.metrics && (
+            <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4">
+              <h3 className="text-xs text-white/40 uppercase tracking-wider mb-2">基准数据状态</h3>
+              <div className="space-y-1 text-xs text-white/35">
+                {(['equal_weight', 'sixty_forty'] as ComparisonMode[]).map(mode => {
+                  const hasMode = backtestResult.metrics[mode] != null;
+                  return (
+                    <div key={mode} className="flex items-center gap-2">
+                      {hasMode ? (
+                        <CheckCircle2 className="w-3.5 h-3.5 text-[#16C784]" />
+                      ) : (
+                        <XCircle className="w-3.5 h-3.5 text-white/25" />
+                      )}
+                      <span>{MODE_LABELS[mode]}: {hasMode ? '可用' : '未计算'}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </>
       )}
 

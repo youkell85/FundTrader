@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { useAllocationStore } from '@/store/allocationStore';
 import { MOCK_DATA } from '@/pages/mockData';
 import { isMockOutput } from '@/lib/execution-plan';
-import type { AllocationResponse } from '@/types/allocation';
+import type { AllocationResponse, VariantsResponse } from '@/types/allocation';
 
 export interface AllocationData {
   d: AllocationResponse;
@@ -19,7 +19,7 @@ export interface AllocationData {
   isReal: boolean;
 }
 
-export function useAllocationData(): AllocationData {
+export function useAllocationData(): AllocationData & { variants: VariantsResponse | null } {
   const storeState = useAllocationStore().state;
   const storeOutput = storeState?.output ?? null;
 
@@ -38,14 +38,15 @@ export function useAllocationData(): AllocationData {
     meta: d.meta,
     isMock,
     isReal: !isMock,
-  }), [d, isMock]);
+    variants: storeState?.variants ?? null,
+  }), [d, isMock, storeState?.variants]);
 }
 
 /**
  * 用于可执行页面（回测、保存、排名）。
  * isMock=true 时返回的数据仍可用于展示，但调用侧必须阻断执行动作。
  */
-export function useGuardedAllocationData(): AllocationData & { guardMessage?: string } {
+export function useGuardedAllocationData(): AllocationData & { variants: VariantsResponse | null; guardMessage?: string } {
   const base = useAllocationData();
   return useMemo(() => {
     if (base.isMock) {

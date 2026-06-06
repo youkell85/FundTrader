@@ -380,6 +380,19 @@ def run(
     estimated_mdd = round(saa_result["expected_volatility"] * 2.5, 2)
     effective_mdd = abs(mc_mdd) if mc_mdd and abs(mc_mdd) > 0 else estimated_mdd
 
+    # Determine risk contribution metadata based on CMA quality
+    rc_source = "covariance_matrix"
+    data_status = "real"
+    missing_reason = None
+    if cma.covariance_matrix is None or len(cma.covariance_matrix) == 0:
+        rc_source = "weight_volatility_proxy"
+        data_status = "partial"
+        missing_reason = "缺少完整协方差矩阵，使用权重×波动率近似风险贡献"
+    elif diags[1].status in ("degraded", "error"):  # cma_estimation step
+        rc_source = "covariance_matrix"
+        data_status = "partial"
+        missing_reason = f"CMA估计降级: {diags[1].detail or '协方差矩阵降级至均衡配置'}"
+
     saa_summary = SAASummary(
         allocations=pct_allocations,
         group_allocations=pct_group_allocs,
@@ -390,6 +403,9 @@ def run(
         sharpe_ratio=_compute_sharpe(saa_result["expected_return"], saa_result["expected_volatility"]),
         glide_path_applied=profile.glide_path_applied,
         risk_contributions=pct_risk_contributions,
+        risk_contribution_source=rc_source,
+        data_status=data_status,
+        missing_reason=missing_reason,
     )
 
     # User profile summary

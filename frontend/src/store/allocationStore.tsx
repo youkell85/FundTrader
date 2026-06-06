@@ -1,12 +1,13 @@
 import React, { createContext, useContext, useReducer } from "react";
 import type { ReactNode } from "react";
-import type { AllocationRequest, AllocationResponse } from "@/types/allocation";
+import type { AllocationRequest, AllocationResponse, VariantsResponse } from "@/types/allocation";
 import type { ExecutionPlan, DcaConfig, DcaResult } from "@/lib/execution-plan";
 
 interface S {
   wizardStep: number;
   config: AllocationRequest;
   output: AllocationResponse | null;
+  variants: VariantsResponse | null;
   activeTab: string;
   executionPlan: ExecutionPlan | null;
   dcaConfig: DcaConfig | null;
@@ -17,6 +18,7 @@ type A =
   | { type: "SET_STEP"; step: number }
   | { type: "UPDATE_CONFIG"; patch: Partial<AllocationRequest> }
   | { type: "SET_OUTPUT"; output: AllocationResponse }
+  | { type: "SET_VARIANTS"; variants: VariantsResponse | null }
   | { type: "SET_TAB"; tab: string }
   | { type: "SET_EXECUTION_PLAN"; plan: ExecutionPlan | null }
   | { type: "SET_DCA_CONFIG"; config: DcaConfig | null }
@@ -38,6 +40,7 @@ const init: S = {
   wizardStep: 1,
   config: { ...defaults },
   output: null,
+  variants: null,
   activeTab: "overview",
   executionPlan: null,
   dcaConfig: null,
@@ -52,6 +55,8 @@ function reducer(s: S, a: A): S {
       return { ...s, config: { ...s.config, ...a.patch } };
     case "SET_OUTPUT":
       return { ...s, output: a.output };
+    case "SET_VARIANTS":
+      return { ...s, variants: a.variants };
     case "SET_TAB":
       return { ...s, activeTab: a.tab };
     case "SET_EXECUTION_PLAN":
