@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useParams } from "react-router";
-import { ArrowLeft, RefreshCw, AlertCircle, Star } from "lucide-react";
+import { ArrowLeft, RefreshCw, AlertCircle, Star, TrendingUp, Activity, BarChart3, Scale, Percent, PieChart as PieChartIcon, Users, FileText, ShoppingCart, ShieldAlert } from "lucide-react";
 import {
   Area,
   Bar,
@@ -32,7 +32,6 @@ import {
 } from "@/lib/fund-data";
 import { type DetailRowsPayload, missingReason, realRows, summarizeDetailCoverage, deriveStatus, type CoverageInput, type CoverageKey, type CoverageEntry, COVERAGE_LABELS, COVERAGE_ENDPOINTS, STATUS_LABELS, STATUS_TONES } from "@/lib/detail-status";
 import { Panel } from "@/components/report/Panel";
-import { ReportLayout } from "@/components/report/ReportLayout";
 import { ReportSection } from "@/components/report/ReportSection";
 import { AnchorNav } from "@/components/report/AnchorNav";
 import { MissingPanel } from "@/components/report/MissingPanel";
@@ -67,14 +66,14 @@ const TOOLTIP_STYLE = {
 };
 
 const ANCHOR_ITEMS = [
-  { id: "perf", label: "业绩表现" },
-  { id: "history", label: "历史回报" },
-  { id: "scale", label: "规模 · 换手" },
-  { id: "risk", label: "风险分析" },
-  { id: "alloc", label: "资产 · 行业" },
-  { id: "holdings", label: "重仓明细" },
-  { id: "manager", label: "基金经理" },
-  { id: "report", label: "运作分析" },
+  { id: "perf", label: "业绩与回撤" },
+  { id: "peer", label: "同类与基准" },
+  { id: "risk", label: "风险画像" },
+  { id: "alloc", label: "持仓与配置" },
+  { id: "scale", label: "规模 · 换手 · 持有人" },
+  { id: "manager", label: "经理与运作" },
+  { id: "meta", label: "购买与评级" },
+  { id: "gaps", label: "数据缺口" },
 ];
 
 // === 工具：日期范围过滤 ===
@@ -647,14 +646,8 @@ export default function FundDetail() {
 
   const fundName = fund.fundName || fund.fundAbbr || fund.fundCode || "--";
   const isPartial = Boolean((fund as any)?._partial);
-  const showPartialBanner = Boolean(fund?._partial);
   const navDate =
     fund.navDate || fund.nav_date || navPoints[navPoints.length - 1]?.d || "—";
-
-  // === Header chips ===
-  const chips: string[] = [];
-  if (fund.category || fund.fundType) chips.push(String(fund.category || fund.fundType));
-  if ((fund as any).investmentStyle) chips.push(String((fund as any).investmentStyle));
 
   return (
     <div className="min-h-screen pb-12 pt-14">
@@ -678,135 +671,511 @@ export default function FundDetail() {
           ) : null}
         </div>
 
-        {/* === 极简 Header === */}
-        <section className="rounded-lg border border-white/[0.06] bg-white/[0.02] text-white/85">
-          <div className="flex flex-wrap items-center justify-between gap-3 p-4">
-            <div className="flex min-w-0 flex-wrap items-center gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-blue-500 to-blue-700 text-base font-bold text-white">
-                iD
-              </div>
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h1 className="truncate text-xl font-semibold md:text-2xl">{fundName}</h1>
-                  <span className="rounded-md border border-white/[0.08] bg-white/[0.04] px-2 py-0.5 font-mono text-sm text-white/65">
-                    {fund.fundCode}
-                  </span>
-                  {chips.map((c) => (
-                    <span
-                      key={c}
-                      className="rounded-md border border-white/[0.08] bg-white/[0.04] px-2 py-0.5 text-xs text-white/55"
-                    >
-                      {c}
-                    </span>
-                  ))}
-                </div>
-                <div className="mt-1 text-xs text-muted-foreground">
-                  数据来源：基金定期报告 · 公开行情 · 仅供研究参考
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center gap-4 text-sm">
-              <div className="text-right">
-                <div className="text-xs text-muted-foreground">单位净值</div>
-                <div className="data-number text-2xl font-semibold">{numFmt(fund.nav, 4)}</div>
-              </div>
-              <div className="h-10 w-px bg-border" />
-              <div className="text-right">
-                <div className="text-xs text-muted-foreground">日期</div>
-                <div className="data-number text-base">{String(navDate)}</div>
-              </div>
-            </div>
-          </div>
-          {isPartial ? (
-            <div className="border-t px-4 py-2 text-sm text-muted-foreground">
-              已先展示本地快照，净值历史、持仓、行业和公司数据会在后台补全。
-            </div>
-          ) : null}
-        </section>
+        {/* === Research Header === */}
+        <ResearchHeader
+          fund={fund}
+          fundName={fundName}
+          code={code}
+          navDate={navDate}
+          isPartial={isPartial}
+          coverage={coverage}
+          onRefresh={() => detailQuery.refetch()}
+        />
 
-        {/* === 锚点导航 === */}
+        {/* === Core KPI Strip === */}
+        <KpiStrip
+          fund={fund}
+          risk={risk}
+          navPoints={navPoints}
+          coverage={coverage}
+        />
+
+        {/* === Coverage + Anchor Nav === */}
         <AnchorNav items={ANCHOR_ITEMS} />
-
-        {showPartialBanner && <PartialBanner code={code} />}
-
         <CoverageSummary summary={coverage} />
 
-        {/* === 长页面布局 === */}
-        <ReportLayout
-          left={
-              <LeftSidebar
-                fund={fund}
-                navPoints={navPoints}
-                risk={risk}
-                rating={ratingQ.data}
-                purchaseInfo={purchaseInfoQ.data}
-                completeness={detailCompletenessQ.data}
+        {isPartial && <PartialBanner code={code} />}
+
+        {/* === Research Body === */}
+        <div className="mt-3 space-y-6">
+          {/* 1. 业绩与回撤 */}
+          <ReportSection id="perf" title="业绩与回撤">
+            <PerformanceSection
+              series={series}
+              navSeries={navSeries}
+              range={range}
+              setRange={setRange}
+              performanceRows={performanceRows}
+            />
+            {/* 历史回报并入业绩 section */}
+            <div className="mt-3">
+              <HistorySection
+                yearReturns={yearReturns}
+                apiRows={(yearReturnsQ.data?.rows || []) as Array<{ year: number; fundReturn: number | null; hs300Return: number | null; peerReturn: number | null; rank: { rank: number; total: number } | null }>}
               />
-          }
-          right={
-            <div className="space-y-6">
-              <ReportSection id="perf" title="业绩表现">
-                <PerformanceSection
-                  series={series}
-                  navSeries={navSeries}
-                  range={range}
-                  setRange={setRange}
-                  performanceRows={performanceRows}
-                />
-              </ReportSection>
-
-              <ReportSection id="history" title="历史回报">
-                <HistorySection
-                  yearReturns={yearReturns}
-                  apiRows={(yearReturnsQ.data?.rows || []) as Array<{ year: number; fundReturn: number | null; hs300Return: number | null; peerReturn: number | null; rank: { rank: number; total: number } | null }>}
-                />
-              </ReportSection>
-
-              <ReportSection id="scale" title="规模 · 换手">
-                <ScaleSection
-                  scaleRows={(scaleHistoryQ.data?.rows || []) as Array<{ quarter: string; totalScale: number; peer25Scale: number | null }>}
-                  turnoverRows={(turnoverHistoryQ.data?.rows || []) as Array<{ quarter: string; turnoverRate: number }>}
-                />
-              </ReportSection>
-
-              <ReportSection
-                id="risk"
-                title="风险分析"
-                badge="后续后端补 ±同类对比表时再升级"
-              >
-                <RiskSection risk={risk} navSeries={navSeries} riskSummary={riskSummaryQ.data} />
-              </ReportSection>
-
-              <ReportSection id="alloc" title="资产 · 行业 · 持有人 · 券种">
-                <AllocationSection
-                  fund={fund}
-                  industryHistoryData={industryHistoryData}
-                  holderStructure={realRows(holderStructureQ.data as DetailRowsPayload<{ quarter: string; institution: number; individual: number }>)}
-                  holderStatus={holderStructureQ.data as DetailRowsPayload<{ quarter: string; institution: number; individual: number }>}
-                  bondAllocation={realRows(bondAllocationQ.data as DetailRowsPayload<{ bondType: string; ratio: number; changeRatio: number | null }>)}
-                  bondAllocationStatus={bondAllocationQ.data as DetailRowsPayload<{ bondType: string; ratio: number; changeRatio: number | null }>}
-                />
-              </ReportSection>
-
-              <ReportSection id="holdings" title="重仓明细">
-                <HoldingsSection
-                  fund={fund}
-                  bondHoldings={realRows(bondHoldingsQ.data as DetailRowsPayload<any>)}
-                  bondHoldingsStatus={bondHoldingsQ.data as DetailRowsPayload<any>}
-                />
-              </ReportSection>
-
-              <ReportSection id="manager" title="基金经理">
-                <ManagerSection
-                  fund={fund}
-                  managerHistory={(managerHistoryQ.data?.rows || []) as Array<{ managerName: string; startDate: string; endDate: string | null; totalReturn: number | null; annualizedReturn: number | null; rank: { rank: number; total: number } | null }>}
-                  managerReport={managerReportQ.data}
-                />
-              </ReportSection>
             </div>
-          }
-        />
+          </ReportSection>
+
+          {/* 2. 同类与基准 */}
+          <ReportSection id="peer" title="同类与基准对比">
+            <PeerSection
+              peerData={peerPerformanceQ.data}
+              performanceRows={performanceRows}
+            />
+          </ReportSection>
+
+          {/* 3. 风险画像 */}
+          <ReportSection
+            id="risk"
+            title="风险画像"
+            badge="后端补 ±同类对比表后升级"
+          >
+            <RiskSection risk={risk} navSeries={navSeries} riskSummary={riskSummaryQ.data} />
+          </ReportSection>
+
+          {/* 4. 持仓与资产配置 */}
+          <ReportSection id="alloc" title="持仓与资产配置">
+            <AllocationSection
+              fund={fund}
+              industryHistoryData={industryHistoryData}
+              holderStructure={realRows(holderStructureQ.data as DetailRowsPayload<{ quarter: string; institution: number; individual: number }>)}
+              holderStatus={holderStructureQ.data as DetailRowsPayload<{ quarter: string; institution: number; individual: number }>}
+              bondAllocation={realRows(bondAllocationQ.data as DetailRowsPayload<{ bondType: string; ratio: number; changeRatio: number | null }>)}
+              bondAllocationStatus={bondAllocationQ.data as DetailRowsPayload<{ bondType: string; ratio: number; changeRatio: number | null }>}
+            />
+            <div className="mt-3">
+              <HoldingsSection
+                fund={fund}
+                bondHoldings={realRows(bondHoldingsQ.data as DetailRowsPayload<any>)}
+                bondHoldingsStatus={bondHoldingsQ.data as DetailRowsPayload<any>}
+              />
+            </div>
+          </ReportSection>
+
+          {/* 5. 规模 · 换手 · 持有人 */}
+          <ReportSection id="scale" title="规模 · 换手 · 持有人结构">
+            <ScaleSection
+              scaleRows={(scaleHistoryQ.data?.rows || []) as Array<{ quarter: string; totalScale: number; peer25Scale: number | null }>}
+              turnoverRows={(turnoverHistoryQ.data?.rows || []) as Array<{ quarter: string; turnoverRate: number }>}
+            />
+          </ReportSection>
+
+          {/* 6. 基金经理与运作分析 */}
+          <ReportSection id="manager" title="基金经理与运作分析">
+            <ManagerSection
+              fund={fund}
+              managerHistory={(managerHistoryQ.data?.rows || []) as Array<{ managerName: string; startDate: string; endDate: string | null; totalReturn: number | null; annualizedReturn: number | null; rank: { rank: number; total: number } | null }>}
+              managerReport={managerReportQ.data}
+            />
+          </ReportSection>
+
+          {/* 7. 购买信息 · 评级 · 数据覆盖 */}
+          <ReportSection id="meta" title="购买信息 · 基金评级 · 数据覆盖">
+            <MetaSection
+              fund={fund}
+              rating={ratingQ.data}
+              purchaseInfo={purchaseInfoQ.data}
+              completeness={detailCompletenessQ.data}
+              navPoints={navPoints}
+            />
+          </ReportSection>
+
+          {/* 8. 数据缺口清单 */}
+          <ReportSection id="gaps" title="已知数据缺口">
+            <DataGapsPanel items={coverage.items} />
+          </ReportSection>
+        </div>
       </div>
+    </div>
+  );
+}
+
+// ===================== 研究页头部 =====================
+
+function ResearchHeader({
+  fund,
+  fundName,
+  code,
+  navDate,
+  isPartial,
+  coverage,
+  onRefresh,
+}: {
+  fund: any;
+  fundName: string;
+  code: string;
+  navDate: string;
+  isPartial: boolean;
+  coverage: CoverageSummary;
+  onRefresh: () => void;
+}) {
+  const chips: string[] = [];
+  if (fund.category || fund.fundType) chips.push(String(fund.category || fund.fundType));
+  if (fund.investmentStyle) chips.push(String(fund.investmentStyle));
+
+  const statusBadge =
+    coverage.stale > 0
+      ? { label: "部分陈旧", color: "text-[#E9AB60] border-[#E9AB60]/30 bg-[#E9AB60]/10" }
+      : coverage.partial > 0
+        ? { label: "部分数据", color: "text-[#FFB800] border-[#FFB800]/30 bg-[#FFB800]/10" }
+        : coverage.missing > 0
+          ? { label: "有缺失", color: "text-white/50 border-white/10 bg-white/[0.03]" }
+          : { label: "数据完整", color: "text-[#16C784] border-[#16C784]/30 bg-[#16C784]/10" };
+
+  return (
+    <section className="rounded-lg border border-white/[0.06] bg-white/[0.02] text-white/85">
+      <div className="flex flex-wrap items-start justify-between gap-3 p-4">
+        <div className="flex min-w-0 flex-wrap items-start gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-blue-500 to-blue-700 text-base font-bold text-white">
+            {fundName.slice(0, 1)}
+          </div>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="truncate text-xl font-semibold md:text-2xl">{fundName}</h1>
+              <span className="rounded-md border border-white/[0.08] bg-white/[0.04] px-2 py-0.5 font-mono text-sm text-white/65">
+                {code}
+              </span>
+              {chips.map((c) => (
+                <span
+                  key={c}
+                  className="rounded-md border border-white/[0.08] bg-white/[0.04] px-2 py-0.5 text-xs text-white/55"
+                >
+                  {c}
+                </span>
+              ))}
+              <span className={`rounded border px-2 py-0.5 text-xs ${statusBadge.color}`}>
+                {statusBadge.label}
+              </span>
+            </div>
+            <div className="mt-1.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+              <span>
+                <span className="text-white/40">基金经理</span>{" "}
+                <span className="text-white/70">{fund.manager?.name || "—"}</span>
+              </span>
+              <span>
+                <span className="text-white/40">基金公司</span>{" "}
+                <span className="text-white/70">{fund.company || "—"}</span>
+              </span>
+              <span>
+                <span className="text-white/40">成立</span>{" "}
+                <span className="text-white/70">{fund.establishDate || "—"}</span>
+              </span>
+              {isPartial ? (
+                <button
+                  onClick={onRefresh}
+                  className="inline-flex items-center gap-1 text-[#5AA9FF] hover:underline"
+                >
+                  <RefreshCw className="h-3 w-3" />
+                  补全中
+                </button>
+              ) : null}
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-4 text-sm">
+          <div className="text-right">
+            <div className="text-xs text-muted-foreground">单位净值</div>
+            <div className="data-number text-2xl font-semibold">{numFmt(fund.nav, 4)}</div>
+          </div>
+          <div className="h-10 w-px bg-border" />
+          <div className="text-right">
+            <div className="text-xs text-muted-foreground">净值日期</div>
+            <div className="data-number text-sm">{String(navDate)}</div>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+// ===================== KPI 条 =====================
+
+function KpiStrip({
+  fund,
+  risk,
+  navPoints,
+  coverage,
+}: {
+  fund: any;
+  risk: ReturnType<typeof computeRisk>;
+  navPoints: Array<{ d: string; nav: number }>;
+  coverage: CoverageSummary;
+}) {
+  const perf = fund.performance || {};
+  const items = [
+    {
+      icon: TrendingUp,
+      label: "近3月",
+      value: perf.return3m != null ? pct(perf.return3m) : null,
+      reason: "暂无真实业绩数据",
+    },
+    {
+      icon: TrendingUp,
+      label: "近6月",
+      value: perf.return6m != null ? pct(perf.return6m) : null,
+      reason: "暂无真实业绩数据",
+    },
+    {
+      icon: TrendingUp,
+      label: "近1年",
+      value: perf.return1y != null ? pct(perf.return1y) : null,
+      reason: "暂无真实业绩数据",
+    },
+    {
+      icon: TrendingUp,
+      label: "近3年",
+      value: perf.return3y != null ? pct(perf.return3y) : null,
+      reason: "暂无真实业绩数据",
+    },
+    {
+      icon: Activity,
+      label: "最大回撤",
+      value: risk.maxDrawdown != null ? pct(risk.maxDrawdown) : null,
+      reason: "净值历史不足，无法计算回撤",
+    },
+    {
+      icon: BarChart3,
+      label: "年化波动",
+      value: risk.volatility != null ? pct(risk.volatility) : null,
+      reason: "净值历史不足，无法计算波动率",
+    },
+    {
+      icon: ShieldAlert,
+      label: "Sharpe",
+      value: risk.sharpe != null ? numFmt(risk.sharpe, 2) : null,
+      reason: "净值历史不足，无法计算Sharpe",
+    },
+    {
+      icon: Scale,
+      label: "规模",
+      value: fund.totalScale != null ? `${fund.totalScale}亿` : null,
+      reason: "暂无规模数据",
+    },
+    {
+      icon: Percent,
+      label: "管理费",
+      value: fund.feeManage != null ? formatFee(fund.feeManage) : null,
+      reason: "暂无费率数据",
+    },
+  ];
+
+  return (
+    <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-9">
+      {items.map((it) => (
+        <div
+          key={it.label}
+          className="rounded-md border border-white/[0.06] bg-white/[0.02] px-3 py-2"
+        >
+          <div className="flex items-center gap-1.5 text-xs text-white/40">
+            <it.icon className="h-3 w-3" />
+            {it.label}
+          </div>
+          <div className="mt-1 text-sm font-semibold">
+            {it.value != null ? (
+              <span className="data-number">{it.value}</span>
+            ) : (
+              <span className="text-white/25" title={it.reason}>
+                —
+              </span>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ===================== 同类与基准 =====================
+
+function PeerSection({
+  peerData,
+  performanceRows,
+}: {
+  peerData: any;
+  performanceRows: PerfRow[];
+}) {
+  return (
+    <>
+      <Panel title="业绩对比矩阵">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px] border-collapse text-sm">
+            <thead>
+              <tr className="border-b border-white/[0.06] text-[11px] uppercase tracking-wider text-white/45">
+                <th className="px-2 py-2 text-left">指标</th>
+                {PERF_COLS.map((c) => (
+                  <th key={c.key} className="px-2 py-2 text-right">
+                    {c.label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {performanceRows.map((row) => (
+                <tr key={row.key} className="border-b">
+                  <td className="px-2 py-2">{row.label}</td>
+                  {PERF_COLS.map((c) => {
+                    const cell = row.cells[c.key];
+                    return (
+                      <td key={c.key} className="px-2 py-2 text-right">
+                        {cell.value === null ? (
+                          <span className="text-muted-foreground">—</span>
+                        ) : (
+                          <ChangeCell value={cell.value} />
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {!peerData?.peer?.return1y && (
+          <div className="mt-2 text-xs text-muted-foreground">
+            🛈 同类均值 / 沪深300 / 业绩比较基准 对比数据待后端补齐。
+          </div>
+        )}
+      </Panel>
+    </>
+  );
+}
+
+// ===================== 购买信息 · 评级 · 数据覆盖 =====================
+
+function MetaSection({
+  fund,
+  rating,
+  purchaseInfo,
+  completeness,
+  navPoints,
+}: {
+  fund: any;
+  rating: { rating3y: number | null; rating5y: number | null; score: number | null; source: string | null } | null | undefined;
+  purchaseInfo: {
+    purchaseStatus?: string | null;
+    redeemStatus?: string | null;
+    minPurchaseAmount?: number | string | null;
+    subscriptionFeeRate?: string | null;
+    redemptionFeeRate?: string | null;
+    managementFeeRate?: string | null;
+    custodyFeeRate?: string | null;
+    serviceFeeRate?: string | null;
+    totalFeeRate1y?: string | number | null;
+  } | null;
+  completeness?: { coverage?: number; available?: number; partial?: number; total?: number } | null;
+  navPoints: Array<{ d: string; nav: number }>;
+}) {
+  return (
+    <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+      {/* 购买信息 */}
+      {purchaseInfo && (purchaseInfo.purchaseStatus || purchaseInfo.minPurchaseAmount) ? (
+        <Panel title="购买信息">
+          <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-sm">
+            <dt className="text-muted-foreground">申购状态</dt>
+            <dd className="text-right">{purchaseInfo.purchaseStatus || "—"}</dd>
+            <dt className="text-muted-foreground">赎回状态</dt>
+            <dd className="text-right">{purchaseInfo.redeemStatus || "—"}</dd>
+            <dt className="text-muted-foreground">起购金额</dt>
+            <dd className="text-right">{purchaseInfo.minPurchaseAmount ?? "—"} 元</dd>
+            <dt className="text-muted-foreground">管理费率</dt>
+            <dd className="text-right">{purchaseInfo.managementFeeRate || "—"}</dd>
+            <dt className="text-muted-foreground">托管费率</dt>
+            <dd className="text-right">{purchaseInfo.custodyFeeRate || "—"}</dd>
+            <dt className="text-muted-foreground">总费率(1年)</dt>
+            <dd className="text-right">
+              {purchaseInfo.totalFeeRate1y != null ? `${purchaseInfo.totalFeeRate1y}%` : "—"}
+            </dd>
+          </dl>
+        </Panel>
+      ) : (
+        <MissingPanel
+          title="购买信息"
+          reason="依赖 fund.purchaseInfo 接口（已实现但 fund_master 表缺 purchase_status / min_purchase / subscription_fee 等字段）"
+          endpoint="trpc.fund.purchaseInfo"
+          height={140}
+        />
+      )}
+
+      {/* 基金评级 */}
+      {rating && (rating.rating3y !== null || rating.rating5y !== null) ? (
+        <Panel
+          title="基金评级"
+          extra={
+            rating.source ? (
+              <span className="text-xs text-muted-foreground">{rating.source}</span>
+            ) : null
+          }
+        >
+          <div className="space-y-2 text-sm">
+            {[
+              { k: "3 年", v: rating.rating3y },
+              { k: "5 年", v: rating.rating5y },
+            ].map((row) => (
+              <div key={row.k} className="flex items-center justify-between">
+                <span className="text-muted-foreground">{row.k}</span>
+                <span className="inline-flex">
+                  {Array.from({ length: 5 }).map((_, i) => (
+                    <Star
+                      key={i}
+                      className={`h-4 w-4 ${i < (row.v ?? 0) ? "fill-yellow-400 text-yellow-400" : "text-muted-foreground/30"}`}
+                    />
+                  ))}
+                </span>
+              </div>
+            ))}
+          </div>
+        </Panel>
+      ) : (
+        <MissingPanel
+          title="基金评级"
+          reason="依赖 fund.rating 接口（3 年 / 5 年评级，1~5 颗星），后端 tRPC 已就绪但需数据库有 tushare fund_rating 数据"
+          endpoint="trpc.fund.rating"
+          height={120}
+        />
+      )}
+
+      {/* 数据覆盖快览 */}
+      <Panel title="数据覆盖快览">
+        <div className="grid grid-cols-2 gap-2">
+          <Metric label="净值点数" value={String(navPoints.length)} />
+          <Metric label="持仓数" value={String(fund.holdings?.length || 0)} />
+          <Metric label="资产项" value={String(fund.assetAllocation?.length || 0)} />
+          <Metric
+            label="真实覆盖"
+            value={completeness?.total ? `${Math.round((completeness.coverage || 0) * 100)}%` : "—"}
+          />
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
+// ===================== 数据缺口清单 =====================
+
+function DataGapsPanel({ items }: { items: CoverageEntry[] }) {
+  const gaps = items.filter((it) => it.status === "missing" || it.status === "error" || it.status === "partial" || it.status === "stale");
+  if (gaps.length === 0) {
+    return (
+      <div className="rounded-md border border-[#16C784]/20 bg-[#16C784]/5 px-4 py-3 text-sm text-[#16C784]">
+        当前所有数据板块均已可用，无已知缺口。
+      </div>
+    );
+  }
+  return (
+    <div className="space-y-2">
+      {gaps.map((it) => (
+        <div
+          key={it.key}
+          className={`flex flex-wrap items-center gap-2 rounded-md border px-3 py-2 text-sm ${STATUS_TONES[it.status]}`}
+        >
+          <span className="inline-flex h-2 w-2 shrink-0 rounded-full bg-current opacity-60" />
+          <span className="font-medium">{it.label}</span>
+          <span className="ml-1 text-[11px] opacity-70">{STATUS_LABELS[it.status]}</span>
+          {it.reason ? (
+            <span className="ml-auto text-xs opacity-60">{it.reason}</span>
+          ) : null}
+        </div>
+      ))}
     </div>
   );
 }
