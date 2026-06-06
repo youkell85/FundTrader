@@ -127,7 +127,14 @@ export async function registerViaBackend(input: { username: string; password: st
 }
 
 
-type UserState = { watchlistCodes: string[]; backtestRecords: unknown[]; recommendationRecords: unknown[]; preferences: Record<string, unknown>; recentFunds: string[] };
+type UserState = {
+  watchlistCodes: string[];
+  researchCandidateCodes: string[];
+  backtestRecords: unknown[];
+  recommendationRecords: unknown[];
+  preferences: Record<string, unknown>;
+  recentFunds: string[];
+};
 
 export function getUserState(userId: string): UserState {
   const data = readStore();
@@ -135,9 +142,9 @@ export function getUserState(userId: string): UserState {
   try {
     const raw = fs.readFileSync(STORE_PATH.replace('.json', '_states.json'), 'utf-8');
     const states = JSON.parse(raw);
-    return { watchlistCodes: [], backtestRecords: [], recommendationRecords: [], preferences: {}, recentFunds: [], ...(states[key] || {}) };
+    return { watchlistCodes: [], researchCandidateCodes: [], backtestRecords: [], recommendationRecords: [], preferences: {}, recentFunds: [], ...(states[key] || {}) };
   } catch {
-    return { watchlistCodes: [], backtestRecords: [], recommendationRecords: [], preferences: {}, recentFunds: [] };
+    return { watchlistCodes: [], researchCandidateCodes: [], backtestRecords: [], recommendationRecords: [], preferences: {}, recentFunds: [] };
   }
 }
 

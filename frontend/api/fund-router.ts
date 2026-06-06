@@ -1,7 +1,7 @@
 import { parseReviewText } from "@/utils/llm-review";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { createRouter, publicQuery } from "./middleware";
+import { createRouter, publicQuery, authedQuery } from "./middleware";
 import {
   getFundAnalysis,
   getFundSnapshot,
@@ -1043,6 +1043,42 @@ export const fundRouter = createRouter({
       } catch (err) {
         wrapError(err, "移除自选基金失败");
       }
+    }),
+
+  // 研究候选池
+  listResearchCandidates: authedQuery.query(async ({ ctx }) => {
+    const state = getUserState(ctx.user.id);
+    const codes = state.researchCandidateCodes || [];
+    if (codes.length === 0) return { funds: [], total: 0 };
+    const funds = await Promise.all(
+      codes.map(async (code) => {
+        const cached = getCached<any>(`analysis_${code}`);
+        if (cached) return mapFundItem(cached);
+        const snap = await getFundSnapshot(code, false).catch(() => null);
+        if (snap) return mapFundItem(snap);
+        const quote = await fetchFundQuote(code).catch(() => null);
+        return mapFundItem(quoteToAnalysis(code, quote, "research"));
+      })
+    );
+    return { funds: funds.filter(Boolean), total: codes.length };
+  }),
+
+  addResearchCandidate: authedQuery
+    .input(z.object({ code: z.string().regex(/^\d{6}$/) }))
+    .mutation(async ({ input, ctx }) => {
+      const state = getUserState(ctx.user.id);
+      const next = Array.from(new Set([...state.researchCandidateCodes, input.code]));
+      updateUserState(ctx.user.id, { researchCandidateCodes: next });
+      return { success: true, code: input.code };
+    }),
+
+  removeResearchCandidate: authedQuery
+    .input(z.object({ code: z.string().regex(/^\d{6}$/) }))
+    .mutation(async ({ input, ctx }) => {
+      const state = getUserState(ctx.user.id);
+      const next = state.researchCandidateCodes.filter((c) => c !== input.code);
+      updateUserState(ctx.user.id, { researchCandidateCodes: next });
+      return { success: true, code: input.code };
     }),
 
   // 基金经理详情

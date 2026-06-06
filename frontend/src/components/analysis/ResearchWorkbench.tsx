@@ -106,6 +106,17 @@ export default function ResearchWorkbench({ funds }: Props) {
   const removeFund = trpc.fund.removeFromWatchlist.useMutation({
     onSuccess: () => utils.fund.list.invalidate(),
   });
+  const addResearchCandidate = trpc.fund.addResearchCandidate.useMutation({
+    onSuccess: () => utils.fund.listResearchCandidates.invalidate(),
+  });
+  const removeResearchCandidate = trpc.fund.removeResearchCandidate.useMutation({
+    onSuccess: () => utils.fund.listResearchCandidates.invalidate(),
+  });
+  const { data: candidateData } = trpc.fund.listResearchCandidates.useQuery(undefined, {
+    enabled: !!user,
+    staleTime: 30_000,
+  });
+  const candidateCodes = new Set((candidateData?.funds || []).map((f: any) => f.fundCode));
 
   // 筛选 + 排序
   const filtered = useMemo(() => {
@@ -462,23 +473,42 @@ export default function ResearchWorkbench({ funds }: Props) {
                       <Eye className="w-3.5 h-3.5" />
                     </Link>
                     {user && (
-                      isWatchlist ? (
-                        <button
-                          onClick={() => removeFund.mutate({ code: fund.fundCode })}
-                          className="p-1 rounded text-[#EE6666]/60 hover:text-[#EE6666] hover:bg-[#EE6666]/10"
-                          title="移出自选"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => addByCode.mutate({ code: fund.fundCode })}
-                          className="p-1 rounded text-[#16C784]/60 hover:text-[#16C784] hover:bg-[#16C784]/10"
-                          title="加入自选"
-                        >
-                          <Star className="w-3.5 h-3.5" />
-                        </button>
-                      )
+                      <>
+                        {candidateCodes.has(fund.fundCode) ? (
+                          <button
+                            onClick={() => removeResearchCandidate.mutate({ code: fund.fundCode })}
+                            className="p-1 rounded text-[#9D7BFF]/60 hover:text-[#9D7BFF] hover:bg-[#9D7BFF]/10"
+                            title="移出候选"
+                          >
+                            <Shield className="w-3.5 h-3.5" />
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => addResearchCandidate.mutate({ code: fund.fundCode })}
+                            className="p-1 rounded text-white/30 hover:text-[#9D7BFF] hover:bg-[#9D7BFF]/10"
+                            title="加入候选池"
+                          >
+                            <Shield className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        {isWatchlist ? (
+                          <button
+                            onClick={() => removeFund.mutate({ code: fund.fundCode })}
+                            className="p-1 rounded text-[#EE6666]/60 hover:text-[#EE6666] hover:bg-[#EE6666]/10"
+                            title="移出自选"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => addByCode.mutate({ code: fund.fundCode })}
+                            className="p-1 rounded text-[#16C784]/60 hover:text-[#16C784] hover:bg-[#16C784]/10"
+                            title="加入自选"
+                          >
+                            <Star className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>
@@ -501,15 +531,26 @@ export default function ResearchWorkbench({ funds }: Props) {
                         {isCompare ? <Minus className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
                       </button>
                       {user && (
-                        isWatchlist ? (
-                          <button onClick={() => removeFund.mutate({ code: fund.fundCode })} className="p-1.5 rounded text-[#EE6666]/60">
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        ) : (
-                          <button onClick={() => addByCode.mutate({ code: fund.fundCode })} className="p-1.5 rounded text-[#16C784]/60">
-                            <Star className="w-3.5 h-3.5" />
-                          </button>
-                        )
+                        <>
+                          {candidateCodes.has(fund.fundCode) ? (
+                            <button onClick={() => removeResearchCandidate.mutate({ code: fund.fundCode })} className="p-1.5 rounded text-[#9D7BFF]/60">
+                              <Shield className="w-3.5 h-3.5" />
+                            </button>
+                          ) : (
+                            <button onClick={() => addResearchCandidate.mutate({ code: fund.fundCode })} className="p-1.5 rounded text-white/30">
+                              <Shield className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          {isWatchlist ? (
+                            <button onClick={() => removeFund.mutate({ code: fund.fundCode })} className="p-1.5 rounded text-[#EE6666]/60">
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          ) : (
+                            <button onClick={() => addByCode.mutate({ code: fund.fundCode })} className="p-1.5 rounded text-[#16C784]/60">
+                              <Star className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </>
                       )}
                     </div>
                   </div>

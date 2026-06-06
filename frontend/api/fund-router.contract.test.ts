@@ -99,3 +99,50 @@ describe('fund detail contract fallbacks', () => {
     expect(result.code).toBe('000001');
   });
 });
+
+describe('research candidate pool', () => {
+  // Use unique user IDs per test to avoid filesystem state pollution
+  test('listResearchCandidates returns empty when no candidates', async () => {
+    const caller = fundRouter.createCaller({ user: { id: 'rc_empty', name: 'A', username: 'a', role: 'user', avatar: null } } as any);
+    const result = await caller.listResearchCandidates();
+    expect(result.funds.filter((f: any) => f.fundCode)).toEqual([]);
+    expect(result.total).toBe(0);
+  });
+
+  test('addResearchCandidate then list returns candidate', async () => {
+    const caller = fundRouter.createCaller({ user: { id: 'rc_add', name: 'A', username: 'a', role: 'user', avatar: null } } as any);
+    await caller.addResearchCandidate({ code: '000001' });
+    const result = await caller.listResearchCandidates();
+    expect(result.total).toBe(1);
+    expect(result.funds.length).toBeGreaterThan(0);
+  });
+
+  test('removeResearchCandidate removes from list', async () => {
+    const caller = fundRouter.createCaller({ user: { id: 'rc_remove', name: 'A', username: 'a', role: 'user', avatar: null } } as any);
+    await caller.addResearchCandidate({ code: '000001' });
+    await caller.removeResearchCandidate({ code: '000001' });
+    const result = await caller.listResearchCandidates();
+    expect(result.total).toBe(0);
+  });
+
+  test('user A candidates are invisible to user B', async () => {
+    const callerA = fundRouter.createCaller({ user: { id: 'rc_a', name: 'A', username: 'a', role: 'user', avatar: null } } as any);
+    const callerB = fundRouter.createCaller({ user: { id: 'rc_b', name: 'B', username: 'b', role: 'user', avatar: null } } as any);
+    await callerA.addResearchCandidate({ code: '000001' });
+    const resultB = await callerB.listResearchCandidates();
+    expect(resultB.total).toBe(0);
+    const resultA = await callerA.listResearchCandidates();
+    expect(resultA.total).toBe(1);
+  });
+
+  test('unauthenticated cannot write research candidates', async () => {
+    const anon = fundRouter.createCaller({ user: null } as any);
+    await expect(anon.addResearchCandidate({ code: '000001' })).rejects.toThrow();
+    await expect(anon.removeResearchCandidate({ code: '000001' })).rejects.toThrow();
+  });
+
+  test('unauthenticated cannot list research candidates', async () => {
+    const anon = fundRouter.createCaller({ user: null } as any);
+    await expect(anon.listResearchCandidates()).rejects.toThrow();
+  });
+});
