@@ -187,17 +187,39 @@ async def fund_metrics_snapshot(code: str):
 
 @router.get("/detail-completeness")
 async def fund_detail_completeness(code: str = Query(..., min_length=4, max_length=10, description="基金代码")):
-    """Return local real-data coverage by detail-page section without external fetches."""
+    """Return local real-data coverage by detail-page section without external fetches.
+
+    Each section returns the full contract:
+      { dataStatus, missingReason, source, asOf, coverage }
+    """
     from ..storage.database import FundDataStore, get_db_context
 
     snapshot = await run_in_threadpool(FundDataStore.get_snapshot, code)
 
-    def status(ok: bool, *, partial: bool = False, reason: str = ""):
-        return {
-            "dataStatus": "available" if ok and not partial else "partial" if ok else "missing",
-            "missingReason": None if ok else reason,
-        }
+    # ---- stale helpers -------------------------------------------------------
+    NAV_STALE_HOURS = 48
+    QUOTE_STALE_HOURS = 48
+    METRICS_STALE_DAYS = 180
+    QUARTERLY_STALE_DAYS = 180
 
+    def is_stale(dt_str: str | None, *, hours: int | None = None, days: int | None = None) -> bool:
+        if not dt_str:
+            return False
+        try:
+            dt = datetime.fromisoformat(dt_str.replace("Z", "+00:00"))
+            now = datetime.now(dt.tzinfo)
+            if hours is not None:
+                return (now - dt).total_seconds() > hours * 3600
+            if days is not None:
+                return (now - dt).total_seconds() > days * 86400
+            return False
+        except Exception:
+            return False
+
+    nav_date = snapshot.get("nav_date") if snapshot else None
+    nav_stale = is_stale(nav_date, hours=NAV_STALE_HOURS)
+
+    # ---- DB queries ----------------------------------------------------------
     try:
         with get_db_context() as conn:
             quarterly = conn.execute(
@@ -206,7 +228,8 @@ async def fund_detail_completeness(code: str = Query(..., min_length=4, max_leng
                       SUM(CASE WHEN bond_allocation_json IS NOT NULL AND bond_allocation_json != '' AND bond_allocation_json != '[]' THEN 1 ELSE 0 END) AS bond_alloc_count,
                       SUM(CASE WHEN bond_holdings_json IS NOT NULL AND bond_holdings_json != '' AND bond_holdings_json != '[]' THEN 1 ELSE 0 END) AS bond_hold_count,
                       SUM(CASE WHEN total_scale IS NOT NULL THEN 1 ELSE 0 END) AS scale_count,
-                      SUM(CASE WHEN turnover_rate IS NOT NULL THEN 1 ELSE 0 END) AS turnover_count
+                      SUM(CASE WHEN turnover_rate IS NOT NULL THEN 1 ELSE 0 END) AS turnover_count,
+                      MAX(updated_at) AS quarterly_updated
                    FROM fund_detail_quarterly_snapshot
                    WHERE code = ?""",
                 (code,),
@@ -219,46 +242,48 @@ async def fund_detail_completeness(code: str = Query(..., min_length=4, max_leng
                 "SELECT COUNT(*) AS c FROM fund_report_snapshot WHERE code = ? AND report_text != ''",
                 (code,),
             ).fetchone()["c"]
-            # rating: 详情页用 score 兜底（fund_metrics_snapshot.score），命中即说明评级通道就绪
-            rating_count = conn.execute(
-                "SELECT COUNT(*) AS c FROM fund_metrics_snapshot WHERE code = ? AND score IS NOT NULL",
+            rating_row = conn.execute(
+                "SELECT score, metrics_updated_at FROM fund_metrics_snapshot WHERE code = ? AND score IS NOT NULL",
                 (code,),
-            ).fetchone()["c"]
-            # purchaseInfo: 详情页读取 fee_manage/fee_custody 兜底，命中即说明费率通道就绪
-            purchase_count = conn.execute(
-                "SELECT COUNT(*) AS c FROM fund_metrics_snapshot WHERE code = ? AND (fee_manage IS NOT NULL OR fee_custody IS NOT NULL)",
+            ).fetchone()
+            rating_count = 1 if rating_row else 0
+            purchase_row = conn.execute(
+                "SELECT fee_manage, fee_custody, metrics_updated_at FROM fund_metrics_snapshot WHERE code = ? AND (fee_manage IS NOT NULL OR fee_custody IS NOT NULL)",
                 (code,),
-            ).fetchone()["c"]
-            # peerPerformance: 详情页读取 fund_quote_snapshot.near_1y / near_3y
+            ).fetchone()
+            purchase_count = 1 if purchase_row else 0
             quote_row = conn.execute(
-                "SELECT near_1y, near_3y FROM fund_quote_snapshot WHERE code = ?",
+                "SELECT near_1y, near_3y, updated_at FROM fund_quote_snapshot WHERE code = ?",
                 (code,),
             ).fetchone()
     except Exception:
         quarterly = None
         manager_count = 0
         report_count = 0
-        rating_count = 0
-        purchase_count = 0
+        rating_row = None
+        purchase_row = None
         quote_row = None
+        purchase_count = 0
+        rating_count = 0
 
-    # yearReturns: real data if nav has >= 2 points（与 get_fund_year_returns 一致）
+    # ---- raw counts ----------------------------------------------------------
     nav_count = len(snapshot.get("nav_data") or []) if snapshot else 0
     holdings_count = len(snapshot.get("holdings") or []) if snapshot else 0
     asset_count = len(snapshot.get("asset_allocation") or []) if snapshot else 0
-    # peerPerformance partial iff peer.return1y is real (or series.fund rows present)
-    peer_has_data = bool(
-        (quote_row and (quote_row["near_1y"] is not None or quote_row["near_3y"] is not None))
-        or nav_count >= 250
+
+    # peerPerformance: quote has priority; nav_count>=250 is fallback
+    quote_has_peer_data = quote_row is not None and (quote_row.get("near_1y") is not None or quote_row.get("near_3y") is not None)
+    peer_has_data = quote_has_peer_data or nav_count >= 250
+    quote_updated = quote_row.get("updated_at") if quote_row else None
+    quote_stale = is_stale(quote_updated, hours=QUOTE_STALE_HOURS)
+
+    # riskSummary: metrics snapshot has priority; nav_count>=30 is fallback
+    metrics_has_risk_data = snapshot is not None and (
+        snapshot.get("max_drawdown") is not None
+        or snapshot.get("sharpe_ratio") is not None
+        or snapshot.get("volatility") is not None
     )
-    # riskSummary: 来自 risk_summary 路由（rule-engine），只要 nav 历史 ≥30 或有 max_drawdown 即可生成
-    risk_has_data = bool(
-        (snapshot and (
-            snapshot.get("max_drawdown") is not None
-            or snapshot.get("sharpe_ratio") is not None
-            or snapshot.get("volatility") is not None
-        ))
-    ) or nav_count >= 30
+    risk_has_data = metrics_has_risk_data or nav_count >= 30
 
     def qcount(name: str) -> int:
         try:
@@ -272,37 +297,212 @@ async def fund_detail_completeness(code: str = Query(..., min_length=4, max_leng
     bond_alloc_count = qcount("bond_alloc_count")
     bond_hold_count = qcount("bond_hold_count")
 
+    # ---- asOf sources --------------------------------------------------------
+    nav_as_of = nav_date or (snapshot.get("updated_at") if snapshot else None)
+    quarterly_updated = quarterly.get("quarterly_updated") if quarterly else None
+    metrics_updated = (
+        rating_row.get("metrics_updated_at") if rating_row
+        else (purchase_row.get("metrics_updated_at") if purchase_row
+        else (snapshot.get("metrics_updated_at") if snapshot else None))
+    )
+
+    # independent stale flags
+    quarterly_stale = is_stale(quarterly_updated, days=QUARTERLY_STALE_DAYS)
+    metrics_stale = is_stale(metrics_updated, days=METRICS_STALE_DAYS)
+
+    # holdings / assetAllocation asOf fallback
+    snapshot_updated = snapshot.get("updated_at") if snapshot else None
+    holdings_as_of = snapshot_updated or nav_as_of
+    asset_as_of = snapshot_updated or nav_as_of
+
+    # ---- section builder -----------------------------------------------------
+    def build(
+        ok: bool,
+        *,
+        partial: bool = False,
+        stale: bool = False,
+        reason: str | None = None,
+        source: str | None = None,
+        as_of: str | None = None,
+        coverage: float | None = None,
+    ) -> dict:
+        if stale and ok:
+            status = "stale"
+        elif ok and partial:
+            status = "partial"
+        elif ok:
+            status = "available"
+        else:
+            status = "missing"
+        resolved_coverage = coverage if coverage is not None else (1.0 if status == "available" else 0.5 if status == "partial" else 0.25 if status == "stale" else 0.0)
+        return {
+            "dataStatus": status,
+            "missingReason": reason if status in ("missing", "partial", "stale") else None,
+            "source": source,
+            "asOf": as_of,
+            "coverage": resolved_coverage,
+        }
+
     sections = {
-        "performance": status(nav_count >= 2, reason="缺少净值历史"),
-        "history": status(nav_count >= 2, partial=True, reason="缺少净值历史"),
-        "scale": status(scale_count > 0, partial=scale_count < 4, reason="缺少真实规模历史"),
-        "turnover": status(turnover_count > 0, partial=turnover_count < 4, reason="缺少真实换手率历史"),
-        "risk": status(risk_has_data, partial=not risk_has_data and nav_count >= 30, reason="缺少风险指标"),
-        "assetAllocation": status(asset_count > 0, reason="缺少真实资产配置"),
-        "holdings": status(holdings_count > 0, reason="缺少真实重仓股票"),
-        "holderStructure": status(holder_count > 0, reason="缺少真实持有人结构"),
-        "bondAllocation": status(bond_alloc_count > 0, reason="缺少真实券种配置"),
-        "bondHoldings": status(bond_hold_count > 0, reason="缺少真实重仓债券"),
-        "managerHistory": status(manager_count > 0, reason="缺少真实经理变更"),
-        "managerReport": status(report_count > 0, reason="缺少真实定期报告原文"),
-        # 13 接口中 detailCompleteness 原本未覆盖的 5 个 section（补齐后总数 12→17）
-        "rating": status(rating_count > 0, partial=rating_count == 0 and nav_count > 0, reason="缺 tushare fund_rating，详情页会用 score 兜底"),
-        "purchaseInfo": status(purchase_count > 0, partial=purchase_count == 0 and nav_count > 0, reason="缺真实销售文件，详情页用行业默认值"),
-        "yearReturns": status(nav_count >= 250, reason="净值历史不足 1 年，年度收益仅有部分年份"),
-        "peerPerformance": status(peer_has_data, reason="缺少同期同类 / 指数 / 基准数据"),
-        "riskSummary": status(risk_has_data, reason="缺 max_drawdown / sharpe，规则引擎无法定级"),
+        # 1. overview — from snapshot
+        "overview": build(
+            nav_count >= 2,
+            stale=nav_stale,
+            reason="缺少基金基本快照" if nav_count < 2 else "净值快照已陈旧",
+            source="fund_quote_snapshot",
+            as_of=nav_as_of,
+        ),
+        # 2. performance — from snapshot
+        "performance": build(
+            nav_count >= 2,
+            stale=nav_stale,
+            reason="缺少净值历史" if nav_count < 2 else "净值数据已陈旧",
+            source="fund_quote_snapshot",
+            as_of=nav_as_of,
+        ),
+        # 3. navDrawdown — from snapshot
+        "navDrawdown": build(
+            nav_count >= 30,
+            stale=nav_stale,
+            reason="缺少净值历史（需 ≥30 点计算回撤）" if nav_count < 30 else "净值数据已陈旧",
+            source="fund_quote_snapshot",
+            as_of=nav_as_of,
+        ),
+        # 4. holdings — from snapshot
+        "holdings": build(
+            holdings_count > 0,
+            reason="缺少真实重仓股票",
+            source="fund_portfolio_snapshot",
+            as_of=holdings_as_of,
+        ),
+        # 5. bondAllocation
+        "bondAllocation": build(
+            bond_alloc_count > 0,
+            stale=bond_alloc_count > 0 and quarterly_stale,
+            reason="缺少真实券种配置",
+            source="fund_detail_quarterly_snapshot",
+            as_of=quarterly_updated,
+        ),
+        # 6. bondHoldings
+        "bondHoldings": build(
+            bond_hold_count > 0,
+            stale=bond_hold_count > 0 and quarterly_stale,
+            reason="缺少真实重仓债券",
+            source="fund_detail_quarterly_snapshot",
+            as_of=quarterly_updated,
+        ),
+        # 7. managerHistory
+        "managerHistory": build(
+            manager_count > 0,
+            reason="缺少真实经理变更",
+            source="fund_manager_history_snapshot",
+            as_of=None,  # 当前表无独立 updated_at
+        ),
+        # 8. scaleHistory
+        "scaleHistory": build(
+            scale_count > 0,
+            partial=scale_count > 0 and scale_count < 4,
+            stale=scale_count > 0 and quarterly_stale,
+            reason="缺少真实规模历史",
+            source="fund_detail_quarterly_snapshot",
+            as_of=quarterly_updated,
+        ),
+        # 9. turnoverHistory
+        "turnoverHistory": build(
+            turnover_count > 0,
+            partial=turnover_count > 0 and turnover_count < 4,
+            stale=turnover_count > 0 and quarterly_stale,
+            reason="缺少真实换手率历史",
+            source="fund_detail_quarterly_snapshot",
+            as_of=quarterly_updated,
+        ),
+        # 10. peerPerformance — quote first, then nav fallback
+        "peerPerformance": build(
+            peer_has_data,
+            stale=peer_has_data and (quote_stale if quote_has_peer_data else nav_stale),
+            reason="缺少同期同类 / 指数 / 基准数据",
+            source="fund_quote_snapshot" if quote_has_peer_data else ("fund_nav_history" if nav_count >= 250 else None),
+            as_of=quote_updated if quote_has_peer_data else nav_as_of,
+        ),
+        # 11. purchaseInfo
+        "purchaseInfo": build(
+            purchase_count > 0,
+            stale=purchase_count > 0 and metrics_stale,
+            partial=purchase_count == 0 and nav_count > 0,
+            reason="缺真实销售文件，详情页用行业默认值",
+            source="fund_metrics_snapshot",
+            as_of=metrics_updated,
+        ),
+        # 12. rating
+        "rating": build(
+            rating_count > 0,
+            stale=rating_count > 0 and metrics_stale,
+            partial=rating_count == 0 and nav_count > 0,
+            reason="缺 tushare fund_rating，详情页会用 score 兜底",
+            source="fund_metrics_snapshot",
+            as_of=metrics_updated,
+        ),
+        # 13. assetAllocation
+        "assetAllocation": build(
+            asset_count > 0,
+            reason="缺少真实资产配置",
+            source="fund_portfolio_snapshot",
+            as_of=asset_as_of,
+        ),
+        # 14. holderStructure
+        "holderStructure": build(
+            holder_count > 0,
+            stale=holder_count > 0 and quarterly_stale,
+            reason="缺少真实持有人结构",
+            source="fund_detail_quarterly_snapshot",
+            as_of=quarterly_updated,
+        ),
+        # 15. yearReturns
+        "yearReturns": build(
+            nav_count >= 250,
+            partial=nav_count >= 2 and nav_count < 250,
+            stale=nav_count >= 250 and nav_stale,
+            reason="净值历史不足 1 年，年度收益仅有部分年份" if nav_count < 250 else "净值数据已陈旧",
+            source="fund_quote_snapshot",
+            as_of=nav_as_of,
+        ),
+        # 16. riskSummary — metrics first, then nav fallback
+        "riskSummary": build(
+            risk_has_data,
+            stale=risk_has_data and (metrics_stale if metrics_has_risk_data else nav_stale),
+            reason="缺 max_drawdown / sharpe，规则引擎无法定级",
+            source="fund_metrics_snapshot" if metrics_has_risk_data else ("fund_nav_history_rule_engine" if nav_count >= 30 else None),
+            as_of=metrics_updated if metrics_has_risk_data else nav_as_of,
+        ),
+        # 17. managerReport
+        "managerReport": build(
+            report_count > 0,
+            reason="缺少真实定期报告原文",
+            source="fund_report_snapshot",
+            as_of=None,
+        ),
     }
+
     total = len(sections)
-    available = sum(1 for item in sections.values() if item["dataStatus"] == "available")
-    partial = sum(1 for item in sections.values() if item["dataStatus"] == "partial")
+    available = sum(1 for s in sections.values() if s["dataStatus"] == "available")
+    partial = sum(1 for s in sections.values() if s["dataStatus"] == "partial")
+    stale_count = sum(1 for s in sections.values() if s["dataStatus"] == "stale")
+    missing = sum(1 for s in sections.values() if s["dataStatus"] == "missing")
+    coverage = round((available + partial * 0.5 + stale_count * 0.25) / total, 4) if total else 0.0
+
     return {
         "code": code,
+        "dataStatus": "available" if available == total else "partial" if available + partial + stale_count > 0 else "missing",
+        "missingReason": None if available == total else "部分 section 数据缺失或陈旧",
+        "source": "local_snapshot",
+        "asOf": nav_as_of,
+        "coverage": coverage,
         "sections": sections,
         "available": available,
         "partial": partial,
+        "stale": stale_count,
+        "missing": missing,
         "total": total,
-        "coverage": round((available + partial * 0.5) / total, 4),
-        "asOf": snapshot.get("nav_date") if snapshot else None,
     }
 
 

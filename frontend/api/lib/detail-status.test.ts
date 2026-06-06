@@ -13,6 +13,10 @@ describe("detail status helpers", () => {
     expect(realRows({ dataStatus: "partial", rows: [{ id: 2 }] })).toEqual([{ id: 2 }]);
   });
 
+  test("stale rows are real rows — 陈旧数据仍应展示", () => {
+    expect(realRows({ dataStatus: "stale", rows: [{ id: 3 }] })).toEqual([{ id: 3 }]);
+  });
+
   test("blocks missing and simulated rows from charts", () => {
     expect(realRows({ dataStatus: "missing", rows: [{ id: 1 }] })).toEqual([]);
     expect(realRows({ dataStatus: "simulated", rows: [{ id: 1 }] })).toEqual([]);
@@ -36,6 +40,11 @@ describe("deriveStatus — 数据覆盖度状态推导", () => {
   test("dataStatus=partial → partial", () => {
     expect(deriveStatus({ dataStatus: "partial", hasData: true })).toBe("partial");
     expect(deriveStatus({ dataStatus: "partial", hasData: false })).toBe("partial");
+  });
+
+  test("dataStatus=stale + hasData=true → stale", () => {
+    expect(deriveStatus({ dataStatus: "stale", hasData: true })).toBe("stale");
+    expect(deriveStatus({ dataStatus: "stale", hasData: false })).toBe("stale");
   });
 
   test("dataStatus=missing → missing", () => {
@@ -93,17 +102,19 @@ describe("summarizeDetailCoverage — 覆盖度统计", () => {
     expect(summary.error).toBe(0);
   });
 
-  test("统计各状态数量", () => {
+  test("统计各状态数量（含 stale）", () => {
     const summary = summarizeDetailCoverage({
       a: e("a", "available"),
       b: e("b", "partial"),
       c: e("c", "pending"),
       d: e("d", "missing"),
+      e: e("e", "stale"),
       f: e("f", "error"),
     });
-    expect(summary.total).toBe(5);
+    expect(summary.total).toBe(6);
     expect(summary.available).toBe(1);
     expect(summary.partial).toBe(1);
+    expect(summary.stale).toBe(1);
     expect(summary.pending).toBe(1);
     expect(summary.missing).toBe(1);
     expect(summary.error).toBe(1);

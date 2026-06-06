@@ -52,9 +52,19 @@ class FundDetailContractTest(unittest.TestCase):
 
 
 class FundDetailCompletenessTest(unittest.TestCase):
-    """P2.1: detailCompleteness 必须真实反映 13 接口覆盖度（5 个新增 section）。"""
+    """P2.1: detailCompleteness 必须真实反映 section 覆盖度。"""
 
-    def _invoke(self):
+    REQUIRED_KEYS = {"dataStatus", "missingReason", "source", "asOf", "coverage"}
+    EXPECTED_SECTION_KEYS = [
+        "overview", "performance", "navDrawdown", "holdings", "bondAllocation",
+        "bondHoldings", "managerHistory", "scaleHistory", "turnoverHistory",
+        "peerPerformance", "purchaseInfo", "rating", "assetAllocation",
+        "holderStructure", "yearReturns", "riskSummary", "managerReport",
+    ]
+
+    _sentinel = object()
+
+    def _invoke(self, snapshot=_sentinel, quarterly=_sentinel, metrics_row=_sentinel, quote_row=_sentinel):
         """直接调用 fund_detail_completeness，mock 数据源。"""
         fake_snapshot = {
             "max_drawdown": 0.1,
@@ -65,14 +75,19 @@ class FundDetailCompletenessTest(unittest.TestCase):
             "nav_data": [{"date": "2024-01-01", "nav": 1.0}] * 300,
             "holdings": [{"stock_code": "000001"}],
             "asset_allocation": [{"type": "股票", "ratio": 60.0}],
-        }
+            "nav_date": "2026-06-05T00:00:00",
+            "updated_at": "2026-06-05T00:00:00",
+        } if snapshot is self._sentinel else snapshot
         fake_quarterly = {
             "holder_count": 0,
             "scale_count": 4,
             "turnover_count": 0,
             "bond_alloc_count": 0,
             "bond_hold_count": 0,
-        }
+            "quarterly_updated": "2026-06-05T00:00:00",
+        } if quarterly is self._sentinel else quarterly
+        resolved_metrics = {"score": 75.0, "fee_manage": 0.015, "fee_custody": 0.005, "metrics_updated_at": "2026-06-05T00:00:00"} if metrics_row is self._sentinel else metrics_row
+        resolved_quote = {"near_1y": 0.05, "near_3y": 0.15, "updated_at": "2026-06-05T00:00:00"} if quote_row is self._sentinel else quote_row
 
         def fake_execute(sql, params=None):
             m = MagicMock()
@@ -83,12 +98,11 @@ class FundDetailCompletenessTest(unittest.TestCase):
                 m.fetchone.return_value = {"c": 0}
             elif "fund_report_snapshot" in sql_lower:
                 m.fetchone.return_value = {"c": 0}
-            elif "fund_metrics_snapshot" in sql_lower and "score" in sql_lower:
-                m.fetchone.return_value = {"c": 1}
-            elif "fund_metrics_snapshot" in sql_lower and "fee" in sql_lower:
-                m.fetchone.return_value = {"c": 1}
+            elif "fund_metrics_snapshot" in sql_lower:
+                # 统一返回 metrics 行，不再按 score/fee 拆分
+                m.fetchone.return_value = resolved_metrics
             elif "fund_quote_snapshot" in sql_lower:
-                m.fetchone.return_value = {"near_1y": 0.05, "near_3y": 0.15}
+                m.fetchone.return_value = resolved_quote
             else:
                 m.fetchone.return_value = None
             return m
@@ -101,54 +115,312 @@ class FundDetailCompletenessTest(unittest.TestCase):
             cm.execute = fake_execute
             return asyncio.run(fund_api.fund_detail_completeness(code="000001"))
 
+    # ---- 1. section 数量与命名 ------------------------------------------------
     def test_total_sections_at_least_17(self):
-        """补齐后 sections 总数应 >= 17（12 旧 + 5 新：rating/purchaseInfo/yearReturns/peerPerformance/riskSummary）。"""
+        """17 个 section key 全部存在。"""
         result = self._invoke()
         self.assertIsInstance(result, dict)
-        self.assertGreaterEqual(result.get("total", 0), 17)
-        for key in ("rating", "purchaseInfo", "yearReturns", "peerPerformance", "riskSummary"):
+        self.assertEqual(result["total"], 17, "section 总数应为 17")
+        for key in self.EXPECTED_SECTION_KEYS:
             self.assertIn(key, result.get("sections", {}), f"missing section: {key}")
+
+    def test_scaleHistory_and_turnoverHistory_exist(self):
+        """scaleHistory / turnoverHistory key 必须存在（旧版用 scale / turnover）。"""
+        result = self._invoke()
+        self.assertIn("scaleHistory", result["sections"])
+        self.assertIn("turnoverHistory", result["sections"])
+
+    # ---- 2. 完整合同字段 ------------------------------------------------------
+    def test_each_section_has_full_contract(self):
+        """每个 section 必须含 dataStatus / source / asOf / coverage / missingReason。"""
+        result = self._invoke()
+        for key, section in result["sections"].items():
+            missing = self.REQUIRED_KEYS - set(section.keys())
+            self.assertEqual(missing, set(), f"section '{key}' missing keys: {missing}")
+
+    # ---- 3. 有数据时各 section 状态正确 ----------------------------------------
+    def test_sections_with_data_are_available_or_partial(self):
+        """有数据时各 section 不应为 missing（但有 partial 情况）。"""
+        result = self._invoke()
+        # 测试 snapshot 有 300 点 nav + holdings + asset_alloc
+        self.assertEqual(result["sections"]["overview"]["dataStatus"], "available")
+        self.assertEqual(result["sections"]["performance"]["dataStatus"], "available")
+        self.assertEqual(result["sections"]["navDrawdown"]["dataStatus"], "available")
+        self.assertEqual(result["sections"]["holdings"]["dataStatus"], "available")
+        self.assertEqual(result["sections"]["assetAllocation"]["dataStatus"], "available")
+        self.assertEqual(result["sections"]["yearReturns"]["dataStatus"], "available")
+        # rating / purchaseInfo 有 metrics 行但底层数据是 partial 兜底
         self.assertEqual(result["sections"]["rating"]["dataStatus"], "available")
         self.assertEqual(result["sections"]["purchaseInfo"]["dataStatus"], "available")
-        self.assertEqual(result["sections"]["yearReturns"]["dataStatus"], "available")
+        # peerPerformance 有 quote 行
         self.assertEqual(result["sections"]["peerPerformance"]["dataStatus"], "available")
+        # riskSummary 有 max_drawdown
         self.assertEqual(result["sections"]["riskSummary"]["dataStatus"], "available")
+        # scaleHistory 有 4 季度
+        self.assertEqual(result["sections"]["scaleHistory"]["dataStatus"], "available")
 
-    def test_no_data_snapshot_reports_missing(self):
+    # ---- 4. 无数据时仍为 missing，不 fake available -----------------------------
+    def test_no_data_reports_missing_not_available(self):
         """当 snapshot 为 None、DB 全空时，section 应真实反映 missing。"""
-        def fake_execute(sql, params=None):
-            m = MagicMock()
-            sql_lower = (sql or "").lower()
-            if "sum(case" in sql_lower:
-                m.fetchone.return_value = {
-                    "holder_count": 0, "scale_count": 0, "turnover_count": 0,
-                    "bond_alloc_count": 0, "bond_hold_count": 0,
-                }
-            elif "fund_metrics_snapshot" in sql_lower and "score" in sql_lower:
-                m.fetchone.return_value = {"c": 0}
-            elif "fund_metrics_snapshot" in sql_lower and "fee" in sql_lower:
-                m.fetchone.return_value = {"c": 0}
-            elif "fund_quote_snapshot" in sql_lower:
-                m.fetchone.return_value = None
-            else:
-                m.fetchone.return_value = {"c": 0}
-            return m
-
-        with patch.object(
-            db_module.FundDataStore, "get_snapshot", return_value=None
-        ), patch.object(db_module, "get_db_context") as db_ctx:
-            cm = db_ctx.return_value
-            cm.__enter__.return_value = cm
-            cm.execute = fake_execute
-            result = asyncio.run(fund_api.fund_detail_completeness(code="000001"))
-
+        result = self._invoke(
+            snapshot={},
+            quarterly={"holder_count": 0, "scale_count": 0, "turnover_count": 0,
+                       "bond_alloc_count": 0, "bond_hold_count": 0, "quarterly_updated": None},
+            metrics_row=None,
+            quote_row=None,
+        )
         self.assertIsInstance(result, dict)
-        # 无数据时，rating/yearReturns/peerPerformance/riskSummary 应为 missing
-        for key in ("rating", "purchaseInfo", "yearReturns", "peerPerformance", "riskSummary"):
-            self.assertEqual(
-                result["sections"][key]["dataStatus"], "missing",
-                f"{key} should be missing",
+        # overview/performance/navDrawdown 无 nav_data → missing
+        self.assertEqual(result["sections"]["overview"]["dataStatus"], "missing")
+        self.assertEqual(result["sections"]["performance"]["dataStatus"], "missing")
+        self.assertEqual(result["sections"]["navDrawdown"]["dataStatus"], "missing")
+        # rating/purchaseInfo/peerPerformance 无 metrics/quote → missing
+        self.assertEqual(result["sections"]["rating"]["dataStatus"], "missing")
+        self.assertEqual(result["sections"]["purchaseInfo"]["dataStatus"], "missing")
+        self.assertEqual(result["sections"]["peerPerformance"]["dataStatus"], "missing")
+        # 无数据时，没有 section 应为 available 或 stale
+        for key in self.EXPECTED_SECTION_KEYS:
+            status = result["sections"][key]["dataStatus"]
+            self.assertNotIn(
+                status, ("available", "stale"),
+                f"{key} should NOT be available/stale when no data",
             )
+
+    # ---- 5. stale 计数与 coverage 权重 ----------------------------------------
+    def test_stale_nav_marks_relevant_sections_stale(self):
+        """nav_date 陈旧时，overview/performance/navDrawdown/yearReturns 标记 stale。"""
+        result = self._invoke(
+            snapshot={
+                "nav_data": [{"date": "2022-01-01", "nav": 1.0}] * 300,
+                "holdings": [{"stock_code": "000001"}],
+                "asset_allocation": [{"type": "股票", "ratio": 60.0}],
+                "nav_date": "2022-01-01",  # 远超 48h
+                "updated_at": "2026-06-05T00:00:00",  # holdings / assetAllocation 仍新鲜
+            },
+            quarterly={"holder_count": 0, "scale_count": 4, "turnover_count": 0,
+                       "bond_alloc_count": 0, "bond_hold_count": 0,
+                       "quarterly_updated": "2026-06-05T00:00:00"},
+        )
+        # NAV 过期只影响 overview/performance/navDrawdown/yearReturns
+        self.assertEqual(result["sections"]["overview"]["dataStatus"], "stale")
+        self.assertEqual(result["sections"]["performance"]["dataStatus"], "stale")
+        self.assertEqual(result["sections"]["navDrawdown"]["dataStatus"], "stale")
+        self.assertEqual(result["sections"]["yearReturns"]["dataStatus"], "stale")
+        # holdings 不应被 nav_stale 影响
+        self.assertEqual(result["sections"]["holdings"]["dataStatus"], "available")
+        # scaleHistory 不应被 nav_stale 影响
+        self.assertEqual(result["sections"]["scaleHistory"]["dataStatus"], "available")
+        # 顶层 stale 计数
+        self.assertGreater(result["stale"], 0)
+        # coverage 含 stale 权重
+        self.assertGreater(result["coverage"], 0.0)
+        self.assertLess(result["coverage"], 1.0)
+
+    # ---- 6. coverage 计算包含 stale 权重 ----------------------------------
+    def test_coverage_formula_includes_stale_weight(self):
+        """coverage = (available + partial*0.5 + stale*0.25) / total。"""
+        # 简化：全 missing
+        all_missing = self._invoke(
+            snapshot={},
+            quarterly={"holder_count": 0, "scale_count": 0, "turnover_count": 0,
+                       "bond_alloc_count": 0, "bond_hold_count": 0, "quarterly_updated": None},
+            metrics_row=None,
+            quote_row=None,
+        )
+        self.assertEqual(all_missing["coverage"], 0.0)
+        self.assertEqual(all_missing["stale"], 0)
+
+        # 有 stale 的场景：nav 陈旧，验证公式确实包含 stale*0.25
+        stale_result = self._invoke(
+            snapshot={
+                "nav_data": [{"date": "2022-01-01", "nav": 1.0}] * 300,
+                "holdings": [{"stock_code": "000001"}],
+                "asset_allocation": [{"type": "股票", "ratio": 60.0}],
+                "nav_date": "2022-01-01",
+                "updated_at": "2026-06-05T00:00:00",
+            },
+            quarterly={"holder_count": 0, "scale_count": 4, "turnover_count": 0,
+                       "bond_alloc_count": 0, "bond_hold_count": 0,
+                       "quarterly_updated": "2026-06-05T00:00:00"},
+        )
+        self.assertGreater(stale_result["stale"], 0)
+        total = stale_result["total"]
+        av = stale_result["available"]
+        pa = stale_result["partial"]
+        st = stale_result["stale"]
+        expected = round((av + pa * 0.5 + st * 0.25) / total, 4)
+        self.assertEqual(stale_result["coverage"], expected)
+
+    def test_stale_counted_in_top_level_stale_field(self):
+        """顶层 stale 字段必须统计 stale section 数量。"""
+        result = self._invoke(
+            snapshot={
+                "nav_data": [{"date": "2022-01-01", "nav": 1.0}] * 300,
+                "holdings": [{"stock_code": "000001"}],
+                "asset_allocation": [{"type": "股票", "ratio": 60.0}],
+                "nav_date": "2022-01-01",
+                "updated_at": "2026-06-05T00:00:00",
+            },
+            quarterly={"holder_count": 0, "scale_count": 4, "turnover_count": 0,
+                       "bond_alloc_count": 0, "bond_hold_count": 0,
+                       "quarterly_updated": "2026-06-05T00:00:00"},
+        )
+        stale_sections = sum(
+            1 for s in result["sections"].values() if s["dataStatus"] == "stale"
+        )
+        self.assertEqual(result["stale"], stale_sections, "顶层 stale 应等于各 section stale 之和")
+
+    # ---- 7. section source / asOf 独立性 ----------------------------------
+    def test_non_nav_sections_use_own_asof(self):
+        """holdings / scaleHistory / rating / purchaseInfo 不应被 nav_date stale 绑定。"""
+        result = self._invoke(
+            snapshot={
+                "nav_data": [{"date": "2022-01-01", "nav": 1.0}] * 300,
+                "holdings": [{"stock_code": "000001"}],
+                "asset_allocation": [{"type": "股票", "ratio": 60.0}],
+                "nav_date": "2022-01-01",
+                "updated_at": "2026-06-05T00:00:00",
+            },
+            quarterly={"holder_count": 0, "scale_count": 4, "turnover_count": 0,
+                       "bond_alloc_count": 0, "bond_hold_count": 0,
+                       "quarterly_updated": "2026-06-05T00:00:00"},
+            metrics_row={"score": 75.0, "fee_manage": 0.015, "fee_custody": 0.005,
+                         "metrics_updated_at": "2026-06-05T00:00:00"},
+        )
+        # holdings 用 snapshot.updated_at，不是 nav_date
+        self.assertNotEqual(result["sections"]["holdings"]["dataStatus"], "stale")
+        # scaleHistory 用 quarterly_updated
+        self.assertNotEqual(result["sections"]["scaleHistory"]["dataStatus"], "stale")
+        # rating / purchaseInfo 用 metrics_updated_at
+        self.assertNotEqual(result["sections"]["rating"]["dataStatus"], "stale")
+        self.assertNotEqual(result["sections"]["purchaseInfo"]["dataStatus"], "stale")
+
+
+    # ---- 8. peerPerformance / riskSummary source/asOf 缺口 -------------------
+    def test_peerPerformance_nav_fallback_source_and_asof(self):
+        """quote_row=None 且 nav_count>=250 时，peerPerformance 应 available，source=fund_nav_history，asOf=nav_as_of。"""
+        result = self._invoke(
+            snapshot={
+                "nav_data": [{"date": "2026-01-01", "nav": 1.0}] * 300,
+                "nav_date": "2026-06-05T00:00:00",
+                "updated_at": "2026-06-05T00:00:00",
+            },
+            quote_row=None,
+        )
+        pp = result["sections"]["peerPerformance"]
+        self.assertEqual(pp["dataStatus"], "available")
+        self.assertEqual(pp["source"], "fund_nav_history")
+        self.assertEqual(pp["asOf"], "2026-06-05T00:00:00")
+
+    def test_peerPerformance_quote_source_and_asof(self):
+        """quote_row 有数据时，source=fund_quote_snapshot，asOf=quote_updated。"""
+        result = self._invoke(
+            snapshot={
+                "nav_data": [{"date": "2026-01-01", "nav": 1.0}] * 300,
+                "nav_date": "2026-06-05T00:00:00",
+                "updated_at": "2026-06-05T00:00:00",
+            },
+            quote_row={"near_1y": 0.05, "near_3y": 0.15, "updated_at": "2026-06-05T00:00:00"},
+        )
+        pp = result["sections"]["peerPerformance"]
+        self.assertEqual(pp["dataStatus"], "available")
+        self.assertEqual(pp["source"], "fund_quote_snapshot")
+        self.assertEqual(pp["asOf"], "2026-06-05T00:00:00")
+
+    def test_riskSummary_nav_fallback_source_and_asof(self):
+        """risk_has_data 由 nav_count>=30 兜底时，riskSummary 应 available，source=fund_nav_history_rule_engine，asOf=nav_as_of。"""
+        result = self._invoke(
+            snapshot={
+                "nav_data": [{"date": "2026-01-01", "nav": 1.0}] * 300,
+                "nav_date": "2026-06-05T00:00:00",
+                "updated_at": "2026-06-05T00:00:00",
+            },
+            metrics_row=None,
+        )
+        rs = result["sections"]["riskSummary"]
+        self.assertEqual(rs["dataStatus"], "available")
+        self.assertEqual(rs["source"], "fund_nav_history_rule_engine")
+        self.assertEqual(rs["asOf"], "2026-06-05T00:00:00")
+
+    def test_riskSummary_metrics_source_and_asof(self):
+        """snapshot 有 max_drawdown/sharpe/volatility 时，source=fund_metrics_snapshot，asOf=metrics_updated。"""
+        result = self._invoke(
+            snapshot={
+                "nav_data": [{"date": "2026-01-01", "nav": 1.0}] * 300,
+                "max_drawdown": 0.1,
+                "sharpe_ratio": 0.5,
+                "volatility": 0.2,
+                "nav_date": "2026-06-05T00:00:00",
+                "updated_at": "2026-06-05T00:00:00",
+            },
+            metrics_row={"score": 75.0, "metrics_updated_at": "2026-04-01T00:00:00"},
+        )
+        rs = result["sections"]["riskSummary"]
+        self.assertEqual(rs["dataStatus"], "available")
+        self.assertEqual(rs["source"], "fund_metrics_snapshot")
+        self.assertEqual(rs["asOf"], "2026-04-01T00:00:00")
+
+    # ---- 9. quarterly / metrics stale 独立逻辑 -------------------------------
+    def test_quarterly_stale_marks_scaleHistory_stale(self):
+        """quarterly_updated 很旧且 scale_count>0 时，scaleHistory 应 stale。"""
+        result = self._invoke(
+            snapshot={
+                "nav_data": [{"date": "2026-01-01", "nav": 1.0}] * 300,
+                "nav_date": "2026-06-05T00:00:00",
+                "updated_at": "2026-06-05T00:00:00",
+            },
+            quarterly={"holder_count": 0, "scale_count": 4, "turnover_count": 0,
+                       "bond_alloc_count": 0, "bond_hold_count": 0,
+                       "quarterly_updated": "2020-01-01T00:00:00"},
+        )
+        self.assertEqual(result["sections"]["scaleHistory"]["dataStatus"], "stale")
+        self.assertEqual(result["sections"]["turnoverHistory"]["dataStatus"], "missing")
+
+    def test_metrics_stale_marks_rating_stale(self):
+        """metrics_updated_at 很旧且 rating_count>0 时，rating 应 stale。"""
+        result = self._invoke(
+            snapshot={
+                "nav_data": [{"date": "2026-01-01", "nav": 1.0}] * 300,
+                "nav_date": "2026-06-05T00:00:00",
+                "updated_at": "2026-06-05T00:00:00",
+            },
+            metrics_row={"score": 75.0, "fee_manage": None, "fee_custody": None,
+                         "metrics_updated_at": "2020-01-01T00:00:00"},
+        )
+        self.assertEqual(result["sections"]["rating"]["dataStatus"], "stale")
+
+    def test_metrics_stale_marks_purchaseInfo_stale(self):
+        """metrics_updated_at 很旧且 purchase_count>0 时，purchaseInfo 应 stale。"""
+        result = self._invoke(
+            snapshot={
+                "nav_data": [{"date": "2026-01-01", "nav": 1.0}] * 300,
+                "nav_date": "2026-06-05T00:00:00",
+                "updated_at": "2026-06-05T00:00:00",
+            },
+            metrics_row={"score": None, "fee_manage": 0.015, "fee_custody": 0.005,
+                         "metrics_updated_at": "2020-01-01T00:00:00"},
+        )
+        self.assertEqual(result["sections"]["purchaseInfo"]["dataStatus"], "stale")
+
+    # ---- 10. available/stale/partial 的 asOf 不应为 None -----------------------
+    def test_available_section_has_non_none_asof_when_data_derived(self):
+        """有数据可推导时，available/stale/partial section 的 asOf 不应为 None。"""
+        result = self._invoke(
+            snapshot={
+                "nav_data": [{"date": "2026-01-01", "nav": 1.0}] * 300,
+                "holdings": [{"stock_code": "000001"}],
+                "asset_allocation": [{"type": "股票", "ratio": 60.0}],
+                "nav_date": "2026-06-05T00:00:00",
+                "updated_at": "2026-06-05T00:00:00",
+            },
+        )
+        for key in self.EXPECTED_SECTION_KEYS:
+            section = result["sections"][key]
+            if section["dataStatus"] in ("available", "stale", "partial"):
+                self.assertIsNotNone(
+                    section["asOf"],
+                    f"section '{key}' is {section['dataStatus']} but asOf is None"
+                )
 
 
 class ScaleHistoryBackfillTest(unittest.TestCase):

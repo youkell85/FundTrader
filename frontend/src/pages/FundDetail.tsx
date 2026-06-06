@@ -2062,10 +2062,10 @@ function ManagerSection({
 type CoverageSummary = ReturnType<typeof summarizeDetailCoverage>;
 
 function CoverageSummary({ summary }: { summary: CoverageSummary }) {
-  const { items, total, available, partial, missing, pending, error } = summary;
+  const { items, total, available, partial, stale, missing, pending, error } = summary;
   if (total === 0) return null;
-  const order: Array<keyof typeof STATUS_LABELS> = ["available", "partial", "pending", "missing", "error"];
-  const counts: Record<string, number> = { available, partial, pending, missing, error };
+  const order: Array<keyof typeof STATUS_LABELS> = ["available", "partial", "stale", "pending", "missing", "error"];
+  const counts: Record<string, number> = { available, partial, stale, pending, missing, error };
   return (
     <section className="mb-3 rounded-lg border border-white/[0.06] bg-white/[0.02] p-3">
       <div className="flex flex-wrap items-center gap-2">
@@ -2100,11 +2100,13 @@ function CoverageSummary({ summary }: { summary: CoverageSummary }) {
                   ? "bg-[#16C784]"
                   : it.status === "partial"
                     ? "bg-[#FFB800]"
-                    : it.status === "pending"
-                      ? "bg-[#5AA9FF]"
-                      : it.status === "error"
-                        ? "bg-[#F5384B]"
-                        : "bg-white/30"
+                    : it.status === "stale"
+                      ? "bg-[#E9AB60]"
+                      : it.status === "pending"
+                        ? "bg-[#5AA9FF]"
+                        : it.status === "error"
+                          ? "bg-[#F5384B]"
+                          : "bg-white/30"
               }`}
             />
             <span className="truncate text-white/65">{it.label}</span>

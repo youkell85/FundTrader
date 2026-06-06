@@ -16,6 +16,7 @@
 export type DetailDataStatus =
   | "available"
   | "partial"
+  | "stale"
   | "missing"
   | "pending"
   | "error"
@@ -34,7 +35,7 @@ export type DetailRowsPayload<T> = {
 export function isRealDetailStatus(
   status?: DetailDataStatus | string | null,
 ): boolean {
-  return status === "available" || status === "partial" || status === undefined;
+  return status === "available" || status === "partial" || status === "stale" || status === undefined;
 }
 
 export function realRows<T>(
@@ -55,6 +56,7 @@ export function missingReason(
 export const STATUS_LABELS: Record<DetailDataStatus, string> = {
   available: "可用",
   partial: "部分可用",
+  stale: "数据陈旧",
   missing: "缺失",
   pending: "生成中",
   error: "接口错误",
@@ -67,6 +69,8 @@ export const STATUS_TONES: Record<DetailDataStatus, string> = {
   available: "text-[#16C784] border-[#16C784]/30 bg-[#16C784]/5",
   // 琥珀 — 部分数据回来，等待补全
   partial: "text-[#FFB800] border-[#FFB800]/30 bg-[#FFB800]/5",
+  // 橙褐 — 数据存在但已陈旧，需刷新
+  stale: "text-[#E9AB60] border-[#E9AB60]/30 bg-[#E9AB60]/5",
   // 灰 — 接口已就绪但 rows 为空
   missing: "text-white/45 border-white/10 bg-white/[0.02]",
   // 蓝 — LLM/规则生成中
@@ -76,17 +80,18 @@ export const STATUS_TONES: Record<DetailDataStatus, string> = {
   simulated: "text-white/45 border-white/10 bg-white/[0.02]",
 };
 
-/** 把 trpc 状态机压成 5 态。
+/** 把 trpc 状态机压成 6 态。
  *
  * 优先级（从高到低）：
  *   1. isError                 → "error"
  *   2. isLoading && !hasData   → "pending"
- *   3. dataStatus === "available"    → "available"
- *   4. dataStatus === "partial"      → "partial"
- *   5. dataStatus === "missing" |
+ *   3. dataStatus === "stale"        → "stale"
+ *   4. dataStatus === "available"    → "available"
+ *   5. dataStatus === "partial"      → "partial"
+ *   6. dataStatus === "missing" |
  *      dataStatus === "simulated"    → "missing"
- *   6. !dataStatus && hasData        → "available"
- *   7. 其他                          → "missing"
+ *   7. !dataStatus && hasData        → "available"
+ *   8. 其他                          → "missing"
  */
 export function deriveStatus(args: {
   isLoading?: boolean;
@@ -96,6 +101,7 @@ export function deriveStatus(args: {
 }): DetailDataStatus {
   if (args.isError) return "error";
   if (args.isLoading && !args.hasData) return "pending";
+  if (args.dataStatus === "stale") return "stale";
   if (args.dataStatus === "available") return "available";
   if (args.dataStatus === "partial") return "partial";
   if (args.dataStatus === "missing" || args.dataStatus === "simulated") return "missing";
@@ -170,11 +176,11 @@ export type CoverageInput = Partial<Record<CoverageKey, CoverageEntry>>;
 /** 把 13 个 trpc useQuery 的状态聚合成一个统一摘要，供 CoverageSummary 组件消费。 */
 export function summarizeDetailCoverage(
   entries: CoverageInput,
-): { items: CoverageEntry[]; total: number; available: number; partial: number; missing: number; pending: number; error: number } {
+): { items: CoverageEntry[]; total: number; available: number; partial: number; stale: number; missing: number; pending: number; error: number } {
   const items = Object.entries(entries)
     .filter(([, v]) => v !== undefined)
-    .map(([k, v]) => v as CoverageEntry);
-  const counts = { available: 0, partial: 0, missing: 0, pending: 0, error: 0 };
+    .map(([, v]) => v as CoverageEntry);
+  const counts = { available: 0, partial: 0, stale: 0, missing: 0, pending: 0, error: 0, simulated: 0 };
   for (const it of items) counts[it.status] += 1;
   return {
     items,
