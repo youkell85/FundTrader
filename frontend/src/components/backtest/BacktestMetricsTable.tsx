@@ -7,17 +7,17 @@ interface Props {
 }
 
 const METRIC_DEFS: { key: keyof BacktestMetrics; label: string; fmt: (v: number | null) => string; highlight?: 'higher' | 'lower' }[] = [
-  { key: 'annualized_return', label: '年化收益', fmt: v => v == null ? '-' : `${(v * 100).toFixed(2)}%`, highlight: 'higher' },
-  { key: 'annualized_volatility', label: '年化波动', fmt: v => v == null ? '-' : `${(v * 100).toFixed(2)}%`, highlight: 'lower' },
-  { key: 'max_drawdown', label: '最大回撤', fmt: v => v == null ? '-' : `${(v * 100).toFixed(2)}%`, highlight: 'lower' },
+  { key: 'annualized_return', label: '年化收益', fmt: v => v == null ? '-' : `${v.toFixed(2)}%`, highlight: 'higher' },
+  { key: 'annualized_volatility', label: '年化波动', fmt: v => v == null ? '-' : `${v.toFixed(2)}%`, highlight: 'lower' },
+  { key: 'max_drawdown', label: '最大回撤', fmt: v => v == null ? '-' : `${v.toFixed(2)}%`, highlight: 'lower' },
   { key: 'max_drawdown_duration_days', label: '回撤天数', fmt: v => v == null ? '-' : `${v}天`, highlight: 'lower' },
   { key: 'sharpe_ratio', label: 'Sharpe', fmt: v => v == null ? '-' : v.toFixed(3), highlight: 'higher' },
   { key: 'sortino_ratio', label: 'Sortino', fmt: v => v == null ? '-' : v.toFixed(3), highlight: 'higher' },
   { key: 'calmar_ratio', label: 'Calmar', fmt: v => v == null ? '-' : v.toFixed(3), highlight: 'higher' },
-  { key: 'monthly_win_rate', label: '月胜率', fmt: v => v == null ? '-' : `${(v * 100).toFixed(1)}%`, highlight: 'higher' },
-  { key: 'avg_turnover', label: '平均换手', fmt: v => v == null ? '-' : `${(v * 100).toFixed(1)}%` },
+  { key: 'monthly_win_rate', label: '月胜率', fmt: v => v == null ? '-' : `${v.toFixed(1)}%`, highlight: 'higher' },
+  { key: 'avg_turnover', label: '平均换手', fmt: v => v == null ? '-' : `${v.toFixed(1)}%` },
   { key: 'total_rebalances', label: '调仓次数', fmt: v => v == null ? '-' : `${v}` },
-  { key: 'taa_value_added', label: 'TAA增值', fmt: v => v == null ? '-' : `${(v * 100).toFixed(2)}%` },
+  { key: 'taa_value_added', label: 'TAA增值', fmt: v => v == null ? '-' : `${v.toFixed(2)}%` },
 ];
 
 export default function BacktestMetricsTable({ metrics }: Props) {

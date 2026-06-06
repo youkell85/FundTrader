@@ -224,7 +224,7 @@ export default function BacktestPage() {
                   <Kpi label="Sharpe" value={fmt(primaryMetrics.sharpe_ratio, '', 2)} />
                   <Kpi label="Sortino" value={fmt(primaryMetrics.sortino_ratio, '', 2)} />
                   <Kpi label="Calmar" value={fmt(primaryMetrics.calmar_ratio, '', 2)} />
-                  <Kpi label="月胜率" value={fmt(primaryMetrics.monthly_win_rate * 100, '%', 1)} />
+                  <Kpi label="月胜率" value={fmt(primaryMetrics.monthly_win_rate, '%', 1)} />
                 </>
               )}
             </div>

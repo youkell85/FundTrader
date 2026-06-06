@@ -45,7 +45,7 @@ export default function RegimeTimeline({ regimeHistory, attribution }: Props) {
               <span className="text-xs text-white/50">{label}</span>
               {attr !== undefined && (
                 <span className={`text-xs font-medium ${attr.total_return >= 0 ? 'text-red-400' : 'text-green-400'}`}>
-                  {attr.total_return >= 0 ? '+' : ''}{(attr.total_return * 100).toFixed(1)}%
+                  {attr.total_return >= 0 ? '+' : ''}{attr.total_return.toFixed(1)}%
                 </span>
               )}
             </div>

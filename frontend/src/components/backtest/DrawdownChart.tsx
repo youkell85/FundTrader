@@ -15,7 +15,7 @@ export default function DrawdownChart({ curves }: Props) {
   modes.forEach(mode => {
     curves[mode].forEach(pt => {
       const existing = dateMap.get(pt.date) || {};
-      existing[mode] = pt.drawdown * 100; // to percent
+      existing[mode] = pt.drawdown; // already in percent from backend
       dateMap.set(pt.date, existing);
     });
   });
