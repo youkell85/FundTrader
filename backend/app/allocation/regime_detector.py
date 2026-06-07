@@ -1,4 +1,4 @@
-﻿"""Regime Detector 鈥?market regime classification using macro indicators.
+"""Regime Detector — market regime classification using macro indicators.
 
 Uses multi-signal sigmoid scoring with persistence logic.
 Graceful fallback: returns baseline if no macro data available.
@@ -15,11 +15,11 @@ logger = logging.getLogger(__name__)
 
 # Regime labels mapping
 REGIME_LABELS = {
-    "goldilocks": "閲戝彂濂冲",
-    "overheat": "杩囩儹",
-    "stagflation": "婊炶儉",
-    "deflation": "閫氱缉琛伴€€",
-    "baseline": "鍩哄噯",
+    "goldilocks": "金发女孩",
+    "overheat": "过热",
+    "stagflation": "滞胀",
+    "deflation": "通缩衰退",
+    "baseline": "基准",
 }
 
 # Thread-safe state for persistence (2 consecutive confirmations required)
@@ -38,11 +38,11 @@ def detect_regime() -> RegimeState:
     """Detect current market regime from macro indicators.
 
     Uses 2D quadrant classification (growth x inflation):
-    - growth>0 & inflation<0 鈫?goldilocks
-    - growth>0 & inflation>0 鈫?overheat
-    - growth<0 & inflation>0 鈫?stagflation
-    - growth<0 & inflation<0 鈫?deflation
-    - ambiguous 鈫?baseline
+    - growth>0 & inflation<0 → goldilocks
+    - growth>0 & inflation>0 → overheat
+    - growth<0 & inflation>0 → stagflation
+    - growth<0 & inflation<0 → deflation
+    - ambiguous → baseline
 
     Persistence: requires 2 consecutive detections to switch regime.
     Fallback: returns baseline with low confidence if no data.
@@ -118,7 +118,7 @@ def detect_regime() -> RegimeState:
 
     return RegimeState(
         regime=confirmed_regime,
-        regime_label=REGIME_LABELS.get(confirmed_regime, "鍩哄噯"),
+        regime_label=REGIME_LABELS.get(confirmed_regime, "基准"),
         confidence=round(confidence, 2),
         score=composite,
         pending_regime=pending_regime_val,
@@ -133,13 +133,13 @@ def _log_regime_to_db(regime: str, growth: float, inflation: float, confidence: 
         from app.storage.database import RegimeHistoryCache
         RegimeHistoryCache.log(
             regime=regime,
-            label=REGIME_LABELS.get(regime, "鍩哄噯"),
+            label=REGIME_LABELS.get(regime, "基准"),
             growth_score=round(growth, 3),
             inflation_score=round(inflation, 3),
             confidence=round(confidence, 2),
         )
     except Exception:
-    logger.exception("Ignored non-fatal exception")
+        pass
 
 
 def _get_macro_snapshot():
@@ -155,13 +155,13 @@ def _score_growth(macro) -> float:
     """Score growth dimension: PMI + GDP. Range [-1, +1]."""
     scores = []
 
-    pmi = macro.get_value("PMI鍒堕€犱笟")
+    pmi = macro.get_value("PMI制造业")
     if pmi is not None:
         # PMI: 50 is neutral. Score: (PMI - 50) / 2, clamped to [-1, 1]
         s = max(-1.0, min(1.0, (pmi - 50.0) / 2.0))
         scores.append(s)
 
-    gdp = macro.get_value("GDP鍚屾瘮")
+    gdp = macro.get_value("GDP同比")
     if gdp is not None:
         # GDP: 4.5% is neutral. Score: (GDP - 4.5) / 3, clamped
         s = max(-1.0, min(1.0, (gdp - 4.5) / 3.0))
@@ -176,13 +176,13 @@ def _score_inflation(macro) -> float:
     """Score inflation dimension: CPI + PPI. Range [-1, +1]. Positive = inflationary."""
     scores = []
 
-    cpi = macro.get_value("CPI鍚屾瘮")
+    cpi = macro.get_value("CPI同比")
     if cpi is not None:
         # CPI: 2% is neutral. Score: (CPI - 2) / 2, clamped
         s = max(-1.0, min(1.0, (cpi - 2.0) / 2.0))
         scores.append(s)
 
-    ppi = macro.get_value("PPI鍚屾瘮")
+    ppi = macro.get_value("PPI同比")
     if ppi is not None:
         # PPI: 0% is neutral. Score: PPI / 4, clamped
         s = max(-1.0, min(1.0, ppi / 4.0))
@@ -197,13 +197,13 @@ def _score_monetary(macro) -> float:
     """Score monetary/liquidity dimension: M2 + 10Y yield. Range [-1, +1]. Positive = easing."""
     scores = []
 
-    m2 = macro.get_value("M2澧為€?)
+    m2 = macro.get_value("M2增速")
     if m2 is not None:
         # M2: 8.5% is neutral. Higher = more easing
         s = max(-1.0, min(1.0, (m2 - 8.5) / 3.0))
         scores.append(s)
 
-    yield_10y = macro.get_value("10Y鍥藉€烘敹鐩婄巼")
+    yield_10y = macro.get_value("10Y国债收益率")
     if yield_10y is not None:
         # 10Y yield: 3% is neutral. LOWER = more easing (inverted)
         s = max(-1.0, min(1.0, (3.0 - yield_10y) / 1.0))
@@ -275,10 +275,9 @@ def get_regime_status() -> dict:
     with _regime_lock:
         return {
             "confirmed_regime": _previous_regime,
-            "confirmed_label": REGIME_LABELS.get(_previous_regime, "鍩哄噯"),
+            "confirmed_label": REGIME_LABELS.get(_previous_regime, "基准"),
             "pending_regime": _pending_regime,
             "pending_label": REGIME_LABELS.get(_pending_regime, "") if _pending_regime else None,
             "pending_count": _pending_count,
             "is_stable": _pending_regime is None,
         }
-

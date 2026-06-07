@@ -1,16 +1,13 @@
-﻿"""鍩洪噾鎺掑悕绛涢€夋湇鍔?
+"""基金排名筛选服务
 
-鏁版嵁婧愮瓥鐣ワ細
-- 鍏ㄥ競鍦烘帓鍚?鈫?akshare fund_open_fund_rank_em锛圱ushare 涓嶆彁渚涜仛鍚堟帓鍚嶏級
-- 鍥為€€鎺掑悕 鈫?eastmoney 涓滄柟璐㈠瘜 API
-- 鍩洪噾璇︽儏 鈫?Tushare锛團usion 浼樺厛绾?锛屼粯璐归珮棰戯級鈫?iFinD 鈫?Tickflow 鈫?Tencent
-- 鍩洪噾瑙勬ā 鈫?Tushare fund_share 脳 unit_nav 鈫?efinance fallback
-- 鍩洪噾璐圭巼 鈫?efinance锛圱ushare 涓嶆彁渚涜垂鐜囧瓧娈碉級
-- 鎸佷粨/缁忕悊 鈫?Tushare fund_portfolio / fund_manager 鈫?akshare 琛ュ厖瀛﹀巻淇℃伅
+数据源策略：
+- 全市场排名 → akshare fund_open_fund_rank_em（Tushare 不提供聚合排名）
+- 回退排名 → eastmoney 东方财富 API
+- 基金详情 → Tushare（Fusion 优先级5，付费高频）→ iFinD → Tickflow → Tencent
+- 基金规模 → Tushare fund_share × unit_nav → efinance fallback
+- 基金费率 → efinance（Tushare 不提供费率字段）
+- 持仓/经理 → Tushare fund_portfolio / fund_manager → akshare 补充学历信息
 """
-
-import logging
-
 import math
 import os
 import json
@@ -24,28 +21,28 @@ from ..data.cache_manager import cache
 from ..storage.database import FundDataStore, get_db_context
 from ..utils import console_error
 
-# 鎺掑簭瀛楁鏄犲皠锛堟彁鍙栦负妯″潡绾у父閲忥紝閬垮厤閲嶅瀹氫箟锛?
+# 排序字段映射（提取为模块级常量，避免重复定义）
 SORT_FIELD_MAP: dict[str, str] = {
-    "杩?鏈?: "near_1m", "杩?鏈?: "near_3m", "杩?鏈?: "near_6m",
-    "杩?骞?: "near_1y", "杩?骞?: "near_3y", "浠婂勾鏉?: "ytd",
+    "近1月": "near_1m", "近3月": "near_3m", "近6月": "near_6m",
+    "近1年": "near_1y", "近3年": "near_3y", "今年来": "ytd",
 }
 
-# 鍩洪噾绫诲瀷 鈫?鑻辨枃妗舵槧灏勶紙棣栭〉 categoryMetrics 浣跨敤锛?
+# 基金类型 → 英文桶映射（首页 categoryMetrics 使用）
 _TYPE_BUCKET_MAP: dict[str, str] = {
-    "鑲＄エ鍨?: "equity", "娣峰悎鍨?: "hybrid", "鍊哄埜鍨?: "bond",
-    "鎸囨暟鍨?: "index", "ETF": "etf", "QDII": "qdii",
-    "璐у竵鍨?: "money", "璐у竵": "money", "FOF": "fof", "REITs": "reits",
-    "ETF鑱旀帴": "etf", "鑱旀帴鍩洪噾": "etf",
+    "股票型": "equity", "混合型": "hybrid", "债券型": "bond",
+    "指数型": "index", "ETF": "etf", "QDII": "qdii",
+    "货币型": "money", "货币": "money", "FOF": "fof", "REITs": "reits",
+    "ETF联接": "etf", "联接基金": "etf",
 }
 
 HS300_BENCHMARK_CODE = "000300"
 
 
 def _normalize_fund_type_to_bucket(raw: str, name: str = "") -> str:
-    """鎶?fund_master.fund_type 涓枃褰掔被涓洪椤电粺涓€鐨勮嫳鏂囨《 key.
+    """把 fund_master.fund_type 中文归类为首页统一的英文桶 key.
 
-    鍚?ETF/LOF 鍚嶇О鐨勫熀閲戝嵆浣?fund_type 涓?鎸囨暟鍨?涔熷綊鍏?etf bucket锛?
-    涓庡墠绔?inferFundType 淇濇寔涓€鑷淬€?
+    含 ETF/LOF 名称的基金即使 fund_type 为"指数型"也归入 etf bucket，
+    与前端 inferFundType 保持一致。
     """
     s = (raw or "").strip()
     text = (s + (name or "")).upper()
@@ -172,21 +169,21 @@ def _get_nav_history_for_detail(code: str) -> tuple[list[dict[str, Any]], str | 
         fetched = get_fund_nav_history(code)
         clean: list[dict[str, Any]] = []
         for item in fetched or []:
-            nav_date = str(item.get("date") or item.get("nav_date") or item.get("鍑€鍊兼棩鏈?) or "")[:10]
-            nav = _safe_float(item.get("nav") or item.get("鍗曚綅鍑€鍊?) or item.get("nav_value"))
+            nav_date = str(item.get("date") or item.get("nav_date") or item.get("净值日期") or "")[:10]
+            nav = _safe_float(item.get("nav") or item.get("单位净值") or item.get("nav_value"))
             if nav_date and nav is not None and nav > 0:
                 clean.append({
                     "nav_date": nav_date,
                     "nav": nav,
-                    "accum_nav": _safe_float(item.get("acc_nav") or item.get("accum_nav") or item.get("绱鍑€鍊?)),
-                    "day_growth": _safe_float(item.get("day_growth") or item.get("鏃ュ闀跨巼") or item.get("澧為暱鐜?)),
+                    "accum_nav": _safe_float(item.get("acc_nav") or item.get("accum_nav") or item.get("累计净值")),
+                    "day_growth": _safe_float(item.get("day_growth") or item.get("日增长率") or item.get("增长率")),
                 })
         clean.sort(key=lambda row: row["nav_date"])
         if len(clean) >= 2:
             try:
                 FundDataStore.save_nav_history_batch(code, clean, source="efinance")
             except Exception:
-            logging.exception("Ignored non-fatal exception")
+                pass
             return clean, "efinance", clean[-1]["nav_date"]
     except Exception as e:
         console_error(f"detail nav history fetch failed for {code}: {e}")
@@ -443,20 +440,20 @@ def _apply_filters_and_sort(
     sort_by: str,
     sort_order: str,
 ) -> list[dict[str, Any]]:
-    """閫氱敤绛涢€夈€佹帓搴忛€昏緫锛堟彁鍙栧叕鍏变唬鐮侊級"""
-    # 鎸夋爣绛剧瓫閫?
+    """通用筛选、排序逻辑（提取公共代码）"""
+    # 按标签筛选
     if tag:
         funds = [f for f in funds if tag in f.get("tags", []) or tag in f.get("name", "")]
 
-    # 鎸夊叧閿瘝绛涢€?
+    # 按关键词筛选
     if keyword:
         funds = [f for f in funds if keyword in f.get("name", "") or keyword in f.get("code", "")]
 
-    # 鎸夌被鍨嬬瓫閫?
-    if category != "鍏ㄩ儴":
-        funds = [f for f in funds if f.get("type", "") == category or f.get("绫诲瀷", "") == category]
+    # 按类型筛选
+    if category != "全部":
+        funds = [f for f in funds if f.get("type", "") == category or f.get("类型", "") == category]
 
-    # 鎺掑簭
+    # 排序
     sort_field = SORT_FIELD_MAP.get(sort_by, "ytd")
     reverse = sort_order == "desc"
     funds.sort(key=lambda x: float(x.get(sort_field, 0) or 0), reverse=reverse)
@@ -465,10 +462,10 @@ def _apply_filters_and_sort(
 
 
 def get_fund_list(
-    category: str = "鍏ㄩ儴",
+    category: str = "全部",
     tag: str | None = None,
     keyword: str | None = None,
-    sort_by: str = "浠婂勾鏉?,
+    sort_by: str = "今年来",
     sort_order: str = "desc",
     page: int = 1,
     page_size: int = 20,
@@ -479,10 +476,10 @@ def get_fund_list(
     if not funds and guoyuan_only:
         funds = _get_guoyuan_funds_with_performance()
 
-    # 绛涢€?鎺掑簭
+    # 筛选+排序
     funds = _apply_filters_and_sort(funds, category, tag, keyword, sort_by, sort_order)
 
-    # 鍒嗛〉
+    # 分页
     total = len(funds)
     start = (page - 1) * page_size
     end = start + page_size
@@ -499,15 +496,15 @@ def get_fund_list(
 
 
 def get_fund_list_from_watchlist(
-    category: str = "鍏ㄩ儴",
+    category: str = "全部",
     tag: str | None = None,
     keyword: str | None = None,
-    sort_by: str = "浠婂勾鏉?,
+    sort_by: str = "今年来",
     sort_order: str = "desc",
     page: int = 1,
     page_size: int = 20,
 ) -> dict[str, Any]:
-    """浠庤嚜閫夊熀閲戝垪琛ㄨ幏鍙栧熀閲戞暟鎹?""
+    """从自选基金列表获取基金数据"""
     from ..services.watchlist_service import get_watchlist
     watchlist = get_watchlist()
 
@@ -521,13 +518,13 @@ def get_fund_list_from_watchlist(
             "types": FUND_TYPES,
         }
 
-    # 涓鸿嚜閫夊熀閲戣幏鍙栦笟缁╂暟鎹?
+    # 为自选基金获取业绩数据
     funds = _get_watchlist_with_performance(watchlist)
 
-    # 绛涢€?鎺掑簭
+    # 筛选+排序
     funds = _apply_filters_and_sort(funds, category, tag, keyword, sort_by, sort_order)
 
-    # 鍒嗛〉
+    # 分页
     total = len(funds)
     start = (page - 1) * page_size
     end = start + page_size
@@ -544,7 +541,7 @@ def get_fund_list_from_watchlist(
 
 
 def _get_watchlist_with_performance(watchlist: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """涓鸿嚜閫夊熀閲戣幏鍙栦笟缁╂暟鎹紙鎵归噺妯″紡锛?""
+    """为自选基金获取业绩数据（批量模式）"""
     result = []
     for fund in watchlist:
         fund_data = dict(fund)
@@ -571,12 +568,12 @@ def _get_snapshot_funds(guoyuan_only: bool = True) -> list[dict[str, Any]]:
         if funds:
             return _json_safe(funds)
     except Exception:
-    logging.exception("Ignored non-fatal exception")
+        pass
     return []
 
 
 def _get_guoyuan_funds_with_performance() -> list[dict[str, Any]]:
-    """鑾峰彇鍥藉厓璇佸埜鍩洪噾鍚嶅崟鍙婁笟缁╂暟鎹紙SQLite浼樺厛锛孉PI鍥為€€锛?""
+    """获取国元证券基金名单及业绩数据（SQLite优先，API回退）"""
     snapshot = _get_snapshot_funds(guoyuan_only=True)
     if snapshot:
         return snapshot
@@ -596,7 +593,7 @@ def _get_guoyuan_funds_with_performance() -> list[dict[str, Any]]:
 
 def _get_static_guoyuan_funds() -> list[dict[str, Any]]:
     """Return the local fund pool with JSON-safe default metrics."""
-    # 鎵归噺浠?fund_master 琛ㄨ鍙栧熀閲戝叕鍙镐俊鎭綔涓鸿ˉ鍏?
+    # 批量从 fund_master 表读取基金公司信息作为补充
     master_companies = {}
     try:
         from app.storage.database import get_db
@@ -604,7 +601,7 @@ def _get_static_guoyuan_funds() -> list[dict[str, Any]]:
             rows = conn.execute("SELECT code, company FROM fund_master WHERE company != ''").fetchall()
             master_companies = {r["code"]: r["company"] for r in rows}
     except Exception:
-    logging.exception("Ignored non-fatal exception")
+        pass
 
     result = []
     for fund in GUOYUAN_FUND_LIST:
@@ -640,10 +637,10 @@ def _fetch_all_fund_performance_with_timeout() -> dict[str, dict[str, Any]]:
 
 
 def _fetch_all_fund_performance() -> dict[str, dict[str, Any]]:
-    """鎵归噺鑾峰彇鍏ㄥ競鍦哄熀閲戜笟缁╂暟鎹紙涓€娆kshare璋冪敤锛岄伩鍏峃娆￠噸澶嶈姹傦級
+    """批量获取全市场基金业绩数据（一次akshare调用，避免N次重复请求）
     
-    鍩洪噾涓氱哗鏁版嵁鏃ラ鏇存柊锛屽崟涓氦鏄撴棩鏀剁洏鍚庣粺涓€鍏竷銆?
-    缂撳瓨TTL鐢辫皟鐢ㄦ柟鎺у埗锛岄粯璁や笌CACHE_TTL_RANKING涓€鑷达紙30鍒嗛挓锛夈€?
+    基金业绩数据日频更新，单个交易日收盘后统一公布。
+    缓存TTL由调用方控制，默认与CACHE_TTL_RANKING一致（30分钟）。
     """
     cache_key = "bulk_fund_performance"
     cached = cache.get(cache_key, CACHE_TTL_RANKING)
@@ -653,21 +650,21 @@ def _fetch_all_fund_performance() -> dict[str, dict[str, Any]]:
     perf_map: dict[str, dict[str, Any]] = {}
     try:
         import akshare as ak
-        df = ak.fund_open_fund_rank_em(symbol="鍏ㄩ儴")
+        df = ak.fund_open_fund_rank_em(symbol="全部")
         if df is not None and not df.empty:
             for _, row in df.iterrows():
-                code = str(row.get("鍩洪噾浠ｇ爜", "")).strip()
+                code = str(row.get("基金代码", "")).strip()
                 if not code:
                     continue
                 perf_map[code] = {
-                    "nav": _safe_float(row.get("鍗曚綅鍑€鍊?)),
-                    "day_growth": _safe_float(row.get("鏃ュ闀跨巼")),
-                    "near_1m": _safe_float(row.get("杩?鏈?)),
-                    "near_3m": _safe_float(row.get("杩?鏈?)),
-                    "near_6m": _safe_float(row.get("杩?鏈?)),
-                    "near_1y": _safe_float(row.get("杩?骞?)),
-                    "near_3y": _safe_float(row.get("杩?骞?)),
-                    "ytd": _safe_float(row.get("浠婂勾鏉?)),
+                    "nav": _safe_float(row.get("单位净值")),
+                    "day_growth": _safe_float(row.get("日增长率")),
+                    "near_1m": _safe_float(row.get("近1月")),
+                    "near_3m": _safe_float(row.get("近3月")),
+                    "near_6m": _safe_float(row.get("近6月")),
+                    "near_1y": _safe_float(row.get("近1年")),
+                    "near_3y": _safe_float(row.get("近3年")),
+                    "ytd": _safe_float(row.get("今年来")),
                 }
         cache.set(cache_key, perf_map)
     except Exception as e:
@@ -679,8 +676,8 @@ def _compute_single_fund_metrics(code: str, RISK_FREE_RATE: float) -> dict[str, 
     """Compute risk metrics for a single fund from NAV history.
 
     Returns a metrics dict or None if skipped/failed.
-    鍓綔鐢細鎶婃媺鍒扮殑 nav_data 鎸佷箙鍖栧埌 fund_nav_history锛屼緵 getFundAnalysis 璇伙紝
-    閬垮厤璇︽儏椤?绱鏀剁泭瓒嬪娍"鍥炬棤鏁版嵁銆?
+    副作用：把拉到的 nav_data 持久化到 fund_nav_history，供 getFundAnalysis 读，
+    避免详情页"累计收益趋势"图无数据。
     """
     import numpy as np
 
@@ -692,11 +689,11 @@ def _compute_single_fund_metrics(code: str, RISK_FREE_RATE: float) -> dict[str, 
         if not nav_data or len(nav_data) < 30:
             return None
 
-        # 鎸佷箙鍖栧噣鍊煎巻鍙诧紙fund_nav_history锛夆€斺€?淇绱鏀剁泭瓒嬪娍鍥炬棤鏁版嵁
+        # 持久化净值历史（fund_nav_history）—— 修复累计收益趋势图无数据
         try:
             FundDataStore.save_nav_history_batch(code, nav_data, source="compute")
         except Exception:
-        logging.exception("Ignored non-fatal exception")
+            pass  # nav 持久化失败不影响 metrics 计算
 
         navs = []
         for item in nav_data:
@@ -832,18 +829,18 @@ def compute_and_save_metrics(
 
 
 # ============================================================
-#  P0: 鍩洪噾璇勭骇 / 璐拱淇℃伅 / 鎸佹湁浜虹粨鏋?
+#  P0: 基金评级 / 购买信息 / 持有人结构
 # ============================================================
 
 def get_fund_rating(code: str) -> dict | None:
-    """鍩洪噾璇勭骇锛? 骞?/ 5 骞?1~5 棰楁槦锛夈€?
+    """基金评级（3 年 / 5 年 1~5 颗星）。
 
-    鏁版嵁婧愪紭鍏堢骇锛?
-      1. tushare fund_rating锛堝鏈夋潈闄愶級
-      2. 鐢ㄥ悓琛屼笟锛坒und.fund_type 鍖归厤 fund_category_metrics_snapshot锛?y 骞冲潎鏀剁泭 + 澶忔櫘鎺ㄧ畻
+    数据源优先级：
+      1. tushare fund_rating（如有权限）
+      2. 用同行业（fund.fund_type 匹配 fund_category_metrics_snapshot）1y 平均收益 + 夏普推算
     """
     try:
-        # 1) tushare 浼樺厛
+        # 1) tushare 优先
         import tushare as ts
         from ..config import TUSHARE_TOKEN
         if TUSHARE_TOKEN:
@@ -864,13 +861,13 @@ def get_fund_rating(code: str) -> dict | None:
                                     "source": "tushare",
                                 }
                         except Exception:
-                        logging.exception("Ignored non-fatal exception")
+                            pass
             except Exception:
-            logging.exception("Ignored non-fatal exception")
+                pass
 
-        # 2) 浠庡悓绫诲潎鍊?+ 鏈熀閲?1y 鏀剁泭鎺ㄧ畻鏄熺骇
+        # 2) 从同类均值 + 本基金 1y 收益推算星级
         with get_db_context() as conn:
-            # 鎷挎湰鍩洪噾 fund_type
+            # 拿本基金 fund_type
             row = conn.execute(
                 "SELECT fund_type FROM fund_master WHERE code = ?",
                 (code,),
@@ -878,7 +875,7 @@ def get_fund_rating(code: str) -> dict | None:
             if not row:
                 return None
             fund_type = row["fund_type"]
-            # 鍚岀被鍧囧€硷紙鏈€鏂颁竴澶╋級
+            # 同类均值（最新一天）
             cat = conn.execute(
                 """SELECT avg_annual_return_eq, avg_sharpe_eq
                    FROM fund_category_metrics_snapshot
@@ -886,14 +883,14 @@ def get_fund_rating(code: str) -> dict | None:
                    ORDER BY as_of_date DESC LIMIT 1""",
                 (fund_type,),
             ).fetchone()
-            # 鏈熀閲?1y
+            # 本基金 1y
             fund = conn.execute(
                 """SELECT near_1y FROM fund_quote_snapshot WHERE code = ?""",
                 (code,),
             ).fetchone()
         if not cat or not fund:
             return None
-        # 瑙勫垯锛?y 鏀剁泭 / 鍚岀被 1y 鏀剁泭 鈮?1.5 鈫?5鈽咃紱1.2~1.5 鈫?4鈽咃紱0.8~1.2 鈫?3鈽咃紱0.5~0.8 鈫?2鈽咃紱<0.5 鈫?1鈽?
+        # 规则：1y 收益 / 同类 1y 收益 ≥ 1.5 → 5★；1.2~1.5 → 4★；0.8~1.2 → 3★；0.5~0.8 → 2★；<0.5 → 1★
         try:
             fund_1y = float(fund["near_1y"] or 0)
             cat_1y = float(cat["avg_annual_return_eq"] or 0)
@@ -910,13 +907,13 @@ def get_fund_rating(code: str) -> dict | None:
             r1y = 2
         else:
             r1y = 1
-        # 3y 璇勭骇锛氬悓绫诲鏅?2.0+ 鍔犲垎
+        # 3y 评级：同类夏普 2.0+ 加分
         cat_sharpe = float(cat["avg_sharpe_eq"] or 0)
         r3y = 5 if cat_sharpe > 2 else 4 if cat_sharpe > 1 else 3 if cat_sharpe > 0 else 2
         return {
             "code": code,
             "rating3y": r3y,
-            "rating5y": r1y,  # 5y 娌℃暟鎹紝鐢?1y 鏇夸唬
+            "rating5y": r1y,  # 5y 没数据，用 1y 替代
             "score": round(ratio * 50, 1),
             "source": "computed",
         }
@@ -925,11 +922,11 @@ def get_fund_rating(code: str) -> dict | None:
 
 
 def get_fund_purchase_info(code: str) -> dict | None:
-    """璐拱淇℃伅锛堢敵璐?璧庡洖鐘舵€併€佽捣璐€? 绫昏垂鐜囥€佹€昏垂鐜囷級銆?
+    """购买信息（申购/赎回状态、起购、4 类费率、总费率）。
 
-    鏁版嵁婧愶細
-      - 璐圭巼锛歠und_metrics_snapshot.fee_manage / fee_custody
-      - 璧疯喘 / 鐘舵€侊細琛屼笟鏍囧噯锛堝亸鑲℃贩鍚?/ 鑲＄エ / 娣峰悎鍨?璧疯喘 1.00 鍏冿級
+    数据源：
+      - 费率：fund_metrics_snapshot.fee_manage / fee_custody
+      - 起购 / 状态：行业标准（偏股混合 / 股票 / 混合型 起购 1.00 元）
     """
     try:
         with get_db_context() as conn:
@@ -945,12 +942,12 @@ def get_fund_purchase_info(code: str) -> dict | None:
             ).fetchone()
         if not row and not master:
             return None
-        # 璐圭巼锛氬熀閲戣涓氭暟鎹簱閲?0.012 / 0.002 杩欐牱鐨勬暟鍊硷紙宸茬粡鏄?1.2% / 0.2% 鐨勫皬鏁帮級
+        # 费率：基金行业数据库里 0.012 / 0.002 这样的数值（已经是 1.2% / 0.2% 的小数）
         mgmt = _safe_float(row["fee_manage"]) if row else None
         cust = _safe_float(row["fee_custody"]) if row else None
         fund_type = master["fund_type"] if master else ""
-        # 琛屼笟鏍囧噯璧疯喘鍜岃垂鐜?
-        if "璐у竵" in fund_type:
+        # 行业标准起购和费率
+        if "货币" in fund_type:
             min_amt = 0.01
             sub_fee = "0.00%"
             red_fee = "0.00%"
@@ -958,7 +955,7 @@ def get_fund_purchase_info(code: str) -> dict | None:
             min_amt = 1.00
             sub_fee = "0.30%~1.50%"
             red_fee = "0.00%~1.50%"
-        # mgmt/cust 鏄?0.012 / 0.002 杩欑灏忔暟锛堝凡鏄櫨鍒嗘瘮灏忔暟锛夆啋 脳 100 寰?1.20% / 0.20%
+        # mgmt/cust 是 0.012 / 0.002 这种小数（已是百分比小数）→ × 100 得 1.20% / 0.20%
         mgmt_pct = f"{mgmt * 100:.2f}%" if mgmt and mgmt < 1 else f"{mgmt:.2f}%" if mgmt else "1.20%"
         cust_pct = f"{cust * 100:.2f}%" if cust and cust < 1 else f"{cust:.2f}%" if cust else "0.20%"
         try:
@@ -967,14 +964,14 @@ def get_fund_purchase_info(code: str) -> dict | None:
             total = 1.4
         return {
             "code": code,
-            "purchaseStatus": "寮€鏀剧敵璐?,
-            "redeemStatus": "寮€鏀捐祹鍥?,
+            "purchaseStatus": "开放申购",
+            "redeemStatus": "开放赎回",
             "minPurchaseAmount": min_amt,
             "subscriptionFeeRate": sub_fee,
             "redemptionFeeRate": red_fee,
             "managementFeeRate": mgmt_pct,
             "custodyFeeRate": cust_pct,
-            "serviceFeeRate": "鈥?,
+            "serviceFeeRate": "—",
             "totalFeeRate1y": f"{total:.2f}",
         }
     except Exception:
@@ -982,7 +979,7 @@ def get_fund_purchase_info(code: str) -> dict | None:
 
 
 def get_fund_holder_structure(code: str, periods: int = 40) -> dict:
-    """鎸佹湁浜虹粨鏋勶細鍙繑鍥炲凡鍏ュ簱鐨勫鎶ョ湡瀹炴暟鎹紝涓嶅啀鐢熸垚琛屼笟妯℃澘銆?""
+    """持有人结构：只返回已入库的季报真实数据，不再生成行业模板。"""
     rows = _safe_table_query(
         """SELECT report_date, holder_structure_json, source, data_quality, updated_at
            FROM fund_detail_quarterly_snapshot
@@ -1010,16 +1007,16 @@ def get_fund_holder_structure(code: str, periods: int = 40) -> dict:
         out[-periods:],
         source=source,
         as_of=as_of,
-        missing_reason="缂哄皯鐪熷疄鎸佹湁浜虹粨鏋勫鎶ユ暟鎹紱涓嶅啀浣跨敤琛屼笟妯℃澘妯℃嫙銆?,
+        missing_reason="缺少真实持有人结构季报数据；不再使用行业模板模拟。",
     )
 
 
 # ============================================================
-#  P1: 鍒哥閰嶇疆 / 閲嶄粨鍊哄埜 / 鍘嗗彶鍥炴姤 / 鍋忚偂娣峰悎鍧囧€间笌鍩哄噯
+#  P1: 券种配置 / 重仓债券 / 历史回报 / 偏股混合均值与基准
 # ============================================================
 
 def get_fund_bond_allocation(code: str) -> dict:
-    """鍒哥閰嶇疆锛氬彧杩斿洖瀛ｆ姤蹇収涓殑鐪熷疄鍒哥鍗犳瘮銆?""
+    """券种配置：只返回季报快照中的真实券种占比。"""
     rows = _safe_table_query(
         """SELECT report_date, bond_allocation_json, source, updated_at
            FROM fund_detail_quarterly_snapshot
@@ -1032,7 +1029,7 @@ def get_fund_bond_allocation(code: str) -> dict:
         return _rows_response(
             code,
             [],
-            missing_reason="缂哄皯鐪熷疄鍒哥閰嶇疆瀛ｆ姤鏁版嵁锛涗笉鍐嶄娇鐢ㄦ寜鍩洪噾绫诲瀷鐢熸垚鐨勬ā鎷熼厤缃€?,
+            missing_reason="缺少真实券种配置季报数据；不再使用按基金类型生成的模拟配置。",
         )
     row = rows[0]
     out: list[dict[str, Any]] = []
@@ -1050,12 +1047,12 @@ def get_fund_bond_allocation(code: str) -> dict:
         out,
         source=row["source"] or "fund_detail_quarterly_snapshot",
         as_of=row["report_date"],
-        missing_reason="鍒哥閰嶇疆蹇収涓虹┖銆?,
+        missing_reason="券种配置快照为空。",
     )
 
 
 def get_fund_bond_holdings(code: str) -> dict:
-    """閲嶄粨鍊哄埜锛氫紭鍏堣鍙栧揩鐓э紝鍏舵灏濊瘯 AkShare 涓滄柟璐㈠瘜鐪熷疄鍊哄埜鎸佷粨銆?""
+    """重仓债券：优先读取快照，其次尝试 AkShare 东方财富真实债券持仓。"""
     snapshot_rows = _safe_table_query(
         """SELECT report_date, bond_holdings_json, source, updated_at
            FROM fund_detail_quarterly_snapshot
@@ -1085,7 +1082,7 @@ def get_fund_bond_holdings(code: str) -> dict:
             out,
             source=row["source"] or "fund_detail_quarterly_snapshot",
             as_of=row["report_date"],
-            missing_reason="鍊哄埜鎸佷粨蹇収涓虹┖銆?,
+            missing_reason="债券持仓快照为空。",
         )
 
     try:
@@ -1115,10 +1112,10 @@ def get_fund_bond_holdings(code: str) -> dict:
                 code,
                 out,
                 status=DETAIL_STATUS_PARTIAL,
-                source="AkShare 涓滄柟璐㈠瘜F10 鍊哄埜鎸佷粨",
+                source="AkShare 东方财富F10 债券持仓",
                 as_of=as_of or None,
                 coverage=0.45,
-                missing_reason="鍊哄埜鍚嶇О鍜屽崰鍑€鍊兼瘮鍙敤锛岀エ鎭?鍙戣涓讳綋/璇勭骇鏆傜己銆?,
+                missing_reason="债券名称和占净值比可用，票息/发行主体/评级暂缺。",
             )
     except Exception as e:
         console_error(f"bond holdings fetch failed for {code}: {e}")
@@ -1126,15 +1123,15 @@ def get_fund_bond_holdings(code: str) -> dict:
     return _rows_response(
         code,
         [],
-        missing_reason="缂哄皯鐪熷疄閲嶄粨鍊哄埜鏁版嵁锛汚kShare/Tushare 褰撳墠鏈繑鍥炲彲鐢ㄦ寔浠撱€?,
+        missing_reason="缺少真实重仓债券数据；AkShare/Tushare 当前未返回可用持仓。",
     )
 
 
 def _peer_year_return(code: str, year: int) -> float | None:
-    """P2.1: 璁＄畻鎸囧畾鍩洪噾鎵€鍦?fund_type 鍚岀被鍦ㄦ煇骞寸殑鍧囧€煎勾鍖栨敹鐩婏紙鐧惧垎鏁帮級銆?
+    """P2.1: 计算指定基金所在 fund_type 同类在某年的均值年化收益（百分数）。
 
-    鏁版嵁婧愶細fund_nav_history + fund_master.fund_type銆備紭鍏堢敤棣栨湯鏃ュ噣鍊肩畻骞村害 return锛?
-    鍚岀被鍙栫畻鏈钩鍧囥€傚け璐?鏃犳牱鏈椂杩斿洖 None銆?
+    数据源：fund_nav_history + fund_master.fund_type。优先用首末日净值算年度 return，
+    同类取算术平均。失败/无样本时返回 None。
     """
     type_rows = _safe_table_query(
         "SELECT fund_type FROM fund_master WHERE code = ? AND fund_type IS NOT NULL",
@@ -1143,7 +1140,7 @@ def _peer_year_return(code: str, year: int) -> float | None:
     if not type_rows or not type_rows[0]["fund_type"]:
         return None
     fund_type = type_rows[0]["fund_type"]
-    # 鍚?fund_type 鍩洪噾闆嗗悎锛堜粎娲昏穬涓旀湁 nav锛?
+    # 同 fund_type 基金集合（仅活跃且有 nav）
     peer_rows = _safe_table_query(
         """SELECT DISTINCT n.code
            FROM fund_nav_history n
@@ -1159,7 +1156,7 @@ def _peer_year_return(code: str, year: int) -> float | None:
         peer_codes = [r["code"] for r in peer_rows if r["code"]]
     if not peer_codes:
         return None
-    # 鍚岀被鍩洪噾棣栨湯鍑€鍊硷紙鎸夊勾搴︾獥鍙ｏ級
+    # 同类基金首末净值（按年度窗口）
     year_start = f"{year}-01-01"
     year_end = f"{year}-12-31"
     placeholders = ",".join("?" for _ in peer_codes)
@@ -1187,7 +1184,7 @@ def _peer_year_return(code: str, year: int) -> float | None:
         rets.append((e / s - 1.0) * 100.0)
     if len(rets) < 3:
         return None
-    # 鐢?trim-mean锛堝幓鎺夋渶楂樻渶浣庡悇 10%锛夊噺灏戞瀬绔€煎共鎵?
+    # 用 trim-mean（去掉最高最低各 10%）减少极端值干扰
     rets.sort()
     n = len(rets)
     k = max(1, n // 10)
@@ -1196,18 +1193,18 @@ def _peer_year_return(code: str, year: int) -> float | None:
 
 
 def get_fund_year_returns(code: str) -> dict:
-    """鍘嗗勾鍥炴姤锛氫粠鐪熷疄鍑€鍊煎巻鍙茶绠楁湰鍩洪噾骞村害鏀剁泭锛屽悓鏃惰绠楁勃娣?00鍚屾湡骞村害鏀剁泭鍜屽悓绫诲潎鍊笺€?""
+    """历年回报：从真实净值历史计算本基金年度收益，同时计算沪深300同期年度收益和同类均值。"""
     nav_rows, source, as_of = _get_nav_history_for_detail(code)
     if len(nav_rows) < 2:
         return _rows_response(
             code,
             [],
-            missing_reason="缂哄皯鍑€鍊煎巻鍙诧紝鏃犳硶璁＄畻骞村害鏀剁泭銆?,
+            missing_reason="缺少净值历史，无法计算年度收益。",
         )
     years = sorted({_to_date(row.get("nav_date")).year for row in nav_rows if _to_date(row.get("nav_date"))})
     latest_years = years[-5:]
 
-    # 鑾峰彇娌繁300鍑€鍊煎巻鍙茬敤浜庤绠楀悓鏈熷勾搴︽敹鐩?
+    # 获取沪深300净值历史用于计算同期年度收益
     index_nav_rows = []
     try:
         index_nav_rows = _get_index_nav_history(HS300_BENCHMARK_CODE)
@@ -1230,11 +1227,11 @@ def get_fund_year_returns(code: str) -> dict:
     if has_peer:
         coverage = min(1.0, coverage + 0.2)
     if has_hs300 and has_peer:
-        missing_reason = "鏈熀閲?娌繁300/鍚岀被鍧囧€煎潎鎸夌湡瀹炴暟鎹绠楋紱鎺掑悕闇€琛ュ熀鍑?鍚岀被鍘嗗彶琛ㄣ€?
+        missing_reason = "本基金/沪深300/同类均值均按真实数据计算；排名需补基准/同类历史表。"
     elif has_peer:
-        missing_reason = "鏈熀閲?鍚岀被鍧囧€兼寜鐪熷疄鏁版嵁璁＄畻锛涙勃娣?00 鍚屾湡鏀剁泭缂哄け锛屾帓鍚嶉渶琛ュ悓绫诲巻鍙茶〃銆?
+        missing_reason = "本基金/同类均值按真实数据计算；沪深300 同期收益缺失，排名需补同类历史表。"
     else:
-        missing_reason = "鏈熀閲戝勾搴︽敹鐩婂凡鎸夌湡瀹炲噣鍊艰绠楋紱娌繁300鍚屾湡鏀剁泭鏉ヨ嚜鎸囨暟鍑€鍊硷紱鍚岀被鍧囧€笺€佹帓鍚嶉渶琛ュ熀鍑?鍚岀被鍘嗗彶琛ㄣ€?
+        missing_reason = "本基金年度收益已按真实净值计算；沪深300同期收益来自指数净值；同类均值、排名需补基准/同类历史表。"
     return _rows_response(
         code,
         rows,
@@ -1247,12 +1244,12 @@ def get_fund_year_returns(code: str) -> dict:
 
 
 def _get_index_nav_history(benchmark_code: str = HS300_BENCHMARK_CODE) -> list[dict[str, Any]]:
-    """鑾峰彇鎸囨暟锛堥粯璁ゆ勃娣?00锛夌殑鏀剁洏浠峰巻鍙诧紝浼樺厛浠?fund_benchmark_nav_history 琛ㄨ鍙栵紝
-    鍥為€€鍒?efinance / akshare 鍦ㄧ嚎鑾峰彇骞舵寔涔呭寲銆?
+    """获取指数（默认沪深300）的收盘价历史，优先从 fund_benchmark_nav_history 表读取，
+    回退到 efinance / akshare 在线获取并持久化。
 
-    杩斿洖 [{"nav_date": str, "nav": float}, ...] 鎸?nav_date 鍗囧簭銆?
+    返回 [{"nav_date": str, "nav": float}, ...] 按 nav_date 升序。
     """
-    # 1. 浠?fund_benchmark_nav_history 璇诲彇
+    # 1. 从 fund_benchmark_nav_history 读取
     rows = _safe_table_query(
         """SELECT nav_date, nav
            FROM fund_benchmark_nav_history
@@ -1263,12 +1260,12 @@ def _get_index_nav_history(benchmark_code: str = HS300_BENCHMARK_CODE) -> list[d
     if len(rows) >= 50:
         return [{"nav_date": str(r["nav_date"]), "nav": _safe_float(r["nav"])} for r in rows if _safe_float(r["nav"]) is not None]
 
-    # 2. efinance 鍥為€€锛堟勃娣?00 鐢?stock.get_quote_history锛?
+    # 2. efinance 回退（沪深300 用 stock.get_quote_history）
     try:
         import efinance as ef
         df = ef.stock.get_quote_history(benchmark_code, klt=101)
         if df is not None and not df.empty:
-            rename_map = {"鏃ユ湡": "date", "鏀剁洏": "close", "close": "close"}
+            rename_map = {"日期": "date", "收盘": "close", "close": "close"}
             df = df.rename(columns={k: v for k, v in rename_map.items() if k in df.columns})
             if "date" in df.columns and "close" in df.columns:
                 records = []
@@ -1279,7 +1276,7 @@ def _get_index_nav_history(benchmark_code: str = HS300_BENCHMARK_CODE) -> list[d
                         records.append({"nav_date": d, "nav": v})
                 records.sort(key=lambda x: x["nav_date"])
                 if len(records) >= 50:
-                    # 鎸佷箙鍖栧埌 fund_benchmark_nav_history
+                    # 持久化到 fund_benchmark_nav_history
                     try:
                         from ..storage.database import get_db_context
                         now = datetime.now().isoformat()
@@ -1293,18 +1290,18 @@ def _get_index_nav_history(benchmark_code: str = HS300_BENCHMARK_CODE) -> list[d
                                 [(benchmark_code, r["nav_date"], r["nav"], now) for r in records],
                             )
                     except Exception:
-                    logging.exception("Ignored non-fatal exception")
+                        pass
                     return records
     except Exception as e:
         console_error(f"efinance index nav fetch failed for {benchmark_code}: {e}")
 
-    # 3. akshare 鍥為€€
+    # 3. akshare 回退
     try:
         import akshare as ak
         import pandas as pd
         df = ak.stock_zh_index_daily(symbol=f"sh{benchmark_code}")
         if df is not None and not df.empty:
-            for col in ["close", "鏀剁洏"]:
+            for col in ["close", "收盘"]:
                 if col in df.columns:
                     date_col = "date" if "date" in df.columns else df.columns[0]
                     records = []
@@ -1328,7 +1325,7 @@ def _get_index_nav_history(benchmark_code: str = HS300_BENCHMARK_CODE) -> list[d
                                     [(benchmark_code, r["nav_date"], r["nav"], now) for r in records],
                                 )
                         except Exception:
-                        logging.exception("Ignored non-fatal exception")
+                            pass
                         return records
     except Exception as e:
         console_error(f"akshare index nav fetch failed for {benchmark_code}: {e}")
@@ -1341,10 +1338,10 @@ def _calc_cumulative_return_series(
     start_date: str | None = None,
     end_date: str | None = None,
 ) -> list[dict[str, Any]]:
-    """浠庡噣鍊煎簭鍒楄绠楃疮璁℃敹鐩婄巼搴忓垪 [{"date": str, "return": float}, ...]銆?
+    """从净值序列计算累计收益率序列 [{"date": str, "return": float}, ...]。
 
-    浠?start_date 瀵瑰簲鐨勫噣鍊间负鍩哄噯锛堝鏋?start_date 涓?None 鍒欑敤棣栨潯锛夛紝
-    return = (nav / base_nav - 1) * 100銆?
+    以 start_date 对应的净值为基准（如果 start_date 为 None 则用首条），
+    return = (nav / base_nav - 1) * 100。
     """
     if not nav_rows:
         return []
@@ -1371,13 +1368,13 @@ def _calc_cumulative_return_series(
 def _calc_drawdown_series(
     nav_rows: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """浠庡噣鍊煎簭鍒楄绠楅€愭棩鍥炴挙搴忓垪 [{"date": str, "drawdown": float, "peak_nav": float, "current_nav": float}, ...]銆?
+    """从净值序列计算逐日回撤序列 [{"date": str, "drawdown": float, "peak_nav": float, "current_nav": float}, ...]。
 
-    drawdown = (current_nav / peak_nav - 1) * 100锛宲eak_nav 涓哄巻鍙叉渶楂樺噣鍊笺€?
+    drawdown = (current_nav / peak_nav - 1) * 100，peak_nav 为历史最高净值。
     """
     if not nav_rows:
         return []
-    # 鎸夋棩鏈熷崌搴忔帓鍒?
+    # 按日期升序排列
     sorted_rows = sorted(nav_rows, key=lambda r: str(r.get("nav_date", "")))
     peak_nav = None
     result = []
@@ -1400,7 +1397,7 @@ def _calc_drawdown_series(
 
 
 def get_fund_peer_performance(code: str) -> dict:
-    """鍚岀被/鎸囨暟/鍩哄噯鍚屾湡鏀剁泭鐜囥€傚彧杩斿洖鐪熷疄鎴栧彲杩芥函蹇収锛岀己鍙ｄ繚鐣?null銆?""
+    """同类/指数/基准同期收益率。只返回真实或可追溯快照，缺口保留 null。"""
     empty = _empty_perf_row()
     try:
         with get_db_context() as conn:
@@ -1419,7 +1416,7 @@ def get_fund_peer_performance(code: str) -> dict:
                    ORDER BY as_of_date DESC LIMIT 1""",
                 (master["fund_type"] if master else "",),
             ).fetchone()
-            # 鏌ヨ娌繁300鍦?fund_quote_snapshot 涓殑鏀剁泭鐜囷紙濡傛灉瀛樺湪锛?
+            # 查询沪深300在 fund_quote_snapshot 中的收益率（如果存在）
             index_quote = conn.execute(
                 "SELECT near_3m, near_6m, near_1y, near_3y FROM fund_quote_snapshot WHERE code = '000300'",
                 (),
@@ -1429,7 +1426,7 @@ def get_fund_peer_performance(code: str) -> dict:
         source = "fund_quote_snapshot"
         coverage = 0.25 + (0.25 if peer_1y is not None else 0)
 
-        # 濉厖 peer 瀛楁锛氫粠鍚岀被鍧囧€艰幏鍙栨洿澶氭湡闄愭暟鎹?
+        # 填充 peer 字段：从同类均值获取更多期限数据
         peer_row = {
             "return3m": None,
             "return6m": None,
@@ -1439,11 +1436,11 @@ def get_fund_peer_performance(code: str) -> dict:
             "returnSinceInception": None,
             "annualizedReturn": None,
         }
-        # 濡傛灉鍚岀被鍧囧€兼湁 3y 鏁版嵁锛岀敤 avg_annual_return_eq 杩戜技
+        # 如果同类均值有 3y 数据，用 avg_annual_return_eq 近似
         if cat and cat["avg_annual_return_eq"] is not None:
             peer_row["annualizedReturn"] = _pct_for_api(cat["avg_annual_return_eq"])
 
-        # 濉厖 index 瀛楁锛氭勃娣?00鏀剁泭鐜?
+        # 填充 index 字段：沪深300收益率
         index_row = {
             "return3m": _pct_for_api(index_quote["near_3m"]) if index_quote else None,
             "return6m": _pct_for_api(index_quote["near_6m"]) if index_quote else None,
@@ -1456,7 +1453,7 @@ def get_fund_peer_performance(code: str) -> dict:
         if index_quote:
             coverage += 0.25
 
-        # === 璁＄畻 series 鏇茬嚎鏁版嵁 ===
+        # === 计算 series 曲线数据 ===
         series_data: dict[str, list[dict[str, Any]]] = {
             "fund": [],
             "peer": [],
@@ -1464,7 +1461,7 @@ def get_fund_peer_performance(code: str) -> dict:
             "benchmark": [],
         }
 
-        # 1) 鏈熀閲戠疮璁℃敹鐩婂簭鍒?
+        # 1) 本基金累计收益序列
         try:
             fund_nav_rows, _, _ = _get_nav_history_for_detail(code)
             if fund_nav_rows:
@@ -1473,11 +1470,11 @@ def get_fund_peer_performance(code: str) -> dict:
         except Exception as e:
             console_error(f"fund series calc failed for {code}: {e}")
 
-        # 2) 娌繁300绱鏀剁泭搴忓垪锛堜笌鏈熀閲戝悓鏈燂級
+        # 2) 沪深300累计收益序列（与本基金同期）
         try:
             index_nav_rows = _get_index_nav_history(HS300_BENCHMARK_CODE)
             if index_nav_rows and series_data["fund"]:
-                # 鎴彇涓庢湰鍩洪噾鍚屾湡鐨勫尯闂?
+                # 截取与本基金同期的区间
                 fund_start = series_data["fund"][0]["date"] if series_data["fund"] else None
                 fund_end = series_data["fund"][-1]["date"] if series_data["fund"] else None
                 index_series = _calc_cumulative_return_series(index_nav_rows, start_date=fund_start, end_date=fund_end)
@@ -1485,10 +1482,10 @@ def get_fund_peer_performance(code: str) -> dict:
         except Exception as e:
             console_error(f"index series calc failed: {e}")
 
-        # 3) peer锛堝悓绫诲潎鍊硷級鈥斺€?鐢ㄥ悓绫?1y 骞村寲鏀剁泭浣滀负甯搁噺绾匡紙鎵€鏈夌偣杩斿洖鐩稿悓鍊硷級
+        # 3) peer（同类均值）—— 用同类 1y 年化收益作为常量线（所有点返回相同值）
         if peer_1y is not None and series_data["fund"]:
             try:
-                # 鍚岀被鍧囧€?1y 鏀剁泭浣滀负姘村钩绾?
+                # 同类均值 1y 收益作为水平线
                 series_data["peer"] = [
                     {"date": pt["date"], "return": round(peer_1y, 4)}
                     for pt in series_data["fund"]
@@ -1496,7 +1493,7 @@ def get_fund_peer_performance(code: str) -> dict:
             except Exception as e:
                 console_error(f"peer series calc failed: {e}")
 
-        # 4) 鏈熀閲戝洖鎾ゅ簭鍒?
+        # 4) 本基金回撤序列
         try:
             if fund_nav_rows:
                 dd_series = _calc_drawdown_series(fund_nav_rows)
@@ -1504,11 +1501,11 @@ def get_fund_peer_performance(code: str) -> dict:
                     {"date": d["date"], "drawdown": d["drawdown"]}
                     for d in dd_series
                 ]
-                # 鎸佷箙鍖栧埌 SQLite
+                # 持久化到 SQLite
                 try:
                     FundDataStore.save_drawdown_series_batch(code, dd_series, window_days=365)
                 except Exception:
-                logging.exception("Ignored non-fatal exception")
+                    pass
         except Exception as e:
             console_error(f"drawdown series calc failed for {code}: {e}")
 
@@ -1536,7 +1533,7 @@ def get_fund_peer_performance(code: str) -> dict:
                 source=source if quote else None,
                 as_of=(quote["nav_date"] if quote else None) or (cat["as_of_date"] if cat else None),
                 coverage=coverage if status != DETAIL_STATUS_MISSING else 0.0,
-                missing_reason="鏈熀閲戝拰1骞村悓绫诲潎鍊兼潵鑷揩鐓э紱鎸囨暟鏇茬嚎鏉ヨ嚜娌繁300鍑€鍊硷紱涓氱哗鍩哄噯闇€琛ョ湡瀹炲熀鍑嗗噣鍊艰〃銆?,
+                missing_reason="本基金和1年同类均值来自快照；指数曲线来自沪深300净值；业绩基准需补真实基准净值表。",
             ),
         }
     except Exception:
@@ -1549,22 +1546,22 @@ def get_fund_peer_performance(code: str) -> dict:
             "series": {"fund": [], "peer": [], "index": [], "benchmark": []},
             **_detail_meta(
                 status=DETAIL_STATUS_MISSING,
-                missing_reason="鍚屾湡鏀剁泭璇诲彇澶辫触銆?,
+                missing_reason="同期收益读取失败。",
             ),
         }
 
 
 # ============================================================
-#  P2: 鍘嗗勾瑙勬ā鍙樺寲 / 鍩洪噾鎹㈡墜鐜?/ 鍩洪噾缁忕悊鍙樻洿
+#  P2: 历年规模变化 / 基金换手率 / 基金经理变更
 # ============================================================
 
 def _backfill_scale_history_from_tushare(
     code: str, periods: int, existing_rows: list
 ) -> list[dict[str, Any]]:
-    """P2.1: 浠?tushare fund_share 脳 unit_nav 璇诲彇鍘嗗彶瑙勬ā锛屽洖濉苟鍏ュ簱銆?
+    """P2.1: 从 tushare fund_share × unit_nav 读取历史规模，回填并入库。
 
-    杩斿洖涓?get_fund_scale_history 涓€鑷寸殑 [{quarter, totalScale, peer25Scale}] 琛屻€?
-    澶辫触 / 鏃犳暟鎹椂杩斿洖绌哄垪琛紙涓嶆姏寮傚父锛夈€?
+    返回与 get_fund_scale_history 一致的 [{quarter, totalScale, peer25Scale}] 行。
+    失败 / 无数据时返回空列表（不抛异常）。
     """
     try:
         from ..data.providers.tushare_provider import TushareProvider
@@ -1587,14 +1584,14 @@ def _backfill_scale_history_from_tushare(
     out: list[dict[str, Any]] = []
     persist_rows: list[tuple[str, float]] = []
     try:
-        # 鎸?trade_date 鍊掑簭閬嶅巻锛屽彇鏈€杩?periods 涓?
+        # 按 trade_date 倒序遍历，取最近 periods 个
         share_df = share_df.sort_values(by="trade_date", ascending=False).head(periods)
         for _, srow in share_df.iterrows():
             trade_date = str(srow.get("trade_date", ""))[:10]
             fd_share = provider._safe_float(srow.get("fd_share"))  # type: ignore[attr-defined]
             if not trade_date or fd_share is None or fd_share <= 0:
                 continue
-            # 鍙栧悓鏈?unit_nav
+            # 取同期 unit_nav
             nav_df = provider._safe_call(pro.fund_nav, ts_code=ts_code, end_date=trade_date)  # type: ignore[attr-defined]
             unit_nav: float | None = None
             if nav_df is not None and not nav_df.empty:
@@ -1602,13 +1599,13 @@ def _backfill_scale_history_from_tushare(
                 unit_nav = provider._safe_float(nav_df.iloc[0].get("unit_nav"))  # type: ignore[attr-defined]
             if unit_nav is None or unit_nav <= 0:
                 continue
-            total_scale = round(fd_share * unit_nav / 100000.0, 4)  # 涓囦唤脳鍑€鍊?1e5=浜垮厓
+            total_scale = round(fd_share * unit_nav / 100000.0, 4)  # 万份×净值/1e5=亿元
             out.append({"quarter": trade_date, "totalScale": total_scale, "peer25Scale": None})
             persist_rows.append((trade_date, total_scale))
     except Exception:
         return out
 
-    # 鍏ュ簱锛堜粎鎻掑叆 DB 娌℃湁鐨勫搴︼級
+    # 入库（仅插入 DB 没有的季度）
     if persist_rows:
         try:
             from ..storage.database import get_db
@@ -1624,12 +1621,12 @@ def _backfill_scale_history_from_tushare(
                         (code, qdate, scale, "tushare:fund_share", "backfill", now),
                     )
         except Exception:
-        logging.exception("Ignored non-fatal exception")
+            pass
     return out
 
 
 def get_fund_scale_history(code: str, periods: int = 40) -> dict:
-    """瑙勬ā鍘嗗彶锛氳鍙栫湡瀹炲鎶ュ揩鐓э紱DB 涓嶈冻 4 瀛ｅ害鏃讹紝鐢?tushare fund_share脳fund_nav 鍥炲～骞跺叆搴撱€?""
+    """规模历史：读取真实季报快照；DB 不足 4 季度时，用 tushare fund_share×fund_nav 回填并入库。"""
     snapshot_rows = _safe_table_query(
         """SELECT report_date, total_scale, source, updated_at
            FROM fund_detail_quarterly_snapshot
@@ -1643,11 +1640,11 @@ def get_fund_scale_history(code: str, periods: int = 40) -> dict:
         for row in reversed(snapshot_rows)
         if _safe_float(row["total_scale"]) is not None
     ]
-    # DB 鐪熷疄鏍锋湰 < 4 鏃讹紝鐢?tushare fund_share脳unit_nav 鍘嗗彶鍥炲～锛堜粎鏈湡鏂板啓鍏ワ級
+    # DB 真实样本 < 4 时，用 tushare fund_share×unit_nav 历史回填（仅本期新写入）
     if len(out) < min(4, periods):
         tushare_rows = _backfill_scale_history_from_tushare(code, periods, snapshot_rows)
         if tushare_rows:
-            # 鐢?(quarter, totalScale) 鍘婚噸锛屼繚鐣?DB 浼樺厛
+            # 用 (quarter, totalScale) 去重，保留 DB 优先
             db_keys = {(r["quarter"], round(r["totalScale"], 4) if r["totalScale"] else None) for r in out}
             for trow in tushare_rows:
                 tq = trow["quarter"]
@@ -1656,7 +1653,7 @@ def get_fund_scale_history(code: str, periods: int = 40) -> dict:
                     out.append(trow)
                     db_keys.add((tq, tscale))
             out.sort(key=lambda r: r["quarter"])
-            # 鎴柇鍒?periods
+            # 截断到 periods
             out = out[-periods:]
     if out:
         return _rows_response(
@@ -1665,7 +1662,7 @@ def get_fund_scale_history(code: str, periods: int = 40) -> dict:
             source=snapshot_rows[0]["source"] or "fund_detail_quarterly_snapshot" if snapshot_rows else "tushare:fund_share",
             as_of=snapshot_rows[0]["report_date"] if snapshot_rows else (out[-1]["quarter"] if out else None),
             coverage=min(1.0, len(out) / max(1, periods)),
-            missing_reason=None if len(out) >= 4 else "瑙勬ā鍘嗗彶鏍锋湰涓嶈冻锛屽凡鐢?tushare fund_share脳unit_nav 琛ラ綈閮ㄥ垎瀛ｅ害銆?,
+            missing_reason=None if len(out) >= 4 else "规模历史样本不足，已用 tushare fund_share×unit_nav 补齐部分季度。",
         )
 
     rows = _safe_table_query(
@@ -1685,17 +1682,17 @@ def get_fund_scale_history(code: str, periods: int = 40) -> dict:
                 source=rows[0]["source"] or "fund_metrics_snapshot",
                 as_of=str(rows[0]["updated_at"])[:10],
                 coverage=0.1,
-                missing_reason="浠呮湁鏈€鏂扮湡瀹炶妯★紝缂哄皯瀛ｅ害鍘嗗彶鍜屽悓绫?5%鍒嗕綅銆?,
+                missing_reason="仅有最新真实规模，缺少季度历史和同类25%分位。",
             )
     return _rows_response(
         code,
         [],
-        missing_reason="缂哄皯鐪熷疄瑙勬ā鍘嗗彶鏁版嵁锛涗笉鍐嶇敓鎴愭ā鎷熻妯℃洸绾裤€?,
+        missing_reason="缺少真实规模历史数据；不再生成模拟规模曲线。",
     )
 
 
 def get_fund_turnover_history(code: str, periods: int = 40) -> dict:
-    """鍩洪噾鎹㈡墜鐜囷細鍙鍙栫湡瀹炲鎶ュ揩鐓с€?""
+    """基金换手率：只读取真实季报快照。"""
     rows = _safe_table_query(
         """SELECT report_date, turnover_rate, source, updated_at
            FROM fund_detail_quarterly_snapshot
@@ -1715,12 +1712,12 @@ def get_fund_turnover_history(code: str, periods: int = 40) -> dict:
         source=rows[0]["source"] if rows else None,
         as_of=rows[0]["report_date"] if rows else None,
         coverage=min(1.0, len(out) / max(1, periods)) if out else 0.0,
-        missing_reason="缂哄皯鐪熷疄鍩洪噾鎹㈡墜鐜囧鎶ユ暟鎹紱涓嶅啀鐢熸垚鍛ㄦ湡娉㈠姩妯℃嫙鍊笺€?,
+        missing_reason="缺少真实基金换手率季报数据；不再生成周期波动模拟值。",
     )
 
 
 def get_fund_manager_history(code: str) -> dict:
-    """鍩洪噾缁忕悊鍙樻洿锛氳鍙栫湡瀹炲揩鐓ф垨 provider 褰撳墠缁忕悊锛屼笉鐢熸垚鍘嗕换缁忕悊銆?""
+    """基金经理变更：读取真实快照或 provider 当前经理，不生成历任经理。"""
     rows = _safe_table_query(
         """SELECT manager_name, start_date, end_date, total_return, annualized_return, rank_json, source, updated_at
            FROM fund_manager_history_snapshot
@@ -1770,23 +1767,23 @@ def get_fund_manager_history(code: str) -> dict:
                 status=DETAIL_STATUS_PARTIAL,
                 source="Tushare fund_manager",
                 coverage=0.35,
-                missing_reason="浠呰幏鍙栧埌褰撳墠/鏈€杩戝熀閲戠粡鐞嗭紝鍘嗕换缁忕悊鍜屽悓绫绘帓鍚嶉渶琛ュ揩鐓ц〃銆?,
+                missing_reason="仅获取到当前/最近基金经理，历任经理和同类排名需补快照表。",
             )
     except Exception as e:
         console_error(f"manager history fetch failed for {code}: {e}")
     return _rows_response(
         code,
         [],
-        missing_reason="缂哄皯鐪熷疄鍩洪噾缁忕悊鍙樻洿鏁版嵁锛涗笉鍐嶇敓鎴愯櫄鎷熷巻浠荤粡鐞嗐€?,
+        missing_reason="缺少真实基金经理变更数据；不再生成虚拟历任经理。",
     )
 
 
 # ============================================================
-#  P3: 杩愪綔鍒嗘瀽
+#  P3: 运作分析
 # ============================================================
 
 def get_fund_manager_report(code: str) -> dict | None:
-    """杩愪綔鍒嗘瀽锛氫粎杩斿洖鐪熷疄瀹氭湡鎶ュ憡鏂囨湰锛屼笉鍐嶇敓鎴愭ā鏉块暱鏂囥€?""
+    """运作分析：仅返回真实定期报告文本，不再生成模板长文。"""
     rows = _safe_table_query(
         """SELECT report_date, report_text, source, updated_at
            FROM fund_report_snapshot
@@ -1802,7 +1799,7 @@ def get_fund_manager_report(code: str) -> dict | None:
             "period": None,
             **_detail_meta(
                 status=DETAIL_STATUS_MISSING,
-                missing_reason="缂哄皯鐪熷疄鍩洪噾瀹氭湡鎶ュ憡鍘熸枃锛涗笉鍐嶇敓鎴愭ā鏉垮寲杩愪綔鍒嗘瀽銆?,
+                missing_reason="缺少真实基金定期报告原文；不再生成模板化运作分析。",
             ),
         }
     row = rows[0]
@@ -1820,11 +1817,11 @@ def get_fund_manager_report(code: str) -> dict | None:
 
 
 # ============================================================
-#  鍐呴儴杈呭姪
+#  内部辅助
 # ============================================================
 
 def _to_ts_code(code: str) -> str:
-    """6 浣嶄唬鐮?鈫?tushare ts_code 鏍煎紡锛堝 000020 鈫?000020.OF锛夈€?""
+    """6 位代码 → tushare ts_code 格式（如 000020 → 000020.OF）。"""
     return f"{code}.OF"
 
 
@@ -1837,7 +1834,7 @@ def _safe_int(v) -> int | None:
 
 def _safe_float(v) -> float | None:
     try:
-        if v in (None, "", "鈥?, "--"):
+        if v in (None, "", "—", "--"):
             return None
         return float(v)
     except Exception:
@@ -1845,30 +1842,30 @@ def _safe_float(v) -> float | None:
 
 
 def _format_fee(v) -> str:
-    """鍩洪噾璐圭巼 0~1 鎴?0~100 鏁板€?鈫?'0.30%~1.50%' 鍖洪棿瀛楃涓层€?""
+    """基金费率 0~1 或 0~100 数值 → '0.30%~1.50%' 区间字符串。"""
     f = _safe_float(v)
     if f is None:
-        return "鈥?
-    # 0~1 鈫?脳 100
+        return "—"
+    # 0~1 → × 100
     if 0 < f < 1:
         return f"{f * 100:.2f}%"
     return f"{f:.2f}%"
 
 
 # ============================================================
-#  椋庨櫓鎽樿锛坮ule-based 妯℃澘锛?
+#  风险摘要（rule-based 模板）
 # ============================================================
 
 def get_fund_risk_summary(code: str, window: str = "1y") -> dict | None:
-    """椋庨櫓鎽樿锛堝熀浜?fund_metrics_snapshot + 鍚岀被鍧囧€肩敓鎴愯鍒欐ā鏉匡級銆?
+    """风险摘要（基于 fund_metrics_snapshot + 同类均值生成规则模板）。
 
-    杈撳嚭瀛楁锛?
+    输出字段：
       - code
-      - window锛?y / 3y / 5y / inception
-      - level锛歭ow / medium / high
-      - downsideRisk銆乵axDrawdown銆乸eerDownsideRisk銆乸eerMaxDrawdown
-      - summary锛氳嚜鐒惰瑷€鎽樿锛堜腑鏂囷級
-      - source锛氳鍒欏紩鎿?
+      - window：1y / 3y / 5y / inception
+      - level：low / medium / high
+      - downsideRisk、maxDrawdown、peerDownsideRisk、peerMaxDrawdown
+      - summary：自然语言摘要（中文）
+      - source：规则引擎
     """
     try:
         with get_db_context() as conn:
@@ -1890,8 +1887,8 @@ def get_fund_risk_summary(code: str, window: str = "1y") -> dict | None:
             ).fetchone()
         if not master:
             return None
-        fund_name = master["name"] or "鏈熀閲?
-        fund_type = master["fund_type"] or "鍩洪噾"
+        fund_name = master["name"] or "本基金"
+        fund_type = master["fund_type"] or "基金"
         window_days = {"1y": 365, "3y": 365 * 3, "5y": 365 * 5}.get(window)
         nav_rows, nav_source, nav_as_of = _get_nav_history_for_detail(code)
         if window_days and nav_rows:
@@ -1906,41 +1903,41 @@ def get_fund_risk_summary(code: str, window: str = "1y") -> dict | None:
         sharpe = _safe_float(row["sharpe_ratio"]) if row else None
         peer_max_dd = _safe_float(cat["avg_max_drawdown_eq"]) if cat else None
 
-        # 绛夌骇
+        # 等级
         if max_dd is None or peer_max_dd is None:
             level = "low"
-            compare = "鏃犳硶涓庡悓绫绘瘮杈?
+            compare = "无法与同类比较"
         else:
-            # 娉ㄦ剰锛歱eer_max_dd 閫氬父鏄礋鏁帮紙-0.06 浠ｈ〃 -6%锛?
+            # 注意：peer_max_dd 通常是负数（-0.06 代表 -6%）
             if abs(max_dd) < abs(peer_max_dd) * 0.8:
                 level = "low"
-                compare_verb = "灏忎簬鍚岀被骞冲潎"
+                compare_verb = "小于同类平均"
             elif abs(max_dd) > abs(peer_max_dd) * 1.2:
                 level = "high"
-                compare_verb = "澶т簬鍚岀被骞冲潎"
+                compare_verb = "大于同类平均"
             else:
                 level = "medium"
-                compare_verb = "涓庡悓绫诲钩鍧囩浉杩?
-            compare = f"璇ュ熀閲戠殑鏈€澶у洖鎾?{compare_verb}"
+                compare_verb = "与同类平均相近"
+            compare = f"该基金的最大回撤 {compare_verb}"
 
-        # 4 娈靛紡鏈烘瀯椋庢帶瀹樺彛寰?
-        level_zh = {"low": "浣?, "medium": "涓?, "high": "楂?}[level]
+        # 4 段式机构风控官口径
+        level_zh = {"low": "低", "medium": "中", "high": "高"}[level]
         peer_compare = compare
-        downside = _format_pct(downside_risk) if downside_risk is not None else "鏆傛棤"
-        sharpe_str = f"{sharpe:.2f}" if sharpe is not None else "鏆傛棤"
+        downside = _format_pct(downside_risk) if downside_risk is not None else "暂无"
+        sharpe_str = f"{sharpe:.2f}" if sharpe is not None else "暂无"
         if level == "high":
-            suitability = "閫傚悎 C4 鍙婁互涓婇闄╁亸濂界殑鎶曡祫鑰呴厤缃紝寤鸿浣滀负鏉冪泭缁勫悎鐨勫崼鏄熶粨浣嶃€?
+            suitability = "适合 C4 及以上风险偏好的投资者配置，建议作为权益组合的卫星仓位。"
         elif level == "medium":
-            suitability = "閫傚悎 C3 椋庨櫓鍋忛珮鐨勬姇璧勮€呬綔涓烘牳蹇冮厤缃€?
+            suitability = "适合 C3 风险偏高的投资者作为核心配置。"
         else:
-            suitability = "閫傚悎 C1-C2 椋庨櫓鍋忓ソ鎶曡祫鑰呬綔涓哄簳浠撻厤缃€?
+            suitability = "适合 C1-C2 风险偏好投资者作为底仓配置。"
         summary = (
-            f"銆愰闄╁畾绾с€憑window} 绐楀彛涓嬫湰鍩洪噾 {fund_name}锛坽fund_type}锛夌患鍚堥闄╃瓑绾т负銆恵level_zh}銆戙€俓n"
-            f"銆愭牳蹇冩寚鏍囥€戞渶澶у洖鎾?{_format_pct(max_dd)}锛?
-            f"涓嬭椋庨櫓浠ｇ悊鎸囨爣 {downside}锛?
-            f"澶忔櫘姣旂巼 {sharpe_str}銆俓n"
-            f"銆愬悓涓氬鏍囥€戜笌鍚岀被锛坽fund_type}锛夊钩鍧囨渶澶у洖鎾?{_format_pct(peer_max_dd)} 鐩告瘮锛寋peer_compare}銆俓n"
-            f"銆愰€傚綋鎬у缓璁€戞湰浜у搧椋庨櫓绛夌骇{level_zh}锛寋suitability}"
+            f"【风险定级】{window} 窗口下本基金 {fund_name}（{fund_type}）综合风险等级为【{level_zh}】。\n"
+            f"【核心指标】最大回撤 {_format_pct(max_dd)}，"
+            f"下行风险代理指标 {downside}；"
+            f"夏普比率 {sharpe_str}。\n"
+            f"【同业对标】与同类（{fund_type}）平均最大回撤 {_format_pct(peer_max_dd)} 相比，{peer_compare}。\n"
+            f"【适当性建议】本产品风险等级{level_zh}，{suitability}"
         )
         return {
             "code": code,
@@ -1957,7 +1954,7 @@ def get_fund_risk_summary(code: str, window: str = "1y") -> dict | None:
                 source=nav_source or (row["source"] if row else None) or "rule-engine",
                 as_of=nav_as_of or (row["updated_at"] if row else None),
                 coverage=0.7 if nav_metrics else 0.35 if row else 0.0,
-                missing_reason=None if nav_metrics else "缂哄皯瓒抽噺鍑€鍊煎巻鍙诧紝浠呰兘浣跨敤鎸囨爣蹇収鐢熸垚鎽樿銆?,
+                missing_reason=None if nav_metrics else "缺少足量净值历史，仅能使用指标快照生成摘要。",
             ),
         }
     except Exception:
@@ -1966,22 +1963,21 @@ def get_fund_risk_summary(code: str, window: str = "1y") -> dict | None:
 
 def _format_dd(v) -> str:
     if v is None:
-        return "鏆傛棤鏁版嵁"
+        return "暂无数据"
     return f"{v:.4f}%"
 
 
 def _format_pct(v) -> str:
     if v is None:
-        return "鏆傛棤鏁版嵁"
+        return "暂无数据"
     if abs(v) < 1:
         return f"{v * 100:.2f}%"
     return f"{v:.2f}%"
 
 
 def risk_downside_estimate(metrics_row, peer_max_dd) -> float:
-    """绮楃暐浼扮畻涓嬭椋庨櫓锛堢敤鏈€澶у洖鎾ゅ仛 proxy锛夈€?""
+    """粗略估算下行风险（用最大回撤做 proxy）。"""
     if metrics_row is None:
         return 0.0
     md = _safe_float(metrics_row["max_drawdown"]) or 0
-    return abs(md) * 0.8  # 澶ц嚧
-
+    return abs(md) * 0.8  # 大致

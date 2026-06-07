@@ -1,4 +1,4 @@
-﻿"""FundTrader FastAPI 主入口"""
+"""FundTrader FastAPI 主入口"""
 import asyncio
 import logging
 from datetime import datetime

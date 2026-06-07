@@ -1,4 +1,4 @@
-﻿"""Orchestrator 鈥?14-step allocation pipeline controller with per-step diagnostics."""
+"""Orchestrator — 14-step allocation pipeline controller with per-step diagnostics."""
 import logging
 import threading
 import time
@@ -38,7 +38,7 @@ class TaskCancelledError(Exception):
     """Raised when a pipeline task is cancelled by the user."""
     pass
 
-# 鈹€鈹€鈹€ Pipeline Diagnostics 鈹€鈹€鈹€
+# ─── Pipeline Diagnostics ───
 _STEP_NAMES = [
     "risk_profiling", "cma_estimation", "saa_optimization", "regime_detection",
     "taa_adjustment", "circuit_breaker", "constraint_check", "fund_mapping",
@@ -131,9 +131,9 @@ def run(
 
     def _check_cancel():
         if time.monotonic() > _deadline:
-            raise TaskCancelledError(f"绠＄嚎瓒呰繃 {_TOTAL_TIMEOUT_S:.0f}s 鎬昏秴鏃?鑷姩缁堟")
+            raise TaskCancelledError(f"管线超过 {_TOTAL_TIMEOUT_S:.0f}s 总超时,自动终止")
         if cancel_event and cancel_event.is_set():
-            raise TaskCancelledError("浠诲姟宸茶鐢ㄦ埛鍙栨秷")
+            raise TaskCancelledError("任务已被用户取消")
 
     warnings: List[str] = []
     diags: List[_StepDiag] = []
@@ -149,7 +149,7 @@ def run(
         if progress_callback:
             progress_callback(step_num, TOTAL_STEPS, diag.name, diag.status, diag.detail or "")
 
-    # 鈹€鈹€鈹€ Step 1: Risk Profiling 鈹€鈹€鈹€
+    # ─── Step 1: Risk Profiling ───
     d = _step("risk_profiling")
     t0 = time.monotonic()
     try:
@@ -163,7 +163,7 @@ def run(
         raise
     _notify(1, d)
 
-    # 鈹€鈹€鈹€ Step 2: CMA Estimation 鈹€鈹€鈹€
+    # ─── Step 2: CMA Estimation ───
     d = _step("cma_estimation")
     t0 = time.monotonic()
     try:
@@ -173,9 +173,9 @@ def run(
         d.elapsed_ms = (time.monotonic() - t0) * 1000
     except Exception as e:
         d.status = "degraded"
-        d.detail = f"闄嶇骇鑷冲潎琛MA: {str(e)[:80]}"
+        d.detail = f"降级至均衡CMA: {str(e)[:80]}"
         d.elapsed_ms = (time.monotonic() - t0) * 1000
-        warnings.append(f"CMA浼拌澶辫触锛屽凡闄嶇骇浣跨敤鍧囪　閰嶇疆")
+        warnings.append(f"CMA估计失败，已降级使用均衡配置")
         logger.exception("CMA estimation failed, falling back to equilibrium")
         from .config import DEFAULT_CORR, EQUILIBRIUM_RETURNS, EQUILIBRIUM_VOLS
         cma = CMAResult(
@@ -185,7 +185,7 @@ def run(
         )
     _notify(2, d)
 
-    # 鈹€鈹€鈹€ Step 3: SAA Optimization 鈹€鈹€鈹€
+    # ─── Step 3: SAA Optimization ───
     d = _step("saa_optimization")
     t0 = time.monotonic()
     try:
@@ -193,8 +193,8 @@ def run(
         d.elapsed_ms = (time.monotonic() - t0) * 1000
         if saa_result["optimizer_level"] >= 4:
             d.status = "degraded"
-            d.detail = f"闄嶇骇鑷矻{saa_result['optimizer_level']}"
-            warnings.append(f"浼樺寲鍣ㄩ檷绾ц嚦L{saa_result['optimizer_level']}锛岀粨鏋滃彲鑳戒笉澶熺簿纭?)
+            d.detail = f"降级至L{saa_result['optimizer_level']}"
+            warnings.append(f"优化器降级至L{saa_result['optimizer_level']}，结果可能不够精确")
     except Exception as e:
         d.status = "error"
         d.detail = str(e)[:100]
@@ -205,7 +205,7 @@ def run(
 
     allocations = saa_result["allocations"]
 
-    # 鈹€鈹€鈹€ Step 4: Regime Detection (already in step 2, record status) 鈹€鈹€鈹€
+    # ─── Step 4: Regime Detection (already in step 2, record status) ───
     d = _step("regime_detection")
     d.elapsed_ms = round(regime_detect_ms, 2)
     d.detail = f"{regime.regime}(conf={regime.confidence})"
@@ -214,7 +214,7 @@ def run(
         d.detail += f" pending={regime.pending_regime}"
     _notify(4, d)
 
-    # 鈹€鈹€鈹€ Step 5: TAA Adjustment 鈹€鈹€鈹€
+    # ─── Step 5: TAA Adjustment ───
     d = _step("taa_adjustment")
     t0 = time.monotonic()
     try:
@@ -231,7 +231,7 @@ def run(
     taa_allocations = taa_result.taa_adjusted
     taa_skipped = all(abs(v) < 0.001 for v in taa_result.adjustments.values())
 
-    # 鈹€鈹€鈹€ Step 6: Circuit Breaker 鈹€鈹€鈹€
+    # ─── Step 6: Circuit Breaker ───
     d = _step("circuit_breaker")
     t0 = time.monotonic()
     try:
@@ -239,8 +239,8 @@ def run(
         d.elapsed_ms = (time.monotonic() - t0) * 1000
         if breaker_triggered:
             d.status = "degraded"
-            d.detail = "鏉冪泭浠撲綅宸查檷浣?
-            warnings.append("鏂矾鍣ㄥ凡瑙﹀彂锛屾潈鐩婁粨浣嶅凡鑷姩闄嶄綆")
+            d.detail = "权益仓位已降低"
+            warnings.append("断路器已触发，权益仓位已自动降低")
     except Exception as e:
         d.status = "error"
         d.detail = str(e)[:100]
@@ -249,7 +249,7 @@ def run(
         raise
     _notify(6, d)
 
-    # 鈹€鈹€鈹€ Step 7: Constraint Check 鈹€鈹€鈹€
+    # ─── Step 7: Constraint Check ───
     d = _step("constraint_check")
     t0 = time.monotonic()
     try:
@@ -258,7 +258,7 @@ def run(
         failed = [c for c in constraint_checks if not c.passed]
         if failed:
             d.status = "degraded"
-            d.detail = f"{len(failed)}椤圭害鏉熸湭閫氳繃"
+            d.detail = f"{len(failed)}项约束未通过"
     except Exception as e:
         d.status = "error"
         d.detail = str(e)[:100]
@@ -267,7 +267,7 @@ def run(
         raise
     _notify(7, d)
 
-    # 鈹€鈹€鈹€ Step 8: Fund Mapping 鈹€鈹€鈹€
+    # ─── Step 8: Fund Mapping ───
     d = _step("fund_mapping")
     t0 = time.monotonic()
     try:
@@ -275,8 +275,8 @@ def run(
         d.elapsed_ms = (time.monotonic() - t0) * 1000
         if not fund_list:
             d.status = "degraded"
-            d.detail = "鍩洪噾姹犳湭瑕嗙洊"
-            warnings.append("鍩洪噾姹犳湭鑳借鐩栨墍鏈夎祫浜х被鍒?)
+            d.detail = "基金池未覆盖"
+            warnings.append("基金池未能覆盖所有资产类别")
     except Exception as e:
         d.status = "error"
         d.detail = str(e)[:100]
@@ -285,7 +285,7 @@ def run(
         raise
     _notify(8, d)
 
-    # 鈹€鈹€鈹€ Step 9: Monte Carlo 鈹€鈹€鈹€
+    # ─── Step 9: Monte Carlo ───
     d = _step("monte_carlo")
     t0 = time.monotonic()
     try:
@@ -296,10 +296,10 @@ def run(
         d.status = "degraded"
         d.detail = str(e)[:100]
         d.elapsed_ms = (time.monotonic() - t0) * 1000
-        warnings.append(f"钂欑壒鍗℃礇妯℃嫙寮傚父: {str(e)[:50]}")
+        warnings.append(f"蒙特卡洛模拟异常: {str(e)[:50]}")
     _notify(9, d)
 
-    # 鈹€鈹€鈹€ Step 10: Stress Test 鈹€鈹€鈹€
+    # ─── Step 10: Stress Test ───
     d = _step("stress_test")
     t0 = time.monotonic()
     try:
@@ -308,19 +308,19 @@ def run(
     except Exception as e:
         stress_results = []
         d.status = "degraded"
-        d.detail = f"鍘嬪姏娴嬭瘯璺宠繃: {str(e)[:80]}"
+        d.detail = f"压力测试跳过: {str(e)[:80]}"
         d.elapsed_ms = (time.monotonic() - t0) * 1000
-        warnings.append("鍘嬪姏娴嬭瘯涓嶅彲鐢紝宸茶烦杩?)
+        warnings.append("压力测试不可用，已跳过")
         logger.exception("Stress test failed, skipping")
     _notify(10, d)
 
-    # Convert stress results: fractions 鈫?percentages + currency
+    # Convert stress results: fractions → percentages + currency
     amount = request.amount
     for item in stress_results:
         item.max_loss = round(abs(min(item.impact, 0.0)) * amount, 0)
         item.impact = round(item.impact * 100, 2)
 
-    # 鈹€鈹€鈹€ Step 11: Factor Exposure 鈹€鈹€鈹€
+    # ─── Step 11: Factor Exposure ───
     d = _step("factor_exposure")
     t0 = time.monotonic()
     try:
@@ -334,13 +334,13 @@ def run(
         raise
     _notify(11, d)
 
-    # 鈹€鈹€鈹€ Step 12: Scenario Analysis 鈹€鈹€鈹€
+    # ─── Step 12: Scenario Analysis ───
     d = _step("scenario_analysis")
     t0 = time.monotonic()
     try:
         scenario_result = analyze_scenarios(final_alloc, regime)
         d.elapsed_ms = (time.monotonic() - t0) * 1000
-        # Convert scenario returns: fractions 鈫?percentages
+        # Convert scenario returns: fractions → percentages
         scenario_result.weighted_return = round(scenario_result.weighted_return * 100, 2)
         for s in scenario_result.scenarios:
             s.impact = round(s.impact * 100, 2)
@@ -352,30 +352,30 @@ def run(
         raise
     _notify(12, d)
 
-    # 鈹€鈹€鈹€ Step 13: Portfolio Metrics 鈹€鈹€鈹€
+    # ─── Step 13: Portfolio Metrics ───
     d = _step("portfolio_metrics")
     t0 = time.monotonic()
     portfolio_metrics = _compute_portfolio_metrics(saa_result, mc_result, fund_list)
     d.elapsed_ms = (time.monotonic() - t0) * 1000
     _notify(13, d)
 
-    # Convert fund weights: fractions 鈫?percentages
+    # Convert fund weights: fractions → percentages
     for f in fund_list:
         f.weight = round(f.weight * 100, 2)
 
-    # 鈹€鈹€鈹€ Step 14: Output Assembly 鈹€鈹€鈹€
+    # ─── Step 14: Output Assembly ───
     d = _step("output_assembly")
     t0 = time.monotonic()
 
     # Group allocations
     group_allocs = _compute_group_allocations(final_alloc)
 
-    # Convert fractions 鈫?percentages for frontend display
+    # Convert fractions → percentages for frontend display
     pct_allocations = {a: round(v * 100, 2) for a, v in final_alloc.items()}
     pct_group_allocs = {g: round(v * 100, 2) for g, v in group_allocs.items()}
     pct_risk_contributions = {a: round(v * 100, 2) for a, v in saa_result["risk_contributions"].items()}
 
-    # SAA summary 鈥?use MC MDD95 when available, otherwise estimate from vol
+    # SAA summary — use MC MDD95 when available, otherwise estimate from vol
     mc_mdd = mc_result.max_drawdown_95 if mc_result else None
     estimated_mdd = round(saa_result["expected_volatility"] * 2.5, 2)
     effective_mdd = abs(mc_mdd) if mc_mdd and abs(mc_mdd) > 0 else estimated_mdd
@@ -387,11 +387,11 @@ def run(
     if cma.covariance_matrix is None or len(cma.covariance_matrix) == 0:
         rc_source = "weight_volatility_proxy"
         data_status = "partial"
-        missing_reason = "缂哄皯瀹屾暣鍗忔柟宸煩闃碉紝浣跨敤鏉冮噸脳娉㈠姩鐜囪繎浼奸闄╄础鐚?
+        missing_reason = "缺少完整协方差矩阵，使用权重×波动率近似风险贡献"
     elif diags[1].status in ("degraded", "error"):  # cma_estimation step
         rc_source = "covariance_matrix"
         data_status = "partial"
-        missing_reason = f"CMA浼拌闄嶇骇: {diags[1].detail or '鍗忔柟宸煩闃甸檷绾ц嚦鍧囪　閰嶇疆'}"
+        missing_reason = f"CMA估计降级: {diags[1].detail or '协方差矩阵降级至均衡配置'}"
 
     saa_summary = SAASummary(
         allocations=pct_allocations,
@@ -411,7 +411,7 @@ def run(
     # User profile summary
     user_profile = UserProfileSummary(
         risk_tolerance=profile.risk_tolerance,
-        risk_label=RISK_LABELS.get(profile.risk_tolerance, "骞宠　鍨?),
+        risk_label=RISK_LABELS.get(profile.risk_tolerance, "平衡型"),
         effective_risk=profile.effective_risk,
         behavior_adjusted=profile.behavior_adjusted,
         age=profile.age,
@@ -434,8 +434,8 @@ def run(
 
     # Risk disclaimer
     risk_disclaimer = (
-        "鏈厤缃柟妗堢敱閲忓寲妯″瀷鑷姩鐢熸垚锛屼粎渚涘弬鑰冿紝涓嶆瀯鎴愭姇璧勫缓璁€?
-        "鍘嗗彶琛ㄧ幇涓嶄唬琛ㄦ湭鏉ユ敹鐩婏紝鎶曡祫鏈夐闄╋紝璇锋牴鎹嚜韬儏鍐靛鎱庡喅绛栥€?
+        "本配置方案由量化模型自动生成，仅供参考，不构成投资建议。"
+        "历史表现不代表未来收益，投资有风险，请根据自身情况审慎决策。"
     )
 
     d.elapsed_ms = (time.monotonic() - t0) * 1000
@@ -532,11 +532,11 @@ def _get_risk_free_rate() -> float:
         from .data import market_data_service
         macro = market_data_service.get_macro_snapshot()
         if macro is not None:
-            yield_10y = macro.get_value("10Y鍥藉€烘敹鐩婄巼")
+            yield_10y = macro.get_value("10Y国债收益率")
             if yield_10y is not None and 0 < yield_10y < 10:
                 return yield_10y
     except Exception:
-    logger.exception("Ignored non-fatal exception")
+        pass
     return 2.0
 
 
@@ -563,12 +563,12 @@ def _compute_portfolio_metrics(saa_result: dict, mc_result, fund_list) -> Dict[s
     return metrics
 
 
-# 鈹€鈹€鈹€ Risk level ordering for variant generation 鈹€鈹€鈹€
+# ─── Risk level ordering for variant generation ───
 _RISK_LEVELS = ["conservative", "moderate", "balanced", "aggressive", "radical"]
 _VARIANT_LABELS = {
-    "defensive": "闃插尽鍨?,
-    "balanced": "鍧囪　鍨?,
-    "growth": "杩涘彇鍨?,
+    "defensive": "防御型",
+    "balanced": "均衡型",
+    "growth": "进取型",
 }
 
 
@@ -604,9 +604,9 @@ def generate_variants(request: AllocationRequest) -> VariantsResponse:
             logger.exception(f"Variant {label} generation failed")
             errors[label] = str(e)[:200]
 
-    # 鍏ㄩ儴澶辫触鎵嶆姤閿?
+    # 全部失败才报错
     if not variants and errors:
-        raise RuntimeError(f"鎵€鏈夊彉浣撶敓鎴愬け璐? {errors}")
+        raise RuntimeError(f"所有变体生成失败: {errors}")
 
     # Build comparison summary
     def _metric(key: str) -> Dict[str, float]:
@@ -626,4 +626,3 @@ def generate_variants(request: AllocationRequest) -> VariantsResponse:
     )
 
     return VariantsResponse(variants=variants, comparison=comparison)
-

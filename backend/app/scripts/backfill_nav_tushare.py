@@ -1,11 +1,8 @@
-﻿"""Batch backfill fund NAV history from Tushare to SQLite.
+"""Batch backfill fund NAV history from Tushare to SQLite.
 
 Usage:
     cd backend && python app/scripts/backfill_nav_tushare.py [--limit N] [--batch-size N]
 """
-
-import logging
-
 import argparse
 import json
 import os
@@ -33,7 +30,7 @@ def _load_progress():
             with open(PROGRESS_FILE, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception:
-        logging.exception("Ignored non-fatal exception")
+            pass
     return {"completed": [], "failed": [], "total_rows": 0}
 
 
@@ -54,11 +51,12 @@ def _save_progress(completed, failed, total_rows):
 
 
 def get_target_codes(db: sqlite3.Connection, limit=0, min_gap_hours=24):
-    """浠庡凡鏈夎繛鎺ヨ鍙栫洰鏍囦唬鐮侊紝鏀寔澧為噺妯″紡銆?
+    """从已有连接读取目标代码，支持增量模式。
+
     Args:
-        db: SQLite 杩炴帴
-        limit: 鏈€澶ц繑鍥炴暟閲?(0=鍏ㄩ儴)
-        min_gap_hours: 鍙繑鍥炶窛绂讳笂娆℃洿鏂拌秴杩囨鏃堕棿鐨勫熀閲?(0=鍏ㄩ儴)
+        db: SQLite 连接
+        limit: 最大返回数量 (0=全部)
+        min_gap_hours: 只返回距离上次更新超过此时间的基金 (0=全部)
     """
     if min_gap_hours > 0:
         c = db.execute(
@@ -191,4 +189,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

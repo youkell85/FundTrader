@@ -1,4 +1,4 @@
-﻿"""Batch backfill quarterly fund data from Tushare to SQLite.
+"""Batch backfill quarterly fund data from Tushare to SQLite.
 
 Populates:
   - fund_holdings_snapshot (stock holdings + asset allocation)
@@ -8,9 +8,6 @@ Populates:
 Usage:
     cd backend && python app/scripts/backfill_quarterly_tushare.py [--limit N] [--batch-size N]
 """
-
-import logging
-
 import argparse
 import json
 import os
@@ -37,7 +34,7 @@ def _load_progress():
             with open(PROGRESS_FILE, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception:
-        logging.exception("Ignored non-fatal exception")
+            pass
     return {"completed": [], "failed": [], "rows": 0}
 
 
@@ -58,7 +55,7 @@ def _save_progress(completed, failed, rows):
 
 
 def get_target_codes(db: sqlite3.Connection, limit=0):
-    """浠庡凡鏈夎繛鎺ヨ鍙栫洰鏍囦唬鐮侊紝閬垮厤寰幆鍐呭弽澶嶅垱寤鸿繛鎺ャ€?""
+    """从已有连接读取目标代码，避免循环内反复创建连接。"""
     c = db.execute("SELECT code FROM fund_master WHERE is_active = 1 ORDER BY code")
     codes = [r["code"] for r in c.fetchall()]
     if limit > 0:
@@ -73,7 +70,7 @@ def _asset_alloc_from_holdings(holdings):
     total_stock = sum(h.ratio for h in holdings if h.ratio is not None)
     result = []
     if total_stock > 0:
-        result.append({"name": "鑲＄エ", "ratio": round(total_stock / 100, 4)})
+        result.append({"name": "股票", "ratio": round(total_stock / 100, 4)})
     # Tushare portfolio only gives stock holdings, bond/cash are not directly available
     # Mark as inferred from stock ratio
     return result
@@ -234,4 +231,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

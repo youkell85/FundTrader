@@ -1,7 +1,4 @@
-﻿"""Deep fund analysis API."""
-
-import logging
-
+"""Deep fund analysis API."""
 
 import math
 import re
@@ -53,7 +50,7 @@ def _fill_missing_fees(code: str, data: Dict[str, Any]) -> Dict[str, Any]:
             if data.get("feeCustody") is None:
                 data["feeCustody"] = fees.get("feeCustody")
     except Exception:
-    logging.exception("Ignored non-fatal exception")
+        pass
     return data
 
 
@@ -85,7 +82,7 @@ def _fill_missing_holding_changes(data: Dict[str, Any]) -> Dict[str, Any]:
                 for item in holdings
             ]
     except Exception:
-    logging.exception("Ignored non-fatal exception")
+        pass
     return data
 
 
@@ -222,7 +219,7 @@ async def fund_llm_review(code: str):
     if cached:
         return cached
 
-    # 鐭紦瀛橈細LLM 澶辫触鍚庨伩鍏嶅弽澶嶉噸璇?
+    # 短缓存：LLM 失败后避免反复重试
     fail_cache_key = f"llm_review_fail_{code}"
     fail_cached = cache.get(fail_cache_key, CACHE_TTL_INFO)
     if fail_cached:
@@ -230,7 +227,7 @@ async def fund_llm_review(code: str):
 
     fund_data = await run_in_threadpool(cached_analyze_fund, code)
     if fund_data.get("error"):
-        payload = {"code": code, "review": {"raw": f"鍩洪噾鏁版嵁鑾峰彇澶辫触: {fund_data.get('error')}"}}
+        payload = {"code": code, "review": {"raw": f"基金数据获取失败: {fund_data.get('error')}"}}
         cache.set(fail_cache_key, payload)
         return payload
     nav_metrics = _calc_nav_risk_metrics(fund_data.get("nav_data") or [])
@@ -251,14 +248,13 @@ async def fund_llm_review(code: str):
             fund_data.get("holdings") or [],
         )
     except Exception as e:
-        payload = {"code": code, "review": {"raw": f"LLM 鍒嗘瀽璋冪敤寮傚父: {e}"}}
+        payload = {"code": code, "review": {"raw": f"LLM 分析调用异常: {e}"}}
         cache.set(fail_cache_key, payload)
         return payload
     if review:
         payload = {"code": code, "review": review}
         cache.set(cache_key, payload)
         return payload
-    payload = {"code": code, "review": {"raw": "LLM 鍒嗘瀽杩斿洖涓虹┖锛屽彲鑳芥槸 API 瀵嗛挜鏈厤缃垨璋冪敤瓒呮椂"}}
+    payload = {"code": code, "review": {"raw": "LLM 分析返回为空，可能是 API 密钥未配置或调用超时"}}
     cache.set(fail_cache_key, payload)
     return payload
-

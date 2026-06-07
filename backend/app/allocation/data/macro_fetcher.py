@@ -1,4 +1,4 @@
-﻿"""Macro Data Fetcher 鈥?fetch 13 macro indicators.
+"""Macro Data Fetcher — fetch 13 macro indicators.
 
 Primary source: Tushare Pro (authoritative NBS/PBOC data, 6000-point token).
 Fallback: akshare (free but less reliable, API changes frequently).
@@ -32,45 +32,45 @@ def _get_tushare():
 
 
 def fetch_all() -> MacroSnapshot:
-    """Fetch all 13 macro indicators. Never raises 鈥?returns partial data on failure."""
+    """Fetch all 13 macro indicators. Never raises — returns partial data on failure."""
     pro = _get_tushare()
     indicators = {}
 
     fetchers = [
-        ("PMI鍒堕€犱笟",       lambda: _fetch_pmi(pro),            TTL_MONTHLY),
-        ("GDP鍚屾瘮",         lambda: _fetch_gdp(pro),            TTL_MONTHLY),
-        ("CPI鍚屾瘮",         lambda: _fetch_cpi(pro),            TTL_MONTHLY),
-        ("PPI鍚屾瘮",         lambda: _fetch_ppi(pro),            TTL_MONTHLY),
-        ("10Y鍥藉€烘敹鐩婄巼",    lambda: _fetch_bond_yield_10y(pro), TTL_DAILY),
+        ("PMI制造业",       lambda: _fetch_pmi(pro),            TTL_MONTHLY),
+        ("GDP同比",         lambda: _fetch_gdp(pro),            TTL_MONTHLY),
+        ("CPI同比",         lambda: _fetch_cpi(pro),            TTL_MONTHLY),
+        ("PPI同比",         lambda: _fetch_ppi(pro),            TTL_MONTHLY),
+        ("10Y国债收益率",    lambda: _fetch_bond_yield_10y(pro), TTL_DAILY),
         ("DR007",           lambda: _fetch_dr007(pro),          TTL_DAILY),
-        ("绀捐瀺澧為€?,         lambda: _fetch_social_financing(pro), TTL_MONTHLY),
-        ("M2澧為€?,          lambda: _fetch_m2(pro),             TTL_MONTHLY),
-        ("铻嶈祫浣欓鍙樺寲",     lambda: _fetch_margin_balance(pro), TTL_DAILY),
-        ("鍖楀悜璧勯噾鍑€娴佸叆",   _fetch_northbound,                  TTL_DAILY),
-        ("璐㈡斂璧ゅ瓧鐜?,       _fetch_fiscal_deficit,              TTL_MONTHLY),
-        ("缇庤仈鍌ㄥ埄鐜?,       _fetch_fed_rate,                    TTL_MONTHLY),
-        ("缇庡厓鎸囨暟",         _fetch_usd_index,                   TTL_DAILY),
+        ("社融增速",         lambda: _fetch_social_financing(pro), TTL_MONTHLY),
+        ("M2增速",          lambda: _fetch_m2(pro),             TTL_MONTHLY),
+        ("融资余额变化",     lambda: _fetch_margin_balance(pro), TTL_DAILY),
+        ("北向资金净流入",   _fetch_northbound,                  TTL_DAILY),
+        ("财政赤字率",       _fetch_fiscal_deficit,              TTL_MONTHLY),
+        ("美联储利率",       _fetch_fed_rate,                    TTL_MONTHLY),
+        ("美元指数",         _fetch_usd_index,                   TTL_DAILY),
     ]
 
     for name, fetcher, ttl in fetchers:
         try:
             value = fetcher()
-            src = "tushare" if pro and name not in ("鍖楀悜璧勯噾鍑€娴佸叆","璐㈡斂璧ゅ瓧鐜?,"缇庤仈鍌ㄥ埄鐜?,"缇庡厓鎸囨暟") else "akshare"
-            if name == "璐㈡斂璧ゅ瓧鐜?:
+            src = "tushare" if pro and name not in ("北向资金净流入","财政赤字率","美联储利率","美元指数") else "akshare"
+            if name == "财政赤字率":
                 src = "static"
-            elif name == "缇庡厓鎸囨暟":
+            elif name == "美元指数":
                 src = "forex_api"
             if value is not None:
                 conf = 0.95 if src == "tushare" else 0.9
-                # 璐㈡斂璧ゅ瓧鐜? hardcoded placeholder, force low confidence so
+                # 财政赤字率: hardcoded placeholder, force low confidence so
                 # TAA score=0 (B5). Without this, the placeholder would
                 # affect allocations with full weight.
-                if name == "璐㈡斂璧ゅ瓧鐜?:
+                if name == "财政赤字率":
                     conf = 0.3
                 # DR007: confidence depends on actual data source used
-                # - FR007 (akshare) is best proxy 鈫?conf 0.9
-                # - Shibor 1W (tushare) is rough proxy 鈫?conf 0.7
-                # - LPR 1W final fallback 鈫?conf 0.5
+                # - FR007 (akshare) is best proxy → conf 0.9
+                # - Shibor 1W (tushare) is rough proxy → conf 0.7
+                # - LPR 1W final fallback → conf 0.5
                 if name == "DR007":
                     if _dr007_actual_source == "tushare":
                         conf = 0.7  # Shibor 1W as rough DR007 proxy
@@ -79,7 +79,7 @@ def fetch_all() -> MacroSnapshot:
                     else:
                         conf = 0.9  # FR007 from akshare
                 # Lower confidence for DXY (computed from forex rates, not direct)
-                if name == "缇庡厓鎸囨暟":
+                if name == "美元指数":
                     conf = 0.7
                 indicators[name] = MacroIndicator(
                     name=name, value=float(value), source=src,
@@ -97,7 +97,7 @@ def fetch_all() -> MacroSnapshot:
     return MacroSnapshot(indicators=indicators, overall_confidence=overall)
 
 
-# 鈹€鈹€鈹€ Helpers 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+# ─── Helpers ───────────────────────────────────────────────────────────────────
 
 def _latest(df: pd.DataFrame, col: str) -> Optional[float]:
     """Latest non-NaN numeric value from column."""
@@ -108,17 +108,17 @@ def _latest(df: pd.DataFrame, col: str) -> Optional[float]:
 
 
 def _latest_0(df: pd.DataFrame, col: str) -> Optional[float]:
-    """Latest non-NaN from column 鈥?uses iloc[0] for DESC-sorted data."""
+    """Latest non-NaN from column — uses iloc[0] for DESC-sorted data."""
     if col not in df.columns:
         return None
     s = pd.to_numeric(df[col], errors="coerce").dropna()
     return float(s.iloc[0]) if not s.empty else None
 
 
-# 鈹€鈹€鈹€ 1. PMI 鍒堕€犱笟 (Tushare cn_pmi) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+# ─── 1. PMI 制造业 (Tushare cn_pmi) ────────────────────────────────────────────
 
 def _fetch_pmi(pro) -> Optional[float]:
-    """鍒堕€犱笟PMI. Tushare cn_pmi 鈫?PMI010000 = 缁煎悎鎸囨暟."""
+    """制造业PMI. Tushare cn_pmi → PMI010000 = 综合指数."""
     if pro:
         try:
             df = pro.cn_pmi(start_m=_month(-2), end_m=_month(0))
@@ -136,16 +136,16 @@ def _ak_pmi() -> Optional[float]:
     try:
         df = ak.macro_china_pmi_yearly()
         if df is not None and not df.empty:
-            mask = df["鍟嗗搧"].str.contains("鍒堕€犱笟PMI", na=False)
-            return _latest(df[mask] if mask.any() else df, "浠婂€?)
+            mask = df["商品"].str.contains("制造业PMI", na=False)
+            return _latest(df[mask] if mask.any() else df, "今值")
     except Exception:
         return None
 
 
-# 鈹€鈹€鈹€ 2. GDP 鍚屾瘮 (Tushare cn_gdp) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+# ─── 2. GDP 同比 (Tushare cn_gdp) ──────────────────────────────────────────────
 
 def _fetch_gdp(pro) -> Optional[float]:
-    """GDP鍚屾瘮澧為€? Tushare cn_gdp 鈫?gdp_yoy."""
+    """GDP同比增速. Tushare cn_gdp → gdp_yoy."""
     if pro:
         try:
             df = pro.cn_gdp(start_q=_quarter(-4), end_q=_quarter(0), fields="quarter,gdp_yoy")
@@ -162,16 +162,16 @@ def _ak_gdp() -> Optional[float]:
     try:
         df = ak.macro_china_gdp()
         if df is not None and not df.empty:
-            df = df.sort_values("瀛ｅ害")
-            return _latest(df, "鍥藉唴鐢熶骇鎬诲€?鍚屾瘮澧為暱")
+            df = df.sort_values("季度")
+            return _latest(df, "国内生产总值-同比增长")
     except Exception:
         return None
 
 
-# 鈹€鈹€鈹€ 3. CPI 鍚屾瘮 (Tushare cn_cpi) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+# ─── 3. CPI 同比 (Tushare cn_cpi) ──────────────────────────────────────────────
 
 def _fetch_cpi(pro) -> Optional[float]:
-    """CPI鍚屾瘮. Tushare cn_cpi 鈫?nt_yoy (鍏ㄥ浗灞呮皯娑堣垂浠锋牸鎸囨暟)."""
+    """CPI同比. Tushare cn_cpi → nt_yoy (全国居民消费价格指数)."""
     if pro:
         try:
             df = pro.cn_cpi(start_m=_month(-3), end_m=_month(0), fields="month,nt_yoy")
@@ -187,15 +187,15 @@ def _ak_cpi() -> Optional[float]:
     import akshare as ak
     try:
         df = ak.macro_china_cpi_yearly()
-        return _latest(df, "浠婂€?) if df is not None and not df.empty else None
+        return _latest(df, "今值") if df is not None and not df.empty else None
     except Exception:
         return None
 
 
-# 鈹€鈹€鈹€ 4. PPI 鍚屾瘮 (Tushare cn_ppi) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+# ─── 4. PPI 同比 (Tushare cn_ppi) ──────────────────────────────────────────────
 
 def _fetch_ppi(pro) -> Optional[float]:
-    """PPI鍚屾瘮. Tushare cn_ppi 鈫?ppi_yoy."""
+    """PPI同比. Tushare cn_ppi → ppi_yoy."""
     if pro:
         try:
             df = pro.cn_ppi(start_m=_month(-3), end_m=_month(0), fields="month,ppi_yoy")
@@ -211,20 +211,20 @@ def _ak_ppi() -> Optional[float]:
     import akshare as ak
     try:
         df = ak.macro_china_ppi_yearly()
-        return _latest(df, "浠婂€?) if df is not None and not df.empty else None
+        return _latest(df, "今值") if df is not None and not df.empty else None
     except Exception:
         return None
 
 
-# 鈹€鈹€鈹€ 5. 10Y 鍥藉€烘敹鐩婄巼 (Tushare yc_cb) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+# ─── 5. 10Y 国债收益率 (Tushare yc_cb) ─────────────────────────────────────────
 
 def _fetch_bond_yield_10y(pro) -> Optional[float]:
-    """10骞存湡鍥藉€烘敹鐩婄巼. Tushare yc_cb 鈫?curve_name=涓€哄浗鍊? curve_term=10."""
+    """10年期国债收益率. Tushare yc_cb → curve_name=中债国债, curve_term=10."""
     if pro:
         try:
             df = pro.yc_cb(start_m=_month(-2), end_m=_month(0))
             if df is not None and not df.empty:
-                mask = df["curve_name"].str.contains("鍥藉€?, na=False) & (df["curve_term"] == 10)
+                mask = df["curve_name"].str.contains("国债", na=False) & (df["curve_term"] == 10)
                 if mask.any():
                     df = df[mask].sort_values("trade_date")
                     return _latest(df, "yield")
@@ -240,13 +240,13 @@ def _ak_bond() -> Optional[float]:
         start = (datetime.now() - timedelta(days=30)).strftime("%Y%m%d")
         df = ak.bond_china_yield(start_date=start, end_date=end)
         if df is not None and not df.empty:
-            mask = df["鏇茬嚎鍚嶇О"].str.contains("涓€哄浗鍊?, na=False)
-            return _latest(df[mask] if mask.any() else df, "10骞?)
+            mask = df["曲线名称"].str.contains("中债国债", na=False)
+            return _latest(df[mask] if mask.any() else df, "10年")
     except Exception:
         return None
 
 
-# 鈹€鈹€鈹€ 6. DR007 (FR007 first, Shibor 1W as fallback proxy) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+# ─── 6. DR007 (FR007 first, Shibor 1W as fallback proxy) ────────────────────────
 
 _dr007_actual_source = "akshare"  # track which source was actually used
 
@@ -277,14 +277,14 @@ def _fetch_dr007(pro) -> Optional[float]:
 
 
 def _ak_fr007() -> Optional[float]:
-    """FR007 (鍥炶喘瀹氱洏鍒╃巼) from akshare 鈥?best proxy for DR007."""
+    """FR007 (回购定盘利率) from akshare — best proxy for DR007."""
     import akshare as ak
     try:
         df = ak.repo_rate_hist()
         if df is not None and not df.empty and "FR007" in df.columns:
             return _latest(df, "FR007")
     except Exception:
-    logger.exception("Ignored non-fatal exception")
+        pass
     return None
 
 
@@ -296,14 +296,14 @@ def _ak_dr007_fallback() -> Optional[float]:
         if df is not None and not df.empty:
             return _latest(df, "LPR1Y")
     except Exception:
-    logger.exception("Ignored non-fatal exception")
+        pass
     return None
 
 
-# 鈹€鈹€鈹€ 7. 绀捐瀺澧為€?(Tushare sf_month 鈫?compute YoY) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+# ─── 7. 社融增速 (Tushare sf_month → compute YoY) ──────────────────────────────
 
 def _fetch_social_financing(pro) -> Optional[float]:
-    """绀句細铻嶈祫瑙勬ā瀛橀噺鍚屾瘮澧為€?(%). Compute YoY from monthly incremental data."""
+    """社会融资规模存量同比增速 (%). Compute YoY from monthly incremental data."""
     if pro:
         try:
             df = pro.sf_month(start_m=_month(-25), end_m=_month(0), fields="month,inc_month")
@@ -330,20 +330,20 @@ def _fetch_social_financing(pro) -> Optional[float]:
 
 
 def _ak_sf() -> Optional[float]:
-    """绀句細铻嶈祫瑙勬ā瀛橀噺鍚屾瘮澧為€?(%) from akshare."""
+    """社会融资规模存量同比增速 (%) from akshare."""
     import akshare as ak
     try:
-        # Try to get social financing stock (瀛橀噺) YoY directly
+        # Try to get social financing stock (存量) YoY directly
         df = ak.macro_china_shrzgm()
         if df is not None and not df.empty:
             # Check if there's a YoY growth column
-            for col in ["绀句細铻嶈祫瑙勬ā瀛橀噺鍚屾瘮", "绀句細铻嶈祫瑙勬ā澧為噺"]:
+            for col in ["社会融资规模存量同比", "社会融资规模增量"]:
                 if col in df.columns:
                     vals = pd.to_numeric(df[col], errors="coerce").dropna()
-                    if col == "绀句細铻嶈祫瑙勬ā瀛橀噺鍚屾瘮" and not vals.empty:
+                    if col == "社会融资规模存量同比" and not vals.empty:
                         return round(float(vals.iloc[-1]), 2)
             # Fallback: compute YoY from incremental data
-            col = "绀句細铻嶈祫瑙勬ā澧為噺" if "绀句細铻嶈祫瑙勬ā澧為噺" in df.columns else df.columns[-1]
+            col = "社会融资规模增量" if "社会融资规模增量" in df.columns else df.columns[-1]
             vals = pd.to_numeric(df[col], errors="coerce").dropna()
             if len(vals) >= 24:
                 current_12m = float(vals.iloc[-12:].sum())
@@ -355,10 +355,10 @@ def _ak_sf() -> Optional[float]:
         return None
 
 
-# 鈹€鈹€鈹€ 8. M2 澧為€?(Tushare cn_m 鈫?compute YoY) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+# ─── 8. M2 增速 (Tushare cn_m → compute YoY) ───────────────────────────────────
 
 def _fetch_m2(pro) -> Optional[float]:
-    """M2鍚屾瘮澧為€?(%). Tushare cn_m 鈫?compute YoY from absolute values."""
+    """M2同比增速 (%). Tushare cn_m → compute YoY from absolute values."""
     if pro:
         try:
             df = pro.cn_m(start_m=_month(-14), end_m=_month(0), fields="month,m2")
@@ -378,15 +378,15 @@ def _ak_m2() -> Optional[float]:
     try:
         df = ak.macro_china_money_supply()
         if df is not None and not df.empty:
-            return _latest(df, "璐у竵鍜屽噯璐у竵(M2)-鍚屾瘮澧為暱")
+            return _latest(df, "货币和准货币(M2)-同比增长")
     except Exception:
         return None
 
 
-# 鈹€鈹€鈹€ 9. 铻嶈祫浣欓鍙樺寲 (Tushare margin) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+# ─── 9. 融资余额变化 (Tushare margin) ───────────────────────────────────────────
 
 def _fetch_margin_balance(pro) -> Optional[float]:
-    """铻嶈祫浣欓 20鏃ュ彉鍖?(浜垮厓). Tushare margin 鈫?rzye, sum across exchanges."""
+    """融资余额 20日变化 (亿元). Tushare margin → rzye, sum across exchanges."""
     if pro:
         try:
             end = datetime.now().strftime("%Y%m%d")
@@ -394,7 +394,7 @@ def _fetch_margin_balance(pro) -> Optional[float]:
             df = pro.margin(start_date=start, end_date=end)
             if df is not None and not df.empty and "rzye" in df.columns:
                 # Sum across exchanges per date
-                daily = df.groupby("trade_date")["rzye"].sum() / 1e8  # yuan 鈫?浜垮厓
+                daily = df.groupby("trade_date")["rzye"].sum() / 1e8  # yuan → 亿元
                 daily = daily.sort_index()
                 if len(daily) >= 2:
                     chg = round(float(daily.iloc[-1] - daily.iloc[0]), 2)
@@ -408,8 +408,8 @@ def _ak_margin() -> Optional[float]:
     import akshare as ak
     try:
         df = ak.stock_margin_account_info()
-        if df is not None and not df.empty and "铻嶈祫浣欓" in df.columns:
-            vals = pd.to_numeric(df["铻嶈祫浣欓"], errors="coerce").dropna()
+        if df is not None and not df.empty and "融资余额" in df.columns:
+            vals = pd.to_numeric(df["融资余额"], errors="coerce").dropna()
             if len(vals) >= 20:
                 return round(float(vals.iloc[-1] - vals.iloc[-20]), 2)
             if len(vals) >= 2:
@@ -418,15 +418,15 @@ def _ak_margin() -> Optional[float]:
         return None
 
 
-# 鈹€鈹€鈹€ 10. 鍖楀悜璧勯噾 (akshare 鈥?Tushare moneyflow_hsgt unit unclear) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+# ─── 10. 北向资金 (akshare — Tushare moneyflow_hsgt unit unclear) ───────────────
 
 def _fetch_northbound() -> Optional[float]:
-    """鍖楀悜璧勯噾 20鏃ョ疮璁″噣娴佸叆 (浜垮厓). akshare stock_hsgt_hist_em."""
+    """北向资金 20日累计净流入 (亿元). akshare stock_hsgt_hist_em."""
     import akshare as ak
     try:
-        df = ak.stock_hsgt_hist_em(symbol="鍖楀悜璧勯噾")
+        df = ak.stock_hsgt_hist_em(symbol="北向资金")
         if df is not None and not df.empty:
-            for col in ["褰撴棩鎴愪氦鍑€涔伴", "鍑€娴佸叆"]:
+            for col in ["当日成交净买额", "净流入"]:
                 if col in df.columns:
                     vals = pd.to_numeric(df[col], errors="coerce").dropna()
                     if len(vals) >= 20:
@@ -440,42 +440,42 @@ def _fetch_northbound() -> Optional[float]:
                 if len(vals) >= 20:
                     return round(float(vals.iloc[-20:].sum()), 2)
     except Exception:
-    logger.exception("Ignored non-fatal exception")
+        pass
     return None
 
 
-# 鈹€鈹€鈹€ 11. 璐㈡斂璧ゅ瓧鐜?(static placeholder; real source needs iFinD/EDB) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+# ─── 11. 财政赤字率 (static placeholder; real source needs iFinD/EDB) ──────────
 
 def _fetch_fiscal_deficit() -> Optional[float]:
-    """璐㈡斂璧ゅ瓧鐜?(%). Placeholder until iFinD EDB / official data source wired.
+    """财政赤字率 (%). Placeholder until iFinD EDB / official data source wired.
 
     The hardcoded 3.0 below is the 2026 government work report target. Treat
-    as low confidence in fetch_all() 鈥?confidence is overridden to 0.3 there.
+    as low confidence in fetch_all() — confidence is overridden to 0.3 there.
     """
     return 3.0
 
 
-# 鈹€鈹€鈹€ 12. 缇庤仈鍌ㄥ埄鐜?(akshare 鈥?Tushare us_trl not available at 6000pts) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+# ─── 12. 美联储利率 (akshare — Tushare us_trl not available at 6000pts) ─────────
 
 def _fetch_fed_rate() -> Optional[float]:
-    """缇庤仈鍌ㄥ熀鍑嗗埄鐜? akshare macro_bank_usa_interest_rate."""
+    """美联储基准利率. akshare macro_bank_usa_interest_rate."""
     import akshare as ak
     try:
         df = ak.macro_bank_usa_interest_rate()
         if df is not None and not df.empty:
-            # 浠婂€?may be NaN for future dates; try 鍓嶅€?first as it's the actual latest rate
-            val = _latest(df, "鍓嶅€?)
+            # 今值 may be NaN for future dates; try 前值 first as it's the actual latest rate
+            val = _latest(df, "前值")
             if val is not None:
                 return val
-            return _latest(df, "浠婂€?)
+            return _latest(df, "今值")
     except Exception:
         return None
 
 
-# 鈹€鈹€鈹€ 13. 缇庡厓鎸囨暟 (free forex API 鈥?Tushare DXY no data at 6000pts) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+# ─── 13. 美元指数 (free forex API — Tushare DXY no data at 6000pts) ────────────
 
 def _fetch_usd_index() -> Optional[float]:
-    """缇庡厓鎸囨暟 DXY. Free forex API with correct DXY formula."""
+    """美元指数 DXY. Free forex API with correct DXY formula."""
     # Try open.er-api.com free forex rates
     try:
         import requests
@@ -488,20 +488,20 @@ def _fetch_usd_index() -> Optional[float]:
             if eur and jpy:
                 dxy = (
                     50.14348112
-                    * (eur ** 0.576)     # EURUSD^-0.576 鈫?(1/eur)^-0.576 = eur^0.576
+                    * (eur ** 0.576)     # EURUSD^-0.576 → (1/eur)^-0.576 = eur^0.576
                     * (jpy ** 0.136)     # USDJPY
-                    * (gbp ** 0.119)     # GBPUSD^-0.119 鈫?(1/gbp)^-0.119 = gbp^0.119
+                    * (gbp ** 0.119)     # GBPUSD^-0.119 → (1/gbp)^-0.119 = gbp^0.119
                     * (cad ** 0.091)     # USDCAD
                     * (sek ** 0.042)     # USDSEK
                     * (chf ** 0.036)     # USDCHF
                 )
                 return round(dxy, 2)
     except Exception:
-    logger.exception("Ignored non-fatal exception")
+        pass
     return None
 
 
-# 鈹€鈹€鈹€ Date helpers 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+# ─── Date helpers ──────────────────────────────────────────────────────────────
 
 def _month(offset: int) -> str:
     """Return YYYYMM string offset from current month."""
@@ -521,4 +521,3 @@ def _quarter(offset: int) -> str:
     y = d.year + (q - 1) // 4
     q = ((q - 1) % 4) + 1
     return f"{y}Q{q}"
-
