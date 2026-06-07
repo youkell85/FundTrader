@@ -7,7 +7,7 @@
  * 不调用 LLM，不修改权重，不做量化优化。
  */
 
-import { num } from "./fund-data";
+import { num, returnPct, drawdownPct, sharpeFmt, feePct, scaleYi } from "./fund-data";
 
 /** 资产大类推断结果 */
 export type AssetClass = "equity" | "bond" | "cash" | "alternative" | "global" | "hybrid" | "unrecognized";
@@ -313,6 +313,143 @@ export function generateConstraintDraft(
       dataStatus: match.dataStatus,
     };
   });
+}
+
+/** 安全清洗 Markdown 表格中的 | */
+function mdEsc(v: string): string {
+  return String(v).replace(/\|/g, "\\|");
+}
+
+const ACTION_LABELS_MD: Record<ConstraintAction, string> = {
+  already_in_portfolio: "已在组合中",
+  candidate_for_peer_comparison: "同类替代观察",
+  candidate_for_style_supplement: "风格补充候选",
+  data_required: "数据待补齐",
+  watch_only: "持续观察",
+};
+
+const PRIORITY_LABELS_MD = { high: "高", medium: "中", low: "低" } as const;
+
+export interface ResearchReportInput {
+  portfolioFunds: PortfolioFund[];
+  candidates: any[];
+  constraintDrafts: ConstraintDraftItem[];
+  generatedAt?: Date | string;
+}
+
+/** 生成一页式 Markdown 研究报告 */
+export function generateResearchReportMarkdown(input: ResearchReportInput): string {
+  const { portfolioFunds, candidates, constraintDrafts, generatedAt } = input;
+  const ts = generatedAt ? new Date(generatedAt).toLocaleString("zh-CN") : new Date().toLocaleString("zh-CN");
+
+  const lines: string[] = [];
+  lines.push("# 配置研究报告");
+  lines.push("");
+  lines.push(`生成时间：${ts}`);
+  lines.push("");
+
+  // 1. 当前组合基金
+  lines.push("## 1. 当前组合基金");
+  lines.push("");
+  if (portfolioFunds.length === 0) {
+    lines.push("暂无组合基金数据。");
+  } else {
+    lines.push("| 基金 | 类型/资产大类 | 角色 |");
+    lines.push("|---|---|---|");
+    for (const f of portfolioFunds) {
+      const asset = inferAssetClass(f.type, f.name, f.asset_class);
+      lines.push(`| ${mdEsc(f.code)} ${mdEsc(f.name)} | ${mdEsc(ASSET_CLASS_LABELS[asset])} | ${mdEsc(f.role || "—")} |`);
+    }
+  }
+  lines.push("");
+
+  // 2. 研究候选池
+  lines.push("## 2. 研究候选池");
+  lines.push("");
+  if (candidates.length === 0) {
+    lines.push("暂无研究候选。");
+  } else {
+    lines.push("| 基金 | 推断资产大类 | 近1年 | 回撤 | Sharpe | 费率 | 规模 |");
+    lines.push("|---|---|---|---|---|---|---|");
+    for (const c of candidates) {
+      const perf = c.performance || {};
+      const type = c.fundType || c.type || "";
+      const name = c.fundName || c.name || "";
+      const asset = inferAssetClass(type, name, c.category);
+      lines.push(
+        `| ${mdEsc(c.fundCode || c.code || "")} ${mdEsc(c.fundAbbr || c.fundName || c.name || "")} | ${mdEsc(ASSET_CLASS_LABELS[asset])} | ${returnPct(perf.return1y)} | ${drawdownPct(perf.maxDrawdown)} | ${sharpeFmt(perf.sharpeRatio)} | ${feePct(c.feeManage)} | ${scaleYi(c.totalScale)} |`
+      );
+    }
+  }
+  lines.push("");
+
+  // 3. 候选池匹配分析
+  lines.push("## 3. 候选池匹配分析");
+  lines.push("");
+  if (candidates.length === 0) {
+    lines.push("暂无研究候选。");
+  } else {
+    const matches = analyzeCandidatePool(candidates, portfolioFunds);
+    lines.push("| 基金 | 匹配结论 | 同类对象 | 数据状态 |");
+    lines.push("|---|---|---|---|");
+    for (const { candidate, match } of matches) {
+      const conclusion = match.inPortfolio
+        ? "已在组合中"
+        : match.peerFunds.length > 0
+        ? `同类${match.peerFunds.length}只`
+        : "新资产类别";
+      lines.push(
+        `| ${mdEsc(candidate.fundCode || candidate.code || "")} ${mdEsc(candidate.fundAbbr || candidate.fundName || candidate.name || "")} | ${mdEsc(conclusion)} | ${match.peerFunds.map((p) => mdEsc(p.name)).join("、") || "—"} | ${match.dataStatus === "ok" ? "完整" : match.dataStatus === "partial" ? "部分缺失" : "缺失"} |`
+      );
+    }
+  }
+  lines.push("");
+
+  // 4. 配置约束草案
+  lines.push("## 4. 配置约束草案");
+  lines.push("");
+  if (constraintDrafts.length === 0) {
+    lines.push("暂无配置约束草案。");
+  } else {
+    lines.push("| 基金 | 建议类型 | 优先级 | 约束草案 | 原因 |");
+    lines.push("|---|---|---|---|---|");
+    for (const d of constraintDrafts) {
+      lines.push(
+        `| ${mdEsc(d.fundCode)} ${mdEsc(d.fundName)} | ${mdEsc(ACTION_LABELS_MD[d.action])} | ${mdEsc(PRIORITY_LABELS_MD[d.priority])} | ${mdEsc(d.constraints.join("；"))} | ${mdEsc(d.reason)} |`
+      );
+    }
+  }
+  lines.push("");
+
+  // 5. 数据缺口
+  lines.push("## 5. 数据缺口");
+  lines.push("");
+  const missingItems = candidates.filter((c) => {
+    const perf = c.performance || {};
+    return num(perf.return1y) === null || num(perf.maxDrawdown) === null || num(perf.sharpeRatio) === null;
+  });
+  if (missingItems.length === 0) {
+    lines.push("当前候选池关键指标数据完整度较好。");
+  } else {
+    for (const c of missingItems) {
+      const perf = c.performance || {};
+      const gaps: string[] = [];
+      if (num(perf.return1y) === null) gaps.push("近1年收益");
+      if (num(perf.maxDrawdown) === null) gaps.push("最大回撤");
+      if (num(perf.sharpeRatio) === null) gaps.push("Sharpe");
+      lines.push(`- ${mdEsc(c.fundCode || c.code || "")} ${mdEsc(c.fundAbbr || c.fundName || c.name || "")}：${gaps.join("、")}缺失`);
+    }
+  }
+  lines.push("");
+
+  // 6. 说明
+  lines.push("## 6. 说明");
+  lines.push("");
+  lines.push("本报告为研究辅助材料，不会自动修改组合。");
+  lines.push("数据来自公开净值和基金披露信息，仅供参考。");
+  lines.push("");
+
+  return lines.join("\n");
 }
 
 /** 批量分析候选池匹配 */

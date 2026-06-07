@@ -331,3 +331,109 @@ describe("generateConstraintDraft", () => {
     expect(generateConstraintDraft([], portfolio)).toEqual([]);
   });
 });
+
+import { generateResearchReportMarkdown } from "@/lib/fund-research";
+
+describe("generateResearchReportMarkdown", () => {
+  const portfolio = [
+    { code: "000001", name: "A基金", type: "equity", asset_class: "a_share_large", role: "core" },
+    { code: "000002", name: "B基金", type: "bond", asset_class: "rate_bond", role: "stable" },
+  ];
+
+  test("generates title 配置研究报告", () => {
+    const md = generateResearchReportMarkdown({ portfolioFunds: portfolio, candidates: [], constraintDrafts: [] });
+    expect(md).toContain("# 配置研究报告");
+    expect(md).toContain("生成时间：");
+  });
+
+  test("includes portfolio funds section", () => {
+    const md = generateResearchReportMarkdown({ portfolioFunds: portfolio, candidates: [], constraintDrafts: [] });
+    expect(md).toContain("## 1. 当前组合基金");
+    expect(md).toContain("A基金");
+    expect(md).toContain("B基金");
+  });
+
+  test("includes candidate code and name", () => {
+    const candidates = [
+      { fundCode: "000003", fundName: "C基金", fundType: "equity", performance: { return1y: "10", maxDrawdown: "-5", sharpeRatio: "1.2" }, feeManage: "0.015", totalScale: "20" },
+    ];
+    const drafts = generateConstraintDraft(candidates, portfolio);
+    const md = generateResearchReportMarkdown({ portfolioFunds: portfolio, candidates, constraintDrafts: drafts });
+    expect(md).toContain("## 2. 研究候选池");
+    expect(md).toContain("000003");
+    expect(md).toContain("C基金");
+  });
+
+  test("includes constraint drafts section with action label", () => {
+    const candidates = [
+      { fundCode: "000003", fundName: "C基金", fundType: "equity", performance: { return1y: "10", maxDrawdown: "-5", sharpeRatio: "1.2" }, feeManage: "0.015", totalScale: "20" },
+    ];
+    const drafts = generateConstraintDraft(candidates, portfolio);
+    const md = generateResearchReportMarkdown({ portfolioFunds: portfolio, candidates, constraintDrafts: drafts });
+    expect(md).toContain("## 4. 配置约束草案");
+    expect(md).toContain("同类替代观察");
+  });
+
+  test("shows 暂无研究候选 when empty", () => {
+    const md = generateResearchReportMarkdown({ portfolioFunds: portfolio, candidates: [], constraintDrafts: [] });
+    expect(md).toContain("暂无研究候选");
+  });
+
+  test("shows 暂无配置约束草案 when empty", () => {
+    const md = generateResearchReportMarkdown({ portfolioFunds: portfolio, candidates: [], constraintDrafts: [] });
+    expect(md).toContain("暂无配置约束草案");
+  });
+
+  test("missing values show dash not zero", () => {
+    const candidates = [
+      { fundCode: "000003", fundName: "C基金", fundType: "equity", performance: {}, feeManage: null, totalScale: null },
+    ];
+    const drafts = generateConstraintDraft(candidates, portfolio);
+    const md = generateResearchReportMarkdown({ portfolioFunds: portfolio, candidates, constraintDrafts: drafts });
+    expect(md).toContain("—");
+    expect(md).not.toContain(" 0%");
+    expect(md).not.toContain(" 0.00");
+  });
+
+  test("escapes pipe characters in markdown tables", () => {
+    const badPortfolio = [{ code: "000|1", name: "A|B基金", type: "equity", asset_class: "", role: "core" }];
+    const md = generateResearchReportMarkdown({ portfolioFunds: badPortfolio, candidates: [], constraintDrafts: [] });
+    expect(md).toContain("000\\|1");
+    expect(md).toContain("A\\|B基金");
+  });
+
+  test("does not contain forbidden wording", () => {
+    const candidates = [
+      { fundCode: "000003", fundName: "C基金", fundType: "equity", performance: { return1y: "10", maxDrawdown: "-5", sharpeRatio: "1.2" }, feeManage: "0.015", totalScale: "20" },
+    ];
+    const drafts = generateConstraintDraft(candidates, portfolio);
+    const md = generateResearchReportMarkdown({ portfolioFunds: portfolio, candidates, constraintDrafts: drafts });
+    const forbidden = ["买入", "卖出", "下单", "交易", "自动调仓", "信号进入组合"];
+    forbidden.forEach((w) => {
+      expect(md).not.toContain(w);
+    });
+  });
+
+  test("formats fee, return, drawdown, sharpe, scale correctly", () => {
+    const candidates = [
+      { fundCode: "000003", fundName: "C基金", fundType: "equity", performance: { return1y: "15.5", maxDrawdown: "-8.2", sharpeRatio: "1.35" }, feeManage: "0.012", totalScale: "25.6" },
+    ];
+    const drafts = generateConstraintDraft(candidates, portfolio);
+    const md = generateResearchReportMarkdown({ portfolioFunds: portfolio, candidates, constraintDrafts: drafts });
+    expect(md).toContain("15.50%");
+    expect(md).toContain("-8.20%");
+    expect(md).toContain("1.35");
+    expect(md).toContain("1.20%");
+    expect(md).toContain("25.60亿");
+  });
+
+  test("includes candidate match analysis section", () => {
+    const candidates = [
+      { fundCode: "000003", fundName: "C基金", fundType: "equity", performance: { return1y: "10", maxDrawdown: "-5", sharpeRatio: "1.2" }, feeManage: "0.015", totalScale: "20" },
+    ];
+    const drafts = generateConstraintDraft(candidates, portfolio);
+    const md = generateResearchReportMarkdown({ portfolioFunds: portfolio, candidates, constraintDrafts: drafts });
+    expect(md).toContain("## 3. 候选池匹配分析");
+    expect(md).toContain("同类1只");
+  });
+});

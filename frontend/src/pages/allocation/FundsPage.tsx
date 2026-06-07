@@ -12,6 +12,7 @@ import FundRankingPanel from '@/components/allocation/FundRankingPanel';
 import FeeAnalysisPanel from '@/components/allocation/FeeAnalysisPanel';
 import ResearchCandidateMatchPanel from '@/components/allocation/ResearchCandidateMatchPanel';
 import ResearchConstraintDraftPanel from '@/components/allocation/ResearchConstraintDraftPanel';
+import ResearchReportExportPanel from '@/components/allocation/ResearchReportExportPanel';
 import { getFundRanking } from '@/lib/api';
 import type { FundRankingResponse } from '@/types/allocation';
 import { useAllocationStore } from '@/store/allocationStore';
@@ -261,6 +262,18 @@ export default function FundsPage() {
               <span className="text-[10px] text-white/25">研究辅助，不自动改组合</span>
             </div>
             <ResearchConstraintDraftPanel
+              candidates={candidates}
+              portfolioFunds={funds}
+              loading={candidatesLoading}
+            />
+          </div>
+
+          <div className="mt-4 pt-4 border-t border-white/[0.04]">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-xs text-white/50 font-medium">研究报告导出</span>
+              <span className="text-[10px] text-white/25">一页式研究交付物</span>
+            </div>
+            <ResearchReportExportPanel
               candidates={candidates}
               portfolioFunds={funds}
               loading={candidatesLoading}
