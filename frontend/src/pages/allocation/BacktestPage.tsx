@@ -73,10 +73,10 @@ function buildDcaCashflowData(curve: ParsedDcaResult['curve']) {
 
 export default function BacktestPage() {
   const { d, meta, isReal, isMock } = useAllocationData();
-  const { state: storeState } = useAllocationStore();
+  const { state: storeState, dispatch } = useAllocationStore();
 
   // ─── 快速回测状态 ───
-  const [backtestResult, setBacktestResult] = useState<BacktestResponse | null>(null);
+  const [backtestResult, setBacktestResult] = useState<BacktestResponse | null>(storeState.backtestResult || null);
   const [backtestLoading, setBacktestLoading] = useState(false);
   const [backtestError, setBacktestError] = useState<string | null>(null);
 
@@ -113,6 +113,7 @@ export default function BacktestPage() {
       };
       const res = await runAllocationBacktest(req);
       setBacktestResult(res);
+      dispatch({ type: "SET_BACKTEST_RESULT", result: res });
     } catch (e: any) {
       setBacktestError(e?.message || '回测失败');
     } finally {

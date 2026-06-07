@@ -67,6 +67,10 @@ export default function FundsPage() {
   const { user } = useAuth();
   const utils = trpc.useUtils();
 
+  const { state: storeState } = useAllocationStore();
+  const backtestResult = storeState.backtestResult;
+  const dcaResult = storeState.dcaResult;
+
   const [rankingData, setRankingData] = useState<FundRankingResponse | null>(null);
   const [rankingLoading, setRankingLoading] = useState(false);
   const [rankingError, setRankingError] = useState<string | null>(null);
@@ -276,6 +280,8 @@ export default function FundsPage() {
             <ResearchReportExportPanel
               candidates={candidates}
               portfolioFunds={funds}
+              backtestResult={backtestResult}
+              dcaResult={dcaResult}
               loading={candidatesLoading}
             />
           </div>

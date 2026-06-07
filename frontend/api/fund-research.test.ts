@@ -436,4 +436,159 @@ describe("generateResearchReportMarkdown", () => {
     expect(md).toContain("## 3. 候选池匹配分析");
     expect(md).toContain("同类1只");
   });
+
+  test("includes backtest summary section header", () => {
+    const md = generateResearchReportMarkdown({ portfolioFunds: portfolio, candidates: [], constraintDrafts: [] });
+    expect(md).toContain("## 5. 回测摘要");
+  });
+
+  test("shows empty backtest when no results", () => {
+    const md = generateResearchReportMarkdown({ portfolioFunds: portfolio, candidates: [], constraintDrafts: [] });
+    expect(md).toContain("暂无策略回测结果");
+    expect(md).toContain("暂无定投回测结果");
+  });
+
+  test("includes strategy backtest metrics when provided", () => {
+    const backtestResult = {
+      metrics: {
+        saa_taa: {
+          annualized_return: 7.2,
+          annualized_volatility: 12.5,
+          max_drawdown: -15.3,
+          sharpe_ratio: 1.35,
+          sortino_ratio: 1.62,
+          calmar_ratio: 0.47,
+          monthly_win_rate: 58.3,
+          max_drawdown_duration_days: 120,
+          avg_turnover: 25,
+          total_rebalances: 18,
+          taa_value_added: 1.5,
+        },
+      },
+      data_quality: {
+        earliest_common_date: "2020-01-02",
+        total_trading_days: 1200,
+        assets_with_full_history: 5,
+        assets_with_partial_history: 1,
+        missing_assets: [],
+        macro_coverage_pct: 95,
+      },
+      curves: {}, regime_history: [], rebalance_events: [], attribution: {}, rolling_sharpe: {}, monthly_returns: {},
+    } as any;
+
+    const md = generateResearchReportMarkdown({ portfolioFunds: portfolio, candidates: [], constraintDrafts: [], backtestResult });
+    expect(md).toContain("### 5.1 策略回测");
+    expect(md).toContain("年化收益");
+    expect(md).toContain("+7.20%");
+    expect(md).toContain("年化波动");
+    expect(md).toContain("+12.50%");
+    expect(md).toContain("最大回撤");
+    expect(md).toContain("-15.30%");
+    expect(md).toContain("Sharpe");
+    expect(md).toContain("1.35");
+    expect(md).toContain("Sortino");
+    expect(md).toContain("Calmar");
+    expect(md).toContain("月度胜率");
+    expect(md).toContain("58.3%");
+  });
+
+  test("includes DCA backtest metrics when provided", () => {
+    const dcaResult = {
+      totalInvested: 120000,
+      finalValue: 145000,
+      totalReturn: 20.83,
+      annualizedReturn: 7.5,
+      maxDrawdown: -12.0,
+      sharpeRatio: 1.1,
+      feeCost: 0.5,
+      strategy: "fixed_amount",
+      frequency: "monthly",
+    } as any;
+
+    const md = generateResearchReportMarkdown({ portfolioFunds: portfolio, candidates: [], constraintDrafts: [], dcaResult });
+    expect(md).toContain("### 5.2 定投回测");
+    expect(md).toContain("总投入");
+    expect(md).toContain("120,000.00");
+    expect(md).toContain("期末市值");
+    expect(md).toContain("145,000.00");
+    expect(md).toContain("总收益");
+    expect(md).toContain("+20.83%");
+    expect(md).toContain("年化收益");
+    expect(md).toContain("+7.50%");
+    expect(md).toContain("最大回撤");
+    expect(md).toContain("-12.00%");
+  });
+
+  test("sharpe and sortino display without percent", () => {
+    const backtestResult = {
+      metrics: {
+        saa_taa: { annualized_return: 5, annualized_volatility: 10, max_drawdown: -8, sharpe_ratio: 1.0, sortino_ratio: 1.2, calmar_ratio: 0.5, monthly_win_rate: 50, max_drawdown_duration_days: 90, avg_turnover: 20, total_rebalances: 12, taa_value_added: null },
+      },
+      data_quality: { earliest_common_date: "2020-01-01", total_trading_days: 100, assets_with_full_history: 5, assets_with_partial_history: 0, missing_assets: [], macro_coverage_pct: 100 },
+      curves: {}, regime_history: [], rebalance_events: [], attribution: {}, rolling_sharpe: {}, monthly_returns: {},
+    } as any;
+
+    const md = generateResearchReportMarkdown({ portfolioFunds: portfolio, candidates: [], constraintDrafts: [], backtestResult });
+    expect(md).toContain("| Sharpe | 1.00 |");
+    expect(md).toContain("| Sortino | 1.20 |");
+    expect(md).toContain("| Calmar | 0.50 |");
+  });
+
+  test("percentages are not multiplied by 100 again", () => {
+    const backtestResult = {
+      metrics: {
+        saa_taa: { annualized_return: 7.2, annualized_volatility: 12.5, max_drawdown: -15.3, sharpe_ratio: 1.0, sortino_ratio: 1.2, calmar_ratio: 0.5, monthly_win_rate: 58.3, max_drawdown_duration_days: 90, avg_turnover: 20, total_rebalances: 12, taa_value_added: null },
+      },
+      data_quality: { earliest_common_date: "2020-01-01", total_trading_days: 100, assets_with_full_history: 5, assets_with_partial_history: 0, missing_assets: [], macro_coverage_pct: 100 },
+      curves: {}, regime_history: [], rebalance_events: [], attribution: {}, rolling_sharpe: {}, monthly_returns: {},
+    } as any;
+
+    const md = generateResearchReportMarkdown({ portfolioFunds: portfolio, candidates: [], constraintDrafts: [], backtestResult });
+    expect(md).toContain("+7.20%");
+    expect(md).not.toContain("720.00%");
+    expect(md).not.toContain("+720.00%");
+  });
+
+  test("missing values show dash not zero", () => {
+    const backtestResult = {
+      metrics: {
+        saa_taa: { annualized_return: null, annualized_volatility: null, max_drawdown: null, sharpe_ratio: null, sortino_ratio: null, calmar_ratio: null, monthly_win_rate: null, max_drawdown_duration_days: null, avg_turnover: null, total_rebalances: null, taa_value_added: null },
+      },
+      data_quality: null,
+      curves: {}, regime_history: [], rebalance_events: [], attribution: {}, rolling_sharpe: {}, monthly_returns: {},
+    } as any;
+
+    const md = generateResearchReportMarkdown({ portfolioFunds: portfolio, candidates: [], constraintDrafts: [], backtestResult });
+    expect(md).toContain("| 年化收益 | — |");
+    expect(md).toContain("| Sharpe | — |");
+    expect(md).not.toContain("| 年化收益 | 0.00% |");
+    expect(md).not.toContain("| Sharpe | 0.00 |");
+  });
+
+  test("report sections are in correct order", () => {
+    const md = generateResearchReportMarkdown({ portfolioFunds: portfolio, candidates: [], constraintDrafts: [] });
+    const idx1 = md.indexOf("## 5. 回测摘要");
+    const idx2 = md.indexOf("## 6. 数据缺口");
+    const idx3 = md.indexOf("## 7. 说明");
+    expect(idx1).toBeGreaterThan(0);
+    expect(idx2).toBeGreaterThan(idx1);
+    expect(idx3).toBeGreaterThan(idx2);
+  });
+
+  test("backtest section does not contain forbidden wording", () => {
+    const backtestResult = {
+      metrics: {
+        saa_taa: { annualized_return: 7, annualized_volatility: 10, max_drawdown: -8, sharpe_ratio: 1.0, sortino_ratio: 1.2, calmar_ratio: 0.5, monthly_win_rate: 50, max_drawdown_duration_days: 90, avg_turnover: 20, total_rebalances: 12, taa_value_added: null },
+      },
+      data_quality: { earliest_common_date: "2020-01-01", total_trading_days: 100, assets_with_full_history: 5, assets_with_partial_history: 0, missing_assets: [], macro_coverage_pct: 100 },
+      curves: {}, regime_history: [], rebalance_events: [], attribution: {}, rolling_sharpe: {}, monthly_returns: {},
+    } as any;
+    const dcaResult = { totalInvested: 100000, finalValue: 110000, totalReturn: 10, annualizedReturn: 5, maxDrawdown: -5, sharpeRatio: 1.0, feeCost: 0.2, strategy: "fixed_amount", frequency: "monthly" } as any;
+
+    const md = generateResearchReportMarkdown({ portfolioFunds: portfolio, candidates: [], constraintDrafts: [], backtestResult, dcaResult });
+    const forbidden = ["买入", "卖出", "下单", "交易", "自动调仓", "信号进入组合"];
+    forbidden.forEach((w) => {
+      expect(md).not.toContain(w);
+    });
+  });
 });

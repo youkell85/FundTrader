@@ -2,6 +2,7 @@ import React, { createContext, useContext, useReducer } from "react";
 import type { ReactNode } from "react";
 import type { AllocationRequest, AllocationResponse, VariantsResponse } from "@/types/allocation";
 import type { ExecutionPlan, DcaConfig, DcaResult } from "@/lib/execution-plan";
+import type { BacktestResponse } from "@/types/backtest";
 
 interface S {
   wizardStep: number;
@@ -12,6 +13,7 @@ interface S {
   executionPlan: ExecutionPlan | null;
   dcaConfig: DcaConfig | null;
   dcaResult: DcaResult | null;
+  backtestResult: BacktestResponse | null;
 }
 
 type A =
@@ -23,6 +25,7 @@ type A =
   | { type: "SET_EXECUTION_PLAN"; plan: ExecutionPlan | null }
   | { type: "SET_DCA_CONFIG"; config: DcaConfig | null }
   | { type: "SET_DCA_RESULT"; result: DcaResult | null }
+  | { type: "SET_BACKTEST_RESULT"; result: BacktestResponse | null }
   | { type: "RESET" };
 
 const defaults: AllocationRequest = {
@@ -45,6 +48,7 @@ const init: S = {
   executionPlan: null,
   dcaConfig: null,
   dcaResult: null,
+  backtestResult: null,
 };
 
 function reducer(s: S, a: A): S {
@@ -65,6 +69,8 @@ function reducer(s: S, a: A): S {
       return { ...s, dcaConfig: a.config };
     case "SET_DCA_RESULT":
       return { ...s, dcaResult: a.result };
+    case "SET_BACKTEST_RESULT":
+      return { ...s, backtestResult: a.result };
     case "RESET":
       return { ...init, config: { ...defaults } };
     default:

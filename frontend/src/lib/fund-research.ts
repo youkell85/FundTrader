@@ -8,6 +8,31 @@
  */
 
 import { num, returnPct, drawdownPct, sharpeFmt, feePct, scaleYi } from "./fund-data";
+import type { BacktestResponse, BacktestMetrics, DataQuality } from "@/types/backtest";
+import type { ParsedDcaResult } from "@/lib/execution-plan";
+
+/** 轻量数值格式化（不乘100） */
+function fmtNum(v: unknown, digits = 2, suffix = ''): string {
+  if (v === undefined || v === null || v === '' || Number.isNaN(v)) return '—';
+  const n = typeof v === 'number' ? v : parseFloat(String(v));
+  if (!Number.isFinite(n)) return '—';
+  return `${n.toFixed(digits)}${suffix}`;
+}
+
+function fmtPctNum(v: unknown): string {
+  if (v === undefined || v === null || v === '' || Number.isNaN(v)) return '—';
+  const n = typeof v === 'number' ? v : parseFloat(String(v));
+  if (!Number.isFinite(n)) return '—';
+  const s = n >= 0 ? '+' : '';
+  return `${s}${n.toFixed(2)}%`;
+}
+
+function fmtMoney(v: unknown): string {
+  if (v === undefined || v === null || v === '' || Number.isNaN(v)) return '—';
+  const n = typeof v === 'number' ? v : parseFloat(String(v));
+  if (!Number.isFinite(n)) return '—';
+  return n.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
 
 /** 资产大类推断结果 */
 export type AssetClass = "equity" | "bond" | "cash" | "alternative" | "global" | "hybrid" | "unrecognized";
@@ -330,16 +355,24 @@ const ACTION_LABELS_MD: Record<ConstraintAction, string> = {
 
 const PRIORITY_LABELS_MD = { high: "高", medium: "中", low: "低" } as const;
 
+function getPrimaryMetrics(metrics: Record<string, BacktestMetrics> | undefined): BacktestMetrics | null {
+  if (!metrics || Object.keys(metrics).length === 0) return null;
+  const modes = Object.keys(metrics);
+  return modes.includes('saa_taa') ? metrics['saa_taa'] : modes.includes('saa_only') ? metrics['saa_only'] : metrics[modes[0]];
+}
+
 export interface ResearchReportInput {
   portfolioFunds: PortfolioFund[];
   candidates: any[];
   constraintDrafts: ConstraintDraftItem[];
+  backtestResult?: BacktestResponse | null;
+  dcaResult?: ParsedDcaResult | null;
   generatedAt?: Date | string;
 }
 
 /** 生成一页式 Markdown 研究报告 */
 export function generateResearchReportMarkdown(input: ResearchReportInput): string {
-  const { portfolioFunds, candidates, constraintDrafts, generatedAt } = input;
+  const { portfolioFunds, candidates, constraintDrafts, backtestResult, dcaResult, generatedAt } = input;
   const ts = generatedAt ? new Date(generatedAt).toLocaleString("zh-CN") : new Date().toLocaleString("zh-CN");
 
   const lines: string[] = [];
@@ -421,8 +454,63 @@ export function generateResearchReportMarkdown(input: ResearchReportInput): stri
   }
   lines.push("");
 
-  // 5. 数据缺口
-  lines.push("## 5. 数据缺口");
+  // 5. 回测摘要
+  lines.push("## 5. 回测摘要");
+  lines.push("");
+
+  // 5.1 策略回测
+  lines.push("### 5.1 策略回测");
+  lines.push("");
+  const primaryMetrics = getPrimaryMetrics(backtestResult?.metrics);
+  if (!primaryMetrics) {
+    lines.push("暂无策略回测结果。");
+  } else {
+    lines.push("| 指标 | 数值 |");
+    lines.push("|---|---:|");
+    lines.push(`| 年化收益 | ${mdEsc(fmtPctNum(primaryMetrics.annualized_return))} |`);
+    lines.push(`| 年化波动 | ${mdEsc(fmtPctNum(primaryMetrics.annualized_volatility))} |`);
+    lines.push(`| 最大回撤 | ${mdEsc(fmtPctNum(primaryMetrics.max_drawdown))} |`);
+    lines.push(`| Sharpe | ${mdEsc(fmtNum(primaryMetrics.sharpe_ratio, 2))} |`);
+    lines.push(`| Sortino | ${mdEsc(fmtNum(primaryMetrics.sortino_ratio, 2))} |`);
+    lines.push(`| Calmar | ${mdEsc(fmtNum(primaryMetrics.calmar_ratio, 2))} |`);
+    lines.push(`| 月度胜率 | ${mdEsc(fmtNum(primaryMetrics.monthly_win_rate, 1, '%'))} |`);
+  }
+  lines.push("");
+
+  // 5.2 定投回测
+  lines.push("### 5.2 定投回测");
+  lines.push("");
+  if (!dcaResult) {
+    lines.push("暂无定投回测结果。");
+  } else {
+    lines.push("| 指标 | 数值 |");
+    lines.push("|---|---:|");
+    lines.push(`| 总投入 | ${mdEsc(fmtMoney(dcaResult.totalInvested))} |`);
+    lines.push(`| 期末市值 | ${mdEsc(fmtMoney(dcaResult.finalValue))} |`);
+    lines.push(`| 总收益 | ${mdEsc(fmtPctNum(dcaResult.totalReturn))} |`);
+    lines.push(`| 年化收益 | ${mdEsc(fmtPctNum(dcaResult.annualizedReturn))} |`);
+    lines.push(`| 最大回撤 | ${mdEsc(fmtPctNum(dcaResult.maxDrawdown))} |`);
+  }
+  lines.push("");
+
+  // 5.3 数据质量
+  lines.push("### 5.3 数据质量");
+  lines.push("");
+  const dataQuality = backtestResult?.data_quality;
+  if (!dataQuality) {
+    lines.push("—");
+  } else {
+    lines.push(`- 回测区间：${mdEsc(dataQuality.earliest_common_date)} ~ ${new Date().toISOString().slice(0, 10)}`);
+    lines.push(`- 回测天数：${mdEsc(String(dataQuality.total_trading_days))}`);
+    if (dataQuality.missing_assets.length > 0) {
+      lines.push(`- 缺失资产：${mdEsc(dataQuality.missing_assets.join(", "))}`);
+    }
+    lines.push(`- 基准状态：${mdEsc(backtestResult?.metrics?.['equal_weight'] ? "等权基准可用" : backtestResult?.metrics?.['sixty_forty'] ? "60/40基准可用" : "基准未计算")}`);
+  }
+  lines.push("");
+
+  // 6. 数据缺口
+  lines.push("## 6. 数据缺口");
   lines.push("");
   const missingItems = candidates.filter((c) => {
     const perf = c.performance || {};
@@ -442,8 +530,8 @@ export function generateResearchReportMarkdown(input: ResearchReportInput): stri
   }
   lines.push("");
 
-  // 6. 说明
-  lines.push("## 6. 说明");
+  // 7. 说明
+  lines.push("## 7. 说明");
   lines.push("");
   lines.push("本报告为研究辅助材料，不会自动修改组合。");
   lines.push("数据来自公开净值和基金披露信息，仅供参考。");

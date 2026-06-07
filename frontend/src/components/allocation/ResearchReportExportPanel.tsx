@@ -16,14 +16,18 @@ import {
   generateResearchReportMarkdown,
   generateConstraintDraft,
 } from "@/lib/fund-research";
+import type { BacktestResponse } from "@/types/backtest";
+import type { ParsedDcaResult } from "@/lib/execution-plan";
 
 interface Props {
   portfolioFunds: any[];
   candidates: any[];
+  backtestResult?: BacktestResponse | null;
+  dcaResult?: ParsedDcaResult | null;
   loading?: boolean;
 }
 
-export default function ResearchReportExportPanel({ portfolioFunds, candidates, loading }: Props) {
+export default function ResearchReportExportPanel({ portfolioFunds, candidates, backtestResult, dcaResult, loading }: Props) {
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -39,8 +43,10 @@ export default function ResearchReportExportPanel({ portfolioFunds, candidates, 
         portfolioFunds,
         candidates,
         constraintDrafts,
+        backtestResult,
+        dcaResult,
       }),
-    [portfolioFunds, candidates, constraintDrafts]
+    [portfolioFunds, candidates, constraintDrafts, backtestResult, dcaResult]
   );
 
   const handleCopy = async () => {
