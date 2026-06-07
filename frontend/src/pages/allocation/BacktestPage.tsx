@@ -425,61 +425,139 @@ export default function BacktestPage() {
         </section>
       )}
 
-      {/* ===== 数据状态 ===== */}
+      {/* ===== 数据质量与基准状态 ===== */}
       {hasAnyResult && (
         <section className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4">
           <h3 className="text-xs text-white/40 uppercase tracking-wider mb-3 flex items-center gap-2">
             <Info className="w-3.5 h-3.5 text-[#73C0DE]" />
-            数据状态
+            数据质量与基准状态
           </h3>
-          <div className="space-y-1.5 text-xs text-white/35">
-            {isMock && (
-              <div className="flex items-center gap-2">
-                <XCircle className="w-3.5 h-3.5 text-[#FFB800]" />
-                <span>当前基于演示数据回测，结果仅供展示</span>
+
+          {/* 资产配置回测数据质量 */}
+          {hasAllocationBacktest && backtestResult!.data_quality && (
+            <div className="space-y-3">
+              {/* 核心指标行 */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                <div className="rounded-md border border-white/[0.05] bg-white/[0.02] px-2.5 py-2">
+                  <div className="text-[10px] text-white/30">回测区间</div>
+                  <div className="mt-0.5 text-xs font-medium text-white/70 data-number">
+                    {backtestResult!.data_quality.earliest_common_date || '—'}
+                  </div>
+                </div>
+                <div className="rounded-md border border-white/[0.05] bg-white/[0.02] px-2.5 py-2">
+                  <div className="text-[10px] text-white/30">回测天数</div>
+                  <div className="mt-0.5 text-xs font-medium text-white/70 data-number">
+                    {backtestResult!.data_quality.total_trading_days != null
+                      ? `${backtestResult!.data_quality.total_trading_days} 天`
+                      : '—'}
+                  </div>
+                </div>
+                <div className="rounded-md border border-white/[0.05] bg-white/[0.02] px-2.5 py-2">
+                  <div className="text-[10px] text-white/30">资产覆盖率</div>
+                  <div className="mt-0.5 text-xs font-medium data-number"
+                    style={{
+                      color: backtestResult!.data_quality.macro_coverage_pct != null && backtestResult!.data_quality.macro_coverage_pct >= 90
+                        ? '#16C784'
+                        : backtestResult!.data_quality.macro_coverage_pct != null && backtestResult!.data_quality.macro_coverage_pct >= 70
+                          ? '#FAC858'
+                          : '#EE6666'
+                    }}
+                  >
+                    {backtestResult!.data_quality.macro_coverage_pct != null
+                      ? `${backtestResult!.data_quality.macro_coverage_pct.toFixed(1)}%`
+                      : '—'}
+                  </div>
+                </div>
+                <div className="rounded-md border border-white/[0.05] bg-white/[0.02] px-2.5 py-2">
+                  <div className="text-[10px] text-white/30">完整 / 部分资产</div>
+                  <div className="mt-0.5 text-xs font-medium text-white/70 data-number">
+                    {backtestResult!.data_quality.assets_with_full_history != null && backtestResult!.data_quality.assets_with_partial_history != null
+                      ? `${backtestResult!.data_quality.assets_with_full_history} / ${backtestResult!.data_quality.assets_with_partial_history}`
+                      : '—'}
+                  </div>
+                </div>
               </div>
-            )}
-            {hasAllocationBacktest && backtestResult!.data_quality && (
-              <>
-                <div className="flex items-center gap-2">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-[#16C784]" />
-                  <span>回测区间: {backtestResult!.data_quality.earliest_common_date} ~ {new Date().toISOString().slice(0, 10)}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-[#16C784]" />
-                  <span>资产覆盖: {backtestResult!.data_quality.assets_with_full_history} 只完整, {backtestResult!.data_quality.assets_with_partial_history} 只部分</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-[#16C784]" />
-                  <span>交易日: {backtestResult!.data_quality.total_trading_days} 天</span>
-                </div>
-                {backtestResult!.data_quality.missing_assets.length > 0 && (
-                  <div className="flex items-center gap-2">
-                    <AlertCircle className="w-3.5 h-3.5 text-[#EE6666]" />
-                    <span>缺失资产: {backtestResult!.data_quality.missing_assets.join(', ')}</span>
+
+              {/* 缺失资产 */}
+              <div>
+                <div className="text-[10px] text-white/30 mb-1.5">缺失资产</div>
+                {backtestResult!.data_quality.missing_assets.length > 0 ? (
+                  <div className="flex flex-wrap gap-1">
+                    {backtestResult!.data_quality.missing_assets.map((asset, i) => (
+                      <span key={i} className="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.02] border border-white/[0.04] text-white/40">
+                        {asset}
+                      </span>
+                    ))}
                   </div>
+                ) : (
+                  <span className="text-[10px] text-white/25">无缺失资产</span>
                 )}
-              </>
-            )}
-            {hasDcaBacktest && (
-              <>
-                <div className="flex items-center gap-2">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-[#16C784]" />
-                  <span>定投策略: {dcaResult!.strategy} · 频率: {dcaResult!.frequency}</span>
+              </div>
+
+              {/* 基准状态 */}
+              <div>
+                <div className="text-[10px] text-white/30 mb-1.5">基准状态</div>
+                <div className="space-y-1 text-xs">
+                  {(['equal_weight', 'sixty_forty'] as ComparisonMode[]).map(mode => {
+                    const hasMode = backtestResult.metrics[mode] != null;
+                    return (
+                      <div key={mode} className="flex items-center gap-2">
+                        {hasMode ? (
+                          <CheckCircle2 className="w-3.5 h-3.5 text-[#16C784] shrink-0" />
+                        ) : (
+                          <XCircle className="w-3.5 h-3.5 text-white/25 shrink-0" />
+                        )}
+                        <span className={hasMode ? 'text-white/50' : 'text-white/25'}>
+                          {MODE_LABELS[mode]}: {hasMode ? '可用' : '暂无基准数据'}
+                        </span>
+                      </div>
+                    );
+                  })}
                 </div>
-                <div className="flex items-center gap-2">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-[#16C784]" />
-                  <span>费率成本: {fmtPct(dcaResult!.feeCost)}</span>
-                </div>
-                {!dcaResult!.curve && (
-                  <div className="flex items-center gap-2">
-                    <AlertCircle className="w-3.5 h-3.5 text-[#FFB800]" />
-                    <span>现金流明细缺失 — 后端未返回 curve 字段</span>
+              </div>
+
+              {/* 数据降级说明 */}
+              {(backtestResult!.data_quality.assets_with_partial_history > 0 || backtestResult!.data_quality.missing_assets.length > 0 || (backtestResult!.data_quality.macro_coverage_pct != null && backtestResult!.data_quality.macro_coverage_pct < 90)) && (
+                <div className="rounded-md border border-[#FAC858]/15 bg-[#FAC858]/[0.03] px-3 py-2">
+                  <div className="text-[10px] text-[#FAC858]/70">
+                    <span className="font-medium">数据降级说明: </span>
+                    {backtestResult!.data_quality.assets_with_partial_history > 0 && `${backtestResult!.data_quality.assets_with_partial_history} 只资产使用部分历史数据`}
+                    {backtestResult!.data_quality.missing_assets.length > 0 && `；${backtestResult!.data_quality.missing_assets.length} 只资产缺失`}
+                    {backtestResult!.data_quality.macro_coverage_pct != null && backtestResult!.data_quality.macro_coverage_pct < 90 && `；宏观因子覆盖率 ${backtestResult!.data_quality.macro_coverage_pct.toFixed(1)}%`}
+                    。结果仅供研究参考。
                   </div>
-                )}
-              </>
-            )}
-          </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* DCA 回测数据质量 */}
+          {hasDcaBacktest && (
+            <div className="space-y-1.5 text-xs text-white/35 mt-3 pt-3 border-t border-white/[0.04]">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-3.5 h-3.5 text-[#16C784]" />
+                <span>定投策略: {dcaResult!.strategy} · 频率: {dcaResult!.frequency}</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-3.5 h-3.5 text-[#16C784]" />
+                <span>费率成本: {fmtPct(dcaResult!.feeCost)}</span>
+              </div>
+              {!dcaResult!.curve && (
+                <div className="flex items-center gap-2">
+                  <AlertCircle className="w-3.5 h-3.5 text-[#FFB800]" />
+                  <span>现金流明细缺失 — 后端未返回 curve 字段</span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* 演示数据提示 */}
+          {isMock && (
+            <div className="flex items-center gap-2 mt-3 pt-3 border-t border-white/[0.04]">
+              <XCircle className="w-3.5 h-3.5 text-[#FFB800]" />
+              <span className="text-xs text-white/35">当前基于演示数据回测，结果仅供展示</span>
+            </div>
+          )}
         </section>
       )}
 

@@ -514,14 +514,36 @@ export function generateResearchReportMarkdown(input: ResearchReportInput): stri
   lines.push("");
   const dataQuality = backtestResult?.data_quality;
   if (!dataQuality) {
-    lines.push("—");
+    lines.push("暂无数据质量信息。");
   } else {
-    lines.push(`- 回测区间：${mdEsc(dataQuality.earliest_common_date)} ~ ${new Date().toISOString().slice(0, 10)}`);
-    lines.push(`- 回测天数：${mdEsc(String(dataQuality.total_trading_days))}`);
-    if (dataQuality.missing_assets.length > 0) {
-      lines.push(`- 缺失资产：${mdEsc(dataQuality.missing_assets.join(", "))}`);
+    lines.push("| 指标 | 数值 |");
+    lines.push("|---|---:|");
+    lines.push(`| 回测区间 | ${mdEsc(dataQuality.earliest_common_date || "—")} ~ ${new Date().toISOString().slice(0, 10)} |`);
+    lines.push(`| 回测天数 | ${mdEsc(dataQuality.total_trading_days != null ? String(dataQuality.total_trading_days) + " 天" : "—")} |`);
+    lines.push(`| 资产覆盖率 | ${mdEsc(dataQuality.macro_coverage_pct != null ? dataQuality.macro_coverage_pct.toFixed(2) + "%" : "—")} |`);
+    lines.push(`| 完整 / 部分资产 | ${mdEsc(dataQuality.assets_with_full_history != null && dataQuality.assets_with_partial_history != null ? String(dataQuality.assets_with_full_history) + " / " + String(dataQuality.assets_with_partial_history) : "—")} |`);
+    lines.push(`| 缺失资产 | ${mdEsc(dataQuality.missing_assets.length > 0 ? dataQuality.missing_assets.join(", ") : "无缺失资产")} |`);
+    const equalWeightAvailable = backtestResult?.metrics?.['equal_weight'] != null;
+    const sixtyFortyAvailable = backtestResult?.metrics?.['sixty_forty'] != null;
+    lines.push(`| 等权基准 | ${mdEsc(equalWeightAvailable ? "可用" : "暂无基准数据")} |`);
+    lines.push(`| 60/40 基准 | ${mdEsc(sixtyFortyAvailable ? "可用" : "暂无基准数据")} |`);
+    lines.push("");
+
+    // 数据降级说明
+    if (dataQuality.assets_with_partial_history > 0 || dataQuality.missing_assets.length > 0 || (dataQuality.macro_coverage_pct != null && dataQuality.macro_coverage_pct < 90)) {
+      const warnings: string[] = [];
+      if (dataQuality.assets_with_partial_history > 0) {
+        warnings.push(`${dataQuality.assets_with_partial_history} 只资产使用部分历史数据`);
+      }
+      if (dataQuality.missing_assets.length > 0) {
+        warnings.push(`${dataQuality.missing_assets.length} 只资产缺失`);
+      }
+      if (dataQuality.macro_coverage_pct != null && dataQuality.macro_coverage_pct < 90) {
+        warnings.push(`宏观因子覆盖率 ${dataQuality.macro_coverage_pct.toFixed(1)}%`);
+      }
+      lines.push(`**数据降级说明**：${mdEsc(warnings.join("；"))}。结果仅供研究参考。**`);
+      lines.push("");
     }
-    lines.push(`- 基准状态：${mdEsc(backtestResult?.metrics?.['equal_weight'] ? "等权基准可用" : backtestResult?.metrics?.['sixty_forty'] ? "60/40基准可用" : "基准未计算")}`);
   }
   lines.push("");
 
