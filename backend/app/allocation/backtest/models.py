@@ -48,12 +48,16 @@ class BacktestMetrics(BaseModel):
     max_drawdown: float  # % (positive number representing loss)
     max_drawdown_duration_days: int
     sharpe_ratio: float
-    calmar_ratio: float
-    sortino_ratio: float
+    calmar_ratio: Optional[float] = None
+    sortino_ratio: Optional[float] = None
     monthly_win_rate: float  # % of positive months (frontend-aligned)
     avg_turnover: float  # % average per rebalance
     total_rebalances: int = 0
     taa_value_added: Optional[float] = None  # excess vs saa_only
+    information_ratio: Optional[float] = None
+    alpha: Optional[float] = None  # % annualized
+    beta: Optional[float] = None
+    tracking_error: Optional[float] = None  # % annualized
 
 
 class RegimeHistoryEntry(BaseModel):

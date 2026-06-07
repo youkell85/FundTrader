@@ -98,12 +98,26 @@ def run_backtest(request: BacktestRequest) -> BacktestResponse:
     metrics = {}
     saa_only_return = None
 
+    # Collect daily values for benchmark lookup
+    mode_daily_values = {}
+    for mode, curve in curves.items():
+        mode_daily_values[mode] = [p.value for p in curve]
+
+    def _pick_benchmark(mode: str) -> Optional[List[float]]:
+        """Pick a benchmark series for this mode (prefer sixty_forty, then equal_weight)."""
+        if "sixty_forty" in mode_daily_values and mode != "sixty_forty":
+            return mode_daily_values["sixty_forty"]
+        if "equal_weight" in mode_daily_values and mode != "equal_weight":
+            return mode_daily_values["equal_weight"]
+        return None
+
     for mode, curve in curves.items():
         daily_values = [p.value for p in curve]
         dates = [p.date for p in curve]
         turnovers = mode_turnovers.get(mode, [])
+        benchmark_values = _pick_benchmark(mode)
 
-        m = compute_metrics(daily_values, dates, turnovers, saa_only_return)
+        m = compute_metrics(daily_values, dates, turnovers, saa_only_return, benchmark_values)
         metrics[mode] = m
 
         if mode == "saa_only":
@@ -115,7 +129,8 @@ def run_backtest(request: BacktestRequest) -> BacktestResponse:
         daily_values = [p.value for p in curve]
         dates = [p.date for p in curve]
         turnovers = mode_turnovers.get("saa_taa", [])
-        metrics["saa_taa"] = compute_metrics(daily_values, dates, turnovers, saa_only_return)
+        benchmark_values = _pick_benchmark("saa_taa")
+        metrics["saa_taa"] = compute_metrics(daily_values, dates, turnovers, saa_only_return, benchmark_values)
 
     # 6. Compute rolling Sharpe for primary mode
     rolling_sharpe_data: List[Dict[str, Any]] = []

@@ -32,14 +32,18 @@ export interface BacktestMetrics {
   annualized_return: number;
   annualized_volatility: number;
   sharpe_ratio: number;
-  sortino_ratio: number;
-  calmar_ratio: number;
+  sortino_ratio: number | null;
+  calmar_ratio: number | null;
   max_drawdown: number;
   max_drawdown_duration_days: number;
   monthly_win_rate: number;
   avg_turnover: number;
   total_rebalances: number;
   taa_value_added: number | null;
+  information_ratio: number | null;
+  alpha: number | null;
+  beta: number | null;
+  tracking_error: number | null;
   benchmark_status?: 'available' | 'missing' | 'partial';
 }
 

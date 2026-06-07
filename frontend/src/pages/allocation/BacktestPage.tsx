@@ -225,7 +225,13 @@ export default function BacktestPage() {
                   <Kpi label="Sharpe" value={fmt(primaryMetrics.sharpe_ratio, '', 2)} />
                   <Kpi label="Sortino" value={fmt(primaryMetrics.sortino_ratio, '', 2)} />
                   <Kpi label="Calmar" value={fmt(primaryMetrics.calmar_ratio, '', 2)} />
+                  <Kpi label="信息比率" value={fmt(primaryMetrics.information_ratio, '', 2)} />
                   <Kpi label="月胜率" value={fmt(primaryMetrics.monthly_win_rate, '%', 1)} />
+                  <Kpi label="Alpha" value={primaryMetrics.alpha != null ? fmtPct(primaryMetrics.alpha) : '—'} />
+                  <Kpi label="Beta" value={fmt(primaryMetrics.beta, '', 2)} />
+                  <Kpi label="跟踪误差" value={primaryMetrics.tracking_error != null ? fmtPct(primaryMetrics.tracking_error) : '—'} />
+                  <Kpi label="平均换手" value={fmt(primaryMetrics.avg_turnover, '%', 1)} />
+                  <Kpi label="TAA增值" value={primaryMetrics.taa_value_added != null ? fmtPct(primaryMetrics.taa_value_added) : '—'} />
                 </>
               )}
             </div>

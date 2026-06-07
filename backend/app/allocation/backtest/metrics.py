@@ -18,6 +18,7 @@ def compute_metrics(
     dates: List[str],
     rebalance_turnovers: List[float],
     saa_only_return: Optional[float] = None,
+    benchmark_daily_values: Optional[List[float]] = None,
 ) -> BacktestMetrics:
     """Compute aggregate performance metrics from a daily portfolio value series.
 
@@ -26,6 +27,7 @@ def compute_metrics(
         dates: ISO date strings aligned with daily_values
         rebalance_turnovers: List of turnover % at each rebalance
         saa_only_return: Annualized return of SAA-only mode (for TAA value-added calc)
+        benchmark_daily_values: Daily benchmark values for alpha/beta/tracking error calc
     """
     values = np.array(daily_values, dtype=np.float64)
     n = len(values)
@@ -52,13 +54,18 @@ def compute_metrics(
     excess_daily = daily_returns - RISK_FREE_RATE / 252.0
     sharpe = float(np.mean(excess_daily) / np.std(excess_daily, ddof=1) * np.sqrt(252)) if np.std(excess_daily, ddof=1) > 0 else 0.0
 
-    # Calmar ratio
-    calmar = ann_return / max_dd if max_dd > 0 else 0.0
+    # Calmar ratio — None if no drawdown
+    calmar: Optional[float] = None
+    if max_dd > 0:
+        calmar = ann_return / max_dd
 
-    # Sortino ratio (only downside deviation)
+    # Sortino ratio — None if insufficient downside
+    sortino: Optional[float] = None
     downside_returns = daily_returns[daily_returns < RISK_FREE_RATE / 252.0]
-    downside_dev = float(np.std(downside_returns, ddof=1) * np.sqrt(252)) if len(downside_returns) > 1 else ann_vol
-    sortino = (ann_return - RISK_FREE_RATE) / downside_dev if downside_dev > 0 else 0.0
+    if len(downside_returns) > 1:
+        downside_dev = float(np.std(downside_returns, ddof=1) * np.sqrt(252))
+        if downside_dev > 0:
+            sortino = (ann_return - RISK_FREE_RATE) / downside_dev
 
     # Monthly win rate
     win_rate = _compute_monthly_win_rate(values, dates)
@@ -71,17 +78,56 @@ def compute_metrics(
     if saa_only_return is not None:
         taa_value_added = round((ann_return - saa_only_return) * 100, 2)
 
+    # Benchmark-dependent metrics
+    tracking_error = None
+    information_ratio = None
+    alpha = None
+    beta = None
+
+    if benchmark_daily_values is not None and len(benchmark_daily_values) >= 2:
+        bench = np.array(benchmark_daily_values, dtype=np.float64)
+        if len(bench) == n:
+            bench_returns = np.diff(bench) / bench[:-1]
+            bench_returns = np.nan_to_num(bench_returns, nan=0.0, posinf=0.0, neginf=0.0)
+
+            # Tracking Error = annualized std of daily excess returns
+            excess_returns = daily_returns - bench_returns
+            te_daily_std = float(np.std(excess_returns, ddof=1))
+            if te_daily_std > 0:
+                tracking_error = te_daily_std * np.sqrt(252)
+
+            # Information Ratio = mean excess return / tracking error
+            mean_excess = float(np.mean(excess_returns))
+            if tracking_error is not None and tracking_error > 0:
+                information_ratio = (mean_excess * 252) / (tracking_error * np.sqrt(252))
+
+            # Beta = cov(strategy, benchmark) / var(benchmark)
+            bench_var = float(np.var(bench_returns, ddof=1))
+            if bench_var > 0:
+                cov = float(np.cov(daily_returns, bench_returns, ddof=1)[0, 1])
+                beta = cov / bench_var
+
+            # Alpha = annualized excess return after removing beta component
+            # Using CAPM: alpha = mean(strategy_return - beta * bench_return) * 252
+            if beta is not None:
+                alpha_daily = daily_returns - beta * bench_returns
+                alpha = float(np.mean(alpha_daily)) * 252
+
     return BacktestMetrics(
         annualized_return=round(ann_return * 100, 2),
         annualized_volatility=round(ann_vol * 100, 2),
         max_drawdown=round(max_dd * 100, 2),
         max_drawdown_duration_days=max_dd_duration,
         sharpe_ratio=round(sharpe, 3),
-        calmar_ratio=round(calmar, 3),
-        sortino_ratio=round(sortino, 3),
+        calmar_ratio=round(calmar, 3) if calmar is not None else None,
+        sortino_ratio=round(sortino, 3) if sortino is not None else None,
         monthly_win_rate=round(win_rate, 1),
         avg_turnover=round(avg_turnover, 2),
         taa_value_added=taa_value_added,
+        tracking_error=round(tracking_error * 100, 2) if tracking_error is not None else None,
+        information_ratio=round(information_ratio, 3) if information_ratio is not None else None,
+        alpha=round(alpha * 100, 2) if alpha is not None else None,
+        beta=round(beta, 3) if beta is not None else None,
     )
 
 
@@ -281,9 +327,13 @@ def _empty_metrics() -> BacktestMetrics:
         max_drawdown=0.0,
         max_drawdown_duration_days=0,
         sharpe_ratio=0.0,
-        calmar_ratio=0.0,
-        sortino_ratio=0.0,
+        calmar_ratio=None,
+        sortino_ratio=None,
         monthly_win_rate=0.0,
         avg_turnover=0.0,
         taa_value_added=None,
+        tracking_error=None,
+        information_ratio=None,
+        alpha=None,
+        beta=None,
     )

@@ -489,7 +489,13 @@ export function generateResearchReportMarkdown(input: ResearchReportInput): stri
     lines.push(`| Sharpe | ${mdEsc(fmtNum(primaryMetrics.sharpe_ratio, 2))} |`);
     lines.push(`| Sortino | ${mdEsc(fmtNum(primaryMetrics.sortino_ratio, 2))} |`);
     lines.push(`| Calmar | ${mdEsc(fmtNum(primaryMetrics.calmar_ratio, 2))} |`);
+    lines.push(`| 信息比率 | ${mdEsc(fmtNum(primaryMetrics.information_ratio, 2))} |`);
+    lines.push(`| Alpha | ${mdEsc(primaryMetrics.alpha != null ? fmtPctNum(primaryMetrics.alpha) : '—')} |`);
+    lines.push(`| Beta | ${mdEsc(fmtNum(primaryMetrics.beta, 2))} |`);
+    lines.push(`| 跟踪误差 | ${mdEsc(primaryMetrics.tracking_error != null ? fmtPctNum(primaryMetrics.tracking_error) : '—')} |`);
     lines.push(`| 月度胜率 | ${mdEsc(fmtNum(primaryMetrics.monthly_win_rate, 1, '%'))} |`);
+    lines.push(`| 平均换手 | ${mdEsc(fmtNum(primaryMetrics.avg_turnover, 1, '%'))} |`);
+    lines.push(`| TAA贡献 | ${mdEsc(primaryMetrics.taa_value_added != null ? fmtPctNum(primaryMetrics.taa_value_added) : '—')} |`);
   }
   lines.push("");
 
