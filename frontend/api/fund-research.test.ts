@@ -195,3 +195,139 @@ describe("ASSET_CLASS_LABELS", () => {
     expect(ASSET_CLASS_LABELS.unrecognized).toBe("未识别");
   });
 });
+
+import { generateConstraintDraft } from "@/lib/fund-research";
+
+describe("generateConstraintDraft", () => {
+  const portfolio = [
+    { code: "000001", name: "A基金", type: "equity", asset_class: "a_share_large", role: "core" },
+    { code: "000002", name: "B基金", type: "bond", asset_class: "rate_bond", role: "stable" },
+  ];
+
+  test("same code → already_in_portfolio", () => {
+    const candidate = {
+      fundCode: "000001",
+      fundName: "A基金",
+      fundType: "equity",
+      performance: { return1y: "10", maxDrawdown: "-5", sharpeRatio: "1.2" },
+      feeManage: "0.015",
+      totalScale: "50",
+    };
+    const result = generateConstraintDraft([candidate], portfolio);
+    expect(result[0].action).toBe("already_in_portfolio");
+    expect(result[0].priority).toBe("low");
+    expect(result[0].constraints.some((c: string) => c.includes("已在组合中"))).toBe(true);
+  });
+
+  test("new asset class with full data → candidate_for_style_supplement", () => {
+    const candidate = {
+      fundCode: "000003",
+      fundName: "C基金",
+      fundType: "qdii",
+      performance: { return1y: "10", maxDrawdown: "-5", sharpeRatio: "1.2" },
+      feeManage: "0.015",
+      totalScale: "20",
+    };
+    const result = generateConstraintDraft([candidate], portfolio);
+    expect(result[0].action).toBe("candidate_for_style_supplement");
+    expect(result[0].priority).toBe("high");
+    expect(result[0].assetClassLabel).toBe("海外");
+    expect(result[0].constraints.some((c: string) => c.includes("补充海外敞口"))).toBe(true);
+  });
+
+  test("peer with better sharpe and lower fee → candidate_for_peer_comparison", () => {
+    const candidate = {
+      fundCode: "000003",
+      fundName: "C基金",
+      fundType: "equity",
+      performance: { return1y: "10", maxDrawdown: "-5", sharpeRatio: "1.3" },
+      feeManage: "0.005",
+      totalScale: "20",
+    };
+    const result = generateConstraintDraft([candidate], portfolio);
+    expect(result[0].action).toBe("candidate_for_peer_comparison");
+    expect(result[0].priority).toBe("medium");
+    expect(result[0].constraints.some((c: string) => c.includes("同类替代观察"))).toBe(true);
+  });
+
+  test("missing key metrics → data_required", () => {
+    const candidate = {
+      fundCode: "000003",
+      fundName: "C基金",
+      fundType: "equity",
+      performance: {},
+      feeManage: null,
+      totalScale: null,
+    };
+    const result = generateConstraintDraft([candidate], portfolio);
+    expect(result[0].action).toBe("data_required");
+    expect(result[0].priority).toBe("high");
+    expect(result[0].constraints.some((c: string) => c.includes("关键指标缺失"))).toBe(true);
+  });
+
+  test("no advantage → watch_only", () => {
+    const candidate = {
+      fundCode: "000003",
+      fundName: "C基金",
+      fundType: "equity",
+      performance: { return1y: "10", maxDrawdown: "-5", sharpeRatio: "0.3" },
+      feeManage: "0.02",
+      totalScale: "5",
+    };
+    const result = generateConstraintDraft([candidate], portfolio);
+    expect(result[0].action).toBe("watch_only");
+    expect(result[0].priority).toBe("low");
+    expect(result[0].constraints.some((c: string) => c.includes("持续观察"))).toBe(true);
+  });
+
+  test("output does not contain forbidden words", () => {
+    const candidate = {
+      fundCode: "000003",
+      fundName: "C基金",
+      fundType: "equity",
+      performance: { return1y: "10", maxDrawdown: "-5", sharpeRatio: "1.2" },
+      feeManage: "0.015",
+      totalScale: "20",
+    };
+    const result = generateConstraintDraft([candidate], portfolio);
+    const text = JSON.stringify(result);
+    const forbidden = ["买入", "卖出", "下单", "交易", "自动调仓", "信号进入组合"];
+    forbidden.forEach((w) => {
+      expect(text).not.toContain(w);
+    });
+  });
+
+  test("missing values do not become 0", () => {
+    const candidate = {
+      fundCode: "000003",
+      fundName: "C基金",
+      fundType: "equity",
+      performance: { return1y: null, maxDrawdown: null, sharpeRatio: null },
+      feeManage: null,
+      totalScale: null,
+    };
+    const result = generateConstraintDraft([candidate], portfolio);
+    expect(result[0].dataStatus).toBe("missing");
+    const text = JSON.stringify(result);
+    expect(text).not.toContain('"0"');
+    expect(text).not.toContain(":0,");
+    expect(text).not.toContain(":0}");
+  });
+
+  test("asset class label is correct", () => {
+    const candidate = {
+      fundCode: "000003",
+      fundName: "C基金",
+      fundType: "bond",
+      performance: { return1y: "5", maxDrawdown: "-2", sharpeRatio: "0.8" },
+      feeManage: "0.005",
+      totalScale: "100",
+    };
+    const result = generateConstraintDraft([candidate], portfolio);
+    expect(result[0].assetClassLabel).toBe("固收类");
+  });
+
+  test("empty candidates return empty", () => {
+    expect(generateConstraintDraft([], portfolio)).toEqual([]);
+  });
+});

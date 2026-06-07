@@ -179,6 +179,142 @@ export function analyzeCandidateMatch(
   };
 }
 
+/** 约束草案动作类型 */
+export type ConstraintAction =
+  | "already_in_portfolio"
+  | "candidate_for_peer_comparison"
+  | "candidate_for_style_supplement"
+  | "data_required"
+  | "watch_only";
+
+/** 约束草案单项 */
+export interface ConstraintDraftItem {
+  fundCode: string;
+  fundName: string;
+  assetClass: AssetClass;
+  assetClassLabel: string;
+  action: ConstraintAction;
+  priority: "high" | "medium" | "low";
+  reason: string;
+  constraints: string[];
+  dataStatus: "ok" | "partial" | "missing";
+}
+
+function pickPriority(action: ConstraintAction): ConstraintDraftItem["priority"] {
+  switch (action) {
+    case "already_in_portfolio":
+      return "low";
+    case "candidate_for_style_supplement":
+      return "high";
+    case "candidate_for_peer_comparison":
+      return "medium";
+    case "data_required":
+      return "high";
+    case "watch_only":
+      return "low";
+  }
+}
+
+function pickAction(match: CandidateMatchResult, candidate: any): ConstraintAction {
+  if (match.inPortfolio) return "already_in_portfolio";
+  if (match.dataStatus === "missing") return "data_required";
+  if (match.peerFunds.length === 0 && match.dataStatus === "ok" && match.inferredAsset !== "unrecognized")
+    return "candidate_for_style_supplement";
+
+  // 有同类且数据完整/部分 → 判断是否peer comparison 还是 watch_only
+  const sharpe = num(candidate.performance?.sharpeRatio);
+  const fee = num(candidate.feeManage);
+  const hasBetterSharpe = sharpe !== null && sharpe > 0.8;
+  const hasLowerFee = fee !== null && (Math.abs(fee) > 1 ? fee : fee * 100) < 1.0;
+  const hasAdvantage = match.advantages.length >= 2;
+
+  if (match.peerFunds.length > 0 && (hasBetterSharpe || hasLowerFee || hasAdvantage)) {
+    return "candidate_for_peer_comparison";
+  }
+  return "watch_only";
+}
+
+function buildConstraints(action: ConstraintAction, match: CandidateMatchResult, candidate: any): string[] {
+  const constraints: string[] = [];
+  const perf = candidate.performance || {};
+
+  switch (action) {
+    case "already_in_portfolio":
+      constraints.push("已在组合中，关注其权重稳定性");
+      if (match.dataStatus === "missing") constraints.push("建议补全净值与风险指标数据");
+      break;
+    case "candidate_for_style_supplement": {
+      constraints.push(`补充${ASSET_CLASS_LABELS[match.inferredAsset]}敞口`);
+      const sharpe = num(perf.sharpeRatio);
+      if (sharpe !== null) constraints.push(`Sharpe ${sharpe.toFixed(2)}，纳入优化池前需复核波动率假设`);
+      const fee = num(candidate.feeManage);
+      if (fee !== null) constraints.push(`费率${fee < 1 ? (fee * 100).toFixed(2) : fee.toFixed(2)}%`);
+      break;
+    }
+    case "candidate_for_peer_comparison": {
+      constraints.push("同类替代观察");
+      const sharpe = num(perf.sharpeRatio);
+      if (sharpe !== null && sharpe > 0.8) constraints.push(`Sharpe ${sharpe.toFixed(2)}优于同类基准参考`);
+      const fee = num(candidate.feeManage);
+      if (fee !== null && (Math.abs(fee) > 1 ? fee : fee * 100) < 1.0) constraints.push("费率较低，适合费用敏感约束");
+      const mdd = num(perf.maxDrawdown);
+      if (mdd !== null && mdd > -20) constraints.push(`回撤${mdd.toFixed(2)}%，风控约束友好`);
+      break;
+    }
+    case "data_required":
+      constraints.push("关键指标缺失，暂不满足纳入条件");
+      if (num(perf.return1y) === null) constraints.push("缺近1年收益");
+      if (num(perf.maxDrawdown) === null) constraints.push("缺最大回撤");
+      if (num(perf.sharpeRatio) === null) constraints.push("缺Sharpe");
+      break;
+    case "watch_only":
+      constraints.push("持续观察，等待数据或行情变化");
+      if (match.advantages.length > 0) constraints.push(`当前优势：${match.advantages.join("、")}`);
+      break;
+  }
+  return constraints;
+}
+
+function buildReason(action: ConstraintAction, match: CandidateMatchResult): string {
+  switch (action) {
+    case "already_in_portfolio":
+      return "与组合中基金代码一致，无需重复纳入";
+    case "candidate_for_style_supplement":
+      return `当前组合缺少${ASSET_CLASS_LABELS[match.inferredAsset]}配置，可补充风格敞口`;
+    case "candidate_for_peer_comparison":
+      return "同类基金中部分指标占优，建议作为替代研究对象跟踪";
+    case "data_required":
+      return "净值或风险指标缺失严重，暂无法形成有效约束";
+    case "watch_only":
+      return match.suggestion || "与现有同类相比暂无显著优势，建议持续观察";
+  }
+}
+
+/** 基于候选池与组合生成配置约束草案 */
+export function generateConstraintDraft(
+  candidates: any[],
+  portfolioFunds: PortfolioFund[]
+): ConstraintDraftItem[] {
+  if (candidates.length === 0) return [];
+
+  const poolResults = analyzeCandidatePool(candidates, portfolioFunds);
+
+  return poolResults.map(({ candidate, match }) => {
+    const action = pickAction(match, candidate);
+    return {
+      fundCode: candidate.fundCode || candidate.code || "",
+      fundName: candidate.fundAbbr || candidate.fundName || candidate.name || "",
+      assetClass: match.inferredAsset,
+      assetClassLabel: ASSET_CLASS_LABELS[match.inferredAsset],
+      action,
+      priority: pickPriority(action),
+      reason: buildReason(action, match),
+      constraints: buildConstraints(action, match, candidate),
+      dataStatus: match.dataStatus,
+    };
+  });
+}
+
 /** 批量分析候选池匹配 */
 export function analyzeCandidatePool(
   candidates: any[],
