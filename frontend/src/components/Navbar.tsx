@@ -1,5 +1,5 @@
 import { Link, useLocation } from "react-router";
-import { TrendingUp, Calculator, Lightbulb, PieChart, Bell, LogIn, LogOut, User, Shield } from "lucide-react";
+import { TrendingUp, Calculator, Lightbulb, PieChart, Search, Bell, LogIn, LogOut, User, Shield } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useAlertNotifications } from "@/hooks/useAlertNotifications";
 import { useState } from "react";
@@ -9,6 +9,7 @@ const navItems = [
   { path: "/backtest", label: "智能定投", icon: Calculator },
   { path: "/recommend", label: "配置组合", icon: Lightbulb },
   { path: "/allocation", label: "智能配置", icon: PieChart },
+  { path: "/analysis", label: "基金研究", icon: Search },
 ];
 
 export default function Navbar() {
@@ -124,9 +125,9 @@ export default function Navbar() {
         </div>
       </nav>
 
-      {/* Mobile bottom navigation — 4 items + safe area */}
+      {/* Mobile bottom navigation — 5 items + safe area */}
       <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 border-t border-white/[0.04] bg-[#000110]/92 backdrop-blur-xl pb-[env(safe-area-inset-bottom)]">
-        <div className="grid grid-cols-4 px-1 py-1.5">
+        <div className="grid grid-cols-5 px-1 py-1.5">
           {navItems.map((item) => {
             const isActive = location.pathname === item.path || location.pathname.startsWith(item.path + "/");
             const Icon = item.icon;

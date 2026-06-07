@@ -347,6 +347,10 @@ export default function Analysis() {
           </div>
         )}
 
+        <section id="fund-research">
+          <ResearchWorkbench funds={allFunds} />
+        </section>
+
         <div className="grid grid-cols-2 md:grid-cols-5 gap-2 md:gap-3 mb-4 md:mb-6">
           {[
             { label: "样本数量", value: String(scopeStats.count), suffix: "只", color: ACCENT_PRIMARY },
@@ -579,8 +583,6 @@ export default function Analysis() {
             </section>
           </aside>
         </div>
-
-        <ResearchWorkbench funds={allFunds} />
 
         <section className="liquid-glass p-4 md:p-5 mt-4 md:mt-6">
           <h2 className="text-base font-medium text-white mb-3 flex items-center gap-2">
