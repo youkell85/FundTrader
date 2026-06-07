@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import {
   FolderOpen, Loader2, LayoutDashboard, Target, TrendingUp, Play,
-  FileText, Star, Trash2, AlertCircle, FolderX,
+  FileText, Star, Trash2, AlertCircle, FolderX, ChevronDown, ChevronUp,
+  Shield, BarChart3, Wallet, Layers, Eye, Info,
 } from 'lucide-react';
 import PageHeader from '@/components/ui/PageHeader';
 import SectionCard from '@/components/ui/SectionCard';
@@ -13,6 +14,251 @@ import { useAllocationData } from '@/hooks/useAllocationData';
 import type { SavedPlanItem, PlanListResponse } from '@/types/allocation';
 import { RISK_LABELS } from '@/types/allocation';
 import { isMockOutput } from '@/lib/execution-plan';
+import { summarizeSavedReportSnapshot } from '@/lib/allocation-report-snapshot';
+import type { SnapshotModuleSummary } from '@/lib/allocation-report-snapshot';
+
+interface PlanItemProps {
+  plan: SavedPlanItem;
+  restoring: string | null;
+  onRestore: (id: string, path?: string) => void;
+  onDelete: (id: string) => void;
+  onToggleFavorite: (id: string, current: boolean) => void;
+  onExport: (id: string) => void;
+}
+
+function ModuleBadge({ label, colorClass, icon: Icon }: { label: string; colorClass: string; icon: any }) {
+  return (
+    <span className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded shrink-0 ${colorClass}`}>
+      <Icon className="w-3 h-3" />
+      {label}
+    </span>
+  );
+}
+
+function Kpi({ label, value, tone }: { label: string; value: string; tone?: 'positive' | 'negative' | 'neutral' }) {
+  const color = tone === 'positive' ? 'text-[#16C784]' : tone === 'negative' ? 'text-[#EE6666]' : 'text-white/60';
+  return (
+    <div className="min-w-0">
+      <div className="text-[10px] text-white/30 truncate">{label}</div>
+      <div className={`text-xs font-medium data-number ${color}`}>{value}</div>
+    </div>
+  );
+}
+
+function PlanItem({ plan, restoring, onRestore, onDelete, onToggleFavorite, onExport }: PlanItemProps) {
+  const [expanded, setExpanded] = useState(false);
+  const summary: SnapshotModuleSummary = summarizeSavedReportSnapshot(plan.response);
+
+  return (
+    <div className="p-3 rounded-lg border border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.04] transition-colors">
+      {/* Header row */}
+      <div className="flex items-start gap-3">
+        {/* Info */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={() => onToggleFavorite(plan.id, plan.is_favorite)}
+              className="text-white/50 hover:text-[#FAC858] transition-colors shrink-0"
+              title={plan.is_favorite ? '取消收藏' : '收藏'}
+            >
+              <Star
+                className={`w-3.5 h-3.5 ${
+                  plan.is_favorite ? 'fill-[#FAC858] text-[#FAC858]' : ''
+                }`}
+              />
+            </button>
+            <span className="text-white/80 text-xs font-medium truncate">
+              {plan.name}
+            </span>
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.06] text-white/40 shrink-0">
+              {RISK_LABELS[plan.risk_profile] || plan.risk_profile}
+            </span>
+          </div>
+
+          {/* Module badges */}
+          <div className="flex flex-wrap gap-1.5 mt-2">
+            <ModuleBadge label="配置报告" colorClass="bg-[#5470C6]/10 text-[#5470C6]/80" icon={Shield} />
+            {summary.hasVariants && (
+              <ModuleBadge label="多方案对比" colorClass="bg-[#9D7BFF]/10 text-[#9D7BFF]/80" icon={Layers} />
+            )}
+            {summary.hasDca && (
+              <ModuleBadge label="定投结果" colorClass="bg-[#16C784]/10 text-[#16C784]/80" icon={Wallet} />
+            )}
+            {summary.hasBacktest && (
+              <ModuleBadge label="策略回测" colorClass="bg-[#FAC858]/10 text-[#FAC858]/80" icon={BarChart3} />
+            )}
+            {summary.hasExecutionPlan && (
+              <ModuleBadge label="执行计划" colorClass="bg-[#5AA9FF]/10 text-[#5AA9FF]/80" icon={Play} />
+            )}
+          </div>
+
+          {/* Quick metrics */}
+          <div className="grid grid-cols-3 sm:grid-cols-6 gap-x-3 gap-y-1 mt-2">
+            <Kpi label="预期年化" value={summary.metrics.expectedReturn} tone="positive" />
+            <Kpi label="波动率" value={summary.metrics.volatility} />
+            <Kpi label="最大回撤" value={summary.metrics.maxDrawdown} tone="negative" />
+            <Kpi label="Sharpe" value={summary.metrics.sharpe} />
+            <Kpi label="基金数" value={`${summary.metrics.fundCount}只`} />
+            <Kpi label="方案数" value={`${summary.metrics.variantCount}`} />
+          </div>
+
+          {/* Warnings / gaps */}
+          {summary.warnings.length > 0 && (
+            <div className="flex flex-wrap gap-2 mt-2">
+              {summary.warnings.map((w, i) => (
+                <span key={i} className="inline-flex items-center gap-1 text-[10px] text-white/30">
+                  <Info className="w-3 h-3" />
+                  {w}
+                </span>
+              ))}
+            </div>
+          )}
+
+          <div className="text-[10px] text-white/40 mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5">
+            <span>保存: {plan.created_at.slice(0, 16)}</span>
+            {plan.description && (
+              <span className="truncate max-w-[200px]">{plan.description}</span>
+            )}
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div className="flex items-center gap-0.5 shrink-0">
+          <button
+            onClick={() => onRestore(plan.id, '/allocation/result')}
+            disabled={restoring === plan.id}
+            className="p-1.5 rounded text-white/40 hover:text-white/80 hover:bg-white/[0.06] transition-colors disabled:opacity-50"
+            title="打开概览"
+          >
+            {restoring === plan.id ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <LayoutDashboard className="w-3.5 h-3.5" />
+            )}
+          </button>
+          <button
+            onClick={() => onRestore(plan.id, '/allocation/result/strategy')}
+            disabled={restoring === plan.id}
+            className="p-1.5 rounded text-white/40 hover:text-[#9D7BFF] hover:bg-white/[0.06] transition-colors disabled:opacity-50"
+            title="打开优化"
+          >
+            <Target className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => onRestore(plan.id, '/allocation/result/backtest')}
+            disabled={restoring === plan.id}
+            className="p-1.5 rounded text-white/40 hover:text-[#16C784] hover:bg-white/[0.06] transition-colors disabled:opacity-50"
+            title="打开回测"
+          >
+            <TrendingUp className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => onRestore(plan.id, '/allocation/result/execute')}
+            disabled={restoring === plan.id}
+            className="p-1.5 rounded text-white/40 hover:text-[#3B6CFF] hover:bg-white/[0.06] transition-colors disabled:opacity-50"
+            title="打开执行"
+          >
+            <Play className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => onExport(plan.id)}
+            className="p-1.5 rounded text-white/40 hover:text-[#FAC858] hover:bg-white/[0.06] transition-colors"
+            title="导出报告"
+          >
+            <FileText className="w-3.5 h-3.5" />
+          </button>
+          <button
+            onClick={() => onDelete(plan.id)}
+            className="p-1.5 rounded text-white/40 hover:text-[#EE6666] hover:bg-white/[0.06] transition-colors"
+            title="删除"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+
+      {/* Expandable detail preview */}
+      <div className="mt-3 pt-2 border-t border-white/[0.04]">
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="flex items-center gap-1.5 text-[10px] text-white/40 hover:text-white/60 transition-colors"
+        >
+          {expanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+          <Eye className="w-3 h-3" />
+          {expanded ? '收起快照' : '查看快照'}
+        </button>
+
+        {expanded && (
+          <div className="mt-2 space-y-3">
+            {/* Allocation summary */}
+            <div>
+              <div className="text-[10px] text-white/30 mb-1">资产配置摘要</div>
+              {summary.metrics.fundCount > 0 ? (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {(plan.response as any)?.saa?.group_allocations ? (
+                    Object.entries((plan.response as any).saa.group_allocations as Record<string, number>)
+                      .slice(0, 4)
+                      .map(([k, v]) => (
+                        <div key={k} className="text-[10px] px-2 py-1 rounded bg-white/[0.02] border border-white/[0.04]">
+                          <span className="text-white/40">{k}:</span>{' '}
+                          <span className="text-white/60 data-number">{v}%</span>
+                        </div>
+                      ))
+                  ) : (
+                    <span className="text-[10px] text-white/25">—</span>
+                  )}
+                </div>
+              ) : (
+                <span className="text-[10px] text-white/25">暂无配置摘要</span>
+              )}
+            </div>
+
+            {/* Backtest summary */}
+            <div>
+              <div className="text-[10px] text-white/30 mb-1">回测摘要</div>
+              {summary.hasBacktest ? (
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <Kpi label="年化收益" value={summary.backtestMetrics.annualizedReturn} tone="positive" />
+                  <Kpi label="年化波动" value={summary.backtestMetrics.annualizedVolatility} />
+                  <Kpi label="最大回撤" value={summary.backtestMetrics.maxDrawdown} tone="negative" />
+                  <Kpi label="Sharpe" value={summary.backtestMetrics.sharpe} />
+                </div>
+              ) : (
+                <span className="text-[10px] text-white/25">暂无策略回测结果</span>
+              )}
+            </div>
+
+            {/* Variants */}
+            <div>
+              <div className="text-[10px] text-white/30 mb-1">多方案</div>
+              {summary.hasVariants ? (
+                <span className="text-[10px] text-white/50">
+                  共 {summary.metrics.variantCount} 个方案对比
+                </span>
+              ) : (
+                <span className="text-[10px] text-white/25">暂无多方案对比</span>
+              )}
+            </div>
+
+            {/* DCA */}
+            <div>
+              <div className="text-[10px] text-white/30 mb-1">定投</div>
+              {summary.hasDca ? (
+                <div className="grid grid-cols-3 gap-2">
+                  <Kpi label="总投入" value={summary.dcaMetrics.totalInvested} />
+                  <Kpi label="期末市值" value={summary.dcaMetrics.finalValue} />
+                  <Kpi label="总收益" value={summary.dcaMetrics.totalReturn} tone="positive" />
+                </div>
+              ) : (
+                <span className="text-[10px] text-white/25">暂无定投结果</span>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export default function PlansPage() {
   const navigate = useNavigate();
@@ -91,16 +337,6 @@ export default function PlansPage() {
     window.open(`/fund/api/storage/report/${planId}`, '_blank');
   };
 
-  /** Check snapshot completeness */
-  const getSnapshotStatus = (plan: SavedPlanItem) => {
-    const res = plan.response as any || {};
-    const hasExecution = !!res.execution_plan;
-    const hasDca = !!res.dca_plan?.result;
-    const hasBacktest = !!res.backtestResult;
-    const hasVariants = !!res.variants || !!res._variants_snapshot;
-    return { hasExecution, hasDca, hasBacktest, hasVariants };
-  };
-
   const plans = plansData?.plans || [];
 
   return (
@@ -137,125 +373,17 @@ export default function PlansPage() {
           </div>
         ) : (
           <div className="space-y-2">
-            {plans.map((plan) => {
-              const snap = getSnapshotStatus(plan);
-              return (
-                <div
-                  key={plan.id}
-                  className="p-3 rounded-lg border border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.04] transition-colors"
-                >
-                  <div className="flex items-start gap-3">
-                    {/* Info */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <button
-                          onClick={() => handleToggleFavorite(plan.id, plan.is_favorite)}
-                          className="text-white/50 hover:text-[#FAC858] transition-colors shrink-0"
-                          title={plan.is_favorite ? '取消收藏' : '收藏'}
-                        >
-                          <Star
-                            className={`w-3.5 h-3.5 ${
-                              plan.is_favorite ? 'fill-[#FAC858] text-[#FAC858]' : ''
-                            }`}
-                          />
-                        </button>
-                        <span className="text-white/80 text-xs font-medium truncate">
-                          {plan.name}
-                        </span>
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.06] text-white/40 shrink-0">
-                          {RISK_LABELS[plan.risk_profile] || plan.risk_profile}
-                        </span>
-                        {/* Snapshot completeness badges */}
-                        {snap.hasExecution && (
-                          <span className="text-[10px] px-1 py-0.5 rounded bg-[#5470C6]/10 text-[#5470C6]/80 shrink-0">
-                            执行计划
-                          </span>
-                        )}
-                        {snap.hasDca && (
-                          <span className="text-[10px] px-1 py-0.5 rounded bg-[#16C784]/10 text-[#16C784]/80 shrink-0">
-                            DCA回测
-                          </span>
-                        )}
-                        {snap.hasVariants && (
-                          <span className="text-[10px] px-1 py-0.5 rounded bg-[#9D7BFF]/10 text-[#9D7BFF]/80 shrink-0">
-                            多方案对比
-                          </span>
-                        )}
-                        {snap.hasBacktest && (
-                          <span className="text-[10px] px-1 py-0.5 rounded bg-[#FAC858]/10 text-[#FAC858]/80 shrink-0">
-                            策略回测
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-[10px] text-white/40 mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5">
-                        <span>
-                          保存: {plan.created_at.slice(0, 16)}
-                        </span>
-                        {plan.description && (
-                          <span className="truncate max-w-[200px]">
-                            {plan.description}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Actions */}
-                    <div className="flex items-center gap-0.5 shrink-0">
-                      <button
-                        onClick={() => handleRestore(plan.id, '/allocation/result')}
-                        disabled={restoring === plan.id}
-                        className="p-1.5 rounded text-white/40 hover:text-white/80 hover:bg-white/[0.06] transition-colors disabled:opacity-50"
-                        title="打开概览"
-                      >
-                        {restoring === plan.id ? (
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        ) : (
-                          <LayoutDashboard className="w-3.5 h-3.5" />
-                        )}
-                      </button>
-                      <button
-                        onClick={() => handleRestore(plan.id, '/allocation/result/strategy')}
-                        disabled={restoring === plan.id}
-                        className="p-1.5 rounded text-white/40 hover:text-[#9D7BFF] hover:bg-white/[0.06] transition-colors disabled:opacity-50"
-                        title="打开优化"
-                      >
-                        <Target className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => handleRestore(plan.id, '/allocation/result/backtest')}
-                        disabled={restoring === plan.id}
-                        className="p-1.5 rounded text-white/40 hover:text-[#16C784] hover:bg-white/[0.06] transition-colors disabled:opacity-50"
-                        title="打开回测"
-                      >
-                        <TrendingUp className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => handleRestore(plan.id, '/allocation/result/execute')}
-                        disabled={restoring === plan.id}
-                        className="p-1.5 rounded text-white/40 hover:text-[#3B6CFF] hover:bg-white/[0.06] transition-colors disabled:opacity-50"
-                        title="打开执行"
-                      >
-                        <Play className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => handleExport(plan.id)}
-                        className="p-1.5 rounded text-white/40 hover:text-[#FAC858] hover:bg-white/[0.06] transition-colors"
-                        title="导出报告"
-                      >
-                        <FileText className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        onClick={() => handleDelete(plan.id)}
-                        className="p-1.5 rounded text-white/40 hover:text-[#EE6666] hover:bg-white/[0.06] transition-colors"
-                        title="删除"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+            {plans.map((plan) => (
+              <PlanItem
+                key={plan.id}
+                plan={plan}
+                restoring={restoring}
+                onRestore={handleRestore}
+                onDelete={handleDelete}
+                onToggleFavorite={handleToggleFavorite}
+                onExport={handleExport}
+              />
+            ))}
           </div>
         )}
       </SectionCard>
