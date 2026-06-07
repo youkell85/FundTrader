@@ -591,4 +591,73 @@ describe("generateResearchReportMarkdown", () => {
       expect(md).not.toContain(w);
     });
   });
+
+  test("restored backtestResult produces correct strategy metrics", () => {
+    const backtestResult = {
+      metrics: {
+        saa_taa: {
+          annualized_return: 7.2,
+          annualized_volatility: 12.5,
+          max_drawdown: -15.3,
+          sharpe_ratio: 1.35,
+          sortino_ratio: 1.62,
+          calmar_ratio: 0.47,
+          monthly_win_rate: 58.3,
+          max_drawdown_duration_days: 120,
+          avg_turnover: 25,
+          total_rebalances: 18,
+          taa_value_added: 1.5,
+        },
+      },
+      data_quality: {
+        earliest_common_date: "2020-01-02",
+        total_trading_days: 1200,
+        assets_with_full_history: 5,
+        assets_with_partial_history: 1,
+        missing_assets: [],
+        macro_coverage_pct: 95,
+      },
+      curves: {}, regime_history: [], rebalance_events: [], attribution: {}, rolling_sharpe: {}, monthly_returns: {},
+    } as any;
+
+    const md = generateResearchReportMarkdown({ portfolioFunds: portfolio, candidates: [], constraintDrafts: [], backtestResult });
+    expect(md).toContain("+7.20%");
+    expect(md).toContain("+12.50%");
+    expect(md).toContain("-15.30%");
+    expect(md).toContain("1.35");
+    expect(md).toContain("1.62");
+    expect(md).toContain("0.47");
+    expect(md).toContain("58.3%");
+    expect(md).not.toContain("720.00%");
+  });
+
+  test("old snapshot without backtestResult shows empty state", () => {
+    const md = generateResearchReportMarkdown({ portfolioFunds: portfolio, candidates: [], constraintDrafts: [], backtestResult: undefined });
+    expect(md).toContain("暂无策略回测结果");
+    expect(md).toContain("暂无定投回测结果");
+  });
+
+  test("old snapshot without backtestResult field at all does not crash", () => {
+    const input: any = { portfolioFunds: portfolio, candidates: [], constraintDrafts: [] };
+    const md = generateResearchReportMarkdown(input);
+    expect(md).toContain("## 5. 回测摘要");
+    expect(md).toContain("暂无策略回测结果");
+  });
+
+  test("saved snapshot structure includes backtestResult", () => {
+    const responsePayload: any = {
+      execution_plan: null,
+      dca_plan: { config: null, result: null },
+      variants: null,
+      backtestResult: {
+        metrics: { saa_taa: { annualized_return: 5.5, annualized_volatility: 10, max_drawdown: -8, sharpe_ratio: 1.0, sortino_ratio: 1.2, calmar_ratio: 0.5, monthly_win_rate: 50, max_drawdown_duration_days: 90, avg_turnover: 20, total_rebalances: 12, taa_value_added: null } },
+        data_quality: { earliest_common_date: "2020-01-01", total_trading_days: 100, assets_with_full_history: 5, assets_with_partial_history: 0, missing_assets: [], macro_coverage_pct: 100 },
+        curves: {}, regime_history: [], rebalance_events: [], attribution: {}, rolling_sharpe: {}, monthly_returns: {},
+      },
+    };
+    expect(responsePayload.backtestResult).toBeDefined();
+    expect(responsePayload.backtestResult.metrics.saa_taa.annualized_return).toBe(5.5);
+    expect(responsePayload.dca_plan).toBeDefined();
+    expect(responsePayload.variants).toBeDefined();
+  });
 });

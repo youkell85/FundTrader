@@ -59,6 +59,7 @@ export default function PlansPage() {
       dispatch({ type: 'SET_EXECUTION_PLAN', plan: res.execution_plan || null });
       dispatch({ type: 'SET_DCA_CONFIG', config: res.dca_plan?.config || null });
       dispatch({ type: 'SET_DCA_RESULT', result: res.dca_plan?.result || null });
+      dispatch({ type: 'SET_BACKTEST_RESULT', result: res.backtestResult || null });
       navigate(targetPath || '/allocation/result');
     } catch (e: any) {
       setPlansError(e?.message || '恢复失败');
@@ -95,7 +96,7 @@ export default function PlansPage() {
     const res = plan.response as any || {};
     const hasExecution = !!res.execution_plan;
     const hasDca = !!res.dca_plan?.result;
-    const hasBacktest = !!res.backtest_summary || !!res.backtest_results;
+    const hasBacktest = !!res.backtestResult;
     const hasVariants = !!res.variants || !!res._variants_snapshot;
     return { hasExecution, hasDca, hasBacktest, hasVariants };
   };
@@ -178,6 +179,11 @@ export default function PlansPage() {
                         {snap.hasVariants && (
                           <span className="text-[10px] px-1 py-0.5 rounded bg-[#9D7BFF]/10 text-[#9D7BFF]/80 shrink-0">
                             多方案对比
+                          </span>
+                        )}
+                        {snap.hasBacktest && (
+                          <span className="text-[10px] px-1 py-0.5 rounded bg-[#FAC858]/10 text-[#FAC858]/80 shrink-0">
+                            策略回测
                           </span>
                         )}
                       </div>

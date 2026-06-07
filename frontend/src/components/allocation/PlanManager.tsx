@@ -63,6 +63,7 @@ export default function PlanManager({ onSave }: PlanManagerProps) {
           result: store.state.dcaResult,
         },
         variants: store.state.variants,
+        backtestResult: store.state.backtestResult,
       };
       await savePlan({
         name,
@@ -97,6 +98,7 @@ export default function PlanManager({ onSave }: PlanManagerProps) {
       dispatch({ type: 'SET_EXECUTION_PLAN', plan: res.execution_plan || null });
       dispatch({ type: 'SET_DCA_CONFIG', config: res.dca_plan?.config || null });
       dispatch({ type: 'SET_DCA_RESULT', result: res.dca_plan?.result || null });
+      dispatch({ type: 'SET_BACKTEST_RESULT', result: res.backtestResult || null });
       setMessage({ type: 'success', text: `方案"${plan.name}"已恢复` });
       setTimeout(() => setMessage(null), 3000);
       navigate('/allocation/result');
