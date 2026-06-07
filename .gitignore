@@ -53,3 +53,9 @@ xreview_input.md
 
 # 脚本产出
 output/
+
+# 回填进度文件（运行时自动生成）
+.backfill_*.json
+
+# QA / 诊断报告（本地一次性产物）
+reports/
