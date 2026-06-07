@@ -361,18 +361,33 @@ function getPrimaryMetrics(metrics: Record<string, BacktestMetrics> | undefined)
   return modes.includes('saa_taa') ? metrics['saa_taa'] : modes.includes('saa_only') ? metrics['saa_only'] : metrics[modes[0]];
 }
 
+export interface ResearchReportSnapshot {
+  candidates: any[];
+  matches: Array<{ candidate: any; match: CandidateMatchResult }>;
+  constraintDrafts: ConstraintDraftItem[];
+  capturedAt: string;
+}
+
 export interface ResearchReportInput {
   portfolioFunds: PortfolioFund[];
   candidates: any[];
   constraintDrafts: ConstraintDraftItem[];
   backtestResult?: BacktestResponse | null;
   dcaResult?: ParsedDcaResult | null;
+  researchReportSnapshot?: ResearchReportSnapshot | null;
   generatedAt?: Date | string;
 }
 
 /** 生成一页式 Markdown 研究报告 */
 export function generateResearchReportMarkdown(input: ResearchReportInput): string {
-  const { portfolioFunds, candidates, constraintDrafts, backtestResult, dcaResult, generatedAt } = input;
+  const { portfolioFunds, backtestResult, dcaResult, generatedAt } = input;
+
+  // Prefer snapshot data if provided, otherwise fall back to direct parameters
+  const snapshot = input.researchReportSnapshot;
+  const candidates = snapshot ? snapshot.candidates : input.candidates;
+  const constraintDrafts = snapshot ? snapshot.constraintDrafts : input.constraintDrafts;
+  const matches = snapshot ? snapshot.matches : analyzeCandidatePool(candidates, portfolioFunds);
+
   const ts = generatedAt ? new Date(generatedAt).toLocaleString("zh-CN") : new Date().toLocaleString("zh-CN");
 
   const lines: string[] = [];
@@ -422,10 +437,11 @@ export function generateResearchReportMarkdown(input: ResearchReportInput): stri
   if (candidates.length === 0) {
     lines.push("暂无研究候选。");
   } else {
-    const matches = analyzeCandidatePool(candidates, portfolioFunds);
+    // Use pre-computed matches from snapshot if available, else compute live
+    const matchItems = snapshot ? snapshot.matches : analyzeCandidatePool(candidates, portfolioFunds);
     lines.push("| 基金 | 匹配结论 | 同类对象 | 数据状态 |");
     lines.push("|---|---|---|---|");
-    for (const { candidate, match } of matches) {
+    for (const { candidate, match } of matchItems) {
       const conclusion = match.inPortfolio
         ? "已在组合中"
         : match.peerFunds.length > 0

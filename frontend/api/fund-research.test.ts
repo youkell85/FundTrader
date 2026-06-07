@@ -660,4 +660,96 @@ describe("generateResearchReportMarkdown", () => {
     expect(responsePayload.dca_plan).toBeDefined();
     expect(responsePayload.variants).toBeDefined();
   });
+
+  test("generates report from researchReportSnapshot", () => {
+    const researchReportSnapshot = {
+      candidates: [
+        { fundCode: "000003", fundName: "C基金", fundType: "equity", performance: { return1y: "10", maxDrawdown: "-5", sharpeRatio: "1.2" }, feeManage: "0.015", totalScale: "20" },
+      ],
+      matches: [
+        { candidate: { fundCode: "000003", fundName: "C基金", fundType: "equity", performance: { return1y: "10", maxDrawdown: "-5", sharpeRatio: "1.2" } }, match: { inPortfolio: false, peerFunds: [], inferredAsset: "equity", dataCompleteness: 0.75, advantages: ["Sharpe优秀"], suggestion: "可作为风格补充研究", dataStatus: "ok" as const } },
+      ],
+      constraintDrafts: [
+        { fundCode: "000003", fundName: "C基金", assetClass: "equity", assetClassLabel: "权益类", action: "candidate_for_style_supplement" as const, priority: "high" as const, reason: "组合缺少权益配置", constraints: ["补充权益敞口"], dataStatus: "ok" as const },
+      ],
+      capturedAt: "2024-01-15T10:00:00Z",
+    };
+
+    const md = generateResearchReportMarkdown({
+      portfolioFunds: portfolio,
+      candidates: [],
+      constraintDrafts: [],
+      researchReportSnapshot,
+    });
+    expect(md).toContain("## 2. 研究候选池");
+    expect(md).toContain("000003");
+    expect(md).toContain("C基金");
+    expect(md).toContain("## 3. 候选池匹配分析");
+    expect(md).toContain("新资产类别");
+    expect(md).toContain("## 4. 配置约束草案");
+    expect(md).toContain("补充权益敞口");
+    expect(md).toContain("组合缺少权益配置");
+  });
+
+  test("no researchReportSnapshot shows empty research sections", () => {
+    const md = generateResearchReportMarkdown({ portfolioFunds: portfolio, candidates: [], constraintDrafts: [] });
+    expect(md).toContain("## 2. 研究候选池");
+    expect(md).toContain("暂无研究候选");
+    expect(md).toContain("## 4. 配置约束草案");
+    expect(md).toContain("暂无配置约束草案");
+  });
+
+  test("researchReportSnapshot takes precedence over direct candidates", () => {
+    const researchReportSnapshot = {
+      candidates: [{ fundCode: "SNAP", fundName: "Snapshot基金" }],
+      matches: [],
+      constraintDrafts: [],
+      capturedAt: "2024-01-01T00:00:00Z",
+    };
+    const md = generateResearchReportMarkdown({
+      portfolioFunds: portfolio,
+      candidates: [{ fundCode: "LIVE", fundName: "Live基金" }],
+      constraintDrafts: [],
+      researchReportSnapshot,
+    });
+    expect(md).toContain("SNAP");
+    expect(md).toContain("Snapshot基金");
+    expect(md).not.toContain("LIVE");
+    expect(md).not.toContain("Live基金");
+  });
+
+  test("saved plan markdown with backtest and snapshot contains all sections", () => {
+    const backtestResult = {
+      metrics: { saa_taa: { annualized_return: 7.2, annualized_volatility: 12.5, max_drawdown: -15.3, sharpe_ratio: 1.35, sortino_ratio: 1.62, calmar_ratio: 0.47, monthly_win_rate: 58.3, max_drawdown_duration_days: 120, avg_turnover: 25, total_rebalances: 18, taa_value_added: 1.5 } },
+      data_quality: { earliest_common_date: "2020-01-02", total_trading_days: 1200, assets_with_full_history: 5, assets_with_partial_history: 1, missing_assets: [], macro_coverage_pct: 95 },
+      curves: {}, regime_history: [], rebalance_events: [], attribution: {}, rolling_sharpe: {}, monthly_returns: {},
+    } as any;
+
+    const researchReportSnapshot = {
+      candidates: [{ fundCode: "000003", fundName: "C基金", fundType: "equity", performance: { return1y: "10" }, feeManage: "0.015", totalScale: "20" }],
+      matches: [{ candidate: { fundCode: "000003", fundName: "C基金", fundType: "equity", performance: {} }, match: { inPortfolio: false, peerFunds: [], inferredAsset: "equity", dataCompleteness: 0.5, advantages: [], suggestion: "可作为风格补充研究", dataStatus: "ok" } }],
+      constraintDrafts: [{ fundCode: "000003", fundName: "C基金", assetClass: "equity" as any, assetClassLabel: "权益类", action: "candidate_for_style_supplement" as any, priority: "high" as any, reason: "组合缺少权益配置", constraints: ["补充权益敞口"], dataStatus: "ok" }],
+      capturedAt: "2024-01-15T10:00:00Z",
+    };
+
+    const md = generateResearchReportMarkdown({
+      portfolioFunds: portfolio,
+      candidates: [],
+      constraintDrafts: [],
+      backtestResult,
+      researchReportSnapshot,
+      generatedAt: "2024-06-01",
+    });
+
+    expect(md).toContain("# 配置研究报告");
+    expect(md).toContain("## 1. 当前组合基金");
+    expect(md).toContain("## 2. 研究候选池");
+    expect(md).toContain("## 3. 候选池匹配分析");
+    expect(md).toContain("## 4. 配置约束草案");
+    expect(md).toContain("## 5. 回测摘要");
+    expect(md).toContain("## 6. 数据缺口");
+    expect(md).toContain("## 7. 说明");
+    expect(md).toContain("+7.20%");
+    expect(md).toContain("补充权益敞口");
+  });
 });

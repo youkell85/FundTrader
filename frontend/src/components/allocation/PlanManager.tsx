@@ -6,9 +6,11 @@ import type { SavedPlanItem, PlanListResponse } from '@/types/allocation';
 import { useAllocationStore } from '@/store/allocationStore';
 import { RISK_LABELS } from '@/types/allocation';
 import { isMockOutput } from '@/lib/execution-plan';
+import { generateConstraintDraft, analyzeCandidatePool } from '@/lib/fund-research';
 
 interface PlanManagerProps {
   onSave?: () => void;
+  candidates?: any[];
 }
 
 export default function PlanManager({ onSave }: PlanManagerProps) {
@@ -55,6 +57,15 @@ export default function PlanManager({ onSave }: PlanManagerProps) {
     setSaving(true);
     try {
       const name = planName.trim() || `配置方案 ${new Date().toLocaleDateString()}`;
+      const funds = (storeOutput as any)?.funds || [];
+      const snapshotCandidates = (candidates ?? []).length > 0 ? candidates : [];
+      const snapshotMatches = snapshotCandidates.length > 0 && funds.length > 0
+        ? analyzeCandidatePool(snapshotCandidates, funds)
+        : [];
+      const snapshotDrafts = snapshotCandidates.length > 0 && funds.length > 0
+        ? generateConstraintDraft(snapshotCandidates, funds)
+        : [];
+
       const responseWithExecution = {
         ...(storeOutput as any),
         execution_plan: store.state.executionPlan,
@@ -64,6 +75,12 @@ export default function PlanManager({ onSave }: PlanManagerProps) {
         },
         variants: store.state.variants,
         backtestResult: store.state.backtestResult,
+        researchReportSnapshot: snapshotCandidates.length > 0 ? {
+          candidates: snapshotCandidates,
+          matches: snapshotMatches,
+          constraintDrafts: snapshotDrafts,
+          capturedAt: new Date().toISOString(),
+        } : undefined,
       };
       await savePlan({
         name,

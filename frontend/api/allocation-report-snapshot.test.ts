@@ -141,8 +141,50 @@ describe("summarizeSavedReportSnapshot", () => {
     expect(s.warnings).toContain("旧快照缺少策略回测");
     expect(s.warnings).toContain("旧快照缺少多方案对比");
     expect(s.warnings).toContain("暂无定投结果");
+    expect(s.warnings).toContain("旧快照缺少研究候选上下文");
     expect(s.hasBacktest).toBe(false);
     expect(s.hasVariants).toBe(false);
     expect(s.hasDca).toBe(false);
+  });
+
+  test("hasResearchContext when researchReportSnapshot exists", () => {
+    const s = summarizeSavedReportSnapshot({
+      funds: [{ code: "000001", name: "A", weight: 50, amount: 250000 }],
+      saa: { expected_return: 5 },
+      researchReportSnapshot: {
+        candidates: [
+          { fundCode: "000003", fundName: "C基金", fundType: "equity", performance: { return1y: "10" }, feeManage: "0.015", totalScale: "20" },
+        ],
+        matches: [],
+        constraintDrafts: [
+          { fundCode: "000003", fundName: "C基金", assetClass: "equity", assetClassLabel: "权益类", action: "watch_only", priority: "low", reason: "观察", constraints: ["持续观察"], dataStatus: "ok" },
+        ],
+        capturedAt: "2024-01-01T00:00:00Z",
+      },
+    });
+    expect(s.hasResearchContext).toBe(true);
+    expect(s.hasResearchCandidates).toBe(true);
+    expect(s.hasConstraintDraft).toBe(true);
+    expect(s.metrics.researchCandidateCount).toBe(1);
+    expect(s.metrics.constraintDraftCount).toBe(1);
+    expect(s.warnings).not.toContain("旧快照缺少研究候选上下文");
+  });
+
+  test("empty researchReportSnapshot shows missing context warning", () => {
+    const s = summarizeSavedReportSnapshot({
+      funds: [],
+      saa: {},
+      researchReportSnapshot: {
+        candidates: [],
+        matches: [],
+        constraintDrafts: [],
+        capturedAt: "2024-01-01T00:00:00Z",
+      },
+    });
+    expect(s.hasResearchContext).toBe(true);
+    expect(s.hasResearchCandidates).toBe(false);
+    expect(s.hasConstraintDraft).toBe(false);
+    expect(s.metrics.researchCandidateCount).toBe(0);
+    expect(s.metrics.constraintDraftCount).toBe(0);
   });
 });

@@ -4,6 +4,7 @@ import {
   FolderOpen, Loader2, LayoutDashboard, Target, TrendingUp, Play,
   FileText, Star, Trash2, AlertCircle, FolderX, ChevronDown, ChevronUp,
   Shield, BarChart3, Wallet, Layers, Eye, Info,
+  Copy, CheckCircle2, Download,
 } from 'lucide-react';
 import PageHeader from '@/components/ui/PageHeader';
 import SectionCard from '@/components/ui/SectionCard';
@@ -16,6 +17,7 @@ import { RISK_LABELS } from '@/types/allocation';
 import { isMockOutput } from '@/lib/execution-plan';
 import { summarizeSavedReportSnapshot } from '@/lib/allocation-report-snapshot';
 import type { SnapshotModuleSummary } from '@/lib/allocation-report-snapshot';
+import { generateResearchReportMarkdown } from '@/lib/fund-research';
 
 interface PlanItemProps {
   plan: SavedPlanItem;
@@ -47,7 +49,53 @@ function Kpi({ label, value, tone }: { label: string; value: string; tone?: 'pos
 
 function PlanItem({ plan, restoring, onRestore, onDelete, onToggleFavorite, onExport }: PlanItemProps) {
   const [expanded, setExpanded] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState(false);
   const summary: SnapshotModuleSummary = summarizeSavedReportSnapshot(plan.response);
+
+  const handleCopyMarkdown = async () => {
+    setCopyError(false);
+    try {
+      const res = plan.response as any;
+      const md = generateResearchReportMarkdown({
+        portfolioFunds: res.funds || [],
+        candidates: res.researchReportSnapshot?.candidates || [],
+        constraintDrafts: res.researchReportSnapshot?.constraintDrafts || [],
+        backtestResult: res.backtestResult,
+        dcaResult: res.dca_plan?.result || res.dcaResult,
+        researchReportSnapshot: res.researchReportSnapshot,
+        generatedAt: plan.created_at,
+      });
+      await navigator.clipboard.writeText(md);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopyError(true);
+      setTimeout(() => setCopyError(false), 3000);
+    }
+  };
+
+  const handleDownloadMarkdown = () => {
+    const res = plan.response as any;
+    const md = generateResearchReportMarkdown({
+      portfolioFunds: res.funds || [],
+      candidates: res.researchReportSnapshot?.candidates || [],
+      constraintDrafts: res.researchReportSnapshot?.constraintDrafts || [],
+      backtestResult: res.backtestResult,
+      dcaResult: res.dca_plan?.result || res.dcaResult,
+      researchReportSnapshot: res.researchReportSnapshot,
+      generatedAt: plan.created_at,
+    });
+    const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `saved-research-report-${plan.id.slice(0, 8)}.md`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <div className="p-3 rounded-lg border border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.04] transition-colors">
@@ -89,6 +137,12 @@ function PlanItem({ plan, restoring, onRestore, onDelete, onToggleFavorite, onEx
             )}
             {summary.hasExecutionPlan && (
               <ModuleBadge label="执行计划" colorClass="bg-[#5AA9FF]/10 text-[#5AA9FF]/80" icon={Play} />
+            )}
+            {summary.hasResearchCandidates && (
+              <ModuleBadge label="研究候选" colorClass="bg-[#EE6666]/10 text-[#EE6666]/80" icon={Eye} />
+            )}
+            {summary.hasConstraintDraft && (
+              <ModuleBadge label="约束草案" colorClass="bg-[#73C0DE]/10 text-[#73C0DE]/80" icon={Shield} />
             )}
           </div>
 
@@ -251,6 +305,65 @@ function PlanItem({ plan, restoring, onRestore, onDelete, onToggleFavorite, onEx
                 </div>
               ) : (
                 <span className="text-[10px] text-white/25">暂无定投结果</span>
+              )}
+            </div>
+
+            {/* Research context */}
+            <div>
+              <div className="text-[10px] text-white/30 mb-1">研究候选</div>
+              {summary.hasResearchContext ? (
+                <div className="space-y-1">
+                  <span className="text-[10px] text-white/50">
+                    共 {summary.metrics.researchCandidateCount} 只候选，{summary.metrics.constraintDraftCount} 条约束草案
+                  </span>
+                  {summary.hasResearchCandidates && (
+                    <div className="flex flex-wrap gap-1">
+                      {(plan.response as any)?.researchReportSnapshot?.candidates?.slice(0, 3).map((c: any, i: number) => (
+                        <span key={i} className="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.02] border border-white/[0.04] text-white/40">
+                          {c.fundCode || c.code} {c.fundName || c.name}
+                        </span>
+                      ))}
+                      {summary.metrics.researchCandidateCount > 3 && (
+                        <span className="text-[10px] text-white/25">+{summary.metrics.researchCandidateCount - 3}</span>
+                      )}
+                    </div>
+                  )}
+                  {summary.hasConstraintDraft && (
+                    <div className="flex flex-wrap gap-1">
+                      {(plan.response as any)?.researchReportSnapshot?.constraintDrafts?.slice(0, 3).map((d: any, i: number) => (
+                        <span key={i} className="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.02] border border-white/[0.04] text-white/40">
+                          {d.fundCode} {d.action}
+                        </span>
+                      ))}
+                      {summary.metrics.constraintDraftCount > 3 && (
+                        <span className="text-[10px] text-white/25">+{summary.metrics.constraintDraftCount - 3}</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <span className="text-[10px] text-white/25">旧快照缺少研究候选上下文</span>
+              )}
+            </div>
+
+            {/* Copy / Download Markdown */}
+            <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-white/[0.04]">
+              <button
+                onClick={handleCopyMarkdown}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-white/[0.04] hover:bg-white/[0.07] text-white/60 hover:text-white/80 transition-colors border border-white/[0.06]"
+              >
+                {copied ? <CheckCircle2 className="w-3.5 h-3.5 text-[#16C784]" /> : <Copy className="w-3.5 h-3.5" />}
+                {copied ? "已复制" : "复制 Markdown"}
+              </button>
+              <button
+                onClick={handleDownloadMarkdown}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs bg-white/[0.04] hover:bg-white/[0.07] text-white/60 hover:text-white/80 transition-colors border border-white/[0.06]"
+              >
+                <Download className="w-3.5 h-3.5" />
+                下载 Markdown
+              </button>
+              {copyError && (
+                <span className="text-[10px] text-[#EE6666]">复制失败，请手动复制</span>
               )}
             </div>
           </div>

@@ -37,6 +37,7 @@ export interface SnapshotModuleSummary {
   hasExecutionPlan: boolean;
   hasResearchCandidates: boolean;
   hasConstraintDraft: boolean;
+  hasResearchContext: boolean;
   metrics: {
     expectedReturn: string;
     volatility: string;
@@ -44,6 +45,8 @@ export interface SnapshotModuleSummary {
     sharpe: string;
     fundCount: number;
     variantCount: number;
+    researchCandidateCount: number;
+    constraintDraftCount: number;
   };
   backtestMetrics: {
     annualizedReturn: string;
@@ -80,8 +83,9 @@ export function summarizeSavedReportSnapshot(response: unknown): SnapshotModuleS
   const hasDca = !!res?.dca_plan?.result || !!res?.dcaResult;
   const hasBacktest = !!res?.backtestResult && typeof res.backtestResult === "object";
   const hasExecutionPlan = !!res?.execution_plan && typeof res.execution_plan === "object";
-  const hasResearchCandidates = Array.isArray(res?.researchCandidates) && res.researchCandidates.length > 0;
-  const hasConstraintDraft = Array.isArray(res?.constraintDrafts) && res.constraintDrafts.length > 0;
+  const hasResearchContext = !!res?.researchReportSnapshot && typeof res.researchReportSnapshot === "object";
+  const hasResearchCandidates = hasResearchContext && Array.isArray(res.researchReportSnapshot.candidates) && res.researchReportSnapshot.candidates.length > 0;
+  const hasConstraintDraft = hasResearchContext && Array.isArray(res.researchReportSnapshot.constraintDrafts) && res.researchReportSnapshot.constraintDrafts.length > 0;
 
   const saa = res?.saa || {};
   const funds = Array.isArray(res?.funds) ? res.funds : [];
@@ -94,6 +98,7 @@ export function summarizeSavedReportSnapshot(response: unknown): SnapshotModuleS
   if (!hasBacktest) warnings.push("旧快照缺少策略回测");
   if (!hasVariants) warnings.push("旧快照缺少多方案对比");
   if (!hasDca) warnings.push("暂无定投结果");
+  if (!hasResearchContext) warnings.push("旧快照缺少研究候选上下文");
 
   return {
     hasAllocation,
@@ -103,6 +108,7 @@ export function summarizeSavedReportSnapshot(response: unknown): SnapshotModuleS
     hasExecutionPlan,
     hasResearchCandidates,
     hasConstraintDraft,
+    hasResearchContext,
     metrics: {
       expectedReturn: fmtPct(saa.expected_return),
       volatility: fmtPct(saa.expected_volatility),
@@ -110,6 +116,8 @@ export function summarizeSavedReportSnapshot(response: unknown): SnapshotModuleS
       sharpe: fmtNum(saa.sharpe_ratio, 2),
       fundCount: funds.length,
       variantCount: hasVariants ? Object.keys(res.variants).length : 0,
+      researchCandidateCount: hasResearchContext ? (res.researchReportSnapshot.candidates?.length || 0) : 0,
+      constraintDraftCount: hasResearchContext ? (res.researchReportSnapshot.constraintDrafts?.length || 0) : 0,
     },
     backtestMetrics: {
       annualizedReturn: bt ? fmtPct(bt.annualized_return) : "—",
