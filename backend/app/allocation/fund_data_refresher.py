@@ -1,4 +1,4 @@
-"""Fund Data Refresher — dynamically update fund pool metrics from real NAV data.
+﻿"""Fund Data Refresher 鈥?dynamically update fund pool metrics from real NAV data.
 
 Fetches latest ETF NAV from efinance, computes performance metrics (1Y return,
 Sharpe ratio, tracking error), and updates FundProfile objects before scoring.
@@ -84,7 +84,7 @@ def _save_sqlite_metrics(code: str, metrics: dict) -> None:
         from app.storage.database import FundNAVCache
         FundNAVCache.save(code, metrics)
     except Exception:
-        pass
+    logger.exception("Ignored non-fatal exception")
 
 
 def refresh_fund_pool(profiles: Dict[str, FundProfile]) -> Dict[str, FundProfile]:
@@ -117,7 +117,7 @@ def _get_cached_metrics(code: str) -> Optional[Dict]:
 def _compute_metrics(code: str) -> Optional[Dict]:
     """Compute dynamic metrics for a fund from its NAV history.
 
-    Four-tier fallback: tickflow → efinance → tushare → akshare.
+    Four-tier fallback: tickflow 鈫?efinance 鈫?tushare 鈫?akshare.
     Returns dict with: return_1y, sharpe_1y, tracking_error, daily_turnover
     """
     nav_data = _fetch_nav_series(code)
@@ -158,7 +158,7 @@ def _compute_metrics(code: str) -> Optional[Dict]:
 
 
 def _fetch_nav_series(code: str) -> Optional[tuple]:
-    """Fetch NAV price series. Four-tier fallback: tickflow → efinance → tushare → akshare.
+    """Fetch NAV price series. Four-tier fallback: tickflow 鈫?efinance 鈫?tushare 鈫?akshare.
 
     Returns (prices_array, turnover_array_or_None) or None.
     """
@@ -192,7 +192,7 @@ def _try_tickflow_series(code: str) -> Optional[tuple]:
         if df is None or df.empty:
             return None
         close_col = None
-        for col in ["close", "Close", "收盘"]:
+        for col in ["close", "Close", "鏀剁洏"]:
             if col in df.columns:
                 close_col = col
                 break
@@ -200,7 +200,7 @@ def _try_tickflow_series(code: str) -> Optional[tuple]:
             return None
         prices = pd.to_numeric(df[close_col], errors="coerce").dropna().values.astype(np.float64)
         turnover = None
-        for col in ["volume", "Volume", "成交额"]:
+        for col in ["volume", "Volume", "鎴愪氦棰?]:
             if col in df.columns:
                 turnover = pd.to_numeric(df[col], errors="coerce").dropna().values
                 break
@@ -219,7 +219,7 @@ def _try_efinance_series(code: str) -> Optional[tuple]:
         if df is None or df.empty:
             return None
         price_col = None
-        for col in ["累计净值", "单位净值", "收盘", "close"]:
+        for col in ["绱鍑€鍊?, "鍗曚綅鍑€鍊?, "鏀剁洏", "close"]:
             if col in df.columns:
                 price_col = col
                 break
@@ -227,7 +227,7 @@ def _try_efinance_series(code: str) -> Optional[tuple]:
             return None
         prices = pd.to_numeric(df[price_col], errors="coerce").dropna().values.astype(np.float64)
         turnover = None
-        for col in ["成交额", "volume", "Volume"]:
+        for col in ["鎴愪氦棰?, "volume", "Volume"]:
             if col in df.columns:
                 turnover = pd.to_numeric(df[col], errors="coerce").dropna().values
                 break
@@ -263,3 +263,4 @@ def clear_cache():
     """Clear the metrics cache. Useful for testing."""
     with _cache_lock:
         _cache.clear()
+

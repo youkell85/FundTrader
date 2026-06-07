@@ -1,4 +1,4 @@
-"""基金排名筛选API"""
+﻿"""鍩洪噾鎺掑悕绛涢€堿PI"""
 import asyncio
 import json
 import logging
@@ -13,20 +13,20 @@ from ..services.llm_service import call_astorn_llm
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/fund", tags=["基金排名筛选"])
+router = APIRouter(prefix="/fund", tags=["鍩洪噾鎺掑悕绛涢€?])
 
-# ── 排序参数白名单 ──
+# 鈹€鈹€ 鎺掑簭鍙傛暟鐧藉悕鍗?鈹€鈹€
 ALLOWED_SORT_FIELDS = frozenset({
-    "今年来", "近1月", "近3月", "近6月", "近1年", "近3年",
+    "浠婂勾鏉?, "杩?鏈?, "杩?鏈?, "杩?鏈?, "杩?骞?, "杩?骞?,
     "ytd", "day_growth", "nav", "near_1m", "near_3m",
     "near_6m", "near_1y", "near_3y", "code", "name", "type",
 })
 ALLOWED_SORT_ORDERS = frozenset({"asc", "desc"})
 
-DEFAULT_CATEGORY = "全部"
-DEFAULT_SORT_BY = "今年来"
+DEFAULT_CATEGORY = "鍏ㄩ儴"
+DEFAULT_SORT_BY = "浠婂勾鏉?
 DEFAULT_SORT_ORDER = "desc"
-DEFAULT_TAG = "鑫基荟"
+DEFAULT_TAG = "閼熀鑽?
 
 
 def _detail_rows_payload(code: str, data, *, default_reason: str = "") -> dict:
@@ -59,20 +59,20 @@ def _empty_rows_payload(code: str, error: Exception, reason: str) -> dict:
 
 @router.get("/list")
 async def fund_list(
-    category: str = Query(DEFAULT_CATEGORY, description="基金类型"),
-    tag: str | None = Query(None, description="标签筛选"),
-    keyword: str | None = Query(None, description="关键词搜索"),
-    sort_by: str = Query(DEFAULT_SORT_BY, description="排序字段"),
-    sort_order: str = Query(DEFAULT_SORT_ORDER, description="排序方向"),
-    page: int = Query(1, ge=1, description="页码"),
-    page_size: int = Query(20, ge=1, le=5000, description="每页数量"),
-    guoyuan_only: bool = Query(True, description="仅国元名单"),
-    use_watchlist: bool = Query(False, description="使用自选基金列表"),
+    category: str = Query(DEFAULT_CATEGORY, description="鍩洪噾绫诲瀷"),
+    tag: str | None = Query(None, description="鏍囩绛涢€?),
+    keyword: str | None = Query(None, description="鍏抽敭璇嶆悳绱?),
+    sort_by: str = Query(DEFAULT_SORT_BY, description="鎺掑簭瀛楁"),
+    sort_order: str = Query(DEFAULT_SORT_ORDER, description="鎺掑簭鏂瑰悜"),
+    page: int = Query(1, ge=1, description="椤电爜"),
+    page_size: int = Query(20, ge=1, le=5000, description="姣忛〉鏁伴噺"),
+    guoyuan_only: bool = Query(True, description="浠呭浗鍏冨悕鍗?),
+    use_watchlist: bool = Query(False, description="浣跨敤鑷€夊熀閲戝垪琛?),
 ):
     if sort_by not in ALLOWED_SORT_FIELDS:
-        raise HTTPException(400, f"不支持的排序字段: {sort_by}")
+        raise HTTPException(400, f"涓嶆敮鎸佺殑鎺掑簭瀛楁: {sort_by}")
     if sort_order not in ALLOWED_SORT_ORDERS:
-        raise HTTPException(400, f"不支持的排序方向: {sort_order}")
+        raise HTTPException(400, f"涓嶆敮鎸佺殑鎺掑簭鏂瑰悜: {sort_order}")
     if use_watchlist:
         return await run_in_threadpool(
             get_fund_list_from_watchlist,
@@ -113,9 +113,9 @@ async def fund_snapshot_list(
     sort_order: str = Query(DEFAULT_SORT_ORDER),
 ):
     if sort_by not in ALLOWED_SORT_FIELDS:
-        raise HTTPException(400, f"不支持的排序字段: {sort_by}")
+        raise HTTPException(400, f"涓嶆敮鎸佺殑鎺掑簭瀛楁: {sort_by}")
     if sort_order not in ALLOWED_SORT_ORDERS:
-        raise HTTPException(400, f"不支持的排序方向: {sort_order}")
+        raise HTTPException(400, f"涓嶆敮鎸佺殑鎺掑簭鏂瑰悜: {sort_order}")
     """Read paged fund quote snapshots from SQLite only."""
     from ..storage.database import FundDataStore
 
@@ -186,7 +186,7 @@ async def fund_metrics_snapshot(code: str):
 
 
 @router.get("/detail-completeness")
-async def fund_detail_completeness(code: str = Query(..., min_length=4, max_length=10, description="基金代码")):
+async def fund_detail_completeness(code: str = Query(..., min_length=4, max_length=10, description="鍩洪噾浠ｇ爜")):
     """Return local real-data coverage by detail-page section without external fetches.
 
     Each section returns the full contract:
@@ -344,34 +344,34 @@ async def fund_detail_completeness(code: str = Query(..., min_length=4, max_leng
         }
 
     sections = {
-        # 1. overview — from snapshot
+        # 1. overview 鈥?from snapshot
         "overview": build(
             nav_count >= 2,
             stale=nav_stale,
-            reason="缺少基金基本快照" if nav_count < 2 else "净值快照已陈旧",
+            reason="缂哄皯鍩洪噾鍩烘湰蹇収" if nav_count < 2 else "鍑€鍊煎揩鐓у凡闄堟棫",
             source="fund_quote_snapshot",
             as_of=nav_as_of,
         ),
-        # 2. performance — from snapshot
+        # 2. performance 鈥?from snapshot
         "performance": build(
             nav_count >= 2,
             stale=nav_stale,
-            reason="缺少净值历史" if nav_count < 2 else "净值数据已陈旧",
+            reason="缂哄皯鍑€鍊煎巻鍙? if nav_count < 2 else "鍑€鍊兼暟鎹凡闄堟棫",
             source="fund_quote_snapshot",
             as_of=nav_as_of,
         ),
-        # 3. navDrawdown — from snapshot
+        # 3. navDrawdown 鈥?from snapshot
         "navDrawdown": build(
             nav_count >= 30,
             stale=nav_stale,
-            reason="缺少净值历史（需 ≥30 点计算回撤）" if nav_count < 30 else "净值数据已陈旧",
+            reason="缂哄皯鍑€鍊煎巻鍙诧紙闇€ 鈮?0 鐐硅绠楀洖鎾わ級" if nav_count < 30 else "鍑€鍊兼暟鎹凡闄堟棫",
             source="fund_quote_snapshot",
             as_of=nav_as_of,
         ),
-        # 4. holdings — from snapshot
+        # 4. holdings 鈥?from snapshot
         "holdings": build(
             holdings_count > 0,
-            reason="缺少真实重仓股票",
+            reason="缂哄皯鐪熷疄閲嶄粨鑲＄エ",
             source="fund_portfolio_snapshot",
             as_of=holdings_as_of,
         ),
@@ -379,7 +379,7 @@ async def fund_detail_completeness(code: str = Query(..., min_length=4, max_leng
         "bondAllocation": build(
             bond_alloc_count > 0,
             stale=bond_alloc_count > 0 and quarterly_stale,
-            reason="缺少真实券种配置",
+            reason="缂哄皯鐪熷疄鍒哥閰嶇疆",
             source="fund_detail_quarterly_snapshot",
             as_of=quarterly_updated,
         ),
@@ -387,23 +387,23 @@ async def fund_detail_completeness(code: str = Query(..., min_length=4, max_leng
         "bondHoldings": build(
             bond_hold_count > 0,
             stale=bond_hold_count > 0 and quarterly_stale,
-            reason="缺少真实重仓债券",
+            reason="缂哄皯鐪熷疄閲嶄粨鍊哄埜",
             source="fund_detail_quarterly_snapshot",
             as_of=quarterly_updated,
         ),
         # 7. managerHistory
         "managerHistory": build(
             manager_count > 0,
-            reason="缺少真实经理变更",
+            reason="缂哄皯鐪熷疄缁忕悊鍙樻洿",
             source="fund_manager_history_snapshot",
-            as_of=None,  # 当前表无独立 updated_at
+            as_of=None,  # 褰撳墠琛ㄦ棤鐙珛 updated_at
         ),
         # 8. scaleHistory
         "scaleHistory": build(
             scale_count > 0,
             partial=scale_count > 0 and scale_count < 4,
             stale=scale_count > 0 and quarterly_stale,
-            reason="缺少真实规模历史",
+            reason="缂哄皯鐪熷疄瑙勬ā鍘嗗彶",
             source="fund_detail_quarterly_snapshot",
             as_of=quarterly_updated,
         ),
@@ -412,15 +412,15 @@ async def fund_detail_completeness(code: str = Query(..., min_length=4, max_leng
             turnover_count > 0,
             partial=turnover_count > 0 and turnover_count < 4,
             stale=turnover_count > 0 and quarterly_stale,
-            reason="缺少真实换手率历史",
+            reason="缂哄皯鐪熷疄鎹㈡墜鐜囧巻鍙?,
             source="fund_detail_quarterly_snapshot",
             as_of=quarterly_updated,
         ),
-        # 10. peerPerformance — quote first, then nav fallback
+        # 10. peerPerformance 鈥?quote first, then nav fallback
         "peerPerformance": build(
             peer_has_data,
             stale=peer_has_data and (quote_stale if quote_has_peer_data else nav_stale),
-            reason="缺少同期同类 / 指数 / 基准数据",
+            reason="缂哄皯鍚屾湡鍚岀被 / 鎸囨暟 / 鍩哄噯鏁版嵁",
             source="fund_quote_snapshot" if quote_has_peer_data else ("fund_nav_history" if nav_count >= 250 else None),
             as_of=quote_updated if quote_has_peer_data else nav_as_of,
         ),
@@ -429,7 +429,7 @@ async def fund_detail_completeness(code: str = Query(..., min_length=4, max_leng
             purchase_count > 0,
             stale=purchase_count > 0 and metrics_stale,
             partial=purchase_count == 0 and nav_count > 0,
-            reason="缺真实销售文件，详情页用行业默认值",
+            reason="缂虹湡瀹為攢鍞枃浠讹紝璇︽儏椤电敤琛屼笟榛樿鍊?,
             source="fund_metrics_snapshot",
             as_of=metrics_updated,
         ),
@@ -438,14 +438,14 @@ async def fund_detail_completeness(code: str = Query(..., min_length=4, max_leng
             rating_count > 0,
             stale=rating_count > 0 and metrics_stale,
             partial=rating_count == 0 and nav_count > 0,
-            reason="缺 tushare fund_rating，详情页会用 score 兜底",
+            reason="缂?tushare fund_rating锛岃鎯呴〉浼氱敤 score 鍏滃簳",
             source="fund_metrics_snapshot",
             as_of=metrics_updated,
         ),
         # 13. assetAllocation
         "assetAllocation": build(
             asset_count > 0,
-            reason="缺少真实资产配置",
+            reason="缂哄皯鐪熷疄璧勪骇閰嶇疆",
             source="fund_portfolio_snapshot",
             as_of=asset_as_of,
         ),
@@ -453,7 +453,7 @@ async def fund_detail_completeness(code: str = Query(..., min_length=4, max_leng
         "holderStructure": build(
             holder_count > 0,
             stale=holder_count > 0 and quarterly_stale,
-            reason="缺少真实持有人结构",
+            reason="缂哄皯鐪熷疄鎸佹湁浜虹粨鏋?,
             source="fund_detail_quarterly_snapshot",
             as_of=quarterly_updated,
         ),
@@ -462,22 +462,22 @@ async def fund_detail_completeness(code: str = Query(..., min_length=4, max_leng
             nav_count >= 250,
             partial=nav_count >= 2 and nav_count < 250,
             stale=nav_count >= 250 and nav_stale,
-            reason="净值历史不足 1 年，年度收益仅有部分年份" if nav_count < 250 else "净值数据已陈旧",
+            reason="鍑€鍊煎巻鍙蹭笉瓒?1 骞达紝骞村害鏀剁泭浠呮湁閮ㄥ垎骞翠唤" if nav_count < 250 else "鍑€鍊兼暟鎹凡闄堟棫",
             source="fund_quote_snapshot",
             as_of=nav_as_of,
         ),
-        # 16. riskSummary — metrics first, then nav fallback
+        # 16. riskSummary 鈥?metrics first, then nav fallback
         "riskSummary": build(
             risk_has_data,
             stale=risk_has_data and (metrics_stale if metrics_has_risk_data else nav_stale),
-            reason="缺 max_drawdown / sharpe，规则引擎无法定级",
+            reason="缂?max_drawdown / sharpe锛岃鍒欏紩鎿庢棤娉曞畾绾?,
             source="fund_metrics_snapshot" if metrics_has_risk_data else ("fund_nav_history_rule_engine" if nav_count >= 30 else None),
             as_of=metrics_updated if metrics_has_risk_data else nav_as_of,
         ),
         # 17. managerReport
         "managerReport": build(
             report_count > 0,
-            reason="缺少真实定期报告原文",
+            reason="缂哄皯鐪熷疄瀹氭湡鎶ュ憡鍘熸枃",
             source="fund_report_snapshot",
             as_of=None,
         ),
@@ -493,7 +493,7 @@ async def fund_detail_completeness(code: str = Query(..., min_length=4, max_leng
     return {
         "code": code,
         "dataStatus": "available" if available == total else "partial" if available + partial + stale_count > 0 else "missing",
-        "missingReason": None if available == total else "部分 section 数据缺失或陈旧",
+        "missingReason": None if available == total else "閮ㄥ垎 section 鏁版嵁缂哄け鎴栭檲鏃?,
         "source": "local_snapshot",
         "asOf": nav_as_of,
         "coverage": coverage,
@@ -532,9 +532,9 @@ async def fund_category_metrics(
 
 
 def _sync_fund_companies_to_master(codes: list[str]) -> int:
-    """通过 Tushare fund_basic 批量获取基金公司信息，写入 fund_master 表。
+    """閫氳繃 Tushare fund_basic 鎵归噺鑾峰彇鍩洪噾鍏徃淇℃伅锛屽啓鍏?fund_master 琛ㄣ€?
 
-    返回成功更新的记录数。
+    杩斿洖鎴愬姛鏇存柊鐨勮褰曟暟銆?
     """
     try:
         from ..data.providers.tushare_provider import TushareProvider
@@ -545,13 +545,13 @@ def _sync_fund_companies_to_master(codes: list[str]) -> int:
             logger.warning("Tushare not available, skipping fund company sync")
             return 0
 
-        # 批量获取 fund_basic（全市场场外基金），使用分页获取全量数据
+        # 鎵归噺鑾峰彇 fund_basic锛堝叏甯傚満鍦哄鍩洪噾锛夛紝浣跨敤鍒嗛〉鑾峰彇鍏ㄩ噺鏁版嵁
         fund_list = provider.get_fund_list(market="O", fetch_all=True)
         if not fund_list:
             logger.warning("Tushare fund_basic returned empty, skipping fund company sync")
             return 0
 
-        # 构建 code -> management 映射
+        # 鏋勫缓 code -> management 鏄犲皠
         company_map = {}
         for fb in fund_list:
             code = fb.code.replace(".OF", "").replace(".SH", "").replace(".SZ", "")
@@ -559,7 +559,7 @@ def _sync_fund_companies_to_master(codes: list[str]) -> int:
             if code and mgmt:
                 company_map[code] = mgmt
 
-        # 同时获取 ETF/LOF（场内）
+        # 鍚屾椂鑾峰彇 ETF/LOF锛堝満鍐咃級
         etf_list = provider.get_fund_list(market="E")
         for fb in etf_list:
             code = fb.code.replace(".OF", "").replace(".SH", "").replace(".SZ", "")
@@ -567,10 +567,10 @@ def _sync_fund_companies_to_master(codes: list[str]) -> int:
             if code and mgmt:
                 company_map[code] = mgmt
 
-        # 从 GUOYUAN_FUND_LIST 构建 code -> name 映射
+        # 浠?GUOYUAN_FUND_LIST 鏋勫缓 code -> name 鏄犲皠
         name_map = {str(f["code"]): str(f.get("name", "")) for f in GUOYUAN_FUND_LIST}
 
-        # 写入 fund_master 表
+        # 鍐欏叆 fund_master 琛?
         updated = 0
         now = datetime.now().isoformat()
         with get_db() as conn:
@@ -605,7 +605,7 @@ def _build_snapshot_rows(df, codes, cached, now):
     FundSnapshotCache.save_batch signature and quote_dicts feeds
     FundDataStore.save_quote_batch.
     """
-    # 批量从 fund_master 表读取基金公司信息作为补充
+    # 鎵归噺浠?fund_master 琛ㄨ鍙栧熀閲戝叕鍙镐俊鎭綔涓鸿ˉ鍏?
     master_companies = {}
     try:
         from ..storage.database import get_db
@@ -613,28 +613,28 @@ def _build_snapshot_rows(df, codes, cached, now):
             rows_db = conn.execute("SELECT code, company FROM fund_master WHERE company != ''").fetchall()
             master_companies = {r["code"]: r["company"] for r in rows_db}
     except Exception:
-        pass
+    logger.exception("Ignored non-fatal exception")
 
     rows = []
     quote_rows = []
     for _, row in df.iterrows():
-        code = str(row.get("基金代码", "")).strip()
+        code = str(row.get("鍩洪噾浠ｇ爜", "")).strip()
         if code not in codes and code not in cached:
             continue
         try:
             company = master_companies.get(code, "")
             item = {
                 "code": code,
-                "name": str(row.get("基金简称", "")),
-                "type": str(row.get("基金类型", "")),
-                "nav": float(row.get("单位净值", 0) or 0),
-                "day_growth": float(row.get("日增长率", 0) or 0),
-                "near_1m": float(row.get("近1月", 0) or 0),
-                "near_3m": float(row.get("近3月", 0) or 0),
-                "near_6m": float(row.get("近6月", 0) or 0),
-                "near_1y": float(row.get("近1年", 0) or 0),
-                "near_3y": float(row.get("近3年", 0) or 0),
-                "ytd": float(row.get("今年以来", 0) or 0),
+                "name": str(row.get("鍩洪噾绠€绉?, "")),
+                "type": str(row.get("鍩洪噾绫诲瀷", "")),
+                "nav": float(row.get("鍗曚綅鍑€鍊?, 0) or 0),
+                "day_growth": float(row.get("鏃ュ闀跨巼", 0) or 0),
+                "near_1m": float(row.get("杩?鏈?, 0) or 0),
+                "near_3m": float(row.get("杩?鏈?, 0) or 0),
+                "near_6m": float(row.get("杩?鏈?, 0) or 0),
+                "near_1y": float(row.get("杩?骞?, 0) or 0),
+                "near_3y": float(row.get("杩?骞?, 0) or 0),
+                "ytd": float(row.get("浠婂勾浠ユ潵", 0) or 0),
                 "tags": [DEFAULT_TAG],
                 "company": company,
                 "is_xinjihui": True,
@@ -676,7 +676,7 @@ async def refresh_fund_snapshot():
 
         def _fetch_rank():
             import akshare as ak
-            return ak.fund_open_fund_rank_em(symbol="全部")
+            return ak.fund_open_fund_rank_em(symbol="鍏ㄩ儴")
 
         gateway_result = data_gateway.call(
             "akshare",
@@ -689,11 +689,11 @@ async def refresh_fund_snapshot():
             return {"status": "error", "message": gateway_result.error}
         df = gateway_result.data
         if df is None or df.empty:
-            return {"status": "error", "message": "akshare返回空数据"}
+            return {"status": "error", "message": "akshare杩斿洖绌烘暟鎹?}
 
         now = datetime.now().isoformat()
 
-        # 先通过 Tushare 批量获取基金公司信息并写入 fund_master
+        # 鍏堥€氳繃 Tushare 鎵归噺鑾峰彇鍩洪噾鍏徃淇℃伅骞跺啓鍏?fund_master
         _sync_fund_companies_to_master(codes)
 
         rows, quote_rows = _build_snapshot_rows(df, codes, cached, now)
@@ -733,12 +733,12 @@ async def compute_fund_metrics(
 
 
 # ============================================================
-#  P0: 基金评级（3y / 5y 1~5 颗星）/ 购买信息 / 持有人结构
+#  P0: 鍩洪噾璇勭骇锛?y / 5y 1~5 棰楁槦锛? 璐拱淇℃伅 / 鎸佹湁浜虹粨鏋?
 # ============================================================
 
 @router.get("/rating")
-async def fund_rating(code: str = Query(..., min_length=4, max_length=10, description="基金代码")):
-    """基金评级：3 年 / 5 年 1~5 颗星。来自 tushare fund_rating。"""
+async def fund_rating(code: str = Query(..., min_length=4, max_length=10, description="鍩洪噾浠ｇ爜")):
+    """鍩洪噾璇勭骇锛? 骞?/ 5 骞?1~5 棰楁槦銆傛潵鑷?tushare fund_rating銆?""
     from ..services.fund_service import get_fund_rating
 
     try:
@@ -750,7 +750,7 @@ async def fund_rating(code: str = Query(..., min_length=4, max_length=10, descri
                 "dataStatus": "available" if data.get("source") == "tushare" else "partial" if has_rating else "missing",
                 "asOf": None,
                 "coverage": 1.0 if data.get("source") == "tushare" else 0.5 if has_rating else 0.0,
-                "missingReason": None if has_rating else "缺少真实评级数据",
+                "missingReason": None if has_rating else "缂哄皯鐪熷疄璇勭骇鏁版嵁",
             }
         return {
             "code": code,
@@ -761,16 +761,16 @@ async def fund_rating(code: str = Query(..., min_length=4, max_length=10, descri
             "dataStatus": "missing",
             "asOf": None,
             "coverage": 0.0,
-            "missingReason": "缺少真实评级数据",
+            "missingReason": "缂哄皯鐪熷疄璇勭骇鏁版嵁",
         }
     except Exception as e:
         logger.error(f"fund.rating failed for {code}: {e}")
-        return {"code": code, "rating3y": None, "rating5y": None, "score": None, "source": None, "dataStatus": "missing", "asOf": None, "coverage": 0.0, "missingReason": "评级读取失败", "error": str(e)[:120]}
+        return {"code": code, "rating3y": None, "rating5y": None, "score": None, "source": None, "dataStatus": "missing", "asOf": None, "coverage": 0.0, "missingReason": "璇勭骇璇诲彇澶辫触", "error": str(e)[:120]}
 
 
 @router.get("/purchase-info")
-async def fund_purchase_info(code: str = Query(..., min_length=4, max_length=10, description="基金代码")):
-    """购买信息：申购/赎回状态、起购金额、4 类费率、总费率。来自基金销售文件/天天基金。"""
+async def fund_purchase_info(code: str = Query(..., min_length=4, max_length=10, description="鍩洪噾浠ｇ爜")):
+    """璐拱淇℃伅锛氱敵璐?璧庡洖鐘舵€併€佽捣璐噾棰濄€? 绫昏垂鐜囥€佹€昏垂鐜囥€傛潵鑷熀閲戦攢鍞枃浠?澶╁ぉ鍩洪噾銆?""
     from ..services.fund_service import get_fund_purchase_info
 
     try:
@@ -782,7 +782,7 @@ async def fund_purchase_info(code: str = Query(..., min_length=4, max_length=10,
                 "source": "fund_metrics_snapshot+industry-defaults",
                 "asOf": None,
                 "coverage": 0.5,
-                "missingReason": "申赎状态和起购金额含行业默认值，待接入真实销售文件。",
+                "missingReason": "鐢宠祹鐘舵€佸拰璧疯喘閲戦鍚涓氶粯璁ゅ€硷紝寰呮帴鍏ョ湡瀹為攢鍞枃浠躲€?,
             }
         return {
             "code": code,
@@ -799,77 +799,77 @@ async def fund_purchase_info(code: str = Query(..., min_length=4, max_length=10,
             "source": None,
             "asOf": None,
             "coverage": 0.0,
-            "missingReason": "缺少购买信息",
+            "missingReason": "缂哄皯璐拱淇℃伅",
         }
     except Exception as e:
         logger.error(f"fund.purchaseInfo failed for {code}: {e}")
-        return {"code": code, "dataStatus": "missing", "source": None, "asOf": None, "coverage": 0.0, "missingReason": "购买信息读取失败", "error": str(e)[:120]}
+        return {"code": code, "dataStatus": "missing", "source": None, "asOf": None, "coverage": 0.0, "missingReason": "璐拱淇℃伅璇诲彇澶辫触", "error": str(e)[:120]}
 
 
 @router.get("/holder-structure")
 async def fund_holder_structure(
-    code: str = Query(..., min_length=4, max_length=10, description="基金代码"),
-    periods: int = Query(40, ge=1, le=80, description="返回最近多少个季度"),
+    code: str = Query(..., min_length=4, max_length=10, description="鍩洪噾浠ｇ爜"),
+    periods: int = Query(40, ge=1, le=80, description="杩斿洖鏈€杩戝灏戜釜瀛ｅ害"),
 ):
-    """持有人结构：季度机构/个人占比堆叠柱数据。来自 tushare fund_portfolio 季报。"""
+    """鎸佹湁浜虹粨鏋勶細瀛ｅ害鏈烘瀯/涓汉鍗犳瘮鍫嗗彔鏌辨暟鎹€傛潵鑷?tushare fund_portfolio 瀛ｆ姤銆?""
     from ..services.fund_service import get_fund_holder_structure
 
     try:
         data = await run_in_threadpool(get_fund_holder_structure, code=code, periods=periods)
-        return _detail_rows_payload(code, data, default_reason="缺少真实持有人结构数据")
+        return _detail_rows_payload(code, data, default_reason="缂哄皯鐪熷疄鎸佹湁浜虹粨鏋勬暟鎹?)
     except Exception as e:
         logger.error(f"fund.holderStructure failed for {code}: {e}")
-        return _empty_rows_payload(code, e, "持有人结构读取失败")
+        return _empty_rows_payload(code, e, "鎸佹湁浜虹粨鏋勮鍙栧け璐?)
 
 
 # ============================================================
-#  P1: 券种配置 / 重仓债券 / 历史回报 / 偏股混合均值与基准
+#  P1: 鍒哥閰嶇疆 / 閲嶄粨鍊哄埜 / 鍘嗗彶鍥炴姤 / 鍋忚偂娣峰悎鍧囧€间笌鍩哄噯
 # ============================================================
 
 @router.get("/bond-allocation")
-async def fund_bond_allocation(code: str = Query(..., min_length=4, max_length=10, description="基金代码")):
-    """券种配置：11 类债券占净值比 + 较上期。来自 tushare fund_portfolio。"""
+async def fund_bond_allocation(code: str = Query(..., min_length=4, max_length=10, description="鍩洪噾浠ｇ爜")):
+    """鍒哥閰嶇疆锛?1 绫诲€哄埜鍗犲噣鍊兼瘮 + 杈冧笂鏈熴€傛潵鑷?tushare fund_portfolio銆?""
     from ..services.fund_service import get_fund_bond_allocation
 
     try:
         data = await run_in_threadpool(get_fund_bond_allocation, code=code)
-        return _detail_rows_payload(code, data, default_reason="缺少真实券种配置数据")
+        return _detail_rows_payload(code, data, default_reason="缂哄皯鐪熷疄鍒哥閰嶇疆鏁版嵁")
     except Exception as e:
         logger.error(f"fund.bondAllocation failed for {code}: {e}")
-        return _empty_rows_payload(code, e, "券种配置读取失败")
+        return _empty_rows_payload(code, e, "鍒哥閰嶇疆璇诲彇澶辫触")
 
 
 @router.get("/bond-holdings")
-async def fund_bond_holdings(code: str = Query(..., min_length=4, max_length=10, description="基金代码")):
-    """重仓债券：7 列（证券简称/持仓市值/占净值比/票面利率/发行主体/债券类型/发行信用评级）。"""
+async def fund_bond_holdings(code: str = Query(..., min_length=4, max_length=10, description="鍩洪噾浠ｇ爜")):
+    """閲嶄粨鍊哄埜锛? 鍒楋紙璇佸埜绠€绉?鎸佷粨甯傚€?鍗犲噣鍊兼瘮/绁ㄩ潰鍒╃巼/鍙戣涓讳綋/鍊哄埜绫诲瀷/鍙戣淇＄敤璇勭骇锛夈€?""
     from ..services.fund_service import get_fund_bond_holdings
 
     try:
         data = await run_in_threadpool(get_fund_bond_holdings, code=code)
-        return _detail_rows_payload(code, data, default_reason="缺少真实重仓债券数据")
+        return _detail_rows_payload(code, data, default_reason="缂哄皯鐪熷疄閲嶄粨鍊哄埜鏁版嵁")
     except Exception as e:
         logger.error(f"fund.bondHoldings failed for {code}: {e}")
-        return _empty_rows_payload(code, e, "重仓债券读取失败")
+        return _empty_rows_payload(code, e, "閲嶄粨鍊哄埜璇诲彇澶辫触")
 
 
 @router.get("/year-returns")
-async def fund_year_returns(code: str = Query(..., min_length=4, max_length=10, description="基金代码")):
-    """历年回报：每年本基金/沪深300/偏股混合均值/同类排名。"""
+async def fund_year_returns(code: str = Query(..., min_length=4, max_length=10, description="鍩洪噾浠ｇ爜")):
+    """鍘嗗勾鍥炴姤锛氭瘡骞存湰鍩洪噾/娌繁300/鍋忚偂娣峰悎鍧囧€?鍚岀被鎺掑悕銆?""
     from ..services.fund_service import get_fund_year_returns
 
     try:
         data = await run_in_threadpool(get_fund_year_returns, code=code)
-        return _detail_rows_payload(code, data, default_reason="缺少净值历史，无法计算年度收益")
+        return _detail_rows_payload(code, data, default_reason="缂哄皯鍑€鍊煎巻鍙诧紝鏃犳硶璁＄畻骞村害鏀剁泭")
     except Exception as e:
         logger.error(f"fund.yearReturns failed for {code}: {e}")
-        return _empty_rows_payload(code, e, "历史回报读取失败")
+        return _empty_rows_payload(code, e, "鍘嗗彶鍥炴姤璇诲彇澶辫触")
 
 
 @router.get("/peer-performance")
 async def fund_peer_performance(
-    code: str = Query(..., min_length=4, max_length=10, description="基金代码"),
+    code: str = Query(..., min_length=4, max_length=10, description="鍩洪噾浠ｇ爜"),
 ):
-    """偏股混合均值 / 沪深300 / 业绩比较基准 同期收益率（3m/6m/1y/3y/5y/成立至今/年化）。"""
+    """鍋忚偂娣峰悎鍧囧€?/ 娌繁300 / 涓氱哗姣旇緝鍩哄噯 鍚屾湡鏀剁泭鐜囷紙3m/6m/1y/3y/5y/鎴愮珛鑷充粖/骞村寲锛夈€?""
     from ..services.fund_service import get_fund_peer_performance
 
     try:
@@ -887,69 +887,69 @@ async def fund_peer_performance(
             "source": None,
             "asOf": None,
             "coverage": 0.0,
-            "missingReason": "同期收益读取失败",
+            "missingReason": "鍚屾湡鏀剁泭璇诲彇澶辫触",
             "error": str(e)[:120],
         }
 
 
 # ============================================================
-#  P2: 历年规模变化 / 基金换手率 / 基金经理变更
+#  P2: 鍘嗗勾瑙勬ā鍙樺寲 / 鍩洪噾鎹㈡墜鐜?/ 鍩洪噾缁忕悊鍙樻洿
 # ============================================================
 
 @router.get("/scale-history")
 async def fund_scale_history(
-    code: str = Query(..., min_length=4, max_length=10, description="基金代码"),
-    periods: int = Query(40, ge=1, le=80, description="返回最近多少个季度"),
+    code: str = Query(..., min_length=4, max_length=10, description="鍩洪噾浠ｇ爜"),
+    periods: int = Query(40, ge=1, le=80, description="杩斿洖鏈€杩戝灏戜釜瀛ｅ害"),
 ):
-    """历年规模变化：本基金净资产 + 同类 25% 分位（季度）。"""
+    """鍘嗗勾瑙勬ā鍙樺寲锛氭湰鍩洪噾鍑€璧勪骇 + 鍚岀被 25% 鍒嗕綅锛堝搴︼級銆?""
     from ..services.fund_service import get_fund_scale_history
 
     try:
         data = await run_in_threadpool(get_fund_scale_history, code=code, periods=periods)
-        return _detail_rows_payload(code, data, default_reason="缺少真实规模历史数据")
+        return _detail_rows_payload(code, data, default_reason="缂哄皯鐪熷疄瑙勬ā鍘嗗彶鏁版嵁")
     except Exception as e:
         logger.error(f"fund.scaleHistory failed for {code}: {e}")
-        return _empty_rows_payload(code, e, "规模历史读取失败")
+        return _empty_rows_payload(code, e, "瑙勬ā鍘嗗彶璇诲彇澶辫触")
 
 
 @router.get("/turnover-history")
 async def fund_turnover_history(
-    code: str = Query(..., min_length=4, max_length=10, description="基金代码"),
-    periods: int = Query(40, ge=1, le=80, description="返回最近多少个季度"),
+    code: str = Query(..., min_length=4, max_length=10, description="鍩洪噾浠ｇ爜"),
+    periods: int = Query(40, ge=1, le=80, description="杩斿洖鏈€杩戝灏戜釜瀛ｅ害"),
 ):
-    """基金换手率（季度）。"""
+    """鍩洪噾鎹㈡墜鐜囷紙瀛ｅ害锛夈€?""
     from ..services.fund_service import get_fund_turnover_history
 
     try:
         data = await run_in_threadpool(get_fund_turnover_history, code=code, periods=periods)
-        return _detail_rows_payload(code, data, default_reason="缺少真实换手率数据")
+        return _detail_rows_payload(code, data, default_reason="缂哄皯鐪熷疄鎹㈡墜鐜囨暟鎹?)
     except Exception as e:
         logger.error(f"fund.turnoverHistory failed for {code}: {e}")
-        return _empty_rows_payload(code, e, "换手率读取失败")
+        return _empty_rows_payload(code, e, "鎹㈡墜鐜囪鍙栧け璐?)
 
 
 @router.get("/manager-history")
-async def fund_manager_history(code: str = Query(..., min_length=4, max_length=10, description="基金代码")):
-    """基金经理变更：历任经理任职/离职日期/任职总回报/年化回报/同类排名。"""
+async def fund_manager_history(code: str = Query(..., min_length=4, max_length=10, description="鍩洪噾浠ｇ爜")):
+    """鍩洪噾缁忕悊鍙樻洿锛氬巻浠荤粡鐞嗕换鑱?绂昏亴鏃ユ湡/浠昏亴鎬诲洖鎶?骞村寲鍥炴姤/鍚岀被鎺掑悕銆?""
     from ..services.fund_service import get_fund_manager_history
 
     try:
         data = await run_in_threadpool(get_fund_manager_history, code=code)
-        payload = _detail_rows_payload(code, data, default_reason="缺少真实基金经理变更数据")
+        payload = _detail_rows_payload(code, data, default_reason="缂哄皯鐪熷疄鍩洪噾缁忕悊鍙樻洿鏁版嵁")
         return {**payload, "managerCount": len(payload.get("rows") or [])}
     except Exception as e:
         logger.error(f"fund.managerHistory failed for {code}: {e}")
-        payload = _empty_rows_payload(code, e, "基金经理变更读取失败")
+        payload = _empty_rows_payload(code, e, "鍩洪噾缁忕悊鍙樻洿璇诲彇澶辫触")
         return {**payload, "managerCount": 0}
 
 
 # ============================================================
-#  P3: 运作分析（基金定期报告全文）
+#  P3: 杩愪綔鍒嗘瀽锛堝熀閲戝畾鏈熸姤鍛婂叏鏂囷級
 # ============================================================
 
 @router.get("/manager-report")
-async def fund_manager_report(code: str = Query(..., min_length=4, max_length=10, description="基金代码")):
-    """运作分析：返回真实定期报告文本；不再用模板或 LLM 编造报告。"""
+async def fund_manager_report(code: str = Query(..., min_length=4, max_length=10, description="鍩洪噾浠ｇ爜")):
+    """杩愪綔鍒嗘瀽锛氳繑鍥炵湡瀹炲畾鏈熸姤鍛婃枃鏈紱涓嶅啀鐢ㄦā鏉挎垨 LLM 缂栭€犳姤鍛娿€?""
     from ..services.fund_service import get_fund_manager_report
 
     try:
@@ -962,7 +962,7 @@ async def fund_manager_report(code: str = Query(..., min_length=4, max_length=10
             "source": None,
             "asOf": None,
             "coverage": 0.0,
-            "missingReason": "缺少真实基金定期报告原文",
+            "missingReason": "缂哄皯鐪熷疄鍩洪噾瀹氭湡鎶ュ憡鍘熸枃",
         }
     except Exception as e:
         logger.error(f"fund.managerReport failed for {code}: {e}")
@@ -974,21 +974,21 @@ async def fund_manager_report(code: str = Query(..., min_length=4, max_length=10
             "source": None,
             "asOf": None,
             "coverage": 0.0,
-            "missingReason": "运作分析读取失败",
+            "missingReason": "杩愪綔鍒嗘瀽璇诲彇澶辫触",
             "error": str(e)[:120],
         }
 
 
 # ============================================================
-#  风险摘要（规则引擎生成）
+#  椋庨櫓鎽樿锛堣鍒欏紩鎿庣敓鎴愶級
 # ============================================================
 
 @router.get("/risk-summary")
 async def fund_risk_summary(
-    code: str = Query(..., min_length=4, max_length=10, description="基金代码"),
-    window: str = Query("1y", description="时间窗口：1y / 3y / 5y / inception"),
+    code: str = Query(..., min_length=4, max_length=10, description="鍩洪噾浠ｇ爜"),
+    window: str = Query("1y", description="鏃堕棿绐楀彛锛?y / 3y / 5y / inception"),
 ):
-    """风险摘要：基于 fund_metrics_snapshot + 同类均值，用规则模板生成中文自然语言摘要，可选LLM深度解读。"""
+    """椋庨櫓鎽樿锛氬熀浜?fund_metrics_snapshot + 鍚岀被鍧囧€硷紝鐢ㄨ鍒欐ā鏉跨敓鎴愪腑鏂囪嚜鐒惰瑷€鎽樿锛屽彲閫塋LM娣卞害瑙ｈ銆?""
     from ..services.fund_service import get_fund_risk_summary
 
     try:
@@ -1007,32 +1007,32 @@ async def fund_risk_summary(
                 "dataStatus": "missing",
                 "asOf": None,
                 "coverage": 0.0,
-                "missingReason": "缺少风险指标或净值历史，无法生成风险摘要",
+                "missingReason": "缂哄皯椋庨櫓鎸囨爣鎴栧噣鍊煎巻鍙诧紝鏃犳硶鐢熸垚椋庨櫓鎽樿",
             }
-        # 用 LLM 对风险摘要进行深度解读（机构风控官视角，强制 JSON Schema 输出）
-        llm_prompt = f"""你是一家头部公募基金管理公司的首席风控官（CRO），请基于以下产品风险数据，输出**严格的 JSON**（不要任何额外说明文字）。
+        # 鐢?LLM 瀵归闄╂憳瑕佽繘琛屾繁搴﹁В璇伙紙鏈烘瀯椋庢帶瀹樿瑙掞紝寮哄埗 JSON Schema 杈撳嚭锛?
+        llm_prompt = f"""浣犳槸涓€瀹跺ご閮ㄥ叕鍕熷熀閲戠鐞嗗叕鍙哥殑棣栧腑椋庢帶瀹橈紙CRO锛夛紝璇峰熀浜庝互涓嬩骇鍝侀闄╂暟鎹紝杈撳嚭**涓ユ牸鐨?JSON**锛堜笉瑕佷换浣曢澶栬鏄庢枃瀛楋級銆?
 
-【产品信息】
-· 产品代码：{base.get('code')}
-· 考察周期：{base.get('window')}
-· 风险等级：{base.get('level')}
-· 最大回撤：{base.get('maxDrawdown')}
-· 同类平均最大回撤：{base.get('peerMaxDrawdown')}
-· 夏普比率：{base.get('sharpeRatio', '暂无')}
+銆愪骇鍝佷俊鎭€?
+路 浜у搧浠ｇ爜锛歿base.get('code')}
+路 鑰冨療鍛ㄦ湡锛歿base.get('window')}
+路 椋庨櫓绛夌骇锛歿base.get('level')}
+路 鏈€澶у洖鎾わ細{base.get('maxDrawdown')}
+路 鍚岀被骞冲潎鏈€澶у洖鎾わ細{base.get('peerMaxDrawdown')}
+路 澶忔櫘姣旂巼锛歿base.get('sharpeRatio', '鏆傛棤')}
 
-【输出 JSON Schema（严格遵守，不要多余字段）】
+銆愯緭鍑?JSON Schema锛堜弗鏍奸伒瀹堬紝涓嶈澶氫綑瀛楁锛夈€?
 {{
-  "core_conclusion": "string, 30-50字，一句话风控结论",
+  "core_conclusion": "string, 30-50瀛楋紝涓€鍙ヨ瘽椋庢帶缁撹",
   "risk_sources": ["string", "string", "string"],
-  "quantitative_positioning": "string, 30-50字，定量对标（回撤为同类 X 倍）",
-  "suitability_advice": "string, 30-60字，明确适合/不适合何种风险偏好投资者",
-  "monitoring_focus": "string, 20-40字，后续重点监控的指标"
+  "quantitative_positioning": "string, 30-50瀛楋紝瀹氶噺瀵规爣锛堝洖鎾や负鍚岀被 X 鍊嶏級",
+  "suitability_advice": "string, 30-60瀛楋紝鏄庣‘閫傚悎/涓嶉€傚悎浣曠椋庨櫓鍋忓ソ鎶曡祫鑰?,
+  "monitoring_focus": "string, 20-40瀛楋紝鍚庣画閲嶇偣鐩戞帶鐨勬寚鏍?
 }}
 
-【硬性约束】
-1. 严禁编造数据，所有数值必须基于上述产品信息
-2. 严禁客套话、严禁"综上所述"
-3. 中文输出，专业机构口吻
+銆愮‖鎬х害鏉熴€?
+1. 涓ョ缂栭€犳暟鎹紝鎵€鏈夋暟鍊煎繀椤诲熀浜庝笂杩颁骇鍝佷俊鎭?
+2. 涓ョ瀹㈠璇濄€佷弗绂?缁间笂鎵€杩?
+3. 涓枃杈撳嚭锛屼笓涓氭満鏋勫彛鍚?
 """
         llm_summary: str | None = None
         source = "rule-engine"
@@ -1046,13 +1046,13 @@ async def fund_risk_summary(
             logger.warning(f"riskSummary LLM timeout for {code}")
             llm_summary_raw = ""
 
-        # 解析 + 类型校验
+        # 瑙ｆ瀽 + 绫诲瀷鏍￠獙
         candidate = None
         if llm_summary_raw:
             try:
                 candidate = json.loads(llm_summary_raw)
             except json.JSONDecodeError:
-                logger.warning(f"riskSummary LLM 非JSON输出, 回落规则引擎: {code}")
+                logger.warning(f"riskSummary LLM 闈濲SON杈撳嚭, 鍥炶惤瑙勫垯寮曟搸: {code}")
                 candidate = None
 
         if isinstance(candidate, dict):
@@ -1064,14 +1064,14 @@ async def fund_risk_summary(
             positioning = str(candidate.get("quantitative_positioning") or "").strip()[:200]
             suitability = str(candidate.get("suitability_advice") or "").strip()[:200]
             monitoring = str(candidate.get("monitoring_focus") or "").strip()[:200]
-            # 至少要有 core_conclusion 非空才视为有效 LLM 输出
+            # 鑷冲皯瑕佹湁 core_conclusion 闈炵┖鎵嶈涓烘湁鏁?LLM 杈撳嚭
             if core:
                 llm_summary = (
-                    f"【风险定级】{core}\n"
-                    f"【风险来源】{'；'.join(sources) if sources else '暂无'}\n"
-                    f"【同业对标】{positioning or '暂无'}\n"
-                    f"【适当性建议】{suitability or '暂无'}\n"
-                    f"【监控重点】{monitoring or '暂无'}"
+                    f"銆愰闄╁畾绾с€憑core}\n"
+                    f"銆愰闄╂潵婧愩€憑'锛?.join(sources) if sources else '鏆傛棤'}\n"
+                    f"銆愬悓涓氬鏍囥€憑positioning or '鏆傛棤'}\n"
+                    f"銆愰€傚綋鎬у缓璁€憑suitability or '鏆傛棤'}\n"
+                    f"銆愮洃鎺ч噸鐐广€憑monitoring or '鏆傛棤'}"
                 )
                 source = "astorn-llm"
             else:
@@ -1096,6 +1096,7 @@ async def fund_risk_summary(
             "dataStatus": "missing",
             "asOf": None,
             "coverage": 0.0,
-            "missingReason": "风险摘要读取失败",
+            "missingReason": "椋庨櫓鎽樿璇诲彇澶辫触",
             "error": str(e)[:120],
         }
+

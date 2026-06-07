@@ -1,4 +1,4 @@
-"""Tushare Pro 数据适配器"""
+﻿"""Tushare Pro 鏁版嵁閫傞厤鍣?""
 import os
 import time
 from typing import Any
@@ -21,17 +21,20 @@ from .base import (
 
 
 class TushareProvider(DataProvider):
-    """Tushare Pro 数据源适配器"""
+    """Tushare Pro 鏁版嵁婧愰€傞厤鍣?""
+
+import logging
+
 
     name = "tushare"
-    priority = 4  # 最高优先级
+    priority = 4  # 鏈€楂樹紭鍏堢骇
 
     def __init__(self):
         self._pro = None
         self._token = os.getenv("TUSHARE_TOKEN", "")
 
     def _get_pro(self):
-        """懒加载pro_api"""
+        """鎳掑姞杞絧ro_api"""
         if self._pro is None:
             try:
                 import tushare as ts
@@ -52,13 +55,13 @@ class TushareProvider(DataProvider):
         return self._get_pro() is not None
 
     def _safe_call(self, func, **kwargs):
-        """安全调用Tushare接口"""
+        """瀹夊叏璋冪敤Tushare鎺ュ彛"""
         pro = self._get_pro()
         if pro is None:
             return None
         try:
             result = func(**kwargs)
-            time.sleep(0.15)  # 频次控制
+            time.sleep(0.15)  # 棰戞鎺у埗
             return result
         except Exception as e:
             console_error(f"Tushare call error: {e}")
@@ -70,7 +73,7 @@ class TushareProvider(DataProvider):
             return []
 
         if not fetch_all:
-            # 单页模式（向后兼容）
+            # 鍗曢〉妯″紡锛堝悜鍚庡吋瀹癸級
             df = self._safe_call(pro.fund_basic, market=market)
             if df is None or df.empty:
                 return []
@@ -79,7 +82,7 @@ class TushareProvider(DataProvider):
                 result.append(self._row_to_fund_basic(row))
             return result
 
-        # 全量分页模式
+        # 鍏ㄩ噺鍒嗛〉妯″紡
         all_rows = []
         offset = 0
         limit = 15000
@@ -112,8 +115,7 @@ class TushareProvider(DataProvider):
         if pro is None:
             return None
 
-        # 多后缀回退：.OF（场外）→ .SH（沪市 ETF/LOF）→ .SZ（深市 ETF/LOF）
-        ts_code = f"{code}.OF"
+        # 澶氬悗缂€鍥為€€锛?OF锛堝満澶栵級鈫?.SH锛堟勃甯?ETF/LOF锛夆啋 .SZ锛堟繁甯?ETF/LOF锛?        ts_code = f"{code}.OF"
         basic_df = None
         for candidate in self._fund_portfolio_codes(code):
             candidate_df = self._safe_call(pro.fund_basic, ts_code=candidate)
@@ -136,22 +138,21 @@ class TushareProvider(DataProvider):
                 status=row.get("status", ""),
             )
 
-        # 净值
-        nav_list = self.get_fund_nav(code)
+        # 鍑€鍊?        nav_list = self.get_fund_nav(code)
         latest_nav = nav_list[-1] if nav_list else None
 
-        # 持仓
+        # 鎸佷粨
         holdings = self.get_fund_holdings(code)
 
-        # 基金经理
+        # 鍩洪噾缁忕悊
         manager_info = self.get_fund_manager(code)
 
-        # 份额规模
+        # 浠介瑙勬ā
         share_df = self._safe_call(pro.fund_share, ts_code=ts_code)
         if share_df is not None and not share_df.empty and basic is not None:
             basic.fund_share = self._safe_float(share_df.iloc[0].get("fd_share"))
 
-        # 基金评级
+        # 鍩洪噾璇勭骇
         rating = None
         rating_df = self._safe_call(pro.fund_rating, ts_code=ts_code)
         if rating_df is not None and not rating_df.empty:
@@ -159,7 +160,7 @@ class TushareProvider(DataProvider):
             if rating is not None:
                 rating = int(rating)
 
-        # Tushare 增强：分红/规模/复权/公司（付费账户高频可用）
+        # Tushare 澧炲己锛氬垎绾?瑙勬ā/澶嶆潈/鍏徃锛堜粯璐硅处鎴烽珮棰戝彲鐢級
         dividends = self.get_fund_dividend(code)
         scale = self.get_fund_scale(code)
         adj_factors = self.get_fund_adj(code)
@@ -189,7 +190,7 @@ class TushareProvider(DataProvider):
         if pro is None:
             return []
 
-        # 尝试多种后缀：.OF（场外默认）→ .SH → .SZ，解决部分基金代码不匹配问题
+        # 灏濊瘯澶氱鍚庣紑锛?OF锛堝満澶栭粯璁わ級鈫?.SH 鈫?.SZ锛岃В鍐抽儴鍒嗗熀閲戜唬鐮佷笉鍖归厤闂
         suffixes = [".OF"]
         if code.startswith(("5", "508")):
             suffixes.insert(0, ".SH")
@@ -211,7 +212,7 @@ class TushareProvider(DataProvider):
         if df is None or df.empty:
             return []
 
-        # 按日期升序排列，便于计算日增长率
+        # 鎸夋棩鏈熷崌搴忔帓鍒楋紝渚夸簬璁＄畻鏃ュ闀跨巼
         df = df.sort_values(by="nav_date", ascending=True)
 
         result = []
@@ -266,7 +267,7 @@ class TushareProvider(DataProvider):
             except Exception:
                 report_period = ""
 
-        # 提取持仓股票代码
+        # 鎻愬彇鎸佷粨鑲＄エ浠ｇ爜
         holdings_raw = []
         symbols = []
         for _, row in df.head(10).iterrows():
@@ -278,8 +279,7 @@ class TushareProvider(DataProvider):
             if symbol:
                 symbols.append(symbol)
 
-        # 批量查询股票名称（带兜底：查询失败时保留symbol作为名称）
-        name_map = {}
+        # 鎵归噺鏌ヨ鑲＄エ鍚嶇О锛堝甫鍏滃簳锛氭煡璇㈠け璐ユ椂淇濈暀symbol浣滀负鍚嶇О锛?        name_map = {}
         industry_map = {}
         if symbols:
             try:
@@ -294,7 +294,7 @@ class TushareProvider(DataProvider):
             except Exception as e:
                 console_error(f"stock_basic batch query error: {e}")
 
-        # 兜底：查询失败时保留symbol作为显示名称
+        # 鍏滃簳锛氭煡璇㈠け璐ユ椂淇濈暀symbol浣滀负鏄剧ず鍚嶇О
         for symbol in symbols:
             if symbol not in name_map:
                 name_map[symbol] = symbol
@@ -315,7 +315,7 @@ class TushareProvider(DataProvider):
         return result
 
     def get_fund_performance(self, code: str) -> FundPerformance | None:
-        """基于净值历史本地计算阶段收益"""
+        """鍩轰簬鍑€鍊煎巻鍙叉湰鍦拌绠楅樁娈垫敹鐩?""
         nav_list = self.get_fund_nav(code)
         if not nav_list or len(nav_list) < 30:
             return None
@@ -323,7 +323,7 @@ class TushareProvider(DataProvider):
         from datetime import datetime, timedelta
 
         def _find_nav(target_date: datetime) -> float | None:
-            """找到最接近target_date且不晚于它的净值"""
+            """鎵惧埌鏈€鎺ヨ繎target_date涓斾笉鏅氫簬瀹冪殑鍑€鍊?""
             best = None
             best_diff = None
             for nav in nav_list:
@@ -361,7 +361,7 @@ class TushareProvider(DataProvider):
         return perf
 
     def get_fund_manager(self, code: str) -> dict[str, Any]:
-        """获取基金经理详细信息"""
+        """鑾峰彇鍩洪噾缁忕悊璇︾粏淇℃伅"""
         pro = self._get_pro()
         if pro is None:
             return {}
@@ -369,7 +369,7 @@ class TushareProvider(DataProvider):
         if df is None or df.empty:
             return {}
 
-        # 取最新任职的基金经理
+        # 鍙栨渶鏂颁换鑱岀殑鍩洪噾缁忕悊
         df = df.sort_values(by="begin_date", ascending=False)
         row = df.iloc[0]
         return {
@@ -379,10 +379,10 @@ class TushareProvider(DataProvider):
             "reward": self._safe_float(row.get("reward")),
         }
 
-    # ========== Tushare 增强接口（付费账户高频可用） ==========
+    # ========== Tushare 澧炲己鎺ュ彛锛堜粯璐硅处鎴烽珮棰戝彲鐢級 ==========
 
     def get_fund_dividend(self, code: str) -> list[FundDividend]:
-        """获取基金分红记录（替代 efinance 缺失的分红数据）"""
+        """鑾峰彇鍩洪噾鍒嗙孩璁板綍锛堟浛浠?efinance 缂哄け鐨勫垎绾㈡暟鎹級"""
         pro = self._get_pro()
         if pro is None:
             return []
@@ -403,7 +403,7 @@ class TushareProvider(DataProvider):
         return result
 
     def get_fund_scale(self, code: str) -> FundScale | None:
-        """获取基金最新规模 — fund_share × unit_nav 精确计算（替代 efinance 不可靠接口）"""
+        """鑾峰彇鍩洪噾鏈€鏂拌妯?鈥?fund_share 脳 unit_nav 绮剧‘璁＄畻锛堟浛浠?efinance 涓嶅彲闈犳帴鍙ｏ級"""
         pro = self._get_pro()
         if pro is None:
             return None
@@ -420,7 +420,7 @@ class TushareProvider(DataProvider):
             nav_df = nav_df.sort_values(by="nav_date", ascending=False)
             latest_nav = self._safe_float(nav_df.iloc[0].get("unit_nav"))
             if latest_nav and fd_share:
-                total_nav = round(latest_nav * fd_share / 100000, 4)  # 万份×净值/100000=亿元
+                total_nav = round(latest_nav * fd_share / 100000, 4)  # 涓囦唤脳鍑€鍊?100000=浜垮厓
         return FundScale(
             end_date=self._parse_date(str(row.get("trade_date", ""))),
             total_nav=total_nav,
@@ -428,7 +428,7 @@ class TushareProvider(DataProvider):
         )
 
     def get_fund_adj(self, code: str) -> list[AdjFactor]:
-        """获取基金复权因子（用于精确收益计算）"""
+        """鑾峰彇鍩洪噾澶嶆潈鍥犲瓙锛堢敤浜庣簿纭敹鐩婅绠楋級"""
         pro = self._get_pro()
         if pro is None:
             return []
@@ -475,7 +475,7 @@ class TushareProvider(DataProvider):
             if funds_df is not None and not funds_df.empty:
                 fund_count = len(funds_df)
         except Exception:
-            pass
+        logging.exception("Ignored non-fatal exception")
 
         return FundCompany(
             name=company_name,
@@ -484,7 +484,7 @@ class TushareProvider(DataProvider):
         )
 
     def get_trade_cal(self, exchange: str = "SSE", start_date: str = "", end_date: str = "") -> list[TradeCal]:
-        """获取交易日历"""
+        """鑾峰彇浜ゆ槗鏃ュ巻"""
         pro = self._get_pro()
         if pro is None:
             return []
@@ -505,7 +505,7 @@ class TushareProvider(DataProvider):
         return result
 
     def get_index_daily(self, ts_code: str = "000001.SH", start_date: str = "", end_date: str = "") -> list[IndexDaily]:
-        """获取指数日线行情（替代 akshare 市场指数接口）"""
+        """鑾峰彇鎸囨暟鏃ョ嚎琛屾儏锛堟浛浠?akshare 甯傚満鎸囨暟鎺ュ彛锛?""
         pro = self._get_pro()
         if pro is None:
             return []
@@ -533,3 +533,4 @@ class TushareProvider(DataProvider):
                 amount=self._safe_float(row.get("amount")),
             ))
         return result
+

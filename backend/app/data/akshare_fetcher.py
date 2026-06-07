@@ -1,4 +1,4 @@
-"""AkShare 数据获取层"""
+﻿"""AkShare 鏁版嵁鑾峰彇灞?""
 import akshare as ak
 import pandas as pd
 import efinance as ef
@@ -6,20 +6,23 @@ from typing import Optional, List, Dict, Any
 from ..utils import console_error
 
 
-def get_fund_ranking(fund_type: str = "全部") -> List[Dict[str, Any]]:
-    """获取开放式基金排名数据"""
+def get_fund_ranking(fund_type: str = "鍏ㄩ儴") -> List[Dict[str, Any]]:
+    """鑾峰彇寮€鏀惧紡鍩洪噾鎺掑悕鏁版嵁"""
+
+import logging
+
     try:
         df = ak.fund_open_fund_rank_em(symbol=fund_type)
         if df is None or df.empty:
             return []
         df = df.rename(columns={
-            "基金代码": "code", "基金简称": "name",
-            "日期": "nav_date", "单位净值": "nav",
-            "日增长率": "day_growth",
-            "近1周": "near_1w", "近1月": "near_1m",
-            "近3月": "near_3m", "近6月": "near_6m",
-            "近1年": "near_1y", "近3年": "near_3y",
-            "今年来": "ytd", "成立来": "since_inception",
+            "鍩洪噾浠ｇ爜": "code", "鍩洪噾绠€绉?: "name",
+            "鏃ユ湡": "nav_date", "鍗曚綅鍑€鍊?: "nav",
+            "鏃ュ闀跨巼": "day_growth",
+            "杩?鍛?: "near_1w", "杩?鏈?: "near_1m",
+            "杩?鏈?: "near_3m", "杩?鏈?: "near_6m",
+            "杩?骞?: "near_1y", "杩?骞?: "near_3y",
+            "浠婂勾鏉?: "ytd", "鎴愮珛鏉?: "since_inception",
         })
         result = df.to_dict(orient="records")
         return result
@@ -29,7 +32,7 @@ def get_fund_ranking(fund_type: str = "全部") -> List[Dict[str, Any]]:
 
 
 def get_fund_info(code: str) -> Optional[Dict[str, Any]]:
-    """获取基金基本信息"""
+    """鑾峰彇鍩洪噾鍩烘湰淇℃伅"""
     try:
         df = ak.fund_individual_basic_info_xq(symbol=code)
         if df is None or df.empty:
@@ -44,52 +47,52 @@ def get_fund_info(code: str) -> Optional[Dict[str, Any]]:
 
 
 def get_fund_manager_info(code: str) -> Optional[Dict[str, Any]]:
-    """获取基金经理信息 - 包含任职回报、年化回报、学历等"""
+    """鑾峰彇鍩洪噾缁忕悊淇℃伅 - 鍖呭惈浠昏亴鍥炴姤銆佸勾鍖栧洖鎶ャ€佸鍘嗙瓑"""
     try:
         df = ak.fund_manager_em()
         if df is None or df.empty:
             return None
-        # 处理列名可能不同的情况
-        code_col = "基金代码" if "基金代码" in df.columns else df.columns[0] if len(df.columns) > 0 else None
+        # 澶勭悊鍒楀悕鍙兘涓嶅悓鐨勬儏鍐?
+        code_col = "鍩洪噾浠ｇ爜" if "鍩洪噾浠ｇ爜" in df.columns else df.columns[0] if len(df.columns) > 0 else None
         if code_col is None:
             return None
         managers = df[df[code_col] == code]
         if managers.empty:
             return None
         row = managers.iloc[0]
-        # 提取所有可用字段
-        name = row.get("姓名", row.get("基金经理", row.get("manager_name", "")))
-        tenure_days = row.get("任职时间", row.get("任职天数", row.get("tenure", 0)))
+        # 鎻愬彇鎵€鏈夊彲鐢ㄥ瓧娈?
+        name = row.get("濮撳悕", row.get("鍩洪噾缁忕悊", row.get("manager_name", "")))
+        tenure_days = row.get("浠昏亴鏃堕棿", row.get("浠昏亴澶╂暟", row.get("tenure", 0)))
 
-        # 任职回报（可能带%符号）
-        return_since = row.get("任职回报", row.get("return_since_tenure"))
+        # 浠昏亴鍥炴姤锛堝彲鑳藉甫%绗﹀彿锛?
+        return_since = row.get("浠昏亴鍥炴姤", row.get("return_since_tenure"))
         if return_since is not None:
             try:
                 return_since = float(str(return_since).replace("%", "").strip())
             except (ValueError, TypeError):
                 return_since = None
 
-        # 年化回报
-        annual_return = row.get("年化回报", row.get("annualized_return"))
+        # 骞村寲鍥炴姤
+        annual_return = row.get("骞村寲鍥炴姤", row.get("annualized_return"))
         if annual_return is not None:
             try:
                 annual_return = float(str(annual_return).replace("%", "").strip())
             except (ValueError, TypeError):
                 annual_return = None
 
-        # 管理基金数量
-        fund_count = row.get("管理基金数", row.get("在任基金数", row.get("fund_count")))
+        # 绠＄悊鍩洪噾鏁伴噺
+        fund_count = row.get("绠＄悊鍩洪噾鏁?, row.get("鍦ㄤ换鍩洪噾鏁?, row.get("fund_count")))
         if fund_count is not None:
             try:
                 fund_count = int(fund_count)
             except (ValueError, TypeError):
                 fund_count = 1
 
-        # 学历
-        education = row.get("学历", row.get("education"))
+        # 瀛﹀巻
+        education = row.get("瀛﹀巻", row.get("education"))
 
-        # 基金管理规模
-        total_scale = row.get("基金管理规模(亿)", row.get("管理规模", row.get("total_scale")))
+        # 鍩洪噾绠＄悊瑙勬ā
+        total_scale = row.get("鍩洪噾绠＄悊瑙勬ā(浜?", row.get("绠＄悊瑙勬ā", row.get("total_scale")))
 
         result = {
             "name": name,
@@ -101,7 +104,7 @@ def get_fund_manager_info(code: str) -> Optional[Dict[str, Any]]:
             "total_scale": total_scale,
         }
 
-        # 过滤掉值为 None/NaN 的字段
+        # 杩囨护鎺夊€间负 None/NaN 鐨勫瓧娈?
         result = {k: v for k, v in result.items()
                   if v is not None and not (isinstance(v, float) and pd.isna(v))}
 
@@ -112,19 +115,19 @@ def get_fund_manager_info(code: str) -> Optional[Dict[str, Any]]:
 
 
 def get_fund_portfolio(code: str) -> Optional[Dict[str, Any]]:
-    """获取基金持仓信息 - 自动适配最新报告期"""
+    """鑾峰彇鍩洪噾鎸佷粨淇℃伅 - 鑷姩閫傞厤鏈€鏂版姤鍛婃湡"""
     from datetime import datetime
     current_year = datetime.now().year
     holdings = []
 
-    # 尝试当前年份和上一年
+    # 灏濊瘯褰撳墠骞翠唤鍜屼笂涓€骞?
     for year in [current_year, current_year - 1, current_year - 2]:
         try:
             stock_df = ak.fund_portfolio_hold_em(symbol=code, date=str(year))
             if stock_df is not None and not stock_df.empty:
                 for _, row in stock_df.head(10).iterrows():
-                    ratio_val = row.get("占净值比例", 0)
-                    # 处理百分比字符串，如 "12.34%"
+                    ratio_val = row.get("鍗犲噣鍊兼瘮渚?, 0)
+                    # 澶勭悊鐧惧垎姣斿瓧绗︿覆锛屽 "12.34%"
                     if isinstance(ratio_val, str):
                         ratio_val = ratio_val.replace("%", "").strip()
                     try:
@@ -132,14 +135,14 @@ def get_fund_portfolio(code: str) -> Optional[Dict[str, Any]]:
                     except (ValueError, TypeError):
                         ratio = 0
                     holdings.append({
-                        "name": row.get("股票名称", ""),
-                        "code": row.get("股票代码", ""),
+                        "name": row.get("鑲＄エ鍚嶇О", ""),
+                        "code": row.get("鑲＄エ浠ｇ爜", ""),
                         "ratio": ratio,
-                        "quarter": str(row.get("报告期") or row.get("持仓日期") or year),
-                        "source": "AkShare 东方财富F10",
-                        "updated_at": str(row.get("报告期") or row.get("持仓日期") or year),
+                        "quarter": str(row.get("鎶ュ憡鏈?) or row.get("鎸佷粨鏃ユ湡") or year),
+                        "source": "AkShare 涓滄柟璐㈠瘜F10",
+                        "updated_at": str(row.get("鎶ュ憡鏈?) or row.get("鎸佷粨鏃ユ湡") or year),
                     })
-                break  # 成功获取后退出
+                break  # 鎴愬姛鑾峰彇鍚庨€€鍑?
         except Exception:
             continue
 
@@ -149,7 +152,7 @@ def get_fund_portfolio(code: str) -> Optional[Dict[str, Any]]:
 
 
 def get_fund_bond_portfolio(code: str) -> Optional[Dict[str, Any]]:
-    """获取基金债券持仓信息 - 用于债券型基金"""
+    """鑾峰彇鍩洪噾鍊哄埜鎸佷粨淇℃伅 - 鐢ㄤ簬鍊哄埜鍨嬪熀閲?""
     from datetime import datetime
     current_year = datetime.now().year
     bond_holdings = []
@@ -159,7 +162,7 @@ def get_fund_bond_portfolio(code: str) -> Optional[Dict[str, Any]]:
             bond_df = ak.fund_portfolio_bond_hold_em(symbol=code, date=str(year))
             if bond_df is not None and not bond_df.empty:
                 for _, row in bond_df.head(10).iterrows():
-                    ratio_val = row.get("占净值比例", 0)
+                    ratio_val = row.get("鍗犲噣鍊兼瘮渚?, 0)
                     if isinstance(ratio_val, str):
                         ratio_val = ratio_val.replace("%", "").strip()
                     try:
@@ -167,12 +170,12 @@ def get_fund_bond_portfolio(code: str) -> Optional[Dict[str, Any]]:
                     except (ValueError, TypeError):
                         ratio = 0
                     bond_holdings.append({
-                        "name": row.get("债券名称", ""),
-                        "code": row.get("债券代码", ""),
+                        "name": row.get("鍊哄埜鍚嶇О", ""),
+                        "code": row.get("鍊哄埜浠ｇ爜", ""),
                         "ratio": ratio,
-                        "quarter": str(row.get("报告期") or year),
-                        "source": "AkShare 东方财富F10 债券持仓",
-                        "updated_at": str(row.get("报告期") or year),
+                        "quarter": str(row.get("鎶ュ憡鏈?) or year),
+                        "source": "AkShare 涓滄柟璐㈠瘜F10 鍊哄埜鎸佷粨",
+                        "updated_at": str(row.get("鎶ュ憡鏈?) or year),
                     })
                 break
         except Exception:
@@ -224,19 +227,19 @@ def _to_quote_code(code: str) -> str:
 def _normalize_quote_row(code: str, market_type: str = "") -> str:
     symbol = str(code or "").strip()
     market = str(market_type or "")
-    if "港股" in market:
+    if "娓偂" in market:
         return f"hk{symbol.zfill(5)}"
-    if "沪" in market:
+    if "娌? in market:
         return f"sh{symbol.zfill(6)}"
-    if "深" in market:
+    if "娣? in market:
         return f"sz{symbol.zfill(6)}"
-    if "北" in market:
+    if "鍖? in market:
         return f"bj{symbol.zfill(6)}"
     return _normalize_stock_code(symbol)
 
 
 def get_stock_daily_changes(codes: List[str]) -> Dict[str, float]:
-    """批量获取股票最近一交易日涨跌幅，返回原始代码到涨跌幅百分比的映射。"""
+    """鎵归噺鑾峰彇鑲＄エ鏈€杩戜竴浜ゆ槗鏃ユ定璺屽箙锛岃繑鍥炲師濮嬩唬鐮佸埌娑ㄨ穼骞呯櫨鍒嗘瘮鐨勬槧灏勩€?""
     requested = [str(code or "").strip() for code in codes if str(code or "").strip()]
     if not requested:
         return {}
@@ -261,11 +264,11 @@ def get_stock_daily_changes(codes: List[str]) -> Dict[str, float]:
                 df = None
             if df is not None and not df.empty:
                 for _, row in df.iterrows():
-                    normalized = _normalize_quote_row(row.get("代码", ""), row.get("市场类型", ""))
+                    normalized = _normalize_quote_row(row.get("浠ｇ爜", ""), row.get("甯傚満绫诲瀷", ""))
                     if not normalized:
                         continue
                     try:
-                        by_normalized[normalized] = round(float(row.get("涨跌幅")), 2)
+                        by_normalized[normalized] = round(float(row.get("娑ㄨ穼骞?)), 2)
                     except (ValueError, TypeError):
                         continue
 
@@ -277,11 +280,11 @@ def get_stock_daily_changes(codes: List[str]) -> Dict[str, float]:
                 df = ak.stock_zh_a_spot()
                 if df is not None and not df.empty:
                     for _, row in df.iterrows():
-                        normalized = _normalize_stock_code(row.get("代码", ""))
+                        normalized = _normalize_stock_code(row.get("浠ｇ爜", ""))
                         if not normalized:
                             continue
                         try:
-                            by_normalized[normalized] = round(float(row.get("涨跌幅")), 2)
+                            by_normalized[normalized] = round(float(row.get("娑ㄨ穼骞?)), 2)
                         except (ValueError, TypeError):
                             continue
         if by_normalized:
@@ -299,7 +302,7 @@ def get_stock_daily_changes(codes: List[str]) -> Dict[str, float]:
 
 
 def get_fund_industry_board() -> List[Dict[str, Any]]:
-    """获取行业板块数据"""
+    """鑾峰彇琛屼笟鏉垮潡鏁版嵁"""
     try:
         df = ak.stock_board_industry_name_em()
         if df is None or df.empty:
@@ -311,15 +314,15 @@ def get_fund_industry_board() -> List[Dict[str, Any]]:
 
 
 def get_market_index() -> List[Dict[str, Any]]:
-    """获取主要市场指数（优先 Tushare index_daily，回退 AkShare 最新2日数据）"""
+    """鑾峰彇涓昏甯傚満鎸囨暟锛堜紭鍏?Tushare index_daily锛屽洖閫€ AkShare 鏈€鏂?鏃ユ暟鎹級"""
     try:
         from .providers.tushare_provider import TushareProvider
         tp = TushareProvider()
         if tp.is_available():
             index_map = {
-                "000001.SH": "上证指数",
-                "399001.SZ": "深证成指",
-                "399006.SZ": "创业板指",
+                "000001.SH": "涓婅瘉鎸囨暟",
+                "399001.SZ": "娣辫瘉鎴愭寚",
+                "399006.SZ": "鍒涗笟鏉挎寚",
             }
             result = []
             for ts_code, name in index_map.items():
@@ -337,18 +340,18 @@ def get_market_index() -> List[Dict[str, Any]]:
             if result:
                 return result
     except Exception:
-        pass
+    logging.exception("Ignored non-fatal exception")
 
-    # 回退：akshare 指数日线
+    # 鍥為€€锛歛kshare 鎸囨暟鏃ョ嚎
     try:
-        indices = {"sh000001": "上证指数", "sz399001": "深证成指", "sz399006": "创业板指"}
+        indices = {"sh000001": "涓婅瘉鎸囨暟", "sz399001": "娣辫瘉鎴愭寚", "sz399006": "鍒涗笟鏉挎寚"}
         result = []
         for code, name in indices.items():
             try:
-                # 限制获取最近30个交易日数据，减少网络开销
+                # 闄愬埗鑾峰彇鏈€杩?0涓氦鏄撴棩鏁版嵁锛屽噺灏戠綉缁滃紑閿€
                 df = ak.stock_zh_index_daily(symbol=code)
                 if df is not None and not df.empty:
-                    # 取最新两行计算涨跌幅
+                    # 鍙栨渶鏂颁袱琛岃绠楁定璺屽箙
                     df_tail = df.tail(2)
                     if len(df_tail) >= 2:
                         latest = df_tail.iloc[-1]
@@ -372,3 +375,4 @@ def get_market_index() -> List[Dict[str, Any]]:
     except Exception as e:
         console_error(f"Market index error: {e}")
         return []
+

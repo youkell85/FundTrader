@@ -1,8 +1,11 @@
-"""Batch backfill fund drawdown series from fund_nav_history into fund_drawdown_series.
+﻿"""Batch backfill fund drawdown series from fund_nav_history into fund_drawdown_series.
 
 Usage:
     cd backend && python app/scripts/backfill_drawdown.py [--limit N] [--batch-size N] [--force]
 """
+
+import logging
+
 import argparse
 import json
 import math
@@ -27,7 +30,7 @@ def _load_progress():
             with open(PROGRESS_FILE, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception:
-            pass
+        logging.exception("Ignored non-fatal exception")
     return {"completed": [], "failed": [], "total_rows": 0}
 
 
@@ -50,8 +53,7 @@ def _save_progress(completed, failed, total_rows):
 
 
 def _calc_drawdown_series(nav_rows: list) -> list[dict]:
-    """从净值序列计算回撤序列。
-
+    """浠庡噣鍊煎簭鍒楄绠楀洖鎾ゅ簭鍒椼€?
     nav_rows: [{nav_date, accum_nav}, ...] ordered ASC
     Returns: [{date, drawdown, peak_nav, current_nav}, ...]
     """
@@ -86,7 +88,7 @@ def _calc_drawdown_series(nav_rows: list) -> list[dict]:
 
 
 def get_target_codes(limit=0, force=False):
-    """获取需要回填回撤序列的基金代码。"""
+    """鑾峰彇闇€瑕佸洖濉洖鎾ゅ簭鍒楃殑鍩洪噾浠ｇ爜銆?""
     with get_db() as conn:
         if force:
             c = conn.execute("SELECT code FROM fund_master WHERE is_active = 1 ORDER BY code")
@@ -196,3 +198,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

@@ -1,4 +1,4 @@
-"""Historical Data Loader — fetch and align ETF + macro time series for backtest."""
+﻿"""Historical Data Loader 鈥?fetch and align ETF + macro time series for backtest."""
 
 import logging
 from datetime import datetime, timedelta
@@ -118,19 +118,19 @@ def load_macro_history(start_date: str, end_date: str) -> Dict[str, pd.Series]:
     macro_data: Dict[str, pd.Series] = {}
 
     fetchers = [
-        ("PMI制造业", _fetch_pmi_history),
-        ("GDP同比", _fetch_gdp_history),
-        ("CPI同比", _fetch_cpi_history),
-        ("PPI同比", _fetch_ppi_history),
-        ("10Y国债收益率", _fetch_bond_yield_history),
-        ("M2增速", _fetch_m2_history),
-        ("社融增速", _fetch_social_financing_history),
-        ("美联储利率", _fetch_fed_rate_history),
-        ("美元指数", _fetch_usd_index_history),
+        ("PMI鍒堕€犱笟", _fetch_pmi_history),
+        ("GDP鍚屾瘮", _fetch_gdp_history),
+        ("CPI鍚屾瘮", _fetch_cpi_history),
+        ("PPI鍚屾瘮", _fetch_ppi_history),
+        ("10Y鍥藉€烘敹鐩婄巼", _fetch_bond_yield_history),
+        ("M2澧為€?, _fetch_m2_history),
+        ("绀捐瀺澧為€?, _fetch_social_financing_history),
+        ("缇庤仈鍌ㄥ埄鐜?, _fetch_fed_rate_history),
+        ("缇庡厓鎸囨暟", _fetch_usd_index_history),
         ("DR007", _fetch_dr007_history),
-        ("融资余额变化", _fetch_margin_history),
-        ("北向资金净流入", _fetch_northbound_history),
-        ("财政赤字率", _fetch_fiscal_deficit_history),
+        ("铻嶈祫浣欓鍙樺寲", _fetch_margin_history),
+        ("鍖楀悜璧勯噾鍑€娴佸叆", _fetch_northbound_history),
+        ("璐㈡斂璧ゅ瓧鐜?, _fetch_fiscal_deficit_history),
     ]
 
     for name, fetcher in fetchers:
@@ -155,9 +155,9 @@ def load_macro_history(start_date: str, end_date: str) -> Dict[str, pd.Series]:
 def _fetch_etf_prices_with_dates(code: str) -> Optional[pd.Series]:
     """Fetch full ETF price history as a date-indexed Series.
 
-    SQLite cache → efinance → tushare → akshare fallback chain.
+    SQLite cache 鈫?efinance 鈫?tushare 鈫?akshare fallback chain.
     """
-    # 0. SQLite cache — check if we have recent data (within 1 day)
+    # 0. SQLite cache 鈥?check if we have recent data (within 1 day)
     try:
         from app.storage.database import ETFPriceCache
         latest = ETFPriceCache.get_latest_date(code)
@@ -171,7 +171,7 @@ def _fetch_etf_prices_with_dates(code: str) -> Optional[pd.Series]:
                 logger.debug(f"ETF {code}: loaded {len(s)} rows from SQLite cache")
                 return s
     except Exception as e:
-        logger.debug(f"ETF {code}: SQLite cache miss — {e}")
+        logger.debug(f"ETF {code}: SQLite cache miss 鈥?{e}")
 
     # 1. Try efinance first (fastest, no auth needed)
     series = _try_efinance_full(code)
@@ -205,7 +205,7 @@ def _cache_etf_prices(code: str, series: pd.Series) -> None:
         prices = {d.strftime("%Y-%m-%d"): float(v) for d, v in series.items() if not pd.isna(v)}
         ETFPriceCache.save_batch(code, prices)
     except Exception:
-        pass  # Cache save failure is non-fatal
+    logger.exception("Ignored non-fatal exception")
 
 
 def _try_efinance_full(code: str) -> Optional[pd.Series]:
@@ -218,24 +218,24 @@ def _try_efinance_full(code: str) -> Optional[pd.Series]:
         if df is None or df.empty:
             return None
 
-        # Detect date column — efinance fund returns: 日期, 单位净值, 累计净值, ...
+        # Detect date column 鈥?efinance fund returns: 鏃ユ湡, 鍗曚綅鍑€鍊? 绱鍑€鍊? ...
         date_col = None
-        for col in ["日期", "date", "Date", "净值日期"]:
+        for col in ["鏃ユ湡", "date", "Date", "鍑€鍊兼棩鏈?]:
             if col in df.columns:
                 date_col = col
                 break
 
         if date_col is None:
             # Try using index
-            if hasattr(df.index, 'name') and df.index.name in ["日期", "date"]:
+            if hasattr(df.index, 'name') and df.index.name in ["鏃ユ湡", "date"]:
                 df = df.reset_index()
                 date_col = df.columns[0]
             else:
                 return None
 
-        # Detect price column — prefer 累计净值 (accumulated), then 单位净值 (unit)
+        # Detect price column 鈥?prefer 绱鍑€鍊?(accumulated), then 鍗曚綅鍑€鍊?(unit)
         price_col = None
-        for col in ["累计净值", "单位净值", "收盘", "close", "Close"]:
+        for col in ["绱鍑€鍊?, "鍗曚綅鍑€鍊?, "鏀剁洏", "close", "Close"]:
             if col in df.columns:
                 price_col = col
                 break
@@ -317,7 +317,7 @@ def _try_akshare_etf(code: str) -> Optional[pd.Series]:
 
         # Detect date column
         date_col = None
-        for col in ["日期", "date", "Date"]:
+        for col in ["鏃ユ湡", "date", "Date"]:
             if col in df.columns:
                 date_col = col
                 break
@@ -326,7 +326,7 @@ def _try_akshare_etf(code: str) -> Optional[pd.Series]:
 
         # Detect close price column
         close_col = None
-        for col in ["收盘", "close", "Close"]:
+        for col in ["鏀剁洏", "close", "Close"]:
             if col in df.columns:
                 close_col = col
                 break
@@ -359,7 +359,7 @@ def _parse_akshare_macro_df(df: pd.DataFrame) -> Optional[pd.Series]:
     """Parse akshare macro indicator DataFrame.
 
     Most akshare macro_*_yearly() APIs return columns:
-    ['产品'/'统计时间', '日期'/'月份', '实际值', '预期值', '前值']
+    ['浜у搧'/'缁熻鏃堕棿', '鏃ユ湡'/'鏈堜唤', '瀹為檯鍊?, '棰勬湡鍊?, '鍓嶅€?]
     or similar variants. This helper detects the date and value columns.
 
     Returns a date-indexed Series of the actual value, or None.
@@ -371,7 +371,7 @@ def _parse_akshare_macro_df(df: pd.DataFrame) -> Optional[pd.Series]:
 
     # Detect date column
     date_col = None
-    for candidate in ["日期", "月份", "统计时间", "date", "Date"]:
+    for candidate in ["鏃ユ湡", "鏈堜唤", "缁熻鏃堕棿", "date", "Date"]:
         if candidate in cols:
             date_col = candidate
             break
@@ -384,14 +384,14 @@ def _parse_akshare_macro_df(df: pd.DataFrame) -> Optional[pd.Series]:
 
     # Detect value column
     val_col = None
-    for candidate in ["实际值", "制造业-Loss", "全国-当月-同比", "同比", "数值"]:
+    for candidate in ["瀹為檯鍊?, "鍒堕€犱笟-Loss", "鍏ㄥ浗-褰撴湀-鍚屾瘮", "鍚屾瘮", "鏁板€?]:
         if candidate in cols:
             val_col = candidate
             break
     if val_col is None:
         # Use the first numeric column after date
         for col in cols:
-            if col != date_col and col not in ["产品", "预期值", "前值"]:
+            if col != date_col and col not in ["浜у搧", "棰勬湡鍊?, "鍓嶅€?]:
                 try:
                     pd.to_numeric(df[col].head(5), errors="raise")
                     val_col = col
@@ -488,9 +488,9 @@ def _fetch_bond_yield_history(start: str, end: str) -> Optional[pd.Series]:
         if df is None or df.empty:
             return None
 
-        # Columns: 日期, 中国国债收益率2年, 中国国债收益率5年, 中国国债收益率10年, ...
+        # Columns: 鏃ユ湡, 涓浗鍥藉€烘敹鐩婄巼2骞? 涓浗鍥藉€烘敹鐩婄巼5骞? 涓浗鍥藉€烘敹鐩婄巼10骞? ...
         date_col = None
-        for col in ["日期", "date", "Date"]:
+        for col in ["鏃ユ湡", "date", "Date"]:
             if col in df.columns:
                 date_col = col
                 break
@@ -500,12 +500,12 @@ def _fetch_bond_yield_history(start: str, end: str) -> Optional[pd.Series]:
         # Find China 10Y yield column
         val_col = None
         for col in df.columns:
-            if "中国" in col and "10" in col:
+            if "涓浗" in col and "10" in col:
                 val_col = col
                 break
         if val_col is None:
             for col in df.columns:
-                if "中国" in col:
+                if "涓浗" in col:
                     val_col = col
                     break
         if val_col is None:
@@ -534,11 +534,11 @@ def _fetch_m2_history(start: str, end: str) -> Optional[pd.Series]:
         if df is None or df.empty:
             return None
 
-        # Column format: 月份, M2-数量(亿元), M2-同比增速, M2-环比增速, M1-...
+        # Column format: 鏈堜唤, M2-鏁伴噺(浜垮厓), M2-鍚屾瘮澧為€? M2-鐜瘮澧為€? M1-...
         date_col = df.columns[0]
         val_col = None
         for col in df.columns:
-            if "M2" in col and ("同比" in col or "增速" in col):
+            if "M2" in col and ("鍚屾瘮" in col or "澧為€? in col):
                 val_col = col
                 break
         if val_col is None:
@@ -565,14 +565,14 @@ def _fetch_m2_history(start: str, end: str) -> Optional[pd.Series]:
 
 
 def _fetch_social_financing_history(start: str, end: str) -> Optional[pd.Series]:
-    """Fetch total social financing (monthly, 亿元)."""
+    """Fetch total social financing (monthly, 浜垮厓)."""
     try:
         import akshare as ak
         df = ak.macro_china_shrzgm()
         if df is None or df.empty:
             return None
 
-        # Column: 月份, 社会融资规模存量, ...
+        # Column: 鏈堜唤, 绀句細铻嶈祫瑙勬ā瀛橀噺, ...
         date_col = df.columns[0]
         val_col = df.columns[1]
 
@@ -651,7 +651,7 @@ def _fetch_dr007_history(start: str, end: str) -> Optional[pd.Series]:
 
 
 def _fetch_margin_history(start: str, end: str) -> Optional[pd.Series]:
-    """Fetch margin balance (融资余额) change history from SSE."""
+    """Fetch margin balance (铻嶈祫浣欓) change history from SSE."""
     try:
         import akshare as ak
 
@@ -659,11 +659,11 @@ def _fetch_margin_history(start: str, end: str) -> Optional[pd.Series]:
         if df is None or df.empty:
             return None
 
-        # Columns: 信用交易日期, 融资买入额, 融资余额, 融券卖出量, ...
+        # Columns: 淇＄敤浜ゆ槗鏃ユ湡, 铻嶈祫涔板叆棰? 铻嶈祫浣欓, 铻嶅埜鍗栧嚭閲? ...
         date_col = df.columns[0]
         val_col = None
         for col in df.columns:
-            if "融资余额" in col:
+            if "铻嶈祫浣欓" in col:
                 val_col = col
                 break
         if val_col is None:
@@ -696,13 +696,13 @@ def _fetch_northbound_history(start: str, end: str) -> Optional[pd.Series]:
         import akshare as ak
 
         # Try stock_hsgt_hist_em for historical northbound data
-        df = ak.stock_hsgt_hist_em(symbol="沪股通")
+        df = ak.stock_hsgt_hist_em(symbol="娌偂閫?)
         if df is None or df.empty:
             return None
 
         # Detect date and value columns
         date_col = None
-        for col in ["日期", "date", "Date"]:
+        for col in ["鏃ユ湡", "date", "Date"]:
             if col in df.columns:
                 date_col = col
                 break
@@ -711,12 +711,12 @@ def _fetch_northbound_history(start: str, end: str) -> Optional[pd.Series]:
 
         val_col = None
         for col in df.columns:
-            if "净流入" in col or "净买入" in col:
+            if "鍑€娴佸叆" in col or "鍑€涔板叆" in col:
                 val_col = col
                 break
         if val_col is None:
             for col in df.columns:
-                if "净" in col:
+                if "鍑€" in col:
                     val_col = col
                     break
         if val_col is None and len(df.columns) > 3:
@@ -740,7 +740,7 @@ def _fetch_northbound_history(start: str, end: str) -> Optional[pd.Series]:
 def _fetch_fiscal_deficit_history(start: str, end: str) -> Optional[pd.Series]:
     """Fetch fiscal deficit rate. Returns static value (3.0%) as proxy.
 
-    NOTE: This is a placeholder — fiscal deficit data changes yearly.
+    NOTE: This is a placeholder 鈥?fiscal deficit data changes yearly.
     Replace with actual data source (e.g. tushare.fina_indicator) in production.
     """
     dates = pd.date_range(start, end, freq="MS")
@@ -755,7 +755,7 @@ def _parse_chinese_date(series: pd.Series) -> pd.Series:
     """Parse various Chinese date formats to datetime.
 
     Handles:
-    - '2026年04月份' / '2026年4月份' (Chinese year-month)
+    - '2026骞?4鏈堜唤' / '2026骞?鏈堜唤' (Chinese year-month)
     - '201501' (YYYYMM compact)
     - Standard ISO formats
     """
@@ -765,13 +765,13 @@ def _parse_chinese_date(series: pd.Series) -> pd.Series:
     if result.isna().all():
         str_series = series.astype(str)
 
-        # Try '2026年04月份' format
-        if str_series.str.contains("年").any():
+        # Try '2026骞?4鏈堜唤' format
+        if str_series.str.contains("骞?).any():
             cleaned = (
                 str_series
-                .str.replace("年", "-", regex=False)
-                .str.replace("月份", "", regex=False)
-                .str.replace("月", "", regex=False)
+                .str.replace("骞?, "-", regex=False)
+                .str.replace("鏈堜唤", "", regex=False)
+                .str.replace("鏈?, "", regex=False)
                 .str.strip()
             )
             result = pd.to_datetime(cleaned + "-01", errors="coerce")
@@ -793,3 +793,4 @@ def _filter_date_range(series: pd.Series, start: str, end: str) -> pd.Series:
     end_dt = pd.Timestamp(end)
     mask = (series.index >= start_dt) & (series.index <= end_dt)
     return series[mask]
+

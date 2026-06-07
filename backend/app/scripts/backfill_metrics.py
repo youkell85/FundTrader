@@ -1,9 +1,12 @@
-"""Batch backfill fund metrics (sharpe, max_drawdown, volatility, annualized_return)
+﻿"""Batch backfill fund metrics (sharpe, max_drawdown, volatility, annualized_return)
 from fund_nav_history into fund_metrics_snapshot.
 
 Usage:
     cd backend && python app/scripts/backfill_metrics.py [--limit N] [--batch-size N] [--force]
 """
+
+import logging
+
 import argparse
 import json
 import math
@@ -28,7 +31,7 @@ def _load_progress():
             with open(PROGRESS_FILE, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception:
-            pass
+        logging.exception("Ignored non-fatal exception")
     return {"completed": [], "failed": [], "total_rows": 0}
 
 
@@ -51,7 +54,7 @@ def _save_progress(completed, failed, total_rows):
 
 
 def _calc_metrics_from_nav(nav_rows: list) -> dict:
-    """从净值序列计算指标：sharpe_ratio, max_drawdown, volatility, annualized_return.
+    """浠庡噣鍊煎簭鍒楄绠楁寚鏍囷細sharpe_ratio, max_drawdown, volatility, annualized_return.
 
     nav_rows: [{nav_date, nav, accum_nav, day_growth}, ...] ordered ASC
     """
@@ -105,10 +108,9 @@ def _calc_metrics_from_nav(nav_rows: list) -> dict:
 
 
 def get_target_codes(limit=0, force=False):
-    """获取需要回填的基金代码列表。
-
-    - force=True: 全部重新计算
-    - force=False: 只回填 fund_metrics_snapshot 中没有的
+    """鑾峰彇闇€瑕佸洖濉殑鍩洪噾浠ｇ爜鍒楄〃銆?
+    - force=True: 鍏ㄩ儴閲嶆柊璁＄畻
+    - force=False: 鍙洖濉?fund_metrics_snapshot 涓病鏈夌殑
     """
     with get_db() as conn:
         if force:
@@ -218,3 +220,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
