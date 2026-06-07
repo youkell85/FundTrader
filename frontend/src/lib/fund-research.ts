@@ -515,8 +515,26 @@ export function generateResearchReportMarkdown(input: ResearchReportInput): stri
   }
   lines.push("");
 
-  // 5.3 数据质量
-  lines.push("### 5.3 数据质量");
+  // 5.3 成本假设与换手影响
+  lines.push("### 5.3 成本假设与换手影响");
+  lines.push("");
+  const costAssumption = backtestResult?.cost_assumption;
+  if (!costAssumption || !costAssumption.enabled) {
+    lines.push(costAssumption?.missing_reason || "暂无成本扣减数据。");
+  } else {
+    lines.push("| 项目 | 数值 |");
+    lines.push("|---|---:|");
+    lines.push(`| 成本假设 | ${mdEsc(costAssumption.cost_bps != null ? String(costAssumption.cost_bps) + ' bps' : '—')} |`);
+    lines.push(`| 平均换手 | ${mdEsc(costAssumption.avg_turnover_pct != null ? fmtNum(costAssumption.avg_turnover_pct, 1, '%') : '—')} |`);
+    lines.push(`| 累计成本扣减 | ${mdEsc(costAssumption.total_cost_pct != null ? fmtNum(costAssumption.total_cost_pct, 2, '%') : '—')} |`);
+    lines.push(`| 年化成本扣减 | ${mdEsc(costAssumption.annualized_cost_pct != null ? fmtNum(costAssumption.annualized_cost_pct, 2, '%') : '—')} |`);
+    lines.push(`| 调整次数 | ${mdEsc(costAssumption.rebalance_count != null ? String(costAssumption.rebalance_count) : '—')} |`);
+    lines.push(`| 数据来源 | ${mdEsc(costAssumption.source || '—')} |`);
+  }
+  lines.push("");
+
+  // 5.4 数据质量
+  lines.push("### 5.4 数据质量");
   lines.push("");
   const dataQuality = backtestResult?.data_quality;
   if (!dataQuality) {

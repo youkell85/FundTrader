@@ -53,6 +53,17 @@ export interface RegimeHistoryEntry {
   regime: MarketRegime;
 }
 
+export interface CostAssumptionSummary {
+  enabled?: boolean;
+  cost_bps?: number | null;
+  total_cost_pct?: number | null;
+  annualized_cost_pct?: number | null;
+  avg_turnover_pct?: number | null;
+  rebalance_count?: number | null;
+  source?: string | null;
+  missing_reason?: string | null;
+}
+
 export interface DataQuality {
   assets_with_full_history: number;
   assets_with_partial_history: number;
@@ -76,6 +87,7 @@ export interface BacktestResponse {
   rolling_sharpe: Record<ComparisonMode, RollingSharpePoint[]>;
   monthly_returns: Record<ComparisonMode, Record<string, number>>;
   data_quality: DataQuality;
+  cost_assumption?: CostAssumptionSummary | null;
 }
 
 export const FREQUENCY_LABELS: Record<RebalanceFrequency, string> = {

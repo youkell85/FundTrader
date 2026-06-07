@@ -12,6 +12,7 @@ import EquityCurveChart from '@/components/backtest/EquityCurveChart';
 import DrawdownChart from '@/components/backtest/DrawdownChart';
 import RegimeTimeline from '@/components/backtest/RegimeTimeline';
 import BacktestMetricsTable from '@/components/backtest/BacktestMetricsTable';
+import BacktestCostAssumptionPanel from '@/components/backtest/BacktestCostAssumptionPanel';
 import { runAllocationBacktest } from '@/lib/api';
 import type { BacktestRequest, BacktestResponse, BacktestMetrics, ComparisonMode } from '@/types/backtest';
 import { MODE_LABELS, MODE_COLORS } from '@/types/backtest';
@@ -291,6 +292,11 @@ export default function BacktestPage() {
           {/* 绩效指标对比表 */}
           {backtestResult?.metrics && Object.keys(backtestResult.metrics).length > 0 && (
             <BacktestMetricsTable metrics={backtestResult.metrics} />
+          )}
+
+          {/* 成本假设与换手影响 */}
+          {backtestResult?.cost_assumption && (
+            <BacktestCostAssumptionPanel costAssumption={backtestResult.cost_assumption} />
           )}
 
           {/* 市场体制时间线 */}

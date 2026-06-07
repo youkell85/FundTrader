@@ -23,6 +23,7 @@ from .models import (
     BacktestCurvePoint,
     BacktestResponse,
     BacktestRequest,
+    CostAssumptionSummary,
     DataQuality,
     RebalanceEvent,
     RegimeHistoryEntry,
@@ -159,7 +160,10 @@ def run_backtest(request: BacktestRequest) -> BacktestResponse:
         if len(curves[mode]) > 750:
             curves[mode] = _downsample_curve(curves[mode])
 
-    # 10. Assemble response
+    # 10. Cost assumption summary (transparent, does not deduct from curves)
+    cost_assumption = _compute_cost_assumption(all_rebalance_events, request)
+
+    # 11. Assemble response
     data_quality = DataQuality(
         assets_with_full_history=quality_info.get("assets_with_full_history", 0),
         assets_with_partial_history=quality_info.get("assets_with_partial_history", 0),
@@ -178,6 +182,7 @@ def run_backtest(request: BacktestRequest) -> BacktestResponse:
         rolling_sharpe=rolling_sharpe_data,
         monthly_returns=monthly_returns,
         data_quality=data_quality,
+        cost_assumption=cost_assumption,
     )
 
 
@@ -558,3 +563,57 @@ def _downsample_curve(curve: List[BacktestCurvePoint]) -> List[BacktestCurvePoin
         downsampled.append(curve[-1])
 
     return downsampled
+
+
+def _compute_cost_assumption(
+    rebalance_events: List[RebalanceEvent],
+    request: BacktestRequest,
+) -> CostAssumptionSummary:
+    """Compute cost assumption summary from rebalance events.
+
+    This is transparent display only — does not deduct from curves.
+    """
+    # No rebalance events → no turnover data
+    if not rebalance_events:
+        return CostAssumptionSummary(
+            enabled=False,
+            missing_reason="暂无换手数据",
+        )
+
+    turnovers = [e.turnover for e in rebalance_events if e.turnover is not None]
+    if not turnovers:
+        return CostAssumptionSummary(
+            enabled=False,
+            missing_reason="暂无换手数据",
+        )
+
+    # Conservative default: 20 bps per rebalance
+    COST_BPS_DEFAULT = 20.0
+
+    avg_turnover = float(np.mean(turnovers))
+    rebalance_count = len(turnovers)
+
+    # Total cost estimate: turnover % * cost_bps / 10000
+    # Each rebalance cost = turnover * cost_bps / 10000
+    total_cost = sum(t * COST_BPS_DEFAULT / 10000.0 for t in turnovers)
+
+    # Annualized cost from request date range
+    try:
+        from datetime import datetime
+        start_dt = datetime.strptime(request.start_date, "%Y-%m-%d")
+        end_dt = datetime.strptime(request.end_date, "%Y-%m-%d")
+        n_days = max(1, (end_dt - start_dt).days)
+        n_years = n_days / 365.25
+        annualized_cost = total_cost / n_years if n_years > 0 else None
+    except Exception:
+        annualized_cost = None
+
+    return CostAssumptionSummary(
+        enabled=True,
+        cost_bps=COST_BPS_DEFAULT,
+        total_cost_pct=round(total_cost * 100, 2),
+        annualized_cost_pct=round(annualized_cost * 100, 2) if annualized_cost is not None else None,
+        avg_turnover_pct=round(avg_turnover, 2),
+        rebalance_count=rebalance_count,
+        source="default_assumption",
+    )

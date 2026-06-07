@@ -80,6 +80,19 @@ class DataQuality(BaseModel):
     total_trading_days: int
 
 
+class CostAssumptionSummary(BaseModel):
+    """Cost assumption and turnover impact summary."""
+
+    enabled: bool = False
+    cost_bps: Optional[float] = None  # bps per rebalance
+    total_cost_pct: Optional[float] = None  # % cumulative cost estimate
+    annualized_cost_pct: Optional[float] = None  # % annualized cost estimate
+    avg_turnover_pct: Optional[float] = None  # % average turnover
+    rebalance_count: Optional[int] = None
+    source: Optional[str] = None
+    missing_reason: Optional[str] = None
+
+
 class BacktestResponse(BaseModel):
     """Complete backtest result."""
 
@@ -91,3 +104,4 @@ class BacktestResponse(BaseModel):
     rolling_sharpe: List[Dict[str, Any]]  # [{date, mode1_sharpe, mode2_sharpe, ...}]
     monthly_returns: Dict[str, Dict[str, float]]  # mode -> {"2020-01": 2.3, ...}
     data_quality: DataQuality
+    cost_assumption: Optional[CostAssumptionSummary] = None

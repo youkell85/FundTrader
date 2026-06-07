@@ -939,4 +939,117 @@ describe("generateResearchReportMarkdown", () => {
       expect(md).not.toContain(w);
     });
   });
+
+  test("includes cost assumption section when provided", () => {
+    const backtestResult = {
+      metrics: {
+        saa_taa: {
+          annualized_return: 7.2, annualized_volatility: 12.5, max_drawdown: -15.3,
+          sharpe_ratio: 1.35, sortino_ratio: 1.62, calmar_ratio: 0.47,
+          information_ratio: 0.85, alpha: 1.23, beta: 0.92, tracking_error: 3.45,
+          monthly_win_rate: 58.3, max_drawdown_duration_days: 120,
+          avg_turnover: 25, total_rebalances: 18, taa_value_added: 1.5,
+        },
+      },
+      cost_assumption: {
+        enabled: true,
+        cost_bps: 20,
+        total_cost_pct: 2.5,
+        annualized_cost_pct: 0.85,
+        avg_turnover_pct: 25,
+        rebalance_count: 18,
+        source: "default_assumption",
+      },
+      data_quality: { earliest_common_date: "2020-01-02", total_trading_days: 1200, assets_with_full_history: 5, assets_with_partial_history: 0, missing_assets: [], macro_coverage_pct: 95 },
+      curves: {}, regime_history: [], rebalance_events: [], attribution: {}, rolling_sharpe: {}, monthly_returns: {},
+    } as any;
+
+    const md = generateResearchReportMarkdown({ portfolioFunds: portfolio, candidates: [], constraintDrafts: [], backtestResult });
+    expect(md).toContain("成本假设与换手影响");
+    expect(md).toContain("20 bps");
+    expect(md).toContain("2.50%");
+    expect(md).toContain("0.85%");
+    expect(md).toContain("25.0%");
+    expect(md).toContain("18");
+    expect(md).toContain("default_assumption");
+  });
+
+  test("shows no cost data when cost_assumption is missing", () => {
+    const backtestResult = {
+      metrics: {
+        saa_taa: {
+          annualized_return: 7.2, annualized_volatility: 12.5, max_drawdown: -15.3,
+          sharpe_ratio: 1.35, sortino_ratio: 1.62, calmar_ratio: 0.47,
+          monthly_win_rate: 58.3, max_drawdown_duration_days: 120,
+          avg_turnover: 25, total_rebalances: 18, taa_value_added: 1.5,
+        },
+      },
+      data_quality: { earliest_common_date: "2020-01-02", total_trading_days: 1200, assets_with_full_history: 5, assets_with_partial_history: 0, missing_assets: [], macro_coverage_pct: 95 },
+      curves: {}, regime_history: [], rebalance_events: [], attribution: {}, rolling_sharpe: {}, monthly_returns: {},
+    } as any;
+
+    const md = generateResearchReportMarkdown({ portfolioFunds: portfolio, candidates: [], constraintDrafts: [], backtestResult });
+    expect(md).toContain("成本假设与换手影响");
+    expect(md).toContain("暂无成本扣减数据");
+  });
+
+  test("cost assumption total_cost_pct not multiplied by 100", () => {
+    const backtestResult = {
+      metrics: {
+        saa_taa: {
+          annualized_return: 7.2, annualized_volatility: 12.5, max_drawdown: -15.3,
+          sharpe_ratio: 1.35, sortino_ratio: 1.62, calmar_ratio: 0.47,
+          monthly_win_rate: 58.3, max_drawdown_duration_days: 120,
+          avg_turnover: 25, total_rebalances: 18, taa_value_added: null,
+        },
+      },
+      cost_assumption: {
+        enabled: true,
+        cost_bps: 20,
+        total_cost_pct: 1.23,
+        annualized_cost_pct: 0.45,
+        avg_turnover_pct: 25,
+        rebalance_count: 18,
+        source: "default_assumption",
+      },
+      data_quality: { earliest_common_date: "2020-01-02", total_trading_days: 1200, assets_with_full_history: 5, assets_with_partial_history: 0, missing_assets: [], macro_coverage_pct: 95 },
+      curves: {}, regime_history: [], rebalance_events: [], attribution: {}, rolling_sharpe: {}, monthly_returns: {},
+    } as any;
+
+    const md = generateResearchReportMarkdown({ portfolioFunds: portfolio, candidates: [], constraintDrafts: [], backtestResult });
+    expect(md).toContain("1.23%");
+    expect(md).not.toContain("123.00%");
+    expect(md).toContain("0.45%");
+    expect(md).not.toContain("45.00%");
+  });
+
+  test("cost assumption section does not contain forbidden wording", () => {
+    const backtestResult = {
+      metrics: {
+        saa_taa: {
+          annualized_return: 7.2, annualized_volatility: 12.5, max_drawdown: -15.3,
+          sharpe_ratio: 1.35, sortino_ratio: 1.62, calmar_ratio: 0.47,
+          monthly_win_rate: 58.3, max_drawdown_duration_days: 120,
+          avg_turnover: 25, total_rebalances: 18, taa_value_added: null,
+        },
+      },
+      cost_assumption: {
+        enabled: true,
+        cost_bps: 20,
+        total_cost_pct: 2.5,
+        annualized_cost_pct: 0.85,
+        avg_turnover_pct: 25,
+        rebalance_count: 18,
+        source: "default_assumption",
+      },
+      data_quality: { earliest_common_date: "2020-01-02", total_trading_days: 1200, assets_with_full_history: 5, assets_with_partial_history: 0, missing_assets: [], macro_coverage_pct: 95 },
+      curves: {}, regime_history: [], rebalance_events: [], attribution: {}, rolling_sharpe: {}, monthly_returns: {},
+    } as any;
+
+    const md = generateResearchReportMarkdown({ portfolioFunds: portfolio, candidates: [], constraintDrafts: [], backtestResult });
+    const forbidden = ["买入", "卖出", "下单", "交易", "自动调仓", "信号进入组合"];
+    forbidden.forEach((w) => {
+      expect(md).not.toContain(w);
+    });
+  });
 });
