@@ -15,7 +15,7 @@ import { getFundRanking } from '@/lib/api';
 import type { FundRankingResponse } from '@/types/allocation';
 import { useAllocationStore } from '@/store/allocationStore';
 
-import { feePct } from '@/lib/fund-data';
+import { feePct, returnPct, drawdownPct, sharpeFmt } from '@/lib/fund-data';
 
 function fmtNum(v: unknown, digits = 2, suffix = ''): string {
   if (v === undefined || v === null || v === '' || v === '—') return '—';
@@ -40,13 +40,13 @@ function generateCandidateNotes(fund: any): string[] {
   const scale = parseNum(fund.totalScale);
   const feeM = parseNum(fund.feeManage);
   if (r1y !== null) {
-    notes.push(`近1年收益 ${r1y >= 0 ? '+' : ''}${fmtNum(r1y, 2, '%')}`);
+    notes.push(`近1年收益 ${r1y >= 0 ? '+' : ''}${returnPct(perf.return1y)}`);
   }
   if (r3y !== null) {
-    notes.push(`近3年收益 ${r3y >= 0 ? '+' : ''}${fmtNum(r3y, 2, '%')}`);
+    notes.push(`近3年收益 ${r3y >= 0 ? '+' : ''}${returnPct(perf.return3y)}`);
   }
   if (sharpe !== null && mdd !== null) {
-    notes.push(`夏普${fmtNum(sharpe, 2)} / 回撤${fmtNum(mdd, 2, '%')}`);
+    notes.push(`夏普${sharpeFmt(perf.sharpeRatio)} / 回撤${drawdownPct(perf.maxDrawdown)}`);
   }
   if (scale !== null) {
     notes.push(`规模${fmtNum(scale, 1, '亿')}`);
@@ -215,10 +215,10 @@ export default function FundsPage() {
                         <td className="py-2 px-2 text-white/70">{f.fundAbbr || f.fundName}</td>
                         <td className="py-2 px-2 text-white/45">{f.fundType}</td>
                         <td className={`py-2 px-2 data-number ${r1y !== null && r1y >= 0 ? 'text-[#16C784]' : 'text-[#EE6666]'}`}>
-                          {r1y !== null ? `${r1y >= 0 ? '+' : ''}${fmtNum(r1y, 2, '%')}` : '—'}
+                          {r1y !== null ? `${r1y >= 0 ? '+' : ''}${returnPct(perf.return1y)}` : '—'}
                         </td>
-                        <td className="py-2 px-2 data-number text-[#EE6666]">{fmtNum(perf.maxDrawdown, 2, '%')}</td>
-                        <td className="py-2 px-2 data-number text-white/70">{fmtNum(perf.sharpeRatio, 2)}</td>
+                        <td className="py-2 px-2 data-number text-[#EE6666]">{drawdownPct(perf.maxDrawdown)}</td>
+                        <td className="py-2 px-2 data-number text-white/70">{sharpeFmt(perf.sharpeRatio)}</td>
                         <td className="py-2 px-2 data-number text-white/50">{fmtNum(f.totalScale, 1, '亿')}</td>
                         <td className="py-2 px-2 data-number text-white/50">{feePct(f.feeManage)}</td>
                         <td className="py-2 px-2 text-white/40 max-w-[200px] truncate">

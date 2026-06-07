@@ -44,6 +44,31 @@ export function feePct(v: unknown, digits = 2): string {
   return `${pct.toFixed(digits)}%`;
 }
 
+/** 收益/百分比数值直接显示：后端已是百分比（如 61.86），直接加 % */
+export function returnPct(v: unknown, digits = 2): string {
+  const x = num(v);
+  return x === null ? "—" : `${x.toFixed(digits)}%`;
+}
+
+/** 回撤显示：处理小数(-0.6359)或百分比(-63.59)混用，统一显示为 xx.xx% */
+export function drawdownPct(v: unknown, digits = 2): string {
+  const x = num(v);
+  if (x === null) return "—";
+  const pct = Math.abs(x) <= 1 ? x * 100 : x;
+  return `${pct.toFixed(digits)}%`;
+}
+
+/** Sharpe 纯数值显示，不带 % */
+export function sharpeFmt(v: unknown, digits = 2): string {
+  return numFmt(v, digits);
+}
+
+/** 规模显示：单位“亿” */
+export function scaleYi(v: unknown, digits = 2): string {
+  const x = num(v);
+  return x === null ? "—" : `${x.toFixed(digits)}亿`;
+}
+
 // === 已实现端点：业绩曲线需要的 4 条系列 ===
 //   - 本基金：navPoints（已有）
 //   - 偏股混合均值：暂无

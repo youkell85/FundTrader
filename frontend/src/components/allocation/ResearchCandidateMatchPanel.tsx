@@ -12,7 +12,7 @@
 
 import { Link } from "react-router";
 import { Shield, AlertTriangle, CheckCircle2, Info, TrendingUp, TrendingDown, DollarSign } from "lucide-react";
-import { feePct, numFmt } from "@/lib/fund-data";
+import { feePct, returnPct, drawdownPct, sharpeFmt } from "@/lib/fund-data";
 import {
   analyzeCandidatePool,
   ASSET_CLASS_LABELS,
@@ -104,9 +104,6 @@ export default function ResearchCandidateMatchPanel({ candidates, portfolioFunds
           <tbody>
             {results.map(({ candidate, match }) => {
               const perf = candidate.performance || {};
-              const r1y = numFmt(perf.return1y);
-              const mdd = numFmt(perf.maxDrawdown);
-              const sharpe = numFmt(perf.sharpeRatio);
               return (
                 <tr key={candidate.fundCode} className="border-b border-white/[0.03] hover:bg-white/[0.02]">
                   <td className="py-2 px-2 align-top">
@@ -146,15 +143,15 @@ export default function ResearchCandidateMatchPanel({ candidates, portfolioFunds
                     <div className="space-y-0.5 text-[10px] text-white/40">
                       <div className="flex items-center gap-1">
                         <TrendingUp className="w-3 h-3" />
-                        <span>1年{r1y !== "—" ? `${r1y}%` : "—"}</span>
+                        <span>1年{returnPct(perf.return1y)}</span>
                       </div>
                       <div className="flex items-center gap-1">
                         <TrendingDown className="w-3 h-3" />
-                        <span>回撤{mdd !== "—" ? `${mdd}%` : "—"}</span>
+                        <span>回撤{drawdownPct(perf.maxDrawdown)}</span>
                       </div>
                       <div className="flex items-center gap-1">
                         <Shield className="w-3 h-3" />
-                        <span>Sharpe {sharpe}</span>
+                        <span>Sharpe {sharpeFmt(perf.sharpeRatio)}</span>
                       </div>
                       <div className="flex items-center gap-1">
                         <DollarSign className="w-3 h-3" />
@@ -182,9 +179,6 @@ export default function ResearchCandidateMatchPanel({ candidates, portfolioFunds
       <div className="md:hidden space-y-3">
         {results.map(({ candidate, match }) => {
           const perf = candidate.performance || {};
-          const r1y = numFmt(perf.return1y);
-          const mdd = numFmt(perf.maxDrawdown);
-          const sharpe = numFmt(perf.sharpeRatio);
           return (
             <div
               key={candidate.fundCode}
@@ -226,14 +220,14 @@ export default function ResearchCandidateMatchPanel({ candidates, portfolioFunds
                 </div>
                 <div>
                   <span className="text-white/25">近1年:</span>{" "}
-                  {r1y !== "—" ? `${r1y}%` : "—"}
+                  {returnPct(perf.return1y)}
                 </div>
                 <div>
                   <span className="text-white/25">回撤:</span>{" "}
-                  {mdd !== "—" ? `${mdd}%` : "—"}
+                  {drawdownPct(perf.maxDrawdown)}
                 </div>
                 <div>
-                  <span className="text-white/25">Sharpe:</span> {sharpe}
+                  <span className="text-white/25">Sharpe:</span> {sharpeFmt(perf.sharpeRatio)}
                 </div>
                 <div>
                   <span className="text-white/25">费率:</span> {feePct(candidate.feeManage)}

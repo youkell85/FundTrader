@@ -10,7 +10,7 @@ import { useAuth } from "@/hooks/useAuth";
 import {
   RISK_COLOR, POSITIVE_METRIC_COLOR, getChangeTextClass,
 } from "@/lib/colors";
-import { feePct } from "@/lib/fund-data";
+import { feePct, returnPct, drawdownPct, sharpeFmt } from "@/lib/fund-data";
 
 const typeLabels: Record<string, string> = {
   equity: "股票型", hybrid: "混合型", bond: "债券型",
@@ -60,10 +60,10 @@ function generateResearchNotes(fund: any): string[] {
   const status = getDataStatus(fund);
 
   if (r1y !== null) {
-    notes.push(`${r1y >= 0 ? "近1年收益" : "近1年亏损"}${fmtNum(r1y, 2, "%")}，${Math.abs(r1y) > 15 ? "弹性较大" : "波动适中"}`);
+    notes.push(`${r1y >= 0 ? "近1年收益" : "近1年亏损"}${returnPct(perf.return1y)}，${Math.abs(r1y) > 15 ? "弹性较大" : "波动适中"}`);
   }
   if (sharpe !== null && mdd !== null) {
-    notes.push(`夏普${fmtNum(sharpe, 2)} / 回撤${fmtNum(mdd, 2, "%")}，${sharpe > 1 ? "风险收益比优秀" : sharpe > 0.5 ? "风险收益比尚可" : "风险收益比偏弱"}`);
+    notes.push(`夏普${sharpeFmt(perf.sharpeRatio)} / 回撤${drawdownPct(perf.maxDrawdown)}，${sharpe > 1 ? "风险收益比优秀" : sharpe > 0.5 ? "风险收益比尚可" : "风险收益比偏弱"}`);
   }
   if (scale !== null) {
     notes.push(`规模${scale >= 10 ? `${fmtNum(scale, 1)}亿` : `${fmtNum(scale * 10000, 0)}万`}${scale > 100 ? "，超大规模" : scale > 10 ? "，中大型" : "，规模较小"}`);
@@ -287,11 +287,11 @@ export default function ResearchWorkbench({ funds }: Props) {
                   }},
                   { label: "近1年收益", get: (f: any) => {
                     const v = parseNum(f.performance?.return1y);
-                    return v === null ? "—" : <span className={v >= 0 ? "text-[#16C784]" : "text-[#EE6666]"}>{v >= 0 ? "+" : ""}{fmtNum(v, 2, "%")}</span>;
+                    return v === null ? "—" : <span className={v >= 0 ? "text-[#16C784]" : "text-[#EE6666]"}>{v >= 0 ? "+" : ""}{returnPct(f.performance?.return1y)}</span>;
                   }},
-                  { label: "最大回撤", get: (f: any) => <span className="text-[#EE6666]">{fmtNum(f.performance?.maxDrawdown, 2, "%")}</span> },
-                  { label: "Sharpe", get: (f: any) => fmtNum(f.performance?.sharpeRatio, 2) },
-                  { label: "波动率", get: (f: any) => fmtNum(f.performance?.annualizedVolatility, 2, "%") },
+                  { label: "最大回撤", get: (f: any) => <span className="text-[#EE6666]">{drawdownPct(f.performance?.maxDrawdown)}</span> },
+                  { label: "Sharpe", get: (f: any) => sharpeFmt(f.performance?.sharpeRatio) },
+                  { label: "波动率", get: (f: any) => returnPct(f.performance?.annualizedVolatility) },
                   { label: "规模", get: (f: any) => fmtNum(f.totalScale, 1, "亿") },
                   { label: "管理费率", get: (f: any) => feePct(f.feeManage) },
                   { label: "数据状态", get: (f: any) => {
@@ -453,10 +453,10 @@ export default function ResearchWorkbench({ funds }: Props) {
                   </div>
                   <div className="text-right data-number text-white/70">{fmtNum(fund.nav)}</div>
                   <div className={`text-right data-number ${r1y !== null && r1y >= 0 ? "text-[#16C784]" : "text-[#EE6666]"}`}>
-                    {r1y !== null ? `${r1y >= 0 ? "+" : ""}${fmtNum(r1y, 2, "%")}` : "—"}
+                    {r1y !== null ? `${r1y >= 0 ? "+" : ""}${returnPct(perf.return1y)}` : "—"}
                   </div>
-                  <div className="text-right data-number text-[#EE6666]">{fmtNum(perf.maxDrawdown, 2, "%")}</div>
-                  <div className="text-right data-number" style={{ color: POSITIVE_METRIC_COLOR }}>{fmtNum(perf.sharpeRatio, 2)}</div>
+                  <div className="text-right data-number text-[#EE6666]">{drawdownPct(perf.maxDrawdown)}</div>
+                  <div className="text-right data-number" style={{ color: POSITIVE_METRIC_COLOR }}>{sharpeFmt(perf.sharpeRatio)}</div>
                   <div className="text-right data-number text-white/50">{fmtNum(fund.totalScale, 1, "亿")}</div>
                   <div className="text-right data-number text-white/50">{feePct(fund.feeManage)}</div>
                   <div className="text-[10px] text-white/40 leading-tight space-y-0.5">
@@ -565,16 +565,16 @@ export default function ResearchWorkbench({ funds }: Props) {
                     <div className="text-center">
                       <div className="text-[9px] text-white/30">近1年</div>
                       <div className={`text-xs data-number ${r1y !== null && r1y >= 0 ? "text-[#16C784]" : "text-[#EE6666]"}`}>
-                        {r1y !== null ? `${r1y >= 0 ? "+" : ""}${fmtNum(r1y, 1, "%")}` : "—"}
+                        {r1y !== null ? `${r1y >= 0 ? "+" : ""}${returnPct(perf.return1y, 1)}` : "—"}
                       </div>
                     </div>
                     <div className="text-center">
                       <div className="text-[9px] text-white/30">回撤</div>
-                      <div className="text-xs data-number text-[#EE6666]">{fmtNum(perf.maxDrawdown, 1, "%")}</div>
+                      <div className="text-xs data-number text-[#EE6666]">{drawdownPct(perf.maxDrawdown, 1)}</div>
                     </div>
                     <div className="text-center">
                       <div className="text-[9px] text-white/30">Sharpe</div>
-                      <div className="text-xs data-number" style={{ color: POSITIVE_METRIC_COLOR }}>{fmtNum(perf.sharpeRatio, 2)}</div>
+                      <div className="text-xs data-number" style={{ color: POSITIVE_METRIC_COLOR }}>{sharpeFmt(perf.sharpeRatio)}</div>
                     </div>
                   </div>
                   <div className="text-[10px] text-white/35 mt-1.5 space-y-0.5">
