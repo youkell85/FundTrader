@@ -30,74 +30,60 @@ const { fundRouter } = await import('./fund-router');
 describe('fund detail contract fallbacks', () => {
   const caller = fundRouter.createCaller({ user: null } as any);
 
-  test('rating fallback returns dataStatus missing', async () => {
-    const result = await caller.rating({ code: '000001' });
+  function expectMissingFallback(result: { code: string; dataStatus?: string; missingReason?: string | null }) {
     expect(result.dataStatus).toBe('missing');
     expect(result.missingReason).toBeTruthy();
     expect(result.code).toBe('000001');
+  }
+
+  test('rating fallback returns dataStatus missing', async () => {
+    const result = await caller.rating({ code: '000001' });
+    expectMissingFallback(result);
   });
 
   test('purchaseInfo fallback returns dataStatus missing', async () => {
     const result = await caller.purchaseInfo({ code: '000001' });
-    expect(result.dataStatus).toBe('missing');
-    expect(result.missingReason).toBeTruthy();
-    expect(result.code).toBe('000001');
+    expectMissingFallback(result);
   });
 
   test('peerPerformance fallback returns dataStatus missing', async () => {
     const result = await caller.peerPerformance({ code: '000001' });
-    expect(result.dataStatus).toBe('missing');
-    expect(result.missingReason).toBeTruthy();
-    expect(result.code).toBe('000001');
+    expectMissingFallback(result);
   });
 
   test('riskSummary fallback returns dataStatus missing', async () => {
     const result = await caller.riskSummary({ code: '000001' });
-    expect(result.dataStatus).toBe('missing');
-    expect(result.missingReason).toBeTruthy();
-    expect(result.code).toBe('000001');
+    expectMissingFallback(result);
   });
 
   test('detailCompleteness fallback returns dataStatus missing', async () => {
     const result = await caller.detailCompleteness({ code: '000001' });
-    expect(result.dataStatus).toBe('missing');
-    expect(result.missingReason).toBeTruthy();
-    expect(result.code).toBe('000001');
+    expectMissingFallback(result);
   });
 
   test('yearReturns fallback returns dataStatus missing', async () => {
     const result = await caller.yearReturns({ code: '000001' });
-    expect(result.dataStatus).toBe('missing');
-    expect(result.missingReason).toBeTruthy();
-    expect(result.code).toBe('000001');
+    expectMissingFallback(result);
   });
 
   test('holderStructure fallback returns dataStatus missing', async () => {
     const result = await caller.holderStructure({ code: '000001' });
-    expect(result.dataStatus).toBe('missing');
-    expect(result.missingReason).toBeTruthy();
-    expect(result.code).toBe('000001');
+    expectMissingFallback(result);
   });
 
   test('scaleHistory fallback returns dataStatus missing', async () => {
     const result = await caller.scaleHistory({ code: '000001' });
-    expect(result.dataStatus).toBe('missing');
-    expect(result.missingReason).toBeTruthy();
-    expect(result.code).toBe('000001');
+    expectMissingFallback(result);
   });
 
   test('managerHistory fallback returns dataStatus missing', async () => {
     const result = await caller.managerHistory({ code: '000001' });
-    expect(result.dataStatus).toBe('missing');
-    expect(result.missingReason).toBeTruthy();
-    expect(result.code).toBe('000001');
+    expectMissingFallback(result);
   });
 
   test('managerReport fallback returns dataStatus missing', async () => {
     const result = await caller.managerReport({ code: '000001' });
-    expect(result.dataStatus).toBe('missing');
-    expect(result.missingReason).toBeTruthy();
-    expect(result.code).toBe('000001');
+    expectMissingFallback(result);
   });
 });
 
