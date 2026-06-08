@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Coins } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { SHARE_COLORS } from '@/types/allocation';
 import type { ShareSelectorResponse, AllocationRequest } from '@/types/allocation';
 import { selectShareClass } from '@/lib/api';
@@ -55,15 +56,18 @@ export default function ShareSelectorPanel() {
             A/C份额选择器
           </h3>
           <div className="flex items-center gap-2">
-            <select
-              value={holdingMonths}
-              onChange={(e) => setHoldingMonths(Number(e.target.value))}
-              className="px-2 py-1 text-xs rounded bg-white/[0.05] text-white/70 border border-white/[0.08]"
-            >
-              {HOLDING_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
+            <Select value={String(holdingMonths)} onValueChange={(value) => setHoldingMonths(Number(value))}>
+              <SelectTrigger className="h-8 w-[92px] rounded bg-white/[0.05] border-white/[0.08] px-2 py-1 text-xs text-white/70">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="bg-popover text-popover-foreground border-white/[0.08]">
+                {HOLDING_OPTIONS.map((o) => (
+                  <SelectItem key={o.value} value={String(o.value)} className="text-xs">
+                    {o.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <button
               onClick={handleAnalyze}
               disabled={loading}
