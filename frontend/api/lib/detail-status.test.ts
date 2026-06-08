@@ -5,6 +5,7 @@ import {
   deriveStatus,
   summarizeDetailCoverage,
   type CoverageEntry,
+  type CoverageKey,
 } from "@/lib/detail-status";
 
 describe("detail status helpers", () => {
@@ -81,8 +82,8 @@ describe("deriveStatus — 数据覆盖度状态推导", () => {
 });
 
 describe("summarizeDetailCoverage — 覆盖度统计", () => {
-  const e = (key: string, status: CoverageEntry["status"]): CoverageEntry => ({
-    key: key as CoverageEntry["key"],
+  const e = (key: CoverageKey, status: CoverageEntry["status"]): CoverageEntry => ({
+    key,
     label: key,
     endpoint: `trpc.fund.${key}`,
     status,
@@ -90,9 +91,9 @@ describe("summarizeDetailCoverage — 覆盖度统计", () => {
 
   test("统计 available 数量", () => {
     const summary = summarizeDetailCoverage({
-      a: e("a", "available"),
-      b: e("b", "available"),
-      c: e("c", "missing"),
+      detailByCode: e("detailByCode", "available"),
+      rating: e("rating", "available"),
+      purchaseInfo: e("purchaseInfo", "missing"),
     });
     expect(summary.total).toBe(3);
     expect(summary.available).toBe(2);
@@ -104,12 +105,12 @@ describe("summarizeDetailCoverage — 覆盖度统计", () => {
 
   test("统计各状态数量（含 stale）", () => {
     const summary = summarizeDetailCoverage({
-      a: e("a", "available"),
-      b: e("b", "partial"),
-      c: e("c", "pending"),
-      d: e("d", "missing"),
-      e: e("e", "stale"),
-      f: e("f", "error"),
+      detailByCode: e("detailByCode", "available"),
+      rating: e("rating", "partial"),
+      purchaseInfo: e("purchaseInfo", "pending"),
+      holderStructure: e("holderStructure", "missing"),
+      yearReturns: e("yearReturns", "stale"),
+      peerPerformance: e("peerPerformance", "error"),
     });
     expect(summary.total).toBe(6);
     expect(summary.available).toBe(1);
@@ -127,9 +128,9 @@ describe("summarizeDetailCoverage — 覆盖度统计", () => {
     expect(summary.items).toEqual([]);
   });
 
-  test("未定义的 key 不会进入统计", () => {
+  test("单个 coverage key 可以正常统计", () => {
     const summary = summarizeDetailCoverage({
-      a: e("a", "available"),
+      detailByCode: e("detailByCode", "available"),
     });
     expect(summary.total).toBe(1);
     expect(summary.items).toHaveLength(1);
