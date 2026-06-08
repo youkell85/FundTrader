@@ -1,15 +1,13 @@
 import { useMemo, useState } from "react";
 import { Link } from "react-router";
 import {
-  Search, Filter, Star, Trash2, Plus, Minus, TrendingUp, TrendingDown,
-  BarChart3, AlertTriangle, CheckCircle2, X, LayoutList, Eye,
+  Search, Star, Trash2, Plus, Minus,
+  BarChart3, X, Eye,
   ArrowUpDown, Database, Shield,
 } from "lucide-react";
 import { trpc } from "@/providers/trpc";
 import { useAuth } from "@/hooks/useAuth";
-import {
-  RISK_COLOR, POSITIVE_METRIC_COLOR, getChangeTextClass,
-} from "@/lib/colors";
+import { POSITIVE_METRIC_COLOR } from "@/lib/colors";
 import { feePct, returnPct, drawdownPct, sharpeFmt } from "@/lib/fund-data";
 
 const typeLabels: Record<string, string> = {
@@ -427,10 +425,7 @@ export default function ResearchWorkbench({ funds }: Props) {
         ) : (
           filtered.map((fund) => {
             const perf = fund.performance || {};
-            const daily = parseNum(fund.dailyChange) ?? 0;
             const r1y = parseNum(perf.return1y);
-            const sharpe = parseNum(perf.sharpeRatio);
-            const mdd = parseNum(perf.maxDrawdown);
             const isWatchlist = fund.source === "watchlist";
             const status = getDataStatus(fund);
             const statusCfg = dataStatusConfig[status] || dataStatusConfig.partial;

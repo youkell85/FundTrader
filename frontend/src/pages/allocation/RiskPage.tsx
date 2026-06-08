@@ -9,19 +9,15 @@ import CorrelationMatrixPanel from '@/components/allocation/CorrelationMatrixPan
 import { checkCorrelation, analyzeFees } from '@/lib/api';
 import type { CorrelationCheckResponse, FeeAnalysisResponse } from '@/types/allocation';
 import { ASSET_CLASS_LABELS } from '@/types/allocation';
-import { useAllocationStore } from '@/store/allocationStore';
 
 export default function RiskPage() {
-  const { d, mc, st, pm, meta } = useAllocationData();
+  const { d, mc, st, meta } = useAllocationData();
   const [corrData, setCorrData] = useState<CorrelationCheckResponse | null>(null);
   const [corrLoading, setCorrLoading] = useState(false);
   const [corrError, setCorrError] = useState<string | null>(null);
   const [feeData, setFeeData] = useState<FeeAnalysisResponse | null>(null);
   const [feeLoading, setFeeLoading] = useState(false);
   const [feeError, setFeeError] = useState<string | null>(null);
-
-  let storeOutput: any = null;
-  try { storeOutput = useAllocationStore().state.output; } catch {}
 
   const handleCheckCorrelation = async () => {
     const allocations = d?.saa?.allocations;

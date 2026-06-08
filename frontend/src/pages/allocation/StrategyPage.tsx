@@ -4,7 +4,6 @@ import { ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, 
 import { useAllocationData } from '@/hooks/useAllocationData';
 import { useAllocationStore } from '@/store/allocationStore';
 import { ASSET_CLASS_LABELS, ASSET_GROUP_LABELS, GROUP_COLORS, RISK_LABELS, GOAL_LABELS, HORIZON_LABELS, VARIANT_LABELS, VARIANT_COLORS } from '@/types/allocation';
-import type { VariantsResponse } from '@/types/allocation';
 import { generateVariants } from '@/lib/api';
 
 /** 缺值兜底 */

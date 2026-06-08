@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useParams } from "react-router";
-import { ArrowLeft, RefreshCw, AlertCircle, Star, TrendingUp, Activity, BarChart3, Scale, Percent, PieChart as PieChartIcon, Users, FileText, ShoppingCart, ShieldAlert } from "lucide-react";
+import { ArrowLeft, RefreshCw, AlertCircle, Star, TrendingUp, Activity, BarChart3, Scale, Percent, ShieldAlert } from "lucide-react";
 import {
   Area,
   Bar,
@@ -686,8 +686,6 @@ export default function FundDetail() {
         <KpiStrip
           fund={fund}
           risk={risk}
-          navPoints={navPoints}
-          coverage={coverage}
         />
 
         {/* === Coverage + Anchor Nav === */}
@@ -893,13 +891,9 @@ function ResearchHeader({
 function KpiStrip({
   fund,
   risk,
-  navPoints,
-  coverage,
 }: {
   fund: any;
   risk: ReturnType<typeof computeRisk>;
-  navPoints: Array<{ d: string; nav: number }>;
-  coverage: CoverageSummary;
 }) {
   const perf = fund.performance || {};
   const items = [
@@ -1182,284 +1176,12 @@ function DataGapsPanel({ items }: { items: CoverageEntry[] }) {
 
 // ===================== 左侧栏 =====================
 
-function LeftSidebar({
-  fund,
-  navPoints,
-  risk,
-  rating,
-  purchaseInfo,
-  completeness,
-}: {
-  fund: any;
-  navPoints: Array<{ d: string; nav: number }>;
-  risk: {
-    sharpe: number | null;
-    sortino: number | null;
-    maxDrawdown: number | null;
-    volatility: number | null;
-    downsideRisk: number | null;
-    monthWinRate: number | null;
-    diagnosticScore: number | null;
-    worstMonth: number | null;
-  };
-  rating?: { rating3y: number | null; rating5y: number | null; score: number | null; source: string | null } | null;
-  purchaseInfo?: {
-    purchaseStatus?: string | null;
-    redeemStatus?: string | null;
-    minPurchaseAmount?: number | string | null;
-    subscriptionFeeRate?: string | null;
-    redemptionFeeRate?: string | null;
-    managementFeeRate?: string | null;
-    custodyFeeRate?: string | null;
-    serviceFeeRate?: string | null;
-    totalFeeRate1y?: string | number | null;
-  } | null;
-  completeness?: { coverage?: number; available?: number; partial?: number; total?: number } | null;
-}) {
-  const rows: Array<[string, string]> = [
-    ["成立日期", fund.establishDate || "—"],
-    ["基金公司", fund.company || "—"],
-    ["基金经理", fund.manager?.name || "—"],
-    ["基金规模", fund.totalScale ? `${fund.totalScale} 亿元` : "—"],
-    ["投资类型", fund.category || fund.fundType || "—"],
-    ["比较基准", fund.benchmark || "—"],
-    ["管理费", fund.feeManage != null ? formatFee(fund.feeManage) : "—"],
-    ["托管费", fund.feeCustody != null ? formatFee(fund.feeCustody) : "—"],
-  ];
-
-  // 业绩块 9 指标：后端 8 个（return1y/3y/5y/2y/10y + annualizedReturn + sharpeRatio/sortinoRatio/calmarRatio + winRate/alpha/beta/maxDrawdown）+ 前端 1 个（diagnosticScore）
-  // Treynor：需独立 Beta + 风险溢价计算
-  return (
-    <>
-      {/* 基金评级 */}
-      {rating && (rating.rating3y !== null || rating.rating5y !== null) ? (
-        <Panel
-          title="基金评级"
-          extra={
-            rating.source ? (
-              <span className="text-xs text-muted-foreground">{rating.source}</span>
-            ) : null
-          }
-        >
-          <div className="space-y-2 text-sm">
-            {[
-              { k: "3 年", v: rating.rating3y },
-              { k: "5 年", v: rating.rating5y },
-            ].map((row) => (
-              <div key={row.k} className="flex items-center justify-between">
-                <span className="text-muted-foreground">{row.k}</span>
-                <span className="inline-flex">
-                  {Array.from({ length: 5 }).map((_, i) => (
-                    <Star
-                      key={i}
-                      className={`h-4 w-4 ${i < (row.v ?? 0) ? "fill-yellow-400 text-yellow-400" : "text-muted-foreground/30"}`}
-                    />
-                  ))}
-                </span>
-              </div>
-            ))}
-          </div>
-        </Panel>
-      ) : (
-        <MissingPanel
-          title="基金评级"
-          reason="依赖 fund.rating 接口（3 年 / 5 年评级，1~5 颗星），后端 tRPC 已就绪但需数据库有 tushare fund_rating 数据"
-          endpoint="trpc.fund.rating"
-          height={120}
-        />
-      )}
-
-      {/* 基金业绩 — 9 指标 */}
-      <Panel
-        title="基金业绩"
-        extra={
-          <span className="rounded border border-dashed border-muted-foreground/40 px-1.5 py-0.5 text-[10px] text-muted-foreground">
-            Treynor 待补
-          </span>
-        }
-      >
-        <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
-          <PerfRow k="一年回报" v={fund.performance?.return1y} suffix="%" />
-          <PerfRow k="三年回报(年化)" v={fund.performance?.return3y} suffix="%" />
-          <PerfRow k="五年回报(年化)" v={fund.performance?.return5y} suffix="%" />
-          <PerfRow k="年化回报" v={fund.performance?.annualizedReturn} suffix="%" />
-          <PerfRow k="夏普比率" v={fund.performance?.sharpeRatio} />
-          <PerfRow k="Sortino" v={fund.performance?.sortinoRatio} />
-          <PerfRow k="卡玛比率" v={fund.performance?.calmarRatio} />
-          <PerfRow k="信息比率" v={fund.performance?.informationRatio} />
-          <PerfRow k="月胜率" v={fund.performance?.winRate} suffix="%" />
-          <PerfRow k="Alpha(年化)" v={fund.performance?.alpha} suffix="%" />
-          <PerfRow k="Beta" v={fund.performance?.beta} />
-          <PerfRow
-            k="诊断得分"
-            v={null}
-            k2={risk.diagnosticScore === null ? null : `${risk.diagnosticScore}/100`}
-          />
-        </div>
-        <div className="mt-2 text-[10px] text-muted-foreground/80">
-          🛈 Treynor：需独立 Beta + 风险溢价算法；后端无独立字段。
-        </div>
-      </Panel>
-
-      {/* 基本信息 */}
-      <Panel title="基本信息">
-        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
-          {rows.map(([k, v]) => (
-            <Fragment key={k}>
-              <dt className="text-muted-foreground">{k}</dt>
-              <dd className="break-words text-right">{v}</dd>
-            </Fragment>
-          ))}
-        </dl>
-      </Panel>
-
-      {/* 公司信息 */}
-      {(() => {
-        const ci = (fund.companyInfo || {}) as Record<string, unknown>;
-        const ciName = ci.name as string | undefined;
-        if (!ciName) return null;
-        const ciRows: Array<[string, string]> = [
-          ["公司名称", ciName],
-          ["旗下基金数", ci.fund_count != null ? String(ci.fund_count) : "—"],
-          ["基金经理数", ci.manager_count != null ? String(ci.manager_count) : "—"],
-          ["公司总规模", ci.total_scale != null ? `${ci.total_scale} 亿元` : "—"],
-        ];
-        return (
-          <Panel title="公司信息">
-            <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
-              {ciRows.map(([k, v]) => (
-                <Fragment key={k}>
-                  <dt className="text-muted-foreground">{k}</dt>
-                  <dd className="break-words text-right">{v}</dd>
-                </Fragment>
-              ))}
-            </dl>
-          </Panel>
-        );
-      })()}
-
-      {/* 比较基准 */}
-      <Panel title="比较基准">
-        <BenchmarkStack benchmark={String(fund.benchmark || "—")} />
-      </Panel>
-
-      {/* 购买信息 */}
-      {purchaseInfo && (purchaseInfo.purchaseStatus || purchaseInfo.minPurchaseAmount) ? (
-        <Panel title="购买信息">
-          <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-sm">
-            <dt className="text-muted-foreground">申购状态</dt>
-            <dd className="text-right">{purchaseInfo.purchaseStatus || "—"}</dd>
-            <dt className="text-muted-foreground">赎回状态</dt>
-            <dd className="text-right">{purchaseInfo.redeemStatus || "—"}</dd>
-            <dt className="text-muted-foreground">起购金额</dt>
-            <dd className="text-right">{purchaseInfo.minPurchaseAmount ?? "—"} 元</dd>
-            <dt className="text-muted-foreground">申购费率</dt>
-            <dd className="text-right">{purchaseInfo.subscriptionFeeRate || "—"}</dd>
-            <dt className="text-muted-foreground">赎回费率</dt>
-            <dd className="text-right">{purchaseInfo.redemptionFeeRate || "—"}</dd>
-            <dt className="text-muted-foreground">管理费率</dt>
-            <dd className="text-right">{purchaseInfo.managementFeeRate || "—"}</dd>
-            <dt className="text-muted-foreground">托管费率</dt>
-            <dd className="text-right">{purchaseInfo.custodyFeeRate || "—"}</dd>
-            <dt className="text-muted-foreground">销售服务费率</dt>
-            <dd className="text-right">{purchaseInfo.serviceFeeRate || "—"}</dd>
-            <dt className="text-muted-foreground">总费率(持有 1 年)</dt>
-            <dd className="text-right">
-              {purchaseInfo.totalFeeRate1y != null ? `${purchaseInfo.totalFeeRate1y}%` : "—"}
-            </dd>
-          </dl>
-        </Panel>
-      ) : (
-        <MissingPanel
-          title="购买信息"
-          reason="依赖 fund.purchaseInfo 接口（已实现但 fund_master 表缺 purchase_status / min_purchase / subscription_fee 等字段）"
-          endpoint="trpc.fund.purchaseInfo"
-          height={140}
-        />
-      )}
-
-      {/* 数据覆盖快览 */}
-      <Panel title="数据覆盖">
-        <div className="grid grid-cols-2 gap-2">
-          <Metric label="净值点数" value={String(navPoints.length)} />
-          <Metric label="持仓数" value={String(fund.holdings?.length || 0)} />
-          <Metric label="资产项" value={String(fund.assetAllocation?.length || 0)} />
-          <Metric
-            label="真实覆盖"
-            value={completeness?.total ? `${Math.round((completeness.coverage || 0) * 100)}%` : "—"}
-          />
-        </div>
-      </Panel>
-    </>
-  );
-}
-
 function formatFee(v: unknown): string {
   const x = num(v);
   if (x === null) return "—";
   return `${(x <= 1 ? x * 100 : x).toFixed(2)}%`;
 }
 
-/** 把 "80%沪深300指数+20%中证全债指数" / "沪深300指数 80.00%, 中证全债指数 20.00%" 解析为堆叠条。 */
-function BenchmarkStack({ benchmark }: { benchmark: string }) {
-  const items = useMemo(() => parseBenchmark(benchmark), [benchmark]);
-  if (items.length === 0) {
-    return <div className="text-sm text-muted-foreground">{benchmark}</div>;
-  }
-  const colors = ["#3B6CFF", "#46C6C2", "#E9AB60", "#5CA8DF", "#9D7BFF"];
-  return (
-    <div className="space-y-2">
-      <div className="flex h-3 w-full overflow-hidden rounded">
-        {items.map((it, i) => (
-          <div
-            key={`${it.name}-${i}`}
-            style={{ width: `${it.ratio}%`, background: colors[i % colors.length] }}
-            title={`${it.name} ${it.ratio}%`}
-          />
-        ))}
-      </div>
-      <div className="space-y-1 text-sm">
-        {items.map((it, i) => (
-          <div key={`${it.name}-${i}`} className="flex items-center justify-between gap-2">
-            <span className="flex items-center gap-2">
-              <span
-                className="inline-block h-2.5 w-2.5 rounded-sm"
-                style={{ background: colors[i % colors.length] }}
-              />
-              {it.name}
-            </span>
-            <span className="data-number text-muted-foreground">{it.ratio.toFixed(2)}%</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function parseBenchmark(text: string): Array<{ name: string; ratio: number }> {
-  if (!text || text === "—") return [];
-  // 拆分尝试 1："+ 分隔"
-  const parts = text.split(/[+;,，；]/).map((s) => s.trim()).filter(Boolean);
-  const out: Array<{ name: string; ratio: number }> = [];
-  for (const p of parts) {
-    const m = p.match(/([\d.]+)\s*%/);
-    if (m) {
-      const ratio = parseFloat(m[1]);
-      const name = p.replace(m[0], "").trim() || p.trim();
-      if (Number.isFinite(ratio)) out.push({ name, ratio });
-    } else {
-      // 尝试"name + ratio"反过来
-      const m2 = p.match(/(.+?)\s*([\d.]+)\s*%?/);
-      if (m2) {
-        const ratio = parseFloat(m2[2]);
-        if (Number.isFinite(ratio)) out.push({ name: m2[1].trim(), ratio });
-      }
-    }
-  }
-  // 拆分尝试 2：原串没匹配到，就整体作为单一名字
-  if (out.length === 0) out.push({ name: text, ratio: 100 });
-  return out;
-}
 
 // ===================== 业绩表现 =====================
 

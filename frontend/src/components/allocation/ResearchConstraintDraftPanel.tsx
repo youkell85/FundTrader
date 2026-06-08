@@ -26,7 +26,6 @@ import {
 } from "lucide-react";
 import {
   generateConstraintDraft,
-  ASSET_CLASS_LABELS,
   type ConstraintDraftItem,
   type ConstraintAction,
 } from "@/lib/fund-research";

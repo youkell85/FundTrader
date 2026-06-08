@@ -1,4 +1,3 @@
-import React from 'react';
 import type { CostAssumptionSummary } from '@/types/backtest';
 
 interface Props {

@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Coins, Clock, DollarSign } from 'lucide-react';
+import { useState } from 'react';
+import { Coins } from 'lucide-react';
 import { SHARE_COLORS } from '@/types/allocation';
 import type { ShareSelectorResponse, AllocationRequest } from '@/types/allocation';
 import { selectShareClass } from '@/lib/api';

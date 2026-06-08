@@ -7,10 +7,7 @@ import WhatIfSimulatorPanel from '@/components/allocation/WhatIfSimulatorPanel';
 import ShareSelectorPanel from '@/components/allocation/ShareSelectorPanel';
 import { runWhatIfSimulation } from '@/lib/api';
 import type { WhatIfRequest, WhatIfResponse, AllocationRequest } from '@/types/allocation';
-import { WHATIF_SLIDER_CONFIG } from '@/types/allocation';
 import { useAllocationStore } from '@/store/allocationStore';
-
-type SliderKey = keyof typeof WHATIF_SLIDER_CONFIG;
 
 export default function SimulatorPage() {
   const { meta } = useAllocationData();

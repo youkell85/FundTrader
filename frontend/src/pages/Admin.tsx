@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
-import { Users, Shield, Activity, Database, Key, Clock, Mail, CheckCircle, XCircle } from "lucide-react";
-import { trpc } from "@/providers/trpc";
+import { Users, Shield, Activity, Database, Key, Clock, CheckCircle, XCircle } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useNavigate } from "react-router";
 

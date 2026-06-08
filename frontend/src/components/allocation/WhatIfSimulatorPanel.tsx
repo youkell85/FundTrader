@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { SlidersHorizontal, RotateCcw } from 'lucide-react';
 import { WHATIF_SLIDER_CONFIG } from '@/types/allocation';
 import type { WhatIfRequest, WhatIfResponse, AllocationRequest } from '@/types/allocation';
@@ -6,12 +6,6 @@ import { runWhatIfSimulation } from '@/lib/api';
 import { useAllocationStore } from '@/store/allocationStore';
 
 type SliderKey = keyof typeof WHATIF_SLIDER_CONFIG;
-
-const DELTA_LABELS: Record<string, string> = {
-  delta_return: '收益变化',
-  delta_volatility: '波动变化',
-  delta_sharpe: '夏普变化',
-};
 
 export default function WhatIfSimulatorPanel() {
   const [loading, setLoading] = useState(false);

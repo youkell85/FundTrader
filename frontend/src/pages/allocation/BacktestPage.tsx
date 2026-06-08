@@ -5,7 +5,6 @@ import {
 } from 'lucide-react';
 import { useAllocationData } from '@/hooks/useAllocationData';
 import { useAllocationStore } from '@/store/allocationStore';
-import PageHeader from '@/components/ui/PageHeader';
 import BacktestPanel from '@/components/backtest/BacktestPanel';
 import RebalancePanel from '@/components/allocation/RebalancePanel';
 import EquityCurveChart from '@/components/backtest/EquityCurveChart';

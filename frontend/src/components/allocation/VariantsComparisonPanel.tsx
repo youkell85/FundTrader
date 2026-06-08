@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { GitCompareArrows, Shield, Scale, TrendingUp } from 'lucide-react';
+import { useState } from 'react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { GitCompareArrows } from 'lucide-react';
 import { VARIANT_LABELS, VARIANT_COLORS, RISK_LABELS } from '@/types/allocation';
 import type { VariantsResponse, AllocationRequest } from '@/types/allocation';
 import { generateVariants } from '@/lib/api';
@@ -12,14 +12,6 @@ const METRIC_LABELS: Record<string, string> = {
   sharpe_ratio: '夏普比率',
   max_drawdown: '最大回撤',
   equity_ratio: '权益占比',
-};
-
-const METRIC_COLORS: Record<string, string> = {
-  expected_return: '#16C784',
-  volatility: '#FAC858',
-  sharpe_ratio: '#5470C6',
-  max_drawdown: '#EE6666',
-  equity_ratio: '#9D7BFF',
 };
 
 export default function VariantsComparisonPanel() {

@@ -137,7 +137,6 @@ type UserState = {
 };
 
 export function getUserState(userId: string): UserState {
-  const data = readStore();
   const key = 'state_' + userId;
   try {
     const raw = fs.readFileSync(STORE_PATH.replace('.json', '_states.json'), 'utf-8');

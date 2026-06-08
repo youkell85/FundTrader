@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router';
 import {
-  List, TrendingUp, DollarSign, Loader2, AlertCircle, Shield, Trash2,
+  List, TrendingUp, Loader2, AlertCircle, Shield, Trash2,
 } from 'lucide-react';
 import { useAllocationData } from '@/hooks/useAllocationData';
 import { useAuth } from '@/hooks/useAuth';
@@ -63,7 +63,7 @@ function generateCandidateNotes(fund: any): string[] {
 }
 
 export default function FundsPage() {
-  const { d, funds, constraints, meta, isReal } = useAllocationData();
+  const { funds, constraints, meta, isReal } = useAllocationData();
   const { user } = useAuth();
   const utils = trpc.useUtils();
 

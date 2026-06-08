@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate, Link } from "react-router";
+import { useNavigate } from "react-router";
 import { Loader2, LogIn, UserPlus, Mail } from "lucide-react";
 import { trpc } from "@/providers/trpc";
 

@@ -9,7 +9,7 @@ import { getMarketDataStatus } from '@/lib/api';
 import type { MarketDataStatus } from '@/types/allocation';
 
 export default function MarketPage() {
-  const { d, taa, meta } = useAllocationData();
+  const { taa, meta } = useAllocationData();
   const [marketStatus, setMarketStatus] = useState<MarketDataStatus | null>(null);
 
   useEffect(() => {

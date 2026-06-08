@@ -14,7 +14,6 @@ import { useAllocationStore } from '@/store/allocationStore';
 import { useAllocationData } from '@/hooks/useAllocationData';
 import type { SavedPlanItem, PlanListResponse } from '@/types/allocation';
 import { RISK_LABELS } from '@/types/allocation';
-import { isMockOutput } from '@/lib/execution-plan';
 import { summarizeSavedReportSnapshot } from '@/lib/allocation-report-snapshot';
 import type { SnapshotModuleSummary } from '@/lib/allocation-report-snapshot';
 import { generateResearchReportMarkdown } from '@/lib/fund-research';
