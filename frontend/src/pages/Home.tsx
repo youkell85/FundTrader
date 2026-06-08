@@ -16,6 +16,14 @@ const typeLabels: Record<string, string> = {
   reits: "REITs",
 };
 
+type CategoryMetricRow = {
+  category?: string | null;
+  total_count?: number | string | null;
+  avg_annual_return_eq?: number | string | null;
+  avg_max_drawdown_eq?: number | string | null;
+  avg_sharpe_eq?: number | string | null;
+};
+
 function isMissingMetric(value: unknown) {
   return value === undefined || value === null || value === "" || value === "—" || value === "-";
 }
@@ -170,9 +178,9 @@ export default function Home() {
 
   const categoryStats = useMemo(() => {
     const preferredOrder = ["etf", "equity", "hybrid", "bond", "index", "qdii"] as const;
-    const apiRows = Array.isArray((categoryMetricsData as any)?.rows) ? (categoryMetricsData as any).rows : [];
+    const apiRows: CategoryMetricRow[] = Array.isArray((categoryMetricsData as any)?.rows) ? (categoryMetricsData as any).rows : [];
     if (!showWatchlistOnly && apiRows.length > 0) {
-      const rowByCategory = new Map(apiRows.map((r: any) => [String(r.category || ""), r]));
+      const rowByCategory = new Map<string, CategoryMetricRow>(apiRows.map((r) => [String(r.category || ""), r]));
       return preferredOrder.map((key) => {
         const row = rowByCategory.get(key);
         const label = typeLabels[key] || key;
