@@ -8,9 +8,10 @@ import {
 import { GROUP_COLORS, ASSET_CLASS_LABELS, ASSET_GROUP_LABELS, RISK_LABELS, GOAL_LABELS, HORIZON_LABELS } from '@/types/allocation';
 import { useAllocationData } from '@/hooks/useAllocationData';
 import { useAllocationStore } from '@/store/allocationStore';
-import { generateAllocationStream } from '@/lib/api';
+import { generateAllocationStream, getMarketDataStatus } from '@/lib/api';
 import AllocationProgress, { type StepState, STEP_LABELS } from '@/components/allocation/AllocationProgress';
 import DataFreshnessBar from '@/components/allocation/DataFreshnessBar';
+import type { MarketDataStatus } from '@/types/allocation';
 
 const GLABELS = ASSET_GROUP_LABELS;
 
@@ -36,11 +37,22 @@ export default function OverviewPage() {
   );
   const [currentStep, setCurrentStep] = useState(0);
   const [elapsed, setElapsed] = useState(0);
+  const [marketStatus, setMarketStatus] = useState<MarketDataStatus | null>(null);
   const startTime = useRef(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
   const streamCancelRef = useRef<{ cancel: () => void } | null>(null);
 
   useEffect(() => { return () => { if (timerRef.current) clearInterval(timerRef.current); }; }, []);
+
+  useEffect(() => {
+    let active = true;
+    const fetchStatus = () => {
+      getMarketDataStatus().then((status) => { if (active) setMarketStatus(status); }).catch(() => {});
+    };
+    fetchStatus();
+    const timer = setInterval(fetchStatus, 60000);
+    return () => { active = false; clearInterval(timer); };
+  }, []);
 
   const startTimer = useCallback(() => {
     startTime.current = Date.now();
@@ -173,7 +185,7 @@ export default function OverviewPage() {
         </div>
       )}
 
-      <DataFreshnessBar generatedAt={meta.generated_at} />
+      <DataFreshnessBar status={marketStatus} generatedAt={meta.generated_at} />
 
       {/* ===== 预期指标条 ===== */}
       <div className="grid grid-cols-2 md:grid-cols-6 gap-2 md:gap-3">
