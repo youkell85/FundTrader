@@ -36,6 +36,8 @@ _TYPE_BUCKET_MAP: dict[str, str] = {
 }
 
 HS300_BENCHMARK_CODE = "000300"
+PEER_PERFORMANCE_DEFAULT_WINDOW_DAYS = 365 * 5 + 2
+PEER_PERFORMANCE_DEFAULT_MAX_POINTS = 420
 
 
 def _normalize_fund_type_to_bucket(raw: str, name: str = "") -> str:
@@ -1396,9 +1398,58 @@ def _calc_drawdown_series(
     return result
 
 
-def get_fund_peer_performance(code: str) -> dict:
+def _bounded_series(
+    points: list[dict[str, Any]],
+    *,
+    window_days: int | None = PEER_PERFORMANCE_DEFAULT_WINDOW_DAYS,
+    max_points: int | None = PEER_PERFORMANCE_DEFAULT_MAX_POINTS,
+) -> list[dict[str, Any]]:
+    if not points:
+        return []
+
+    filtered = points
+    if window_days and window_days > 0:
+        parsed: list[tuple[datetime, dict[str, Any]]] = []
+        for point in points:
+            raw_date = str(point.get("date", ""))[:10]
+            try:
+                parsed.append((datetime.strptime(raw_date, "%Y-%m-%d"), point))
+            except ValueError:
+                continue
+        if parsed:
+            latest = max(d for d, _ in parsed)
+            cutoff = latest - timedelta(days=window_days)
+            clipped = [point for d, point in parsed if d >= cutoff]
+            if clipped:
+                filtered = clipped
+
+    if not max_points or max_points <= 0 or len(filtered) <= max_points:
+        return filtered
+    if max_points == 1:
+        return [filtered[-1]]
+
+    last = len(filtered) - 1
+    selected: list[dict[str, Any]] = []
+    seen: set[int] = set()
+    for i in range(max_points):
+        idx = round(i * last / (max_points - 1))
+        if idx not in seen:
+            selected.append(filtered[idx])
+            seen.add(idx)
+    if selected[-1] is not filtered[-1]:
+        selected[-1] = filtered[-1]
+    return selected
+
+
+def get_fund_peer_performance(
+    code: str,
+    window_days: int | None = PEER_PERFORMANCE_DEFAULT_WINDOW_DAYS,
+    max_points: int | None = PEER_PERFORMANCE_DEFAULT_MAX_POINTS,
+) -> dict:
     """同类/指数/基准同期收益率。只返回真实或可追溯快照，缺口保留 null。"""
     empty = _empty_perf_row()
+    bounded_window_days = max(30, min(int(window_days or PEER_PERFORMANCE_DEFAULT_WINDOW_DAYS), 365 * 30))
+    bounded_max_points = max(30, min(int(max_points or PEER_PERFORMANCE_DEFAULT_MAX_POINTS), 2000))
     try:
         with get_db_context() as conn:
             master = conn.execute(
@@ -1466,7 +1517,11 @@ def get_fund_peer_performance(code: str) -> dict:
             fund_nav_rows, _, _ = _get_nav_history_for_detail(code)
             if fund_nav_rows:
                 fund_series = _calc_cumulative_return_series(fund_nav_rows)
-                series_data["fund"] = fund_series
+                series_data["fund"] = _bounded_series(
+                    fund_series,
+                    window_days=bounded_window_days,
+                    max_points=bounded_max_points,
+                )
         except Exception as e:
             console_error(f"fund series calc failed for {code}: {e}")
 
@@ -1478,7 +1533,11 @@ def get_fund_peer_performance(code: str) -> dict:
                 fund_start = series_data["fund"][0]["date"] if series_data["fund"] else None
                 fund_end = series_data["fund"][-1]["date"] if series_data["fund"] else None
                 index_series = _calc_cumulative_return_series(index_nav_rows, start_date=fund_start, end_date=fund_end)
-                series_data["index"] = index_series
+                series_data["index"] = _bounded_series(
+                    index_series,
+                    window_days=bounded_window_days,
+                    max_points=bounded_max_points,
+                )
         except Exception as e:
             console_error(f"index series calc failed: {e}")
 
@@ -1497,10 +1556,14 @@ def get_fund_peer_performance(code: str) -> dict:
         try:
             if fund_nav_rows:
                 dd_series = _calc_drawdown_series(fund_nav_rows)
-                series_data["fund_drawdown"] = [
-                    {"date": d["date"], "drawdown": d["drawdown"]}
-                    for d in dd_series
-                ]
+                series_data["fund_drawdown"] = _bounded_series(
+                    [
+                        {"date": d["date"], "drawdown": d["drawdown"]}
+                        for d in dd_series
+                    ],
+                    window_days=bounded_window_days,
+                    max_points=bounded_max_points,
+                )
                 # 持久化到 SQLite
                 try:
                     FundDataStore.save_drawdown_series_batch(code, dd_series, window_days=365)

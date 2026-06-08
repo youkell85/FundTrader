@@ -71,6 +71,8 @@ const HOLDINGS_TTL = 6 * 60 * 60 * 1000;                   // 持仓/行业 6小
 const DETAIL_STATIC_TTL = DAILY_CACHE_MAX_TTL;
 const DETAIL_QUARTERLY_TTL = HOLDINGS_TTL;
 const DETAIL_LLM_TTL = BFF_CACHE_TTL;
+const PEER_PERFORMANCE_WINDOW_DAYS = 365 * 5 + 2;
+const PEER_PERFORMANCE_MAX_POINTS = 420;
 
 function msUntilDailyPrewarm(now = new Date()): number {
   const next = new Date(now);
@@ -1991,7 +1993,9 @@ export const fundRouter = createRouter({
         return await cachedFtFetch(
           `detail_peerPerformance_${input.code}`,
           DETAIL_QUARTERLY_TTL,
-          () => ftFetch<any>(`/fund/peer-performance?code=${encodeURIComponent(input.code)}`),
+          () => ftFetch<any>(
+            `/fund/peer-performance?code=${encodeURIComponent(input.code)}&window_days=${PEER_PERFORMANCE_WINDOW_DAYS}&max_points=${PEER_PERFORMANCE_MAX_POINTS}`,
+          ),
         );
       } catch (err) {
         console.warn(`[fundRouter] peer 业绩失败 ${input.code}:`, err);

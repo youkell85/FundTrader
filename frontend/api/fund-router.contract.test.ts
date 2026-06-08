@@ -26,6 +26,7 @@ vi.mock('./lib/fund-quote', () => ({
 }));
 
 const { fundRouter } = await import('./fund-router');
+const fundClient = await import('./lib/fundtrader-client');
 
 describe('fund detail contract fallbacks', () => {
   const caller = fundRouter.createCaller({ user: null } as any);
@@ -49,6 +50,18 @@ describe('fund detail contract fallbacks', () => {
   test('peerPerformance fallback returns dataStatus missing', async () => {
     const result = await caller.peerPerformance({ code: '000001' });
     expectMissingFallback(result);
+  });
+
+  test('peerPerformance requests bounded backend series', async () => {
+    const ftFetchMock = vi.mocked(fundClient.ftFetch);
+    ftFetchMock.mockResolvedValueOnce({ code: '000002', series: { fund: [], peer: [], index: [], benchmark: [] } });
+
+    const result = await caller.peerPerformance({ code: '000002' });
+
+    expect(result.code).toBe('000002');
+    expect(ftFetchMock).toHaveBeenLastCalledWith(
+      '/fund/peer-performance?code=000002&window_days=1827&max_points=420',
+    );
   });
 
   test('riskSummary fallback returns dataStatus missing', async () => {

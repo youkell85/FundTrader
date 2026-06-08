@@ -8,6 +8,30 @@ from app.storage import database as db_module
 
 
 class FundDetailContractTest(unittest.TestCase):
+    def test_bounded_series_limits_window_and_points(self):
+        points = [
+            {"date": f"2024-01-{day:02d}", "return": float(day)}
+            for day in range(1, 11)
+        ]
+
+        bounded = fund_service._bounded_series(points, window_days=5, max_points=3)
+
+        self.assertLessEqual(len(bounded), 3)
+        self.assertEqual(bounded[0]["date"], "2024-01-05")
+        self.assertEqual(bounded[-1]["date"], "2024-01-10")
+
+    def test_bounded_series_preserves_edges_when_downsampling(self):
+        points = [
+            {"date": f"2024-01-{day:02d}", "return": float(day)}
+            for day in range(1, 11)
+        ]
+
+        bounded = fund_service._bounded_series(points, window_days=None, max_points=4)
+
+        self.assertEqual(len(bounded), 4)
+        self.assertEqual(bounded[0], points[0])
+        self.assertEqual(bounded[-1], points[-1])
+
     def test_pct_for_api_does_not_double_scale_percent_values(self):
         self.assertEqual(fund_service._pct_for_api(54.57), 54.57)
         self.assertEqual(fund_service._pct_for_api("54.57"), 54.57)
@@ -75,8 +99,8 @@ class FundDetailCompletenessTest(unittest.TestCase):
             "nav_data": [{"date": "2024-01-01", "nav": 1.0}] * 300,
             "holdings": [{"stock_code": "000001"}],
             "asset_allocation": [{"type": "股票", "ratio": 60.0}],
-            "nav_date": "2026-06-05T00:00:00",
-            "updated_at": "2026-06-05T00:00:00",
+            "nav_date": "2099-01-01T00:00:00",
+            "updated_at": "2099-01-01T00:00:00",
         } if snapshot is self._sentinel else snapshot
         fake_quarterly = {
             "holder_count": 0,
@@ -84,10 +108,10 @@ class FundDetailCompletenessTest(unittest.TestCase):
             "turnover_count": 0,
             "bond_alloc_count": 0,
             "bond_hold_count": 0,
-            "quarterly_updated": "2026-06-05T00:00:00",
+            "quarterly_updated": "2099-01-01T00:00:00",
         } if quarterly is self._sentinel else quarterly
-        resolved_metrics = {"score": 75.0, "fee_manage": 0.015, "fee_custody": 0.005, "metrics_updated_at": "2026-06-05T00:00:00"} if metrics_row is self._sentinel else metrics_row
-        resolved_quote = {"near_1y": 0.05, "near_3y": 0.15, "updated_at": "2026-06-05T00:00:00"} if quote_row is self._sentinel else quote_row
+        resolved_metrics = {"score": 75.0, "fee_manage": 0.015, "fee_custody": 0.005, "metrics_updated_at": "2099-01-01T00:00:00"} if metrics_row is self._sentinel else metrics_row
+        resolved_quote = {"near_1y": 0.05, "near_3y": 0.15, "updated_at": "2099-01-01T00:00:00"} if quote_row is self._sentinel else quote_row
 
         def fake_execute(sql, params=None):
             m = MagicMock()
@@ -195,11 +219,11 @@ class FundDetailCompletenessTest(unittest.TestCase):
                 "holdings": [{"stock_code": "000001"}],
                 "asset_allocation": [{"type": "股票", "ratio": 60.0}],
                 "nav_date": "2022-01-01",  # 远超 48h
-                "updated_at": "2026-06-05T00:00:00",  # holdings / assetAllocation 仍新鲜
+                "updated_at": "2099-01-01T00:00:00",  # holdings / assetAllocation 仍新鲜
             },
             quarterly={"holder_count": 0, "scale_count": 4, "turnover_count": 0,
                        "bond_alloc_count": 0, "bond_hold_count": 0,
-                       "quarterly_updated": "2026-06-05T00:00:00"},
+                       "quarterly_updated": "2099-01-01T00:00:00"},
         )
         # NAV 过期只影响 overview/performance/navDrawdown/yearReturns
         self.assertEqual(result["sections"]["overview"]["dataStatus"], "stale")
@@ -237,11 +261,11 @@ class FundDetailCompletenessTest(unittest.TestCase):
                 "holdings": [{"stock_code": "000001"}],
                 "asset_allocation": [{"type": "股票", "ratio": 60.0}],
                 "nav_date": "2022-01-01",
-                "updated_at": "2026-06-05T00:00:00",
+                "updated_at": "2099-01-01T00:00:00",
             },
             quarterly={"holder_count": 0, "scale_count": 4, "turnover_count": 0,
                        "bond_alloc_count": 0, "bond_hold_count": 0,
-                       "quarterly_updated": "2026-06-05T00:00:00"},
+                       "quarterly_updated": "2099-01-01T00:00:00"},
         )
         self.assertGreater(stale_result["stale"], 0)
         total = stale_result["total"]
@@ -259,11 +283,11 @@ class FundDetailCompletenessTest(unittest.TestCase):
                 "holdings": [{"stock_code": "000001"}],
                 "asset_allocation": [{"type": "股票", "ratio": 60.0}],
                 "nav_date": "2022-01-01",
-                "updated_at": "2026-06-05T00:00:00",
+                "updated_at": "2099-01-01T00:00:00",
             },
             quarterly={"holder_count": 0, "scale_count": 4, "turnover_count": 0,
                        "bond_alloc_count": 0, "bond_hold_count": 0,
-                       "quarterly_updated": "2026-06-05T00:00:00"},
+                       "quarterly_updated": "2099-01-01T00:00:00"},
         )
         stale_sections = sum(
             1 for s in result["sections"].values() if s["dataStatus"] == "stale"
@@ -279,13 +303,13 @@ class FundDetailCompletenessTest(unittest.TestCase):
                 "holdings": [{"stock_code": "000001"}],
                 "asset_allocation": [{"type": "股票", "ratio": 60.0}],
                 "nav_date": "2022-01-01",
-                "updated_at": "2026-06-05T00:00:00",
+                "updated_at": "2099-01-01T00:00:00",
             },
             quarterly={"holder_count": 0, "scale_count": 4, "turnover_count": 0,
                        "bond_alloc_count": 0, "bond_hold_count": 0,
-                       "quarterly_updated": "2026-06-05T00:00:00"},
+                       "quarterly_updated": "2099-01-01T00:00:00"},
             metrics_row={"score": 75.0, "fee_manage": 0.015, "fee_custody": 0.005,
-                         "metrics_updated_at": "2026-06-05T00:00:00"},
+                         "metrics_updated_at": "2099-01-01T00:00:00"},
         )
         # holdings 用 snapshot.updated_at，不是 nav_date
         self.assertNotEqual(result["sections"]["holdings"]["dataStatus"], "stale")
@@ -302,45 +326,45 @@ class FundDetailCompletenessTest(unittest.TestCase):
         result = self._invoke(
             snapshot={
                 "nav_data": [{"date": "2026-01-01", "nav": 1.0}] * 300,
-                "nav_date": "2026-06-05T00:00:00",
-                "updated_at": "2026-06-05T00:00:00",
+                "nav_date": "2099-01-01T00:00:00",
+                "updated_at": "2099-01-01T00:00:00",
             },
             quote_row=None,
         )
         pp = result["sections"]["peerPerformance"]
         self.assertEqual(pp["dataStatus"], "available")
         self.assertEqual(pp["source"], "fund_nav_history")
-        self.assertEqual(pp["asOf"], "2026-06-05T00:00:00")
+        self.assertEqual(pp["asOf"], "2099-01-01T00:00:00")
 
     def test_peerPerformance_quote_source_and_asof(self):
         """quote_row 有数据时，source=fund_quote_snapshot，asOf=quote_updated。"""
         result = self._invoke(
             snapshot={
                 "nav_data": [{"date": "2026-01-01", "nav": 1.0}] * 300,
-                "nav_date": "2026-06-05T00:00:00",
-                "updated_at": "2026-06-05T00:00:00",
+                "nav_date": "2099-01-01T00:00:00",
+                "updated_at": "2099-01-01T00:00:00",
             },
-            quote_row={"near_1y": 0.05, "near_3y": 0.15, "updated_at": "2026-06-05T00:00:00"},
+            quote_row={"near_1y": 0.05, "near_3y": 0.15, "updated_at": "2099-01-01T00:00:00"},
         )
         pp = result["sections"]["peerPerformance"]
         self.assertEqual(pp["dataStatus"], "available")
         self.assertEqual(pp["source"], "fund_quote_snapshot")
-        self.assertEqual(pp["asOf"], "2026-06-05T00:00:00")
+        self.assertEqual(pp["asOf"], "2099-01-01T00:00:00")
 
     def test_riskSummary_nav_fallback_source_and_asof(self):
         """risk_has_data 由 nav_count>=30 兜底时，riskSummary 应 available，source=fund_nav_history_rule_engine，asOf=nav_as_of。"""
         result = self._invoke(
             snapshot={
                 "nav_data": [{"date": "2026-01-01", "nav": 1.0}] * 300,
-                "nav_date": "2026-06-05T00:00:00",
-                "updated_at": "2026-06-05T00:00:00",
+                "nav_date": "2099-01-01T00:00:00",
+                "updated_at": "2099-01-01T00:00:00",
             },
             metrics_row=None,
         )
         rs = result["sections"]["riskSummary"]
         self.assertEqual(rs["dataStatus"], "available")
         self.assertEqual(rs["source"], "fund_nav_history_rule_engine")
-        self.assertEqual(rs["asOf"], "2026-06-05T00:00:00")
+        self.assertEqual(rs["asOf"], "2099-01-01T00:00:00")
 
     def test_riskSummary_metrics_source_and_asof(self):
         """snapshot 有 max_drawdown/sharpe/volatility 时，source=fund_metrics_snapshot，asOf=metrics_updated。"""
@@ -350,8 +374,8 @@ class FundDetailCompletenessTest(unittest.TestCase):
                 "max_drawdown": 0.1,
                 "sharpe_ratio": 0.5,
                 "volatility": 0.2,
-                "nav_date": "2026-06-05T00:00:00",
-                "updated_at": "2026-06-05T00:00:00",
+                "nav_date": "2099-01-01T00:00:00",
+                "updated_at": "2099-01-01T00:00:00",
             },
             metrics_row={"score": 75.0, "metrics_updated_at": "2026-04-01T00:00:00"},
         )
@@ -366,8 +390,8 @@ class FundDetailCompletenessTest(unittest.TestCase):
         result = self._invoke(
             snapshot={
                 "nav_data": [{"date": "2026-01-01", "nav": 1.0}] * 300,
-                "nav_date": "2026-06-05T00:00:00",
-                "updated_at": "2026-06-05T00:00:00",
+                "nav_date": "2099-01-01T00:00:00",
+                "updated_at": "2099-01-01T00:00:00",
             },
             quarterly={"holder_count": 0, "scale_count": 4, "turnover_count": 0,
                        "bond_alloc_count": 0, "bond_hold_count": 0,
@@ -381,8 +405,8 @@ class FundDetailCompletenessTest(unittest.TestCase):
         result = self._invoke(
             snapshot={
                 "nav_data": [{"date": "2026-01-01", "nav": 1.0}] * 300,
-                "nav_date": "2026-06-05T00:00:00",
-                "updated_at": "2026-06-05T00:00:00",
+                "nav_date": "2099-01-01T00:00:00",
+                "updated_at": "2099-01-01T00:00:00",
             },
             metrics_row={"score": 75.0, "fee_manage": None, "fee_custody": None,
                          "metrics_updated_at": "2020-01-01T00:00:00"},
@@ -394,8 +418,8 @@ class FundDetailCompletenessTest(unittest.TestCase):
         result = self._invoke(
             snapshot={
                 "nav_data": [{"date": "2026-01-01", "nav": 1.0}] * 300,
-                "nav_date": "2026-06-05T00:00:00",
-                "updated_at": "2026-06-05T00:00:00",
+                "nav_date": "2099-01-01T00:00:00",
+                "updated_at": "2099-01-01T00:00:00",
             },
             metrics_row={"score": None, "fee_manage": 0.015, "fee_custody": 0.005,
                          "metrics_updated_at": "2020-01-01T00:00:00"},
@@ -410,8 +434,8 @@ class FundDetailCompletenessTest(unittest.TestCase):
                 "nav_data": [{"date": "2026-01-01", "nav": 1.0}] * 300,
                 "holdings": [{"stock_code": "000001"}],
                 "asset_allocation": [{"type": "股票", "ratio": 60.0}],
-                "nav_date": "2026-06-05T00:00:00",
-                "updated_at": "2026-06-05T00:00:00",
+                "nav_date": "2099-01-01T00:00:00",
+                "updated_at": "2099-01-01T00:00:00",
             },
         )
         for key in self.EXPECTED_SECTION_KEYS:

@@ -868,12 +868,19 @@ async def fund_year_returns(code: str = Query(..., min_length=4, max_length=10, 
 @router.get("/peer-performance")
 async def fund_peer_performance(
     code: str = Query(..., min_length=4, max_length=10, description="基金代码"),
+    window_days: int = Query(365 * 5 + 2, ge=30, le=365 * 30, description="曲线窗口天数"),
+    max_points: int = Query(420, ge=30, le=2000, description="每条曲线最多点数"),
 ):
     """偏股混合均值 / 沪深300 / 业绩比较基准 同期收益率（3m/6m/1y/3y/5y/成立至今/年化）。"""
     from ..services.fund_service import get_fund_peer_performance
 
     try:
-        data = await run_in_threadpool(get_fund_peer_performance, code=code)
+        data = await run_in_threadpool(
+            get_fund_peer_performance,
+            code=code,
+            window_days=window_days,
+            max_points=max_points,
+        )
         return {"code": code, **(data or {})}
     except Exception as e:
         logger.error(f"fund.peerPerformance failed for {code}: {e}")
