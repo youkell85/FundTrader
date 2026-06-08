@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
+import { useState } from 'react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { Receipt, Award } from 'lucide-react';
 import { ASSET_CLASS_LABELS } from '@/types/allocation';
-import type { FeeAnalysisResponse, AllocationRequest } from '@/types/allocation';
+import type { FeeAnalysisResponse } from '@/types/allocation';
 import { analyzeFees } from '@/lib/api';
 import { useAllocationStore } from '@/store/allocationStore';
 

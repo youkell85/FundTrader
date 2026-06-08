@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Network, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { ASSET_CLASS_LABELS } from '@/types/allocation';
-import type { CorrelationCheckResponse, AllocationRequest } from '@/types/allocation';
+import type { CorrelationCheckResponse } from '@/types/allocation';
 import { checkCorrelation } from '@/lib/api';
 import { useAllocationStore } from '@/store/allocationStore';
 

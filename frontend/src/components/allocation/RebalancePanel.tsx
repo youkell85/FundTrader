@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback, memo, useRef } from 'react';
+import { useState, useEffect, useMemo, useCallback, memo, useRef } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { RefreshCw, AlertTriangle, CheckCircle, Clock, TrendingUp, TrendingDown, History } from 'lucide-react';
 import { checkRebalance, getRebalanceHistory } from '@/lib/api';
