@@ -1,4 +1,3 @@
-import React from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import type { BacktestCurvePoint, ComparisonMode } from '@/types/backtest';
 import { MODE_LABELS, MODE_COLORS } from '@/types/backtest';

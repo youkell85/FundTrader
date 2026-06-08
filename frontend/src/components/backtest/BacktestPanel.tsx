@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { AlertCircle, Info } from 'lucide-react';
 import type { BacktestRequest, BacktestResponse } from '@/types/backtest';
 import { runAllocationBacktest } from '@/lib/api';

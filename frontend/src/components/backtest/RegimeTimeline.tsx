@@ -1,4 +1,3 @@
-import React from 'react';
 import type { RegimeHistoryEntry } from '@/types/backtest';
 import { REGIME_LABELS, REGIME_COLORS } from '@/types/allocation';
 
