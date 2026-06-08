@@ -24,7 +24,7 @@ import {
   mapMarketOverview,
 } from "./lib/mapper";
 import { fetchFundQuote, isExchangeFundCode } from "./lib/fund-quote";
-import { buildPeerPerformanceRows } from "./lib/peer-rankings";
+import { buildPeerPerformanceRows, type PeerPerformanceInput } from "./lib/peer-rankings";
 import { getUserState, updateUserState } from "./lib/user-store";
 
 const strategyMap: Record<string, string> = {
@@ -247,7 +247,7 @@ function calcNearReturnFromNav(navData: any[], days: number): number | null {
       date: String(item?.date || item?.navDate || "").slice(0, 10),
       nav: parseMetric(item?.nav ?? item?.nav_value ?? item?.单位净值),
     }))
-    .filter((item) => item.date && item.nav !== null && item.nav > 0)
+    .filter((item): item is { date: string; nav: number } => Boolean(item.date) && item.nav !== null && item.nav > 0)
     .sort((a, b) => a.date.localeCompare(b.date));
   if (points.length < 2) return null;
   const latest = points[points.length - 1];
@@ -544,7 +544,7 @@ function quoteToAnalysis(code: string, quote: Awaited<ReturnType<typeof fetchFun
 }
 
 async function quoteToAnalysisWithSnapshot(code: string, quote: Awaited<ReturnType<typeof fetchFundQuote>> | null, source = "manual") {
-  const base = quoteToAnalysis(code, quote, source);
+  const base = quoteToAnalysis(code, quote, source) as (ReturnType<typeof quoteToAnalysis> & Record<string, any>) | null;
   if (!base) return null;
   try {
     const snapshot = await getFundSnapshot(code, false);
@@ -994,7 +994,7 @@ export const fundRouter = createRouter({
             if (found) break;
           }
         }
-        const target = {
+        const target: PeerPerformanceInput = {
           ...(marketFund || {}),
           ...mergedTarget,
           code: input.code,
@@ -1003,14 +1003,14 @@ export const fundRouter = createRouter({
           near_1w:
             marketFund?.near_1w ??
             mergedTarget?.return1w ??
-            calcNearReturnFromNav(mergedTarget?.nav_data, 7) ??
+            calcNearReturnFromNav(Array.isArray(mergedTarget?.nav_data) ? mergedTarget.nav_data : [], 7) ??
             mapped?.performance?.return1w,
           near_1m: marketFund?.near_1m ?? mergedTarget?.return1m ?? mapped?.performance?.return1m,
           near_3m: marketFund?.near_3m ?? mergedTarget?.return3m ?? mapped?.performance?.return3m,
           near_6m: marketFund?.near_6m ?? mergedTarget?.return6m ?? mapped?.performance?.return6m,
           near_1y: marketFund?.near_1y ?? mergedTarget?.return1y ?? mapped?.performance?.return1y,
         };
-        const peers = peerFunds.map((fund: any) => {
+        const peers: PeerPerformanceInput[] = peerFunds.map((fund: any) => {
           const item = mapFundItem(fund);
           return { ...fund, type: fund?.type || peerCategory, mappedType: item?.fundType };
         });
