@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, RadarChart, PolarGrid, PolarAngleAxis, Radar, Tooltip } from 'recharts';
-import { PieChart as PieIcon, TrendingUp, Gauge, AlertTriangle, Shield, Zap, Target, List, ChevronDown, ChevronRight, Activity } from 'lucide-react';
+import { PieChart as PieIcon, TrendingUp, Gauge, AlertTriangle, Shield, Zap, Target, List, ChevronDown, ChevronRight } from 'lucide-react';
 import { ASSET_CLASS_LABELS, GROUP_COLORS, REGIME_LABELS, SIGNAL_COLORS } from '@/types/allocation';
 import type { MarketDataStatus } from '@/types/allocation';
 import { useAllocationStore } from '@/store/allocationStore';
@@ -20,6 +20,8 @@ import WhatIfSimulatorPanel from '@/components/allocation/WhatIfSimulatorPanel';
 import ShareSelectorPanel from '@/components/allocation/ShareSelectorPanel';
 import CorrelationMatrixPanel from '@/components/allocation/CorrelationMatrixPanel';
 import FeeAnalysisPanel from '@/components/allocation/FeeAnalysisPanel';
+import PipelineHealthPanel from '@/components/allocation/PipelineHealthPanel';
+import DualEnginePanel from '@/components/allocation/DualEnginePanel';
 
 const TABS = ['总览', '市场', 'SAA', 'TAA', '压力', '蒙特', '基金', '选优', '再平衡', '回测', '管理', '三方案', '解释', '模拟', 'A/C', '相关性', '费率', '管线', '引擎'];
 const GLABELS: any = { equity: '权益类', fixed_income: '固收类', alternative: '另类', cash_equiv: '现金类' };
@@ -148,13 +150,13 @@ export default function AllocationDashboard() {
           <div className='grid grid-cols-1 md:grid-cols-2 gap-5'>
             <div className='liquid-glass p-4'><h3 className='text-sm text-white/70 mb-3'><TrendingUp className='w-4 h-4 inline mr-2' style={{color:'#9D7BFF'}} />宏观因子雷达图</h3>
               <ResponsiveContainer width='100%' height={280}>
-                <RadarChart data={Object.entries(taa.category_summary).map(([k,v]:any) => ({category:v.name,score:v.avg_score,fullMark:1}))}>
+                <RadarChart data={Object.entries(taa.category_summary).map(([,v]:any) => ({category:v.name,score:v.avg_score,fullMark:1}))}>
                   <PolarGrid stroke='rgba(255,255,255,0.08)' /><PolarAngleAxis dataKey='category' tick={{fill:'rgba(255,255,255,0.5)',fontSize:11}} /><Radar name='信号评分' dataKey='score' stroke='#3B6CFF' fill='#3B6CFF' fillOpacity={0.15} />
                 </RadarChart>
               </ResponsiveContainer>
             </div>
             <div className='liquid-glass p-4'><h3 className='text-sm text-white/70 mb-3'><Zap className='w-4 h-4 inline mr-2' style={{color:'#FAC858'}} />因子评分明细</h3>
-              <div className='space-y-2'>{Object.entries(taa.category_summary).map(([k,v]:any) => (<div key={k} className='flex items-center gap-2'><span className='w-16 text-xs text-white/50'>{v.name}</span><div className='flex-1 h-2 rounded-full bg-white/[0.04]'><div className='h-full rounded-full' style={{width:`${Math.abs(v.avg_score)*100}%`, backgroundColor:(SIGNAL_COLORS as any)[k]||'#5470C6'}} /></div><span className='text-xs w-12 text-right text-white/70'>{v.interpretation}</span></div>))}</div>
+              <div className='space-y-2'>{Object.entries(taa.category_summary).map(([key,v]:any) => (<div key={key} className='flex items-center gap-2'><span className='w-16 text-xs text-white/50'>{v.name}</span><div className='flex-1 h-2 rounded-full bg-white/[0.04]'><div className='h-full rounded-full' style={{width:`${Math.abs(v.avg_score)*100}%`, backgroundColor:(SIGNAL_COLORS as any)[key]||'#5470C6'}} /></div><span className='text-xs w-12 text-right text-white/70'>{v.interpretation}</span></div>))}</div>
               <div className='mt-4 p-3 rounded-lg bg-[#3B6CFF]/[0.06] border border-[#3B6CFF]/15'><div className='text-xs text-white/55'>综合评分: <span className='text-[#5AA9FF] data-number text-sm'>{taa.composite_score.toFixed(2)}</span> → 权益调整 <span className='data-number text-sm' style={{color:taa.equity_adjustment>0?'#16C784':'#EE6666'}}>{taa.equity_adjustment>0?'+':''}{taa.equity_adjustment}%</span></div></div>
               {taa.fed_value != null && (
                 <div className='mt-3 p-3 rounded-lg bg-[#5AA9FF]/[0.06] border border-[#5AA9FF]/15'>
