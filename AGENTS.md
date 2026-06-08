@@ -141,7 +141,7 @@ ssh -i C:\Users\youke\.ssh\id_ed25519_nopass -p 22222 root@43.160.226.62 "cd /op
 
 1. **TypeScript 严格模式**：项目存在 ~49 个 TS 错误（未使用的 import、缺失类型等），非阻塞性问题
 2. **原生 select 残留**：`BacktestConfig.tsx`、`Backtest.tsx`、`ShareSelectorPanel.tsx` 中仍有原生 `<select>`，待逐步迁移到 Radix Select
-3. **`AbortSignal.any()` 残留**：`api.ts` 已替换为兼容方案，但 BFF 层 `fundtrader-client.ts` 中仍使用 `AbortSignal.any()`（tRPC 直连路径用）
+3. **BFF 请求取消兼容性**：`api.ts` 和 BFF `fundtrader-client.ts` 已使用兼容方案合并外部取消信号与内部超时；新增请求客户端时继续避免直接依赖 `AbortSignal.any()`
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

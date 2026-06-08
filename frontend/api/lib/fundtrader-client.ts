@@ -5,20 +5,46 @@
 
 const API_BASE = process.env.FUNDTRADER_API_BASE || "http://localhost:8766";
 
+function createTimeoutSignal(timeoutMs: number, externalSignal?: AbortSignal) {
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(new Error(`Request timeout (${timeoutMs / 1000}s)`)),
+    timeoutMs,
+  );
+
+  const abortFromExternal = () => {
+    controller.abort(externalSignal?.reason);
+  };
+
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      abortFromExternal();
+    } else {
+      externalSignal.addEventListener("abort", abortFromExternal, { once: true });
+    }
+  }
+
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      clearTimeout(timeout);
+      externalSignal?.removeEventListener("abort", abortFromExternal);
+    },
+  };
+}
+
 export async function ftFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const url = `${API_BASE}${path}`;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 120000);
+  const timeoutSignal = createTimeoutSignal(120000, options?.signal);
   try {
     const res = await fetch(url, {
       ...options,
-      signal: controller.signal,
+      signal: timeoutSignal.signal,
       headers: {
         "Content-Type": "application/json",
         ...(options?.headers || {}),
       },
     });
-    clearTimeout(timer);
     if (!res.ok) {
       const text = await res.text().catch(() => "");
       throw new Error(`FundTrader API ${path} error ${res.status}: ${text}`);
@@ -29,9 +55,8 @@ export async function ftFetch<T>(path: string, options?: RequestInit): Promise<T
     } catch {
       throw new Error(`FundTrader API ${path} returned invalid JSON: ${text.slice(0, 200)}`);
     }
-  } catch (err) {
-    clearTimeout(timer);
-    throw err;
+  } finally {
+    timeoutSignal.cleanup();
   }
 }
 
