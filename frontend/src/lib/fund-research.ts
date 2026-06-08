@@ -8,7 +8,7 @@
  */
 
 import { num, returnPct, drawdownPct, sharpeFmt, feePct, scaleYi } from "./fund-data";
-import type { BacktestResponse, BacktestMetrics, DataQuality } from "@/types/backtest";
+import type { BacktestResponse, BacktestMetrics } from "@/types/backtest";
 import type { ParsedDcaResult } from "@/lib/execution-plan";
 
 /** 轻量数值格式化（不乘100） */
@@ -386,7 +386,6 @@ export function generateResearchReportMarkdown(input: ResearchReportInput): stri
   const snapshot = input.researchReportSnapshot;
   const candidates = snapshot ? snapshot.candidates : input.candidates;
   const constraintDrafts = snapshot ? snapshot.constraintDrafts : input.constraintDrafts;
-  const matches = snapshot ? snapshot.matches : analyzeCandidatePool(candidates, portfolioFunds);
 
   const ts = generatedAt ? new Date(generatedAt).toLocaleString("zh-CN") : new Date().toLocaleString("zh-CN");
 
