@@ -35,7 +35,7 @@ function createTimeoutSignal(timeoutMs: number, externalSignal?: AbortSignal) {
 
 export async function ftFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const url = `${API_BASE}${path}`;
-  const timeoutSignal = createTimeoutSignal(120000, options?.signal);
+  const timeoutSignal = createTimeoutSignal(120000, options?.signal ?? undefined);
   try {
     const res = await fetch(url, {
       ...options,

@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { BarChart2, Trophy, Loader2, Star } from 'lucide-react';
-import type { FundRankingItem, FundRankingResponse } from '@/types/allocation';
+import type { FundRankingResponse } from '@/types/allocation';
 import { ASSET_CLASS_LABELS } from '@/types/allocation';
 import { getFundRanking } from '@/lib/api';
 
@@ -31,13 +31,12 @@ export default function FundRankingPanel() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedClass, setSelectedClass] = useState<string | null>(null);
-  const [tags, setTags] = useState<string[]>([]);
 
   const loadRankings = async (signal?: AbortSignal) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await getFundRanking(tags, signal);
+      const res = await getFundRanking([], signal);
       setData(res);
       if (!selectedClass && Object.keys(res.rankings).length > 0) {
         setSelectedClass(Object.keys(res.rankings)[0]);
@@ -70,7 +69,7 @@ export default function FundRankingPanel() {
             <span className="text-sm font-medium text-white/70">基金选优排名</span>
             <span className="text-xs text-white/50">5维度评分: 跟踪质量 / 流动性 / 费率 / 规模 / 绩效</span>
           </div>
-          <button onClick={loadRankings} disabled={loading}
+          <button onClick={() => loadRankings()} disabled={loading}
             className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs text-white/60 hover:text-white/80 disabled:opacity-40">
             {loading ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trophy className="w-3 h-3" />}
             {loading ? '加载中' : '刷新排名'}
@@ -151,7 +150,7 @@ export default function FundRankingPanel() {
               <div className="mt-4 pt-4 border-t border-white/[0.06]">
                 <div className="text-xs text-white/40 mb-3">维度对比 (推荐 vs 末位)</div>
                 <div className="grid grid-cols-5 gap-3">
-                  {(['tracking_score', 'liquidity_score', 'cost_score', 'scale_score', 'performance_score'] as const).map((dim, i) => {
+                  {(['tracking_score', 'liquidity_score', 'cost_score', 'scale_score', 'performance_score'] as const).map((dim) => {
                     const best = currentRanking[0]?.[dim] ?? 0;
                     const worst = currentRanking[currentRanking.length - 1]?.[dim] ?? 0;
                     const dimKey = dim.replace('_score', '');

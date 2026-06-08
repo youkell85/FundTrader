@@ -46,7 +46,7 @@ export default function PipelineHealthPanel() {
             </span>
           )}
         </div>
-        <button onClick={handleRefresh} disabled={loading} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-sm text-white/80 transition disabled:opacity-50">
+        <button onClick={() => handleRefresh()} disabled={loading} className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-sm text-white/80 transition disabled:opacity-50">
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
           刷新
         </button>

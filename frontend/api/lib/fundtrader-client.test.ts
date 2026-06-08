@@ -10,7 +10,7 @@ afterEach(() => {
 
 describe("ftFetch", () => {
   test("parses backend JSON responses", async () => {
-    const fetchMock = vi.fn(async () => ({
+    const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => ({
       ok: true,
       text: async () => JSON.stringify({ status: "ok" }),
     }));
@@ -18,7 +18,7 @@ describe("ftFetch", () => {
 
     await expect(ftFetch<{ status: string }>("/health")).resolves.toEqual({ status: "ok" });
 
-    const [url, init] = fetchMock.mock.calls[0];
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe("http://localhost:8766/health");
     expect((init as RequestInit).headers).toMatchObject({ "Content-Type": "application/json" });
     expect((init as RequestInit).signal).toBeInstanceOf(AbortSignal);
@@ -39,7 +39,7 @@ describe("ftFetch", () => {
     callerController.abort(new Error("user cancelled"));
 
     await expect(request).rejects.toThrow("user cancelled");
-    const [, init] = fetchMock.mock.calls[0];
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect((init as RequestInit).signal).toBeInstanceOf(AbortSignal);
     expect((init as RequestInit).signal).not.toBe(callerController.signal);
   });
