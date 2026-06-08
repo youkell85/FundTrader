@@ -5,6 +5,7 @@ Storage Owner Isolation Tests — Phase 1 Step 6
 """
 import json
 import os
+import sqlite3
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -259,6 +260,55 @@ class FundHoldingsSnapshotTest(unittest.TestCase):
         self.assertEqual(len(after["holdings"]), 1)
         self.assertEqual(after["holdings"][0]["stockName"], "浦发银行")
         self.assertEqual(after["asset_allocation"][0]["name"], "股票")
+
+    def test_init_db_adds_data_version_to_existing_fund_master(self):
+        old_fd, old_path = tempfile.mkstemp(suffix=".db")
+        os.close(old_fd)
+        try:
+            conn = sqlite3.connect(old_path)
+            conn.execute(
+                """CREATE TABLE fund_master (
+                    code TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    fund_type TEXT DEFAULT '',
+                    company TEXT DEFAULT '',
+                    tags_json TEXT DEFAULT '[]',
+                    share_class_group TEXT DEFAULT '',
+                    share_class TEXT DEFAULT '',
+                    is_xinjihui INTEGER DEFAULT 0,
+                    is_preferred INTEGER DEFAULT 0,
+                    is_active INTEGER DEFAULT 1,
+                    data_quality TEXT DEFAULT 'unknown',
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )"""
+            )
+            conn.commit()
+            conn.close()
+
+            with patch("app.storage.database.DB_PATH", old_path):
+                from app.storage.database import _local, _qcache, get_db
+                if hasattr(_local, "conn") and _local.conn is not None:
+                    _local.conn.close()
+                    _local.conn = None
+                _qcache.invalidate()
+                init_db()
+                with get_db() as db_conn:
+                    columns = {
+                        row["name"]
+                        for row in db_conn.execute("PRAGMA table_info(fund_master)").fetchall()
+                    }
+        finally:
+            from app.storage.database import _local
+            if hasattr(_local, "conn") and _local.conn is not None:
+                _local.conn.close()
+                _local.conn = None
+            try:
+                os.unlink(old_path)
+            except FileNotFoundError:
+                pass
+
+        self.assertIn("data_version", columns)
 
 
 class StorageAuthTest(unittest.TestCase):

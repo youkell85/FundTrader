@@ -1371,6 +1371,9 @@ def _init_fund_data_center_tables() -> None:
             CREATE INDEX IF NOT EXISTS idx_manager_history_code ON fund_manager_history_snapshot(code);
             CREATE INDEX IF NOT EXISTS idx_fund_report_code_date ON fund_report_snapshot(code, report_date);
         """)
+        master_columns = {row["name"] for row in conn.execute("PRAGMA table_info(fund_master)").fetchall()}
+        if "data_version" not in master_columns:
+            conn.execute("ALTER TABLE fund_master ADD COLUMN data_version INTEGER DEFAULT 0")
 
 
 def _fund_tags(value: Any) -> list[str]:
@@ -2028,26 +2031,36 @@ class FundDataStore:
     @staticmethod
     def bump_data_version(code: str) -> int:
         """Increment data_version for a fund and return new version."""
-        with get_db() as conn:
-            conn.execute(
-                "UPDATE fund_master SET data_version = data_version + 1 WHERE code = ?",
-                (code,),
-            )
-            row = conn.execute(
-                "SELECT data_version FROM fund_master WHERE code = ?",
-                (code,),
-            ).fetchone()
-            return row["data_version"] if row else 0
+        try:
+            with get_db() as conn:
+                conn.execute(
+                    "UPDATE fund_master SET data_version = data_version + 1 WHERE code = ?",
+                    (code,),
+                )
+                row = conn.execute(
+                    "SELECT data_version FROM fund_master WHERE code = ?",
+                    (code,),
+                ).fetchone()
+                return row["data_version"] if row else 0
+        except sqlite3.OperationalError as exc:
+            if "data_version" in str(exc):
+                return 0
+            raise
 
     @staticmethod
     def get_data_version(code: str) -> int:
         """Get current data_version for a fund."""
-        with get_db() as conn:
-            row = conn.execute(
-                "SELECT data_version FROM fund_master WHERE code = ?",
-                (code,),
-            ).fetchone()
-            return row["data_version"] if row else 0
+        try:
+            with get_db() as conn:
+                row = conn.execute(
+                    "SELECT data_version FROM fund_master WHERE code = ?",
+                    (code,),
+                ).fetchone()
+                return row["data_version"] if row else 0
+        except sqlite3.OperationalError as exc:
+            if "data_version" in str(exc):
+                return 0
+            raise
 
     @staticmethod
     def save_category_metrics_snapshot(
