@@ -9,7 +9,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from app.storage.database import Database, UserStore, init_db
+from app.storage.database import Database, FundDataStore, UserStore, init_db
 
 
 class StorageOwnerIsolationTest(unittest.TestCase):
@@ -199,6 +199,66 @@ class StorageOwnerIsolationTest(unittest.TestCase):
             plans = Database.list_plans(owner_user_id=self.user_a_id, risk_profile="conservative")
             self.assertEqual(len(plans), 1)
             self.assertEqual(plans[0]["name"], "Truly Conservative")
+
+
+class FundHoldingsSnapshotTest(unittest.TestCase):
+    def setUp(self):
+        self.db_fd, self.db_path = tempfile.mkstemp(suffix=".db")
+        with patch("app.storage.database.DB_PATH", self.db_path):
+            from app.storage.database import _local, _qcache
+            _local.conn = None
+            _qcache.invalidate()
+            init_db()
+
+    def tearDown(self):
+        from app.storage.database import _local, _qcache
+        if hasattr(_local, "conn") and _local.conn is not None:
+            try:
+                _local.conn.close()
+            except Exception:
+                pass
+            _local.conn = None
+        _qcache.invalidate()
+        os.close(self.db_fd)
+        try:
+            os.unlink(self.db_path)
+        except FileNotFoundError:
+            pass
+
+    def test_save_holdings_snapshot_updates_snapshot_facade(self):
+        with patch("app.storage.database.DB_PATH", self.db_path):
+            FundDataStore.save_quote_batch([
+                {
+                    "code": "000001",
+                    "name": "Test Fund",
+                    "type": "混合型",
+                    "nav": 1.23,
+                    "updated_at": "2026-01-01T00:00:00",
+                }
+            ])
+            before = FundDataStore.get_snapshot("000001")
+            self.assertEqual(before.get("holdings"), None)
+
+            saved = FundDataStore.save_holdings_snapshot(
+                code="000001",
+                report_date="20260331",
+                holdings=[{
+                    "stockName": "浦发银行",
+                    "stockCode": "600000.SH",
+                    "ratio": 8.5,
+                    "industry": "银行",
+                    "quarter": "20260331",
+                }],
+                asset_allocation=[{"name": "股票", "ratio": 75.94}],
+                source="unit-test",
+                data_quality="analysis",
+            )
+            after = FundDataStore.get_snapshot("000001")
+
+        self.assertEqual(saved, 1)
+        self.assertEqual(len(after["holdings"]), 1)
+        self.assertEqual(after["holdings"][0]["stockName"], "浦发银行")
+        self.assertEqual(after["asset_allocation"][0]["name"], "股票")
 
 
 class StorageAuthTest(unittest.TestCase):

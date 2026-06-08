@@ -500,6 +500,8 @@ def analyze_fund(code: str) -> Dict[str, Any]:
         period = _calc_period_returns(nav_data or [])
         report_date = holdings[0].get("quarter") if holdings else ""
         asset_allocation = _fetch_real_asset_allocation(code, detail.type or "", holdings, detail.source)
+        if not report_date and asset_allocation:
+            report_date = str(asset_allocation[0].get("report_date") or asset_allocation[0].get("quarter") or "")
 
         # 从净值历史计算最佳/最差年度收益（用于经理面板）
         best_return, worst_return = _calc_best_worst_annual(nav_data or [])
@@ -556,6 +558,26 @@ def analyze_fund(code: str) -> Dict[str, Any]:
                 "nav_points": len(nav_data) if nav_data else 0,
             }
             FundDataStore.save_metrics_batch([metrics_row], source="analysis")
+        except Exception:
+            pass
+
+        # === 自动持久化真实持仓和资产配置到 fund_holdings_snapshot ===
+        try:
+            if (holdings or asset_allocation) and report_date:
+                from ..storage.database import FundDataStore
+
+                holdings_source = next(
+                    (item.get("source") for item in holdings if item.get("source")),
+                    detail.source or "analysis",
+                )
+                FundDataStore.save_holdings_snapshot(
+                    code=code,
+                    report_date=str(report_date),
+                    holdings=holdings,
+                    asset_allocation=asset_allocation,
+                    source=holdings_source,
+                    data_quality="analysis",
+                )
         except Exception:
             pass
 

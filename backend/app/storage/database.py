@@ -1920,6 +1920,51 @@ class FundDataStore:
         return len(rows)
 
     @staticmethod
+    def save_holdings_snapshot(
+        code: str,
+        report_date: str,
+        holdings: list[dict[str, Any]] | None,
+        asset_allocation: list[dict[str, Any]] | None = None,
+        source: str = "analysis",
+        data_quality: str = "computed",
+    ) -> int:
+        """Upsert one real holdings snapshot for a fund."""
+        if not code or not report_date:
+            return 0
+        holdings_rows = holdings or []
+        asset_rows = asset_allocation or []
+        if not holdings_rows and not asset_rows:
+            return 0
+
+        now = datetime.now().isoformat()
+        with get_db() as conn:
+            conn.execute(
+                """INSERT INTO fund_holdings_snapshot
+                   (code, report_date, holdings_json, asset_allocation_json,
+                    source, data_quality, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(code, report_date) DO UPDATE SET
+                     holdings_json = excluded.holdings_json,
+                     asset_allocation_json = excluded.asset_allocation_json,
+                     source = excluded.source,
+                     data_quality = excluded.data_quality,
+                     updated_at = excluded.updated_at""",
+                (
+                    code,
+                    report_date,
+                    json.dumps(holdings_rows, ensure_ascii=False),
+                    json.dumps(asset_rows, ensure_ascii=False),
+                    source,
+                    data_quality,
+                    now,
+                ),
+            )
+        FundDataStore.bump_data_version(code)
+        _qcache.invalidate_prefix(f"snapshot:{code}")
+        _qcache.invalidate_prefix("list:")
+        return 1
+
+    @staticmethod
     def save_metrics_batch(rows: list[dict[str, Any]], source: str = "compute") -> int:
         """Save computed metrics for multiple funds.
 
