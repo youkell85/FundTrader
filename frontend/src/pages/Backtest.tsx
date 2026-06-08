@@ -39,6 +39,7 @@ import {
   YAxis,
 } from "recharts";
 import { trpc } from "@/providers/trpc";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   ACCENT_HIGHLIGHT,
   ACCENT_INFO,
@@ -570,9 +571,18 @@ export default function Backtest() {
                   </div>
                   <div>
                     <label className="mb-1 block text-xs text-white/40">频率</label>
-                    <select value={frequency} onChange={(event) => setFrequency(event.target.value)} className="h-10 w-full rounded-lg border border-white/[0.08] bg-[#0B1021] px-3 text-sm text-white outline-none focus:border-[#3B6CFF]/50">
-                      {frequencies.map((item) => <option key={item.value} value={item.value} className="bg-[#0B1021]">{item.label}</option>)}
-                    </select>
+                    <Select value={frequency} onValueChange={setFrequency}>
+                      <SelectTrigger className="h-10 w-full rounded-lg border-white/[0.08] bg-[#0B1021] px-3 text-sm text-white focus:border-[#3B6CFF]/50">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="bg-popover text-popover-foreground border-white/[0.08]">
+                        {frequencies.map((item) => (
+                          <SelectItem key={item.value} value={item.value}>
+                            {item.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
                   <div>
                     <label className="mb-1 block text-xs text-white/40">起始日期</label>

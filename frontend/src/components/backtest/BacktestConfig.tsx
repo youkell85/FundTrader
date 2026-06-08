@@ -4,6 +4,7 @@ import type { BacktestRequest, RebalanceFrequency, ComparisonMode } from '@/type
 import type { RiskTolerance } from '@/types/allocation';
 import { RISK_LABELS } from '@/types/allocation';
 import { FREQUENCY_LABELS, MODE_LABELS } from '@/types/backtest';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 interface Props {
   onRun: (req: BacktestRequest) => void;
@@ -41,19 +42,35 @@ export default function BacktestConfig({ onRun, loading }: Props) {
         {/* 风险偏好 */}
         <div>
           <label className="block text-xs text-white/40 mb-1">风险偏好</label>
-          <select value={risk} onChange={e => setRisk(e.target.value as RiskTolerance)}
-            className="w-full rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white/80 outline-none focus:border-white/20">
-            {Object.entries(RISK_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-          </select>
+          <Select value={risk} onValueChange={(value) => setRisk(value as RiskTolerance)}>
+            <SelectTrigger className="w-full rounded-lg border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white/80 focus:border-white/20">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="bg-popover text-popover-foreground border-white/[0.08]">
+              {Object.entries(RISK_LABELS).map(([k, v]) => (
+                <SelectItem key={k} value={k}>
+                  {v}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         {/* 调仓频率 */}
         <div>
           <label className="block text-xs text-white/40 mb-1">调仓频率</label>
-          <select value={freq} onChange={e => setFreq(e.target.value as RebalanceFrequency)}
-            className="w-full rounded-lg border border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white/80 outline-none focus:border-white/20">
-            {Object.entries(FREQUENCY_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-          </select>
+          <Select value={freq} onValueChange={(value) => setFreq(value as RebalanceFrequency)}>
+            <SelectTrigger className="w-full rounded-lg border-white/10 bg-white/[0.04] px-3 py-2 text-sm text-white/80 focus:border-white/20">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="bg-popover text-popover-foreground border-white/[0.08]">
+              {Object.entries(FREQUENCY_LABELS).map(([k, v]) => (
+                <SelectItem key={k} value={k}>
+                  {v}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         {/* 起始日期 */}
