@@ -545,14 +545,39 @@ function quoteToAnalysis(code: string, quote: Awaited<ReturnType<typeof fetchFun
   };
 }
 
+const DETAIL_ARRAY_FIELDS = [
+  "holdings",
+  "asset_allocation",
+  "assetAllocation",
+  "nav_data",
+  "navHistory",
+  "industry_history",
+  "industryHistory",
+  "dividends",
+] as const;
+
+function mergeDetailSources(...sources: Array<Record<string, any> | null | undefined>) {
+  const validSources = sources.filter(Boolean) as Array<Record<string, any>>;
+  const merged = Object.assign({}, ...validSources);
+  for (const field of DETAIL_ARRAY_FIELDS) {
+    for (let i = validSources.length - 1; i >= 0; i -= 1) {
+      const value = validSources[i]?.[field];
+      if (Array.isArray(value) && value.length > 0) {
+        merged[field] = value;
+        break;
+      }
+    }
+  }
+  return merged;
+}
+
 async function quoteToAnalysisWithSnapshot(code: string, quote: Awaited<ReturnType<typeof fetchFundQuote>> | null, source = "manual") {
   const base = quoteToAnalysis(code, quote, source) as (ReturnType<typeof quoteToAnalysis> & Record<string, any>) | null;
   if (!base) return null;
   try {
     const snapshot = await getFundSnapshot(code, false);
     if (snapshot) {
-      return {
-        ...base,
+      return mergeDetailSources(base, snapshot, {
         sharpe_ratio: snapshot.sharpe_ratio ?? base.sharpe_ratio,
         max_drawdown: snapshot.max_drawdown ?? base.max_drawdown,
         volatility: snapshot.volatility ?? base.volatility,
@@ -567,7 +592,7 @@ async function quoteToAnalysisWithSnapshot(code: string, quote: Awaited<ReturnTy
           annualizedReturn: snapshot.annualized_return,
           volatility: snapshot.volatility,
         },
-      };
+      });
     }
   } catch {
     // snapshot fetch failed, return base
@@ -583,7 +608,7 @@ async function fetchAndCacheFundAnalysis(code: string, cacheKey = `analysis_${co
       getFundSnapshot(code, true).catch(() => null),
       getFundAnalysis(code).catch(() => null),
     ]);
-    const merged = analysis ? { ...(snapshot || {}), ...analysis } : snapshot;
+    const merged = analysis ? mergeDetailSources(snapshot, analysis) : snapshot;
     const enriched = await enrichFundAnalysis(merged, code);
     if (enriched) setCache(cacheKey, enriched, hasDetailPayload(enriched) ? dailyCacheTtl() : PARTIAL_DETAIL_TTL);
     return enriched;
@@ -612,7 +637,7 @@ async function fetchFastDetailFallback(code: string, cachedFund?: any) {
   // 从 analysis 抽出 nav_data，附到 fallback 让累计收益趋势图有数据
   const navData = Array.isArray((analysis as any)?.nav_data) ? (analysis as any).nav_data : [];
   const quoteFallback = quoteToAnalysis(code, quote, cachedFund?._source || "watchlist");
-  const fallback = { ...(cachedFund || {}), ...(snapshot || {}), ...(quoteFallback || {}) };
+  const fallback = mergeDetailSources(quoteFallback, cachedFund, snapshot, analysis as Record<string, any> | null);
   if (navData.length > 0) {
     fallback.nav_data = navData;
     fallback.navHistory = navData;

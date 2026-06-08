@@ -27,6 +27,7 @@ vi.mock('./lib/fund-quote', () => ({
 
 const { fundRouter } = await import('./fund-router');
 const fundClient = await import('./lib/fundtrader-client');
+const fundQuote = await import('./lib/fund-quote');
 
 describe('fund detail contract fallbacks', () => {
   const caller = fundRouter.createCaller({ user: null } as any);
@@ -72,6 +73,72 @@ describe('fund detail contract fallbacks', () => {
   test('detailCompleteness fallback returns dataStatus missing', async () => {
     const result = await caller.detailCompleteness({ code: '000001' });
     expectMissingFallback(result);
+  });
+
+  test('detailByCode preserves snapshot holdings in fast fallback', async () => {
+    vi.mocked(fundClient.getFundSnapshot).mockResolvedValueOnce({
+      code: '000003',
+      name: '持仓基金',
+      type: '混合型',
+      nav: 1.23,
+      holdings: [
+        {
+          stockCode: '600000.SH',
+          stockName: '浦发银行',
+          ratio: 8.5,
+          industry: '银行',
+          quarter: '20260331',
+        },
+      ],
+      asset_allocation: [{ name: '股票', ratio: 75.94, report_date: '20260331' }],
+    });
+    vi.mocked(fundClient.getFundAnalysis).mockResolvedValueOnce({});
+    vi.mocked(fundQuote.fetchFundQuote).mockResolvedValueOnce({
+      code: '000003',
+      name: '持仓基金',
+      nav: 1.23,
+    } as any);
+
+    const result = await caller.detailByCode({ code: '000003' }) as any;
+
+    expect(result.holdings).toHaveLength(1);
+    expect(result.holdings[0].stockName).toBe('浦发银行');
+    expect(result.assetAllocation).toHaveLength(1);
+    expect(result.assetAllocation[0].name).toBe('股票');
+  });
+
+  test('detailByCode uses analysis holdings when snapshot is light', async () => {
+    vi.mocked(fundClient.getFundSnapshot).mockResolvedValueOnce({
+      code: '000004',
+      name: '分析持仓基金',
+      type: '混合型',
+      nav: 1.56,
+    });
+    vi.mocked(fundClient.getFundAnalysis).mockResolvedValueOnce({
+      code: '000004',
+      name: '分析持仓基金',
+      holdings: [
+        {
+          code: '600519.SH',
+          name: '贵州茅台',
+          ratio: 10.83,
+          industry: '白酒',
+          quarter: '20260331',
+        },
+      ],
+      asset_allocation: [{ name: '股票', ratio: 75.94, report_date: '20260331' }],
+    });
+    vi.mocked(fundQuote.fetchFundQuote).mockResolvedValueOnce({
+      code: '000004',
+      name: '分析持仓基金',
+      nav: 1.56,
+    } as any);
+
+    const result = await caller.detailByCode({ code: '000004' }) as any;
+
+    expect(result.holdings).toHaveLength(1);
+    expect(result.holdings[0].stockName).toBe('贵州茅台');
+    expect(result.assetAllocation).toHaveLength(1);
   });
 
   test('yearReturns fallback returns dataStatus missing', async () => {
