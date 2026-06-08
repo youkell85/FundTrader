@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import { Save, Download, Star, Trash2, FileText, Clock, FolderOpen } from 'lucide-react';
 import { savePlan, listPlans, deletePlan, updatePlan, getPlan } from '@/lib/api';
-import type { SavedPlanItem, PlanListResponse } from '@/types/allocation';
+import type { PlanListResponse } from '@/types/allocation';
 import { useAllocationStore } from '@/store/allocationStore';
 import { RISK_LABELS } from '@/types/allocation';
 import { isMockOutput } from '@/lib/execution-plan';
@@ -13,7 +13,7 @@ interface PlanManagerProps {
   candidates?: any[];
 }
 
-export default function PlanManager({ onSave }: PlanManagerProps) {
+export default function PlanManager({ onSave, candidates = [] }: PlanManagerProps) {
   const navigate = useNavigate();
   const [plans, setPlans] = useState<PlanListResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -302,7 +302,6 @@ export default function PlanManager({ onSave }: PlanManagerProps) {
 
 // Quick inline report generation (for export without saving)
 function generateQuickReport(data: any): string {
-  const meta = data.meta || {};
   const user = data.user_profile || {};
   const saa = data.saa || {};
   const funds = data.funds || [];
