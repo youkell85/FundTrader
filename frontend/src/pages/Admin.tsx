@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Users, Shield, Activity, Database, Key, Clock, CheckCircle, XCircle } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useNavigate } from "react-router";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface AdminStats { total_users: number; active_sessions: number; fund_count: number; plan_count: number; recent_logins: { username: string; time: string }[] }
 interface AdminUser { id: string; username: string; displayName: string; email: string; emailVerified: boolean; role: string; createdAt: string; activeSessions: number }
@@ -76,10 +77,15 @@ export default function AdminDashboard() {
                     <td className="py-2 px-2 text-white/50 text-xs">{u.email || "—"}</td>
                     <td className="py-2 px-2">{u.emailVerified ? <CheckCircle className="w-4 h-4 text-emerald-400" /> : <XCircle className="w-4 h-4 text-white/20" />}</td>
                     <td className="py-2 px-2">
-                      <select value={u.role} onChange={(e) => handleRoleChange(u.id, e.target.value)}
-                        className="bg-[#0B1021] border border-white/[0.08] rounded px-2 py-1 text-xs text-white/70">
-                        <option value="user">user</option><option value="admin">admin</option>
-                      </select>
+                      <Select value={u.role} onValueChange={(role) => handleRoleChange(u.id, role)}>
+                        <SelectTrigger className="h-8 w-[92px] rounded bg-[#0B1021] border-white/[0.08] px-2 py-1 text-xs text-white/70">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="bg-popover text-popover-foreground border-white/[0.08]">
+                          <SelectItem value="user">user</SelectItem>
+                          <SelectItem value="admin">admin</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </td>
                     <td className="py-2 px-2 text-white/50">{u.activeSessions}</td>
                     <td className="py-2 px-2 text-white/40 text-xs">{u.createdAt?.slice(0, 10)}</td>

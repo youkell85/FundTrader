@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { trpc } from "@/providers/trpc";
 import { useAuth } from "@/hooks/useAuth";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { POSITIVE_METRIC_COLOR } from "@/lib/colors";
 import { feePct, returnPct, drawdownPct, sharpeFmt } from "@/lib/fund-data";
 
@@ -324,49 +325,53 @@ export default function ResearchWorkbench({ funds }: Props) {
               className="w-full pl-8 pr-3 py-1.5 rounded-lg bg-white/[0.03] border border-white/[0.06] text-white text-xs placeholder:text-white/25 focus:outline-none focus:border-[#3B6CFF]/30"
             />
           </div>
-          <select
-            value={fundType}
-            onChange={(e) => setFundType(e.target.value)}
-            className="px-2 py-1.5 rounded-lg bg-white/[0.03] border border-white/[0.06] text-white text-xs focus:outline-none"
-          >
-            <option value="__all__">全部类型</option>
-            {Object.entries(typeLabels).map(([k, v]) => (
-              <option key={k} value={k}>{v}</option>
-            ))}
-          </select>
-          <select
-            value={company}
-            onChange={(e) => setCompany(e.target.value)}
-            className="px-2 py-1.5 rounded-lg bg-white/[0.03] border border-white/[0.06] text-white text-xs focus:outline-none max-w-[160px]"
-          >
-            <option value="__all__">全部公司</option>
-            {companies.map((c) => (
-              <option key={c} value={c}>{c}</option>
-            ))}
-          </select>
-          <select
-            value={riskLevel}
-            onChange={(e) => setRiskLevel(e.target.value)}
-            className="px-2 py-1.5 rounded-lg bg-white/[0.03] border border-white/[0.06] text-white text-xs focus:outline-none"
-          >
-            <option value="__all__">全部风险</option>
-            <option value="low">低</option>
-            <option value="low_medium">中低</option>
-            <option value="medium">中</option>
-            <option value="medium_high">中高</option>
-            <option value="high">高</option>
-          </select>
-          <select
-            value={dataStatusFilter}
-            onChange={(e) => setDataStatusFilter(e.target.value)}
-            className="px-2 py-1.5 rounded-lg bg-white/[0.03] border border-white/[0.06] text-white text-xs focus:outline-none"
-          >
-            <option value="__all__">全部状态</option>
-            <option value="available">完整</option>
-            <option value="partial">部分</option>
-            <option value="stale">陈旧</option>
-            <option value="missing">缺失</option>
-          </select>
+          <Select value={fundType} onValueChange={setFundType}>
+            <SelectTrigger className="h-8 rounded-lg bg-white/[0.03] border-white/[0.06] px-2 text-xs text-white">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="bg-popover text-popover-foreground border-white/[0.08]">
+              <SelectItem value="__all__">全部类型</SelectItem>
+              {Object.entries(typeLabels).map(([k, v]) => (
+                <SelectItem key={k} value={k}>{v}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={company} onValueChange={setCompany}>
+            <SelectTrigger className="h-8 max-w-[160px] rounded-lg bg-white/[0.03] border-white/[0.06] px-2 text-xs text-white">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="bg-popover text-popover-foreground border-white/[0.08]">
+              <SelectItem value="__all__">全部公司</SelectItem>
+              {companies.map((c) => (
+                <SelectItem key={c} value={c}>{c}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={riskLevel} onValueChange={setRiskLevel}>
+            <SelectTrigger className="h-8 rounded-lg bg-white/[0.03] border-white/[0.06] px-2 text-xs text-white">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="bg-popover text-popover-foreground border-white/[0.08]">
+              <SelectItem value="__all__">全部风险</SelectItem>
+              <SelectItem value="low">低</SelectItem>
+              <SelectItem value="low_medium">中低</SelectItem>
+              <SelectItem value="medium">中</SelectItem>
+              <SelectItem value="medium_high">中高</SelectItem>
+              <SelectItem value="high">高</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={dataStatusFilter} onValueChange={setDataStatusFilter}>
+            <SelectTrigger className="h-8 rounded-lg bg-white/[0.03] border-white/[0.06] px-2 text-xs text-white">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="bg-popover text-popover-foreground border-white/[0.08]">
+              <SelectItem value="__all__">全部状态</SelectItem>
+              <SelectItem value="available">完整</SelectItem>
+              <SelectItem value="partial">部分</SelectItem>
+              <SelectItem value="stale">陈旧</SelectItem>
+              <SelectItem value="missing">缺失</SelectItem>
+            </SelectContent>
+          </Select>
         </div>
         <div className="flex flex-wrap gap-2 items-center">
           <span className="text-[10px] text-white/30">排序:</span>
