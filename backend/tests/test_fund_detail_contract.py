@@ -1,6 +1,6 @@
 import asyncio
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.api import fund as fund_api
 from app.services import fund_service
@@ -88,7 +88,7 @@ class FundDetailCompletenessTest(unittest.TestCase):
 
     _sentinel = object()
 
-    def _invoke(self, snapshot=_sentinel, quarterly=_sentinel, metrics_row=_sentinel, quote_row=_sentinel):
+    def _invoke(self, snapshot=_sentinel, quarterly=_sentinel, metrics_row=_sentinel, quote_row=_sentinel, detail_payloads=None):
         """直接调用 fund_detail_completeness，mock 数据源。"""
         fake_snapshot = {
             "max_drawdown": 0.1,
@@ -131,13 +131,26 @@ class FundDetailCompletenessTest(unittest.TestCase):
                 m.fetchone.return_value = None
             return m
 
+        missing_payload = {"code": "000001", "dataStatus": "missing", "source": None, "asOf": None, "coverage": 0.0, "missingReason": "missing"}
+        payloads = {
+            "scale": missing_payload,
+            "manager": missing_payload,
+            "purchase": missing_payload,
+            "rating": missing_payload,
+            **(detail_payloads or {}),
+        }
+
         with patch.object(
             db_module.FundDataStore, "get_snapshot", return_value=fake_snapshot
         ), patch.object(db_module, "get_db_context") as db_ctx:
             cm = db_ctx.return_value
             cm.__enter__.return_value = cm
             cm.execute = fake_execute
-            return asyncio.run(fund_api.fund_detail_completeness(code="000001"))
+            with patch.object(fund_api, "fund_scale_history", new=AsyncMock(return_value=payloads["scale"])), \
+                patch.object(fund_api, "fund_manager_history", new=AsyncMock(return_value=payloads["manager"])), \
+                patch.object(fund_api, "fund_purchase_info", new=AsyncMock(return_value=payloads["purchase"])), \
+                patch.object(fund_api, "fund_rating", new=AsyncMock(return_value=payloads["rating"])):
+                return asyncio.run(fund_api.fund_detail_completeness(code="000001"))
 
     # ---- 1. section 数量与命名 ------------------------------------------------
     def test_total_sections_at_least_17(self):
@@ -182,6 +195,58 @@ class FundDetailCompletenessTest(unittest.TestCase):
         self.assertEqual(result["sections"]["riskSummary"]["dataStatus"], "available")
         # scaleHistory 有 4 季度
         self.assertEqual(result["sections"]["scaleHistory"]["dataStatus"], "available")
+
+    def test_detail_endpoint_payloads_override_snapshot_missing_sections(self):
+        """detailCompleteness should mirror actual detail endpoint statuses when they have data."""
+        result = self._invoke(
+            quarterly={"holder_count": 0, "scale_count": 0, "turnover_count": 0,
+                       "bond_alloc_count": 0, "bond_hold_count": 0,
+                       "quarterly_updated": None},
+            metrics_row=None,
+            detail_payloads={
+                "scale": {
+                    "code": "000001",
+                    "rows": [{"quarter": "20250630", "totalScale": 12.3}],
+                    "dataStatus": "available",
+                    "source": "tushare:fund_share",
+                    "asOf": "20250630",
+                    "coverage": 1.0,
+                    "missingReason": None,
+                },
+                "manager": {
+                    "code": "000001",
+                    "rows": [{"managerName": "Alice"}],
+                    "dataStatus": "partial",
+                    "source": "Tushare fund_manager",
+                    "asOf": None,
+                    "coverage": 0.35,
+                    "missingReason": "partial manager history",
+                },
+                "purchase": {
+                    "code": "000001",
+                    "dataStatus": "partial",
+                    "source": "fund_metrics_snapshot+industry-defaults",
+                    "asOf": None,
+                    "coverage": 0.5,
+                    "missingReason": "industry defaults",
+                },
+                "rating": {
+                    "code": "000001",
+                    "dataStatus": "partial",
+                    "source": "computed",
+                    "asOf": None,
+                    "coverage": 0.5,
+                    "missingReason": None,
+                },
+            },
+        )
+
+        self.assertEqual(result["sections"]["scaleHistory"]["dataStatus"], "available")
+        self.assertEqual(result["sections"]["scaleHistory"]["source"], "tushare:fund_share")
+        self.assertEqual(result["sections"]["managerHistory"]["dataStatus"], "partial")
+        self.assertEqual(result["sections"]["purchaseInfo"]["dataStatus"], "partial")
+        self.assertEqual(result["sections"]["rating"]["dataStatus"], "partial")
+        self.assertGreater(result["coverage"], 0.0)
 
     # ---- 4. 无数据时仍为 missing，不 fake available -----------------------------
     def test_no_data_reports_missing_not_available(self):

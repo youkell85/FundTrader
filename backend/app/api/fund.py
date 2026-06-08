@@ -343,6 +343,23 @@ async def fund_detail_completeness(code: str = Query(..., min_length=4, max_leng
             "coverage": resolved_coverage,
         }
 
+    def section_from_payload(payload: object) -> dict | None:
+        if not isinstance(payload, dict):
+            return None
+        status = payload.get("dataStatus")
+        if status not in {"available", "partial", "stale"}:
+            return None
+        coverage = payload.get("coverage")
+        if not isinstance(coverage, (int, float)):
+            coverage = 1.0 if status == "available" else 0.5 if status == "partial" else 0.25
+        return {
+            "dataStatus": status,
+            "missingReason": payload.get("missingReason") if status in {"partial", "stale"} else None,
+            "source": payload.get("source"),
+            "asOf": payload.get("asOf"),
+            "coverage": float(coverage),
+        }
+
     sections = {
         # 1. overview — from snapshot
         "overview": build(
@@ -482,6 +499,29 @@ async def fund_detail_completeness(code: str = Query(..., min_length=4, max_leng
             as_of=None,
         ),
     }
+
+    # Align missing coverage rows with the detail endpoints used by the page.
+    # If an endpoint fails or also reports missing, keep the lightweight snapshot
+    # judgment above.
+    detail_checks = []
+    if sections["scaleHistory"]["dataStatus"] == "missing":
+        detail_checks.append(("scaleHistory", fund_scale_history(code=code, periods=8)))
+    if sections["managerHistory"]["dataStatus"] == "missing":
+        detail_checks.append(("managerHistory", fund_manager_history(code=code)))
+    if sections["purchaseInfo"]["dataStatus"] == "missing":
+        detail_checks.append(("purchaseInfo", fund_purchase_info(code=code)))
+    if sections["rating"]["dataStatus"] == "missing":
+        detail_checks.append(("rating", fund_rating(code=code)))
+
+    if detail_checks:
+        detail_payloads = await asyncio.gather(
+            *(call for _, call in detail_checks),
+            return_exceptions=True,
+        )
+        for (key, _), payload in zip(detail_checks, detail_payloads):
+            section = section_from_payload(payload)
+            if section:
+                sections[key] = section
 
     total = len(sections)
     available = sum(1 for s in sections.values() if s["dataStatus"] == "available")
