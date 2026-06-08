@@ -332,7 +332,7 @@ describe("generateConstraintDraft", () => {
   });
 });
 
-import { generateResearchReportMarkdown } from "@/lib/fund-research";
+import { generateResearchReportMarkdown, type ResearchReportSnapshot } from "@/lib/fund-research";
 
 describe("generateResearchReportMarkdown", () => {
   const portfolio = [
@@ -662,7 +662,7 @@ describe("generateResearchReportMarkdown", () => {
   });
 
   test("generates report from researchReportSnapshot", () => {
-    const researchReportSnapshot = {
+    const researchReportSnapshot: ResearchReportSnapshot = {
       candidates: [
         { fundCode: "000003", fundName: "C基金", fundType: "equity", performance: { return1y: "10", maxDrawdown: "-5", sharpeRatio: "1.2" }, feeManage: "0.015", totalScale: "20" },
       ],
@@ -700,7 +700,7 @@ describe("generateResearchReportMarkdown", () => {
   });
 
   test("researchReportSnapshot takes precedence over direct candidates", () => {
-    const researchReportSnapshot = {
+    const researchReportSnapshot: ResearchReportSnapshot = {
       candidates: [{ fundCode: "SNAP", fundName: "Snapshot基金" }],
       matches: [],
       constraintDrafts: [],
@@ -725,7 +725,7 @@ describe("generateResearchReportMarkdown", () => {
       curves: {}, regime_history: [], rebalance_events: [], attribution: {}, rolling_sharpe: {}, monthly_returns: {},
     } as any;
 
-    const researchReportSnapshot = {
+    const researchReportSnapshot: ResearchReportSnapshot = {
       candidates: [{ fundCode: "000003", fundName: "C基金", fundType: "equity", performance: { return1y: "10" }, feeManage: "0.015", totalScale: "20" }],
       matches: [{ candidate: { fundCode: "000003", fundName: "C基金", fundType: "equity", performance: {} }, match: { inPortfolio: false, peerFunds: [], inferredAsset: "equity", dataCompleteness: 0.5, advantages: [], suggestion: "可作为风格补充研究", dataStatus: "ok" } }],
       constraintDrafts: [{ fundCode: "000003", fundName: "C基金", assetClass: "equity" as any, assetClassLabel: "权益类", action: "candidate_for_style_supplement" as any, priority: "high" as any, reason: "组合缺少权益配置", constraints: ["补充权益敞口"], dataStatus: "ok" }],
