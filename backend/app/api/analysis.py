@@ -10,7 +10,7 @@ from starlette.concurrency import run_in_threadpool
 
 from ..config import CACHE_TTL_INFO
 from ..data.cache_manager import cache
-from ..services.analysis_service import analyze_fund, normalize_nav_data
+from ..services.analysis_service import analyze_fund, normalize_nav_data, _persist_holdings_snapshot
 from ..services.llm_service import (
     analyze_fund_comprehensive,
     analyze_manager_style,
@@ -151,6 +151,12 @@ def cached_analyze_fund(code: str) -> Dict[str, Any]:
         enriched = _fill_missing_nav_metrics(cached)
         if enriched != cached:
             cache.set(cache_key, enriched)
+        _persist_holdings_snapshot(
+            code,
+            enriched.get("holdings") or [],
+            enriched.get("asset_allocation") or enriched.get("assetAllocation") or [],
+            enriched.get("source"),
+        )
         return enriched
 
     result = analyze_fund(code)
@@ -158,6 +164,12 @@ def cached_analyze_fund(code: str) -> Dict[str, Any]:
         result = _fill_missing_nav_metrics(result)
         result = _fill_missing_fees(code, result)
         result = _fill_missing_holding_changes(result)
+        _persist_holdings_snapshot(
+            code,
+            result.get("holdings") or [],
+            result.get("asset_allocation") or result.get("assetAllocation") or [],
+            result.get("source"),
+        )
         cache.set(cache_key, result)
     return result
 

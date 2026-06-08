@@ -2,6 +2,7 @@ import asyncio
 import unittest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from app.api import analysis as analysis_api
 from app.api import fund as fund_api
 from app.services import fund_service
 from app.storage import database as db_module
@@ -73,6 +74,27 @@ class FundDetailContractTest(unittest.TestCase):
         self.assertEqual(payload["rows"], [])
         self.assertNotEqual(payload["dataStatus"], "simulated")
         self.assertIn("不再使用", payload["missingReason"])
+
+    def test_cached_analysis_persists_cached_holdings_snapshot(self):
+        cached = {
+            "code": "000001",
+            "holdings": [{"name": "浦发银行", "code": "600000.SH", "ratio": 8.5, "quarter": "20260331"}],
+            "asset_allocation": [{"name": "股票", "ratio": 75.94, "report_date": "20260331"}],
+            "source": "unit-test",
+            "nav_data": [],
+        }
+        with patch.object(analysis_api.cache, "get", return_value=cached), \
+            patch.object(analysis_api.cache, "set"), \
+            patch.object(analysis_api, "_persist_holdings_snapshot") as persist:
+            result = analysis_api.cached_analyze_fund("000001")
+
+        self.assertEqual(result["holdings"], cached["holdings"])
+        persist.assert_called_once_with(
+            "000001",
+            cached["holdings"],
+            cached["asset_allocation"],
+            "unit-test",
+        )
 
 
 class FundDetailCompletenessTest(unittest.TestCase):

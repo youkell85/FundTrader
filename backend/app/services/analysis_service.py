@@ -180,6 +180,52 @@ def _enrich_holdings_industry(holdings: List[Dict]) -> List[Dict]:
         return holdings
 
 
+def _persist_holdings_snapshot(
+    code: str,
+    holdings: List[Dict] | None,
+    asset_allocation: List[Dict] | None,
+    source: str | None = None,
+) -> None:
+    holdings_rows = holdings or []
+    asset_rows = asset_allocation or []
+    if not holdings_rows and not asset_rows:
+        return
+    report_date = ""
+    if holdings_rows:
+        report_date = str(
+            holdings_rows[0].get("quarter")
+            or holdings_rows[0].get("report_date")
+            or holdings_rows[0].get("reportDate")
+            or ""
+        )
+    if not report_date and asset_rows:
+        report_date = str(
+            asset_rows[0].get("report_date")
+            or asset_rows[0].get("reportDate")
+            or asset_rows[0].get("quarter")
+            or ""
+        )
+    if not report_date:
+        return
+    try:
+        from ..storage.database import FundDataStore
+
+        holdings_source = next(
+            (item.get("source") for item in holdings_rows if item.get("source")),
+            source or next((item.get("source") for item in asset_rows if item.get("source")), "analysis"),
+        )
+        FundDataStore.save_holdings_snapshot(
+            code=code,
+            report_date=report_date,
+            holdings=holdings_rows,
+            asset_allocation=asset_rows,
+            source=holdings_source,
+            data_quality="analysis",
+        )
+    except Exception:
+        pass
+
+
 def _fetch_industry_history(code: str) -> List[Dict]:
     """Fetch historical industry allocation across quarters from fund_portfolio + stock_basic."""
     try:
@@ -498,10 +544,7 @@ def analyze_fund(code: str) -> Dict[str, Any]:
 
         # 计算区间收益率
         period = _calc_period_returns(nav_data or [])
-        report_date = holdings[0].get("quarter") if holdings else ""
         asset_allocation = _fetch_real_asset_allocation(code, detail.type or "", holdings, detail.source)
-        if not report_date and asset_allocation:
-            report_date = str(asset_allocation[0].get("report_date") or asset_allocation[0].get("quarter") or "")
 
         # 从净值历史计算最佳/最差年度收益（用于经理面板）
         best_return, worst_return = _calc_best_worst_annual(nav_data or [])
@@ -562,24 +605,7 @@ def analyze_fund(code: str) -> Dict[str, Any]:
             pass
 
         # === 自动持久化真实持仓和资产配置到 fund_holdings_snapshot ===
-        try:
-            if (holdings or asset_allocation) and report_date:
-                from ..storage.database import FundDataStore
-
-                holdings_source = next(
-                    (item.get("source") for item in holdings if item.get("source")),
-                    detail.source or "analysis",
-                )
-                FundDataStore.save_holdings_snapshot(
-                    code=code,
-                    report_date=str(report_date),
-                    holdings=holdings,
-                    asset_allocation=asset_allocation,
-                    source=holdings_source,
-                    data_quality="analysis",
-                )
-        except Exception:
-            pass
+        _persist_holdings_snapshot(code, holdings, asset_allocation, detail.source)
 
         # === 自动持久化回撤序列到 fund_drawdown_series ===
         try:
