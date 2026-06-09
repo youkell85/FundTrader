@@ -69,7 +69,8 @@ class FundDetailContractTest(unittest.TestCase):
         self.assertIn("真实净值", payload["missingReason"])
 
     def test_missing_holder_structure_returns_missing_not_mock(self):
-        with patch.object(fund_service, "_safe_table_query", return_value=[]):
+        with patch.object(fund_service, "_safe_table_query", return_value=[]), \
+            patch.object(fund_service, "_fetch_eastmoney_holder_report_pdf_text", return_value=None):
             payload = fund_service.get_fund_holder_structure("000001", periods=8)
 
         self.assertEqual(payload["dataStatus"], "missing")
@@ -108,6 +109,65 @@ class FundDetailContractTest(unittest.TestCase):
 
         self.assertEqual(payload["dataStatus"], "missing")
         self.assertEqual(payload["rows"], [])
+
+    def test_report_pdf_text_parsers_extract_holder_and_bond_allocation(self):
+        holder_text = (
+            "\u00a79 \u57fa\u91d1\u4efd\u989d\u6301\u6709\u4eba\u4fe1\u606f\n"
+            "9.1 \u671f\u672b\u57fa\u91d1\u4efd\u989d\u6301\u6709\u4eba\u6237\u6570\u53ca\u6301\u6709\u4eba\u7ed3\u6784\n"
+            "\u5408\u8ba1 1,966,186 4,748.85 21,655,926.84 0.23 9,315,472,893.16 99.77\n"
+        )
+        bond_text = (
+            "8.5 \u671f\u672b\u6309\u503a\u5238\u54c1\u79cd\u5206\u7c7b\u7684\u503a\u5238\u6295\u8d44\u7ec4\u5408\n"
+            "\u5e8f\u53f7 \u503a\u5238\u54c1\u79cd \u516c\u5141\u4ef7\u503c \u5360\u57fa\u91d1\u8d44\u4ea7\u51c0\u503c\u6bd4\u4f8b\uff08%\uff09\n"
+            "1 \u56fd\u5bb6\u503a\u5238 - -\n"
+            "3 \u91d1\u878d\u503a\u5238 625,003,654.79 3.92\n"
+            "10 \u5408\u8ba1 625,003,654.79 3.92\n"
+        )
+
+        holder_rows = fund_service._parse_holder_structure_from_report_text(holder_text, "2025-12-31")
+        bond_rows = fund_service._parse_bond_allocation_from_report_text(bond_text)
+
+        self.assertEqual(holder_rows, [{"quarter": "2025-12-31", "institution": 0.23, "individual": 99.77}])
+        self.assertEqual(bond_rows, [{"bondType": "\u91d1\u878d\u503a\u5238", "ratio": 3.92, "changeRatio": None}])
+
+    def test_holder_structure_falls_back_to_report_pdf_and_persists(self):
+        report = {
+            "report_date": "2025-12-31",
+            "source": "eastmoney:periodic_report_pdf",
+            "text": (
+                "9.1 \u671f\u672b\u57fa\u91d1\u4efd\u989d\u6301\u6709\u4eba\u6237\u6570\u53ca\u6301\u6709\u4eba\u7ed3\u6784 "
+                "\u5408\u8ba1 1,966,186 4,748.85 21,655,926.84 0.23 9,315,472,893.16 99.77"
+            ),
+        }
+        with patch.object(fund_service, "_safe_table_query", return_value=[]), \
+            patch.object(fund_service, "_fetch_eastmoney_holder_report_pdf_text", return_value=report), \
+            patch.object(fund_service, "_persist_quarterly_snapshot_field") as persist:
+            payload = fund_service.get_fund_holder_structure("000001", periods=8)
+
+        self.assertEqual(payload["dataStatus"], "available")
+        self.assertEqual(payload["rows"][0]["institution"], 0.23)
+        self.assertEqual(payload["rows"][0]["individual"], 99.77)
+        persist.assert_called_once()
+
+    def test_bond_allocation_falls_back_to_report_pdf_and_persists(self):
+        report = {
+            "report_date": "2025-12-31",
+            "source": "eastmoney:periodic_report_pdf",
+            "text": (
+                "8.5 \u671f\u672b\u6309\u503a\u5238\u54c1\u79cd\u5206\u7c7b\u7684\u503a\u5238\u6295\u8d44\u7ec4\u5408\n"
+                "3 \u91d1\u878d\u503a\u5238 625,003,654.79 3.92\n"
+                "10 \u5408\u8ba1 625,003,654.79 3.92\n"
+            ),
+        }
+        with patch.object(fund_service, "_safe_table_query", return_value=[]), \
+            patch.object(fund_service, "_fetch_eastmoney_holder_report_pdf_text", return_value=report), \
+            patch.object(fund_service, "_persist_quarterly_snapshot_field") as persist:
+            payload = fund_service.get_fund_bond_allocation("000001")
+
+        self.assertEqual(payload["dataStatus"], "available")
+        self.assertEqual(payload["rows"][0]["bondType"], "\u91d1\u878d\u503a\u5238")
+        self.assertEqual(payload["rows"][0]["ratio"], 3.92)
+        persist.assert_called_once()
 
     def test_cached_analysis_persists_cached_holdings_snapshot(self):
         cached = {

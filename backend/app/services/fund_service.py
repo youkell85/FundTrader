@@ -12,6 +12,8 @@ import math
 import os
 import json
 import re
+import io
+import threading
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from datetime import date, datetime, timedelta
 from typing import Any
@@ -1006,11 +1008,35 @@ def get_fund_holder_structure(code: str, periods: int = 40) -> dict:
             indiv = _safe_float(item.get("individual") or item.get("individual_ratio"))
             if quarter and inst is not None and indiv is not None:
                 out.append({"quarter": quarter, "institution": inst, "individual": indiv})
+    if out:
+        return _rows_response(
+            code,
+            out[-periods:],
+            source=source,
+            as_of=as_of,
+            missing_reason="缺少真实持有人结构季报数据；不再使用行业模板模拟。",
+        )
+
+    report = _fetch_eastmoney_holder_report_pdf_text(code)
+    if report:
+        parsed = _parse_holder_structure_from_report_text(report["text"], report.get("report_date"))
+        if parsed:
+            _persist_quarterly_snapshot_field(
+                code,
+                report.get("report_date") or parsed[0].get("quarter") or "",
+                holder_structure=parsed,
+                source=report.get("source") or "eastmoney:periodic_report_pdf",
+            )
+            return _rows_response(
+                code,
+                parsed[-periods:],
+                source=report.get("source") or "eastmoney:periodic_report_pdf",
+                as_of=report.get("report_date"),
+            )
+
     return _rows_response(
         code,
-        out[-periods:],
-        source=source,
-        as_of=as_of,
+        [],
         missing_reason="缺少真实持有人结构季报数据；不再使用行业模板模拟。",
     )
 
@@ -1029,29 +1055,48 @@ def get_fund_bond_allocation(code: str) -> dict:
            LIMIT 1""",
         (code,),
     )
-    if not rows:
+    out: list[dict[str, Any]] = []
+    row = rows[0] if rows else None
+    if row:
+        for item in _parse_json_array(row["bond_allocation_json"]):
+            bond_type = str(item.get("bondType") or item.get("bond_type") or item.get("name") or "")
+            ratio = _safe_float(item.get("ratio") or item.get("navRatio") or item.get("nav_ratio"))
+            if bond_type and ratio is not None:
+                out.append({
+                    "bondType": bond_type,
+                    "ratio": ratio,
+                    "changeRatio": _safe_float(item.get("changeRatio") or item.get("change_ratio")),
+                })
+    if out:
         return _rows_response(
             code,
-            [],
-            missing_reason="缺少真实券种配置季报数据；不再使用按基金类型生成的模拟配置。",
+            out,
+            source=row["source"] or "fund_detail_quarterly_snapshot",
+            as_of=row["report_date"],
+            missing_reason="券种配置快照为空。",
         )
-    row = rows[0]
-    out: list[dict[str, Any]] = []
-    for item in _parse_json_array(row["bond_allocation_json"]):
-        bond_type = str(item.get("bondType") or item.get("bond_type") or item.get("name") or "")
-        ratio = _safe_float(item.get("ratio") or item.get("navRatio") or item.get("nav_ratio"))
-        if bond_type and ratio is not None:
-            out.append({
-                "bondType": bond_type,
-                "ratio": ratio,
-                "changeRatio": _safe_float(item.get("changeRatio") or item.get("change_ratio")),
-            })
+
+    report = _fetch_eastmoney_holder_report_pdf_text(code)
+    if report:
+        parsed = _parse_bond_allocation_from_report_text(report["text"])
+        if parsed:
+            _persist_quarterly_snapshot_field(
+                code,
+                report.get("report_date") or "",
+                bond_allocation=parsed,
+                source=report.get("source") or "eastmoney:periodic_report_pdf",
+            )
+            return _rows_response(
+                code,
+                parsed,
+                source=report.get("source") or "eastmoney:periodic_report_pdf",
+                as_of=report.get("report_date"),
+            )
+
     return _rows_response(
         code,
-        out,
-        source=row["source"] or "fund_detail_quarterly_snapshot",
-        as_of=row["report_date"],
-        missing_reason="券种配置快照为空。",
+        [],
+        missing_reason="缺少真实券种配置季报数据；不再使用按基金类型生成的模拟配置。",
     )
 
 
@@ -1862,6 +1907,13 @@ _PERIODIC_REPORT_KEYWORDS = (
     "\u5e74\u5ea6\u62a5\u544a",
     "\u4e2d\u671f\u62a5\u544a",
 )
+_HOLDER_REPORT_KEYWORDS = (
+    "\u5e74\u5ea6\u62a5\u544a",
+    "\u4e2d\u671f\u62a5\u544a",
+    "\u534a\u5e74\u5ea6\u62a5\u544a",
+)
+_REPORT_PDF_TEXT_CACHE: dict[str, dict[str, Any]] = {}
+_REPORT_PDF_TEXT_CACHE_LOCK = threading.Lock()
 
 
 def _clean_notice_value(value: Any) -> str:
@@ -1934,6 +1986,184 @@ def _fetch_eastmoney_manager_report(code: str) -> dict[str, Any] | None:
     except Exception as e:
         console_error(f"manager report fetch failed for {code}: {e}")
         return None
+
+
+def _latest_eastmoney_notice(code: str, title_keywords: tuple[str, ...]) -> dict[str, str] | None:
+    try:
+        import akshare as ak
+
+        notices = ak.fund_announcement_report_em(symbol=code)
+        if notices is None or getattr(notices, "empty", True):
+            return None
+
+        candidates = []
+        for index, row in enumerate(notices.to_dict("records")):
+            title = _clean_notice_value(row.get(_REPORT_TITLE_COL) or row.get("title"))
+            report_id = _clean_notice_value(row.get(_REPORT_ID_COL) or row.get("report_id"))
+            publish_date = _clean_notice_value(row.get(_REPORT_DATE_COL) or row.get("date"))
+            if not report_id or "\u6458\u8981" in title:
+                continue
+            if not any(keyword in title for keyword in title_keywords):
+                continue
+            candidates.append((publish_date, index, title, report_id))
+        if not candidates:
+            return None
+
+        publish_date, _, title, report_id = sorted(candidates, key=lambda item: (item[0], item[1]))[-1]
+        return {"publish_date": publish_date, "title": title, "report_id": report_id}
+    except Exception as e:
+        console_error(f"eastmoney notice lookup failed for {code}: {e}")
+        return None
+
+
+def _fetch_eastmoney_holder_report_pdf_text(code: str) -> dict[str, Any] | None:
+    with _REPORT_PDF_TEXT_CACHE_LOCK:
+        cached = _REPORT_PDF_TEXT_CACHE.get(code)
+        if cached:
+            return cached
+
+        notice = _latest_eastmoney_notice(code, _HOLDER_REPORT_KEYWORDS)
+        if not notice:
+            return None
+
+        try:
+            import pdfplumber
+            import requests
+
+            response = requests.get(
+                "https://np-cnotice-fund.eastmoney.com/api/content/ann",
+                params={"art_code": notice["report_id"], "client_source": "web"},
+                headers={"User-Agent": "Mozilla/5.0", "Referer": "https://fundf10.eastmoney.com/"},
+                timeout=20,
+            )
+            payload = response.json()
+            data = payload.get("data") if isinstance(payload, dict) else None
+            if not isinstance(data, dict):
+                return None
+            attach_url = _clean_notice_value(data.get("attach_url_web") or data.get("attach_url"))
+            if not attach_url:
+                return None
+
+            pdf_response = requests.get(
+                attach_url,
+                headers={"User-Agent": "Mozilla/5.0", "Referer": "https://fundf10.eastmoney.com/"},
+                timeout=20,
+            )
+            pdf_response.raise_for_status()
+
+            pages: list[str] = []
+            with pdfplumber.open(io.BytesIO(pdf_response.content)) as pdf:
+                for page in pdf.pages:
+                    pages.append(page.extract_text(x_tolerance=1, y_tolerance=3) or "")
+            text = "\n".join(pages)
+            if not text.strip():
+                return None
+
+            report_date = _parse_cn_report_date(text, notice.get("publish_date"))
+            result = {
+                "report_date": report_date or _clean_notice_value(notice.get("publish_date"))[:10],
+                "report_type": notice["title"],
+                "source": "eastmoney:periodic_report_pdf",
+                "text": text,
+            }
+            _REPORT_PDF_TEXT_CACHE[code] = result
+            return result
+        except Exception as e:
+            console_error(f"eastmoney report pdf fetch failed for {code}: {e}")
+            return None
+
+
+def _parse_bond_allocation_from_report_text(text: str) -> list[dict[str, Any]]:
+    marker = "\u671f\u672b\u6309\u503a\u5238\u54c1\u79cd\u5206\u7c7b\u7684\u503a\u5238\u6295\u8d44\u7ec4\u5408"
+    start = text.rfind(marker)
+    if start < 0:
+        return []
+    end = text.find("\n8.6 ", start + len(marker))
+    section = text[start:end if end > start else start + 1800]
+    rows = []
+    for line in section.splitlines():
+        clean = " ".join(line.split())
+        match = re.match(r"^(\d+)\s+(.+?)\s+([\d,.\-]+|-)\s+([\d.\-]+|-)$", clean)
+        if not match:
+            continue
+        _, name, _amount, ratio_raw = match.groups()
+        name = name.strip()
+        if name == "\u5408\u8ba1":
+            continue
+        ratio = _safe_float(ratio_raw)
+        if ratio is None or ratio <= 0:
+            continue
+        rows.append({"bondType": name, "ratio": ratio, "changeRatio": None})
+    return rows
+
+
+def _parse_holder_structure_from_report_text(text: str, report_date: str | None) -> list[dict[str, Any]]:
+    marker = "\u671f\u672b\u57fa\u91d1\u4efd\u989d\u6301\u6709\u4eba\u6237\u6570\u53ca\u6301\u6709\u4eba\u7ed3\u6784"
+    start = text.rfind(marker)
+    if start < 0:
+        return []
+    section = " ".join(text[start:start + 1600].split())
+    match = re.search(
+        r"\u5408\u8ba1\s+[\d,]+\s+[\d,.]+\s+([\d,.\-]+|-)\s+([\d.\-]+|-)\s+([\d,.\-]+|-)\s+([\d.\-]+|-)",
+        section,
+    )
+    if not match:
+        return []
+    _inst_amount, inst_ratio, _indiv_amount, indiv_ratio = match.groups()
+    institution = _safe_float(inst_ratio)
+    individual = _safe_float(indiv_ratio)
+    if institution is None or individual is None:
+        return []
+    return [{
+        "quarter": report_date or "",
+        "institution": institution,
+        "individual": individual,
+    }]
+
+
+def _persist_quarterly_snapshot_field(
+    code: str,
+    report_date: str,
+    *,
+    holder_structure: list[dict[str, Any]] | None = None,
+    bond_allocation: list[dict[str, Any]] | None = None,
+    source: str = "eastmoney:periodic_report_pdf",
+) -> None:
+    if not report_date:
+        return
+    fields: list[tuple[str, list[dict[str, Any]]]] = []
+    if holder_structure:
+        fields.append(("holder_structure_json", holder_structure))
+    if bond_allocation:
+        fields.append(("bond_allocation_json", bond_allocation))
+    if not fields:
+        return
+
+    now = datetime.now().isoformat()
+    try:
+        with get_db_context() as conn:
+            for field, value in fields:
+                conn.execute(
+                    f"""INSERT INTO fund_detail_quarterly_snapshot
+                       (code, report_date, holder_structure_json, bond_allocation_json, bond_holdings_json,
+                        total_scale, turnover_rate, source, data_quality, updated_at)
+                       VALUES (?, ?, ?, ?, '[]', NULL, NULL, ?, 'report_pdf', ?)
+                       ON CONFLICT(code, report_date) DO UPDATE SET
+                         {field} = excluded.{field},
+                         source = excluded.source,
+                         data_quality = excluded.data_quality,
+                         updated_at = excluded.updated_at""",
+                    (
+                        code,
+                        report_date,
+                        json.dumps(value, ensure_ascii=False) if field == "holder_structure_json" else "[]",
+                        json.dumps(value, ensure_ascii=False) if field == "bond_allocation_json" else "[]",
+                        source,
+                        now,
+                    ),
+                )
+    except Exception as e:
+        console_error(f"quarterly report field persist failed for {code}: {e}")
 
 
 def _persist_fund_manager_report(code: str, report: dict[str, Any]) -> None:
