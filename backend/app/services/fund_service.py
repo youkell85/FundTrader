@@ -282,7 +282,12 @@ def _has_nav_quote(snapshot: dict[str, Any] | None) -> bool:
 
 
 def needs_exchange_fund_snapshot_refresh(snapshot: dict[str, Any] | None) -> bool:
-    return not snapshot or len(snapshot.get("nav_data") or []) < 2 or not _has_nav_quote(snapshot)
+    return (
+        not snapshot
+        or len(snapshot.get("nav_data") or []) < 2
+        or not _has_nav_quote(snapshot)
+        or _is_exchange_nav_asof_stale(snapshot.get("nav_date"))
+    )
 
 
 def ensure_exchange_fund_snapshot(code: str) -> dict[str, Any] | None:
@@ -292,10 +297,15 @@ def ensure_exchange_fund_snapshot(code: str) -> dict[str, Any] | None:
         return None
 
     snapshot = FundDataStore.get_snapshot(code)
-    if snapshot and len(snapshot.get("nav_data") or []) >= 2 and _has_nav_quote(snapshot):
+    if snapshot and len(snapshot.get("nav_data") or []) >= 2 and _has_nav_quote(snapshot) and not _is_exchange_nav_asof_stale(snapshot.get("nav_date")):
         return snapshot
 
     nav_rows, source, _ = _get_nav_history_for_detail(code)
+    if len(nav_rows) >= 2 and _is_exchange_nav_asof_stale(nav_rows[-1].get("nav_date")):
+        refreshed_rows = _refresh_exchange_nav_history(code, nav_rows[-1].get("nav_date"))
+        if refreshed_rows:
+            nav_rows = refreshed_rows
+            source = "efinance"
     if len(nav_rows) < 2:
         return snapshot
 
@@ -330,6 +340,42 @@ def ensure_exchange_fund_snapshot(code: str) -> dict[str, Any] | None:
     except Exception as e:
         console_error(f"exchange fund snapshot persistence failed for {code}: {e}")
     return _exchange_snapshot_from_nav(code, quote_row, nav_rows)
+
+
+def _is_exchange_nav_asof_stale(nav_date: str | None, *, hours: int = 48) -> bool:
+    parsed = _to_date(str(nav_date or ""))
+    if not parsed:
+        return False
+    return (datetime.now() - datetime.combine(parsed, datetime.min.time())).total_seconds() > hours * 3600
+
+
+def _refresh_exchange_nav_history(code: str, current_as_of: str | None) -> list[dict[str, Any]]:
+    try:
+        from ..data.efinance_fetcher import get_fund_nav_history
+
+        fetched = get_fund_nav_history(code)
+        clean: list[dict[str, Any]] = []
+        for item in fetched or []:
+            nav_date = str(item.get("date") or item.get("nav_date") or item.get("净值日期") or "")[:10]
+            nav = _safe_float(item.get("nav") or item.get("单位净值") or item.get("nav_value"))
+            if nav_date and nav is not None and nav > 0:
+                clean.append({
+                    "nav_date": nav_date,
+                    "nav": nav,
+                    "accum_nav": _safe_float(item.get("acc_nav") or item.get("accum_nav") or item.get("累计净值")),
+                    "day_growth": _safe_float(item.get("day_growth") or item.get("日增长率") or item.get("增长率")),
+                })
+        clean.sort(key=lambda row: row["nav_date"])
+        if len(clean) < 2 or (current_as_of and clean[-1]["nav_date"] <= str(current_as_of)):
+            return []
+        try:
+            FundDataStore.save_nav_history_batch(code, clean, source="efinance")
+        except Exception:
+            pass
+        return clean
+    except Exception as e:
+        console_error(f"exchange nav history refresh failed for {code}: {e}")
+        return []
 
 
 def _window_return_from_nav(nav_rows: list[dict[str, Any]], days: int) -> float | None:

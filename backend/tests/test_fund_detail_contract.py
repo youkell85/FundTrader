@@ -35,6 +35,33 @@ class FundDetailContractTest(unittest.TestCase):
         self.assertEqual(bounded[0], points[0])
         self.assertEqual(bounded[-1], points[-1])
 
+    def test_exchange_nav_history_refreshes_stale_rows_from_efinance(self):
+        fetched = [
+            {"date": "2099-01-01", "nav": 2.0, "acc_nav": 2.0, "day_growth": 0.0},
+            {"date": "2099-01-02", "nav": 2.1, "acc_nav": 2.1, "day_growth": 5.0},
+        ]
+
+        with patch("app.data.efinance_fetcher.get_fund_nav_history", return_value=fetched) as fetch, \
+            patch.object(db_module.FundDataStore, "save_nav_history_batch", return_value=2) as save:
+            rows = fund_service._refresh_exchange_nav_history("510300", "2000-01-02")
+
+        fetch.assert_called_once_with("510300")
+        save.assert_called_once()
+        self.assertEqual(rows[-1]["nav"], 2.1)
+
+    def test_exchange_nav_history_keeps_current_rows_when_efinance_not_newer(self):
+        fetched = [
+            {"date": "2099-01-01", "nav": 2.0, "acc_nav": 2.0, "day_growth": 0.0},
+            {"date": "2099-01-02", "nav": 2.1, "acc_nav": 2.1, "day_growth": 5.0},
+        ]
+
+        with patch("app.data.efinance_fetcher.get_fund_nav_history", return_value=fetched), \
+            patch.object(db_module.FundDataStore, "save_nav_history_batch") as save:
+            rows = fund_service._refresh_exchange_nav_history("510300", "2099-01-02")
+
+        save.assert_not_called()
+        self.assertEqual(rows, [])
+
     def test_pct_for_api_does_not_double_scale_percent_values(self):
         self.assertEqual(fund_service._pct_for_api(54.57), 54.57)
         self.assertEqual(fund_service._pct_for_api("54.57"), 54.57)

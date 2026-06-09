@@ -289,7 +289,7 @@ class FundHoldingsSnapshotTest(unittest.TestCase):
     def test_exchange_fund_snapshot_refreshes_missing_quote_with_existing_nav_history(self):
         nav_records = [
             {"nav_date": "2025-01-02", "nav": 1.0, "accum_nav": 1.0},
-            {"nav_date": "2026-01-02", "nav": 1.2, "accum_nav": 1.2},
+            {"nav_date": "2099-01-02", "nav": 1.2, "accum_nav": 1.2},
         ]
         with patch("app.storage.database.DB_PATH", self.db_path):
             FundDataStore.save_quote_batch([
@@ -307,7 +307,7 @@ class FundHoldingsSnapshotTest(unittest.TestCase):
         self.assertEqual(before["nav"], 0)
         self.assertEqual(before["nav_date"], "2026-01-01")
         self.assertEqual(snapshot["nav"], 1.2)
-        self.assertEqual(snapshot["nav_date"], "2026-01-02")
+        self.assertEqual(snapshot["nav_date"], "2099-01-02")
         self.assertEqual(len(snapshot["nav_data"]), 2)
 
     def test_exchange_fund_holdings_snapshot_is_backfilled_from_tushare(self):
