@@ -504,8 +504,16 @@ async def fund_detail_completeness(code: str = Query(..., min_length=4, max_leng
     # If an endpoint fails or also reports missing, keep the lightweight snapshot
     # judgment above.
     detail_checks = []
+    if sections["holderStructure"]["dataStatus"] == "missing":
+        detail_checks.append(("holderStructure", fund_holder_structure(code=code, periods=8)))
+    if sections["bondAllocation"]["dataStatus"] == "missing":
+        detail_checks.append(("bondAllocation", fund_bond_allocation(code=code)))
+    if sections["bondHoldings"]["dataStatus"] == "missing":
+        detail_checks.append(("bondHoldings", fund_bond_holdings(code=code)))
     if sections["scaleHistory"]["dataStatus"] == "missing":
         detail_checks.append(("scaleHistory", fund_scale_history(code=code, periods=8)))
+    if sections["turnoverHistory"]["dataStatus"] == "missing":
+        detail_checks.append(("turnoverHistory", fund_turnover_history(code=code, periods=8)))
     if sections["managerHistory"]["dataStatus"] == "missing":
         detail_checks.append(("managerHistory", fund_manager_history(code=code)))
     if sections["purchaseInfo"]["dataStatus"] == "missing":

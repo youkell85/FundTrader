@@ -285,6 +285,10 @@ class FundDetailCompletenessTest(unittest.TestCase):
             "purchase": missing_payload,
             "rating": missing_payload,
             "report": missing_payload,
+            "holder": missing_payload,
+            "bond_alloc": missing_payload,
+            "bond_holdings": missing_payload,
+            "turnover": missing_payload,
             **(detail_payloads or {}),
         }
 
@@ -295,6 +299,10 @@ class FundDetailCompletenessTest(unittest.TestCase):
             cm.__enter__.return_value = cm
             cm.execute = fake_execute
             with patch.object(fund_api, "fund_scale_history", new=AsyncMock(return_value=payloads["scale"])), \
+                patch.object(fund_api, "fund_holder_structure", new=AsyncMock(return_value=payloads["holder"])), \
+                patch.object(fund_api, "fund_bond_allocation", new=AsyncMock(return_value=payloads["bond_alloc"])), \
+                patch.object(fund_api, "fund_bond_holdings", new=AsyncMock(return_value=payloads["bond_holdings"])), \
+                patch.object(fund_api, "fund_turnover_history", new=AsyncMock(return_value=payloads["turnover"])), \
                 patch.object(fund_api, "fund_manager_history", new=AsyncMock(return_value=payloads["manager"])), \
                 patch.object(fund_api, "fund_purchase_info", new=AsyncMock(return_value=payloads["purchase"])), \
                 patch.object(fund_api, "fund_rating", new=AsyncMock(return_value=payloads["rating"])), \
@@ -397,6 +405,15 @@ class FundDetailCompletenessTest(unittest.TestCase):
                     "coverage": 1.0,
                     "missingReason": None,
                 },
+                "bond_holdings": {
+                    "code": "000001",
+                    "rows": [{"bondName": "\u6d4b\u8bd5\u503a\u5238", "navRatio": 12.34}],
+                    "dataStatus": "partial",
+                    "source": "AkShare",
+                    "asOf": "2026",
+                    "coverage": 0.45,
+                    "missingReason": "partial bond fields",
+                },
             },
         )
 
@@ -407,6 +424,8 @@ class FundDetailCompletenessTest(unittest.TestCase):
         self.assertEqual(result["sections"]["rating"]["dataStatus"], "partial")
         self.assertEqual(result["sections"]["managerReport"]["dataStatus"], "available")
         self.assertEqual(result["sections"]["managerReport"]["source"], "eastmoney:fund_announcement_report")
+        self.assertEqual(result["sections"]["bondHoldings"]["dataStatus"], "partial")
+        self.assertEqual(result["sections"]["bondHoldings"]["source"], "AkShare")
         self.assertGreater(result["coverage"], 0.0)
 
     # ---- 4. 无数据时仍为 missing，不 fake available -----------------------------
