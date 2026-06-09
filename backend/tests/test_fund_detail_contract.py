@@ -251,6 +251,7 @@ class FundDetailCompletenessTest(unittest.TestCase):
             "manager": missing_payload,
             "purchase": missing_payload,
             "rating": missing_payload,
+            "report": missing_payload,
             **(detail_payloads or {}),
         }
 
@@ -263,7 +264,8 @@ class FundDetailCompletenessTest(unittest.TestCase):
             with patch.object(fund_api, "fund_scale_history", new=AsyncMock(return_value=payloads["scale"])), \
                 patch.object(fund_api, "fund_manager_history", new=AsyncMock(return_value=payloads["manager"])), \
                 patch.object(fund_api, "fund_purchase_info", new=AsyncMock(return_value=payloads["purchase"])), \
-                patch.object(fund_api, "fund_rating", new=AsyncMock(return_value=payloads["rating"])):
+                patch.object(fund_api, "fund_rating", new=AsyncMock(return_value=payloads["rating"])), \
+                patch.object(fund_api, "fund_manager_report", new=AsyncMock(return_value=payloads["report"])):
                 return asyncio.run(fund_api.fund_detail_completeness(code="000001"))
 
     # ---- 1. section 数量与命名 ------------------------------------------------
@@ -352,6 +354,16 @@ class FundDetailCompletenessTest(unittest.TestCase):
                     "coverage": 0.5,
                     "missingReason": None,
                 },
+                "report": {
+                    "code": "000001",
+                    "report": "real report",
+                    "period": "2026-03-31",
+                    "dataStatus": "available",
+                    "source": "eastmoney:fund_announcement_report",
+                    "asOf": "2026-03-31",
+                    "coverage": 1.0,
+                    "missingReason": None,
+                },
             },
         )
 
@@ -360,6 +372,8 @@ class FundDetailCompletenessTest(unittest.TestCase):
         self.assertEqual(result["sections"]["managerHistory"]["dataStatus"], "partial")
         self.assertEqual(result["sections"]["purchaseInfo"]["dataStatus"], "partial")
         self.assertEqual(result["sections"]["rating"]["dataStatus"], "partial")
+        self.assertEqual(result["sections"]["managerReport"]["dataStatus"], "available")
+        self.assertEqual(result["sections"]["managerReport"]["source"], "eastmoney:fund_announcement_report")
         self.assertGreater(result["coverage"], 0.0)
 
     # ---- 4. 无数据时仍为 missing，不 fake available -----------------------------

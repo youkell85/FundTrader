@@ -512,6 +512,8 @@ async def fund_detail_completeness(code: str = Query(..., min_length=4, max_leng
         detail_checks.append(("purchaseInfo", fund_purchase_info(code=code)))
     if sections["rating"]["dataStatus"] == "missing":
         detail_checks.append(("rating", fund_rating(code=code)))
+    if sections["managerReport"]["dataStatus"] == "missing":
+        detail_checks.append(("managerReport", fund_manager_report(code=code)))
 
     if detail_checks:
         detail_payloads = await asyncio.gather(
