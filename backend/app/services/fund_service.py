@@ -1823,6 +1823,23 @@ def get_fund_turnover_history(code: str, periods: int = 40) -> dict:
         for row in reversed(rows)
         if _safe_float(row["turnover_rate"]) is not None
     ]
+    if not out:
+        report = _fetch_eastmoney_holder_report_pdf_text(code)
+        if report:
+            activity = _parse_stock_trading_activity_from_report_text(report.get("text") or "", report.get("report_date"))
+            if activity:
+                return _rows_response(
+                    code,
+                    activity,
+                    status=DETAIL_STATUS_PARTIAL,
+                    source=report.get("source") or "eastmoney:periodic_report_pdf",
+                    as_of=report.get("report_date"),
+                    coverage=0.35,
+                    missing_reason=(
+                        "定期报告披露了股票买入/卖出成交额，但缺少有股票持仓交易日日均股票市值，"
+                        "无法按信息披露口径计算股票换手率。"
+                    ),
+                )
     return _rows_response(
         code,
         out,
@@ -2118,6 +2135,36 @@ def _parse_holder_structure_from_report_text(text: str, report_date: str | None)
         "quarter": report_date or "",
         "institution": institution,
         "individual": individual,
+    }]
+
+
+def _parse_stock_trading_activity_from_report_text(text: str, report_date: str | None) -> list[dict[str, Any]]:
+    marker = "买入股票的成本总额及卖出股票的收入总额"
+    start = text.rfind(marker)
+    if start < 0:
+        return []
+    section = " ".join(text[start:start + 1200].split())
+    buy_match = re.search(r"买入股票成本[（(]成交[）)]总额\s+([\d,.\-]+)", section)
+    sell_match = re.search(r"卖出股票收入[（(]成交[）)]总额\s+([\d,.\-]+)", section)
+    if not buy_match or not sell_match:
+        return []
+
+    def parse_money(raw: str) -> float | None:
+        try:
+            return float(raw.replace(",", ""))
+        except Exception:
+            return None
+
+    buy_amount = parse_money(buy_match.group(1))
+    sell_amount = parse_money(sell_match.group(1))
+    if buy_amount is None and sell_amount is None:
+        return []
+    return [{
+        "quarter": report_date or "",
+        "turnoverRate": None,
+        "buyStockAmount": buy_amount,
+        "sellStockAmount": sell_amount,
+        "calculationStatus": "missing_average_stock_market_value",
     }]
 
 

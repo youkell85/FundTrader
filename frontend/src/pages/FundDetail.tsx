@@ -754,7 +754,7 @@ export default function FundDetail() {
           <ReportSection id="scale" title="规模 · 换手 · 持有人结构">
             <ScaleSection
               scaleRows={(scaleHistoryQ.data?.rows || []) as Array<{ quarter: string; totalScale: number; peer25Scale: number | null }>}
-              turnoverRows={(turnoverHistoryQ.data?.rows || []) as Array<{ quarter: string; turnoverRate: number }>}
+              turnoverRows={(turnoverHistoryQ.data?.rows || []) as TurnoverRow[]}
             />
           </ReportSection>
 
@@ -1438,17 +1438,31 @@ function HistorySection({
 
 // ===================== 规模 · 换手 =====================
 
+type TurnoverRow = {
+  quarter: string;
+  turnoverRate: number | null;
+  buyStockAmount?: number | null;
+  sellStockAmount?: number | null;
+  calculationStatus?: string | null;
+};
+
 function ScaleSection({
   scaleRows,
   turnoverRows,
 }: {
   scaleRows: Array<{ quarter: string; totalScale: number; peer25Scale: number | null }>;
-  turnoverRows: Array<{ quarter: string; turnoverRate: number }>;
+  turnoverRows: TurnoverRow[];
 }) {
   const hasScale = scaleRows.length > 0;
-  const hasTurnover = turnoverRows.length > 0;
+  const turnoverRateRows = turnoverRows.filter((r) => typeof r.turnoverRate === "number");
+  const hasTurnover = turnoverRateRows.length > 0;
+  const tradingActivity = !hasTurnover
+    ? turnoverRows.find((r) => r.buyStockAmount != null || r.sellStockAmount != null)
+    : null;
   // 检查 peer25Scale 是否全为 null / 0
   const hasPeerScale = hasScale && scaleRows.some((r) => r.peer25Scale != null && r.peer25Scale !== 0);
+  const formatCnyYi = (value?: number | null) =>
+    value == null ? "—" : `${numFmt(value / 100000000, 2)}亿`;
   return (
     <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
       <Panel title="历年规模变化">
@@ -1482,7 +1496,7 @@ function ScaleSection({
         {hasTurnover ? (
           <div className="h-[260px]">
             <ResponsiveContainer width="100%" height="100%">
-              <ComposedChart data={turnoverRows}>
+              <ComposedChart data={turnoverRateRows}>
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                 <XAxis dataKey="quarter" tick={{ fontSize: 10 }} />
                 <YAxis tick={{ fontSize: 11 }} />
@@ -1491,6 +1505,19 @@ function ScaleSection({
                 <Line dataKey="turnoverRate" stroke={chartColors[0]} dot={false} name="换手率(%)" />
               </ComposedChart>
             </ResponsiveContainer>
+          </div>
+        ) : tradingActivity ? (
+          <div className="flex h-[260px] flex-col justify-center gap-3">
+            <div className="grid grid-cols-2 gap-3">
+              <Metric label="年报买入股票成本" value={formatCnyYi(tradingActivity.buyStockAmount)} />
+              <Metric label="年报卖出股票收入" value={formatCnyYi(tradingActivity.sellStockAmount)} />
+            </div>
+            <div className="rounded-md border border-[#FFB800]/25 bg-[#FFB800]/10 px-3 py-2 text-xs leading-relaxed text-[#FFD98A]">
+              定期报告披露了买卖成交额，但缺少有股票持仓交易日日均股票市值，暂不计算股票换手率。
+            </div>
+            <div className="text-xs text-muted-foreground">
+              {tradingActivity.quarter || "最新定期报告"} · eastmoney:periodic_report_pdf
+            </div>
           </div>
         ) : (
           <EmptyState label="基金换手率数据待补" />

@@ -130,6 +130,22 @@ class FundDetailContractTest(unittest.TestCase):
         self.assertEqual(holder_rows, [{"quarter": "2025-12-31", "institution": 0.23, "individual": 99.77}])
         self.assertEqual(bond_rows, [{"bondType": "\u91d1\u878d\u503a\u5238", "ratio": 3.92, "changeRatio": None}])
 
+    def test_report_pdf_text_parser_extracts_stock_trading_activity(self):
+        text = (
+            "8.4.3 \u4e70\u5165\u80a1\u7968\u7684\u6210\u672c\u603b\u989d\u53ca\u5356\u51fa\u80a1\u7968\u7684\u6536\u5165\u603b\u989d\n"
+            "\u5355\u4f4d: \u4eba\u6c11\u5e01\u5143\n"
+            "\u4e70\u5165\u80a1\u7968\u6210\u672c\uff08\u6210\u4ea4\uff09\u603b\u989d 785,562,768.66\n"
+            "\u5356\u51fa\u80a1\u7968\u6536\u5165\uff08\u6210\u4ea4\uff09\u603b\u989d 5,878,949,463.92\n"
+        )
+
+        rows = fund_service._parse_stock_trading_activity_from_report_text(text, "2025-12-31")
+
+        self.assertEqual(len(rows), 1)
+        self.assertIsNone(rows[0]["turnoverRate"])
+        self.assertEqual(rows[0]["buyStockAmount"], 785562768.66)
+        self.assertEqual(rows[0]["sellStockAmount"], 5878949463.92)
+        self.assertEqual(rows[0]["calculationStatus"], "missing_average_stock_market_value")
+
     def test_holder_structure_falls_back_to_report_pdf_and_persists(self):
         report = {
             "report_date": "2025-12-31",
@@ -168,6 +184,27 @@ class FundDetailContractTest(unittest.TestCase):
         self.assertEqual(payload["rows"][0]["bondType"], "\u91d1\u878d\u503a\u5238")
         self.assertEqual(payload["rows"][0]["ratio"], 3.92)
         persist.assert_called_once()
+
+    def test_turnover_history_falls_back_to_report_trading_activity_as_partial(self):
+        report = {
+            "report_date": "2025-12-31",
+            "source": "eastmoney:periodic_report_pdf",
+            "text": (
+                "8.4.3 \u4e70\u5165\u80a1\u7968\u7684\u6210\u672c\u603b\u989d\u53ca\u5356\u51fa\u80a1\u7968\u7684\u6536\u5165\u603b\u989d\n"
+                "\u4e70\u5165\u80a1\u7968\u6210\u672c\uff08\u6210\u4ea4\uff09\u603b\u989d 785,562,768.66\n"
+                "\u5356\u51fa\u80a1\u7968\u6536\u5165\uff08\u6210\u4ea4\uff09\u603b\u989d 5,878,949,463.92\n"
+            ),
+        }
+        with patch.object(fund_service, "_safe_table_query", return_value=[]), \
+            patch.object(fund_service, "_fetch_eastmoney_holder_report_pdf_text", return_value=report):
+            payload = fund_service.get_fund_turnover_history("000001", periods=8)
+
+        self.assertEqual(payload["dataStatus"], "partial")
+        self.assertEqual(payload["source"], "eastmoney:periodic_report_pdf")
+        self.assertIsNone(payload["rows"][0]["turnoverRate"])
+        self.assertEqual(payload["rows"][0]["buyStockAmount"], 785562768.66)
+        self.assertEqual(payload["rows"][0]["sellStockAmount"], 5878949463.92)
+        self.assertIn("无法按信息披露口径计算", payload["missingReason"])
 
     def test_cached_analysis_persists_cached_holdings_snapshot(self):
         cached = {
