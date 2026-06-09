@@ -415,9 +415,9 @@ class FundDetailContractTest(unittest.TestCase):
         text = (
             "4.1 \u57fa\u91d1\u7ecf\u7406\uff08\u6216\u57fa\u91d1\u7ecf\u7406\u5c0f\u7ec4\uff09\u7b80\u4ecb\n"
             " \u59d3\u540d    \u804c\u52a1          \u4efb\u672c\u57fa\u91d1\u7684\u57fa\u91d1\u7ecf\u7406\u671f\u9650\n"
-            "\u5d14\u857e    \u57fa\u91d1\u7ecf  2019 \u5e74 7          -  11 \u5e74\n"
+            "\u5d14\u857e    \u57fa\u91d1\u7ecf  2019 \u5e74 7          -  11 \u5e74  \u7406\uff1b2019 \u5e74 6 \u6708 28\n"
             "        \u7406      \u6708 12 \u65e5\n"
-            "        \u7814\u7a76\u5458\uff1b2019 \u5e74 6 \u6708 28 \u65e5\u81f3 2022 \u5e74 2 \u6708 18 \u65e5\uff0c\u4efb\u5176\u4ed6\u57fa\u91d1\u7ecf\u7406\n"
+            "        \u65e5\u81f3 2022 \u5e74 2 \u6708 18 \u65e5\uff0c\u4efb\u5176\u4ed6\u57fa\u91d1\u7ecf\u7406\n"
             "      \u6295\u8d44\u90e8\u603b 2012 \u5e74 5 \u6708 4\n"
             " \u67f3\u519b \u76d1\u3001\u672c\u57fa    \u65e5        -      24 \u5e74\n"
             " \u6210  50ETF\u3001\u6613\u65b9\u8fbe\u4e2d\u8bc1\u6e2f\u80a1  2016-    -    18 \u5e74\n"
@@ -441,7 +441,7 @@ class FundDetailContractTest(unittest.TestCase):
             "code": "512100",
             "report": (
                 "4.1 \u57fa\u91d1\u7ecf\u7406\uff08\u6216\u57fa\u91d1\u7ecf\u7406\u5c0f\u7ec4\uff09\u7b80\u4ecb\n"
-                "\u5d14\u857e    \u57fa\u91d1\u7ecf  2019 \u5e74 7          -  11 \u5e74\n"
+                "\u5d14\u857e    \u57fa\u91d1\u7ecf  2019 \u5e74 7          -  11 \u5e74  \u7406\uff1b2019 \u5e74 6 \u6708 28\n"
                 "        \u7406      \u6708 12 \u65e5\n"
                 "4.2 \u7ba1\u7406\u4eba\u5bf9\u62a5\u544a\u671f\u5185\u672c\u57fa\u91d1\u8fd0\u4f5c\u7684\u8bf4\u660e\n"
             ),
@@ -493,7 +493,7 @@ class FundDetailContractTest(unittest.TestCase):
             "code": "512100",
             "report": (
                 "4.1 \u57fa\u91d1\u7ecf\u7406\uff08\u6216\u57fa\u91d1\u7ecf\u7406\u5c0f\u7ec4\uff09\u7b80\u4ecb\n"
-                "\u5d14\u857e    \u57fa\u91d1\u7ecf  2019 \u5e74 7          -  11 \u5e74\n"
+                "\u5d14\u857e    \u57fa\u91d1\u7ecf  2019 \u5e74 7          -  11 \u5e74  \u7406\uff1b2019 \u5e74 6 \u6708 28\n"
                 "        \u7406      \u6708 12 \u65e5\n"
                 "        \u7814\u7a76\u5458\uff1b2019 \u5e74 6 \u6708 28 \u65e5\u81f3 2022 \u5e74 2 \u6708 18 \u65e5\uff0c\u4efb\u5176\u4ed6\u57fa\u91d1\u7ecf\u7406\n"
                 "4.2 \u7ba1\u7406\u4eba\u5bf9\u62a5\u544a\u671f\u5185\u672c\u57fa\u91d1\u8fd0\u4f5c\u7684\u8bf4\u660e\n"

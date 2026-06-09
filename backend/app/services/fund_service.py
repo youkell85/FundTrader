@@ -2649,6 +2649,8 @@ _MANAGER_NAME_SKIP_PARTS = (
     "\u804c\u52a1",
     "\u8bf4\u660e",
     "\u5e74\u9650",
+    "\u65e5",
+    "\u81f3",
     "\u6295\u8d44",
     "\u7814\u7a76",
     "\u516c\u53f8",
@@ -2670,10 +2672,6 @@ def _format_report_date(year: str, month: str, day: str) -> str | None:
 def _extract_manager_start_date(line: str, next_line: str) -> str | None:
     joined = f"{line} {next_line}"
 
-    match = re.search(r"(\d{4})\s*\u5e74\s*(\d{1,2})\s*\u6708\s*(\d{1,2})(?=\D|$)", line)
-    if match and "\u65e5" in next_line:
-        return _format_report_date(*match.groups())
-
     match = re.search(r"(\d{4})\s*\u5e74\s*(\d{1,2})(?=\D)", line)
     month_day = re.search(r"\u6708\s*(\d{1,2})\s*\u65e5", next_line)
     if match and month_day:
@@ -2683,6 +2681,10 @@ def _extract_manager_start_date(line: str, next_line: str) -> str | None:
     month_day = re.search(r"(\d{1,2})-(\d{1,2})", next_line)
     if match and month_day:
         return _format_report_date(match.group(1), month_day.group(1), month_day.group(2))
+
+    match = re.search(r"(\d{4})\s*\u5e74\s*(\d{1,2})\s*\u6708\s*(\d{1,2})(?=\D|$)", line)
+    if match and "\u65e5" in next_line:
+        return _format_report_date(*match.groups())
 
     match = re.search(r"(\d{4})\s*\u5e74\s*(\d{1,2})\s*\u6708\s*(\d{1,2})(?:\s*\u65e5|[^\d]{0,120}?\u65e5)", joined)
     if match:
