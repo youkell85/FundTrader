@@ -1,5 +1,6 @@
 import asyncio
 import unittest
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from app.api import analysis as analysis_api
@@ -94,6 +95,97 @@ class FundDetailContractTest(unittest.TestCase):
             cached["holdings"],
             cached["asset_allocation"],
             "unit-test",
+        )
+
+
+    def test_fetch_eastmoney_manager_report_parses_periodic_notice(self):
+        class FakeNotices:
+            empty = False
+
+            def to_dict(self, orient):
+                if orient != "records":
+                    return []
+                return [
+                    {
+                        "\u516c\u544a\u6807\u9898": "\u67d0\u57fa\u91d1\u51c0\u503c\u516c\u544a",
+                        "\u516c\u544a\u65e5\u671f": "2026-04-23",
+                        "\u62a5\u544aID": "SKIP",
+                    },
+                    {
+                        "\u516c\u544a\u6807\u9898": "\u67d0\u57fa\u91d12026\u5e74\u7b2c1\u5b63\u5ea6\u62a5\u544a",
+                        "\u516c\u544a\u65e5\u671f": "2026-04-22",
+                        "\u62a5\u544aID": "AN202604220001",
+                    },
+                ]
+
+        def fake_get(url, params=None, headers=None, timeout=None):
+            self.assertEqual(params["art_code"], "AN202604220001")
+            self.assertEqual(timeout, 20)
+            return SimpleNamespace(
+                json=lambda: {
+                    "data": {
+                        "notice_content": "\u67d0\u57fa\u91d1 2026 \u5e74 3 \u6708 31 \u65e5\n\u771f\u5b9e\u8fd0\u4f5c\u5206\u6790\u5185\u5bb9"
+                    }
+                }
+            )
+
+        fake_akshare = SimpleNamespace(fund_announcement_report_em=lambda symbol: FakeNotices())
+        fake_requests = SimpleNamespace(get=fake_get)
+
+        with patch.dict("sys.modules", {"akshare": fake_akshare, "requests": fake_requests}):
+            report = fund_service._fetch_eastmoney_manager_report("000001")
+
+        self.assertIsNotNone(report)
+        self.assertEqual(report["report_date"], "2026-03-31")
+        self.assertEqual(report["source"], "eastmoney:fund_announcement_report")
+        self.assertIn("\u771f\u5b9e\u8fd0\u4f5c\u5206\u6790", report["report_text"])
+
+    def test_manager_report_fetches_and_persists_when_snapshot_missing(self):
+        fetched = {
+            "report_date": "2026-03-31",
+            "report_type": "\u5b63\u5ea6\u62a5\u544a",
+            "report_text": "\u771f\u5b9e\u5b63\u62a5\u539f\u6587",
+            "source": "eastmoney:fund_announcement_report",
+            "updated_at": "2026-04-22T00:00:00",
+        }
+        with patch.object(fund_service, "_safe_table_query", return_value=[]), \
+            patch.object(fund_service, "_fetch_eastmoney_manager_report", return_value=fetched), \
+            patch.object(fund_service, "_persist_fund_manager_report") as persist:
+            payload = fund_service.get_fund_manager_report("000001")
+
+        self.assertEqual(payload["dataStatus"], "available")
+        self.assertEqual(payload["period"], "2026-03-31")
+        self.assertEqual(payload["report"], "\u771f\u5b9e\u5b63\u62a5\u539f\u6587")
+        self.assertEqual(payload["source"], "eastmoney:fund_announcement_report")
+        persist.assert_called_once_with("000001", fetched)
+
+    def test_persist_fund_manager_report_writes_snapshot(self):
+        report = {
+            "report_date": "2026-03-31",
+            "report_type": "\u5b63\u5ea6\u62a5\u544a",
+            "report_text": "\u771f\u5b9e\u5b63\u62a5\u539f\u6587",
+            "source": "eastmoney:fund_announcement_report",
+            "updated_at": "2026-04-22T00:00:00",
+        }
+        fake_conn = MagicMock()
+        with patch.object(fund_service, "get_db_context") as db_ctx:
+            db_ctx.return_value.__enter__.return_value = fake_conn
+            fund_service._persist_fund_manager_report("000001", report)
+
+        fake_conn.execute.assert_called_once()
+        sql, params = fake_conn.execute.call_args.args
+        self.assertIn("fund_report_snapshot", sql)
+        self.assertIn("ON CONFLICT", sql)
+        self.assertEqual(
+            params,
+            (
+                "000001",
+                "2026-03-31",
+                "\u5b63\u5ea6\u62a5\u544a",
+                "\u771f\u5b9e\u5b63\u62a5\u539f\u6587",
+                "eastmoney:fund_announcement_report",
+                "2026-04-22T00:00:00",
+            ),
         )
 
 

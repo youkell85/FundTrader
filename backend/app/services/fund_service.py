@@ -11,6 +11,7 @@
 import math
 import os
 import json
+import re
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from datetime import date, datetime, timedelta
 from typing import Any
@@ -1845,6 +1846,112 @@ def get_fund_manager_history(code: str) -> dict:
 #  P3: 运作分析
 # ============================================================
 
+_REPORT_TITLE_COL = "\u516c\u544a\u6807\u9898"
+_REPORT_DATE_COL = "\u516c\u544a\u65e5\u671f"
+_REPORT_ID_COL = "\u62a5\u544aID"
+_PERIODIC_REPORT_KEYWORDS = (
+    "\u5b63\u5ea6\u62a5\u544a",
+    "\u5e74\u5ea6\u62a5\u544a",
+    "\u4e2d\u671f\u62a5\u544a",
+)
+
+
+def _clean_notice_value(value: Any) -> str:
+    if value is None:
+        return ""
+    text = str(value).strip()
+    return "" if text.lower() in {"nan", "nat", "none"} else text
+
+
+def _parse_cn_report_date(text: str, fallback: str | None = None) -> str | None:
+    match = re.search(r"(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日", text or "")
+    if match:
+        year, month, day = match.groups()
+        return f"{int(year):04d}-{int(month):02d}-{int(day):02d}"
+    if fallback:
+        return _clean_notice_value(fallback)[:10] or None
+    return None
+
+
+def _fetch_eastmoney_manager_report(code: str) -> dict[str, Any] | None:
+    try:
+        import akshare as ak
+        import requests
+
+        notices = ak.fund_announcement_report_em(symbol=code)
+        if notices is None or getattr(notices, "empty", True):
+            return None
+
+        candidates = []
+        for index, row in enumerate(notices.to_dict("records")):
+            title = _clean_notice_value(row.get(_REPORT_TITLE_COL) or row.get("title"))
+            report_id = _clean_notice_value(row.get(_REPORT_ID_COL) or row.get("report_id"))
+            publish_date = _clean_notice_value(row.get(_REPORT_DATE_COL) or row.get("date"))
+            if not report_id or not any(keyword in title for keyword in _PERIODIC_REPORT_KEYWORDS):
+                continue
+            candidates.append((publish_date, index, title, report_id))
+        if not candidates:
+            return None
+
+        publish_date, _, title, report_id = sorted(candidates, key=lambda item: (item[0], item[1]))[-1]
+        response = requests.get(
+            "https://np-cnotice-fund.eastmoney.com/api/content/ann",
+            params={"art_code": report_id, "client_source": "web"},
+            headers={
+                "User-Agent": "Mozilla/5.0",
+                "Referer": "https://fundf10.eastmoney.com/",
+            },
+            timeout=20,
+        )
+        payload = response.json()
+        data = payload.get("data") if isinstance(payload, dict) else None
+        if not isinstance(data, dict):
+            return None
+
+        report_text = _clean_notice_value(data.get("notice_content"))
+        if not report_text:
+            return None
+
+        report_date = _parse_cn_report_date(report_text, publish_date)
+        if not report_date:
+            return None
+
+        return {
+            "report_date": report_date,
+            "report_type": title or "periodic_report",
+            "report_text": report_text,
+            "source": "eastmoney:fund_announcement_report",
+            "updated_at": datetime.now().isoformat(),
+        }
+    except Exception as e:
+        console_error(f"manager report fetch failed for {code}: {e}")
+        return None
+
+
+def _persist_fund_manager_report(code: str, report: dict[str, Any]) -> None:
+    try:
+        with get_db_context() as conn:
+            conn.execute(
+                """INSERT INTO fund_report_snapshot
+                   (code, report_date, report_type, report_text, source, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?)
+                   ON CONFLICT(code, report_date, report_type) DO UPDATE SET
+                     report_text = excluded.report_text,
+                     source = excluded.source,
+                     updated_at = excluded.updated_at""",
+                (
+                    code,
+                    report["report_date"],
+                    report.get("report_type") or "",
+                    report["report_text"],
+                    report.get("source") or "eastmoney:fund_announcement_report",
+                    report.get("updated_at") or datetime.now().isoformat(),
+                ),
+            )
+    except Exception as e:
+        console_error(f"manager report persist failed for {code}: {e}")
+
+
 def get_fund_manager_report(code: str) -> dict | None:
     """运作分析：仅返回真实定期报告文本，不再生成模板长文。"""
     rows = _safe_table_query(
@@ -1856,6 +1963,20 @@ def get_fund_manager_report(code: str) -> dict | None:
         (code,),
     )
     if not rows:
+        fetched = _fetch_eastmoney_manager_report(code)
+        if fetched:
+            _persist_fund_manager_report(code, fetched)
+            return {
+                "code": code,
+                "report": fetched["report_text"],
+                "period": fetched["report_date"],
+                **_detail_meta(
+                    status=DETAIL_STATUS_AVAILABLE,
+                    source=fetched["source"],
+                    as_of=fetched["report_date"],
+                    coverage=1.0,
+                ),
+            }
         return {
             "code": code,
             "report": None,
