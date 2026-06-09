@@ -1142,8 +1142,12 @@ def get_fund_holder_structure(code: str, periods: int = 40) -> dict:
             quarter = str(item.get("quarter") or item.get("report_date") or row["report_date"] or "")
             inst = _safe_float(item.get("institution") or item.get("institution_ratio"))
             indiv = _safe_float(item.get("individual") or item.get("individual_ratio"))
+            linked_fund = _safe_float(item.get("linkedFund") or item.get("linked_fund") or item.get("feederFund") or item.get("feeder_fund"))
             if quarter and inst is not None and indiv is not None:
-                out.append({"quarter": quarter, "institution": inst, "individual": indiv})
+                row = {"quarter": quarter, "institution": inst, "individual": indiv}
+                if linked_fund is not None:
+                    row["linkedFund"] = linked_fund
+                out.append(row)
     if out:
         return _rows_response(
             code,
@@ -2255,23 +2259,43 @@ def _parse_holder_structure_from_report_text(text: str, report_date: str | None)
     start = text.rfind(marker)
     if start < 0:
         return []
-    section = " ".join(text[start:start + 1600].split())
+    end_candidates = [
+        text.find("\n9.2", start + len(marker)),
+        text.find("\n\u00a710", start + len(marker)),
+    ]
+    end = min((idx for idx in end_candidates if idx > start), default=start + 1600)
+    section = " ".join(text[start:end].split())
     match = re.search(
         r"\u5408\u8ba1\s+[\d,]+\s+[\d,.]+\s+([\d,.\-]+|-)\s+([\d.\-]+|-)\s+([\d,.\-]+|-)\s+([\d.\-]+|-)",
         section,
     )
-    if not match:
-        return []
-    _inst_amount, inst_ratio, _indiv_amount, indiv_ratio = match.groups()
-    institution = _safe_float(inst_ratio)
-    individual = _safe_float(indiv_ratio)
+    linked_fund = None
+    if match:
+        _inst_amount, inst_ratio, _indiv_amount, indiv_ratio = match.groups()
+        institution = _safe_float(inst_ratio)
+        individual = _safe_float(indiv_ratio)
+    else:
+        percent_values = [
+            _safe_float(value)
+            for value in re.findall(r"([\d.]+)\s*%", section)
+        ]
+        percent_values = [value for value in percent_values if value is not None]
+        if len(percent_values) >= 3 and ("\u8054\u63a5\u57fa\u91d1" in section or "\u53d1\u8d77\u5f0f\u8054\u63a5" in section):
+            institution, individual, linked_fund = percent_values[-3:]
+        elif len(percent_values) >= 2:
+            institution, individual = percent_values[-2:]
+        else:
+            return []
     if institution is None or individual is None:
         return []
-    return [{
+    row = {
         "quarter": report_date or "",
         "institution": institution,
         "individual": individual,
-    }]
+    }
+    if linked_fund is not None:
+        row["linkedFund"] = linked_fund
+    return [row]
 
 
 def _parse_stock_trading_activity_from_report_text(text: str, report_date: str | None) -> list[dict[str, Any]]:

@@ -732,8 +732,8 @@ export default function FundDetail() {
             <AllocationSection
               fund={fund}
               industryHistoryData={industryHistoryData}
-              holderStructure={realRows(holderStructureQ.data as DetailRowsPayload<{ quarter: string; institution: number; individual: number }>)}
-              holderStatus={holderStructureQ.data as DetailRowsPayload<{ quarter: string; institution: number; individual: number }>}
+              holderStructure={realRows(holderStructureQ.data as DetailRowsPayload<{ quarter: string; institution: number; individual: number; linkedFund?: number | null }>)}
+              holderStatus={holderStructureQ.data as DetailRowsPayload<{ quarter: string; institution: number; individual: number; linkedFund?: number | null }>}
               bondAllocation={realRows(bondAllocationQ.data as DetailRowsPayload<{ bondType: string; ratio: number; changeRatio: number | null }>)}
               bondAllocationStatus={bondAllocationQ.data as DetailRowsPayload<{ bondType: string; ratio: number; changeRatio: number | null }>}
             />
@@ -1757,8 +1757,8 @@ function AllocationSection({
 }: {
   fund: any;
   industryHistoryData: Array<Record<string, string | number>>;
-  holderStructure: Array<{ quarter: string; institution: number; individual: number }>;
-  holderStatus?: DetailRowsPayload<{ quarter: string; institution: number; individual: number }>;
+  holderStructure: Array<{ quarter: string; institution: number; individual: number; linkedFund?: number | null }>;
+  holderStatus?: DetailRowsPayload<{ quarter: string; institution: number; individual: number; linkedFund?: number | null }>;
   bondAllocation: Array<{ bondType: string; ratio: number; changeRatio: number | null }>;
   bondAllocationStatus?: DetailRowsPayload<{ bondType: string; ratio: number; changeRatio: number | null }>;
 }) {
@@ -1820,6 +1820,9 @@ function AllocationSection({
                   <YAxis tick={{ fontSize: 11 }} />
                   <Tooltip />
                   <Legend wrapperStyle={{ fontSize: 11 }} />
+                  {holderStructure.some((row) => Number(row.linkedFund || 0) > 0) ? (
+                    <Bar dataKey="linkedFund" stackId="h" fill={chartColors[2]} name="联接基金占比(%)" />
+                  ) : null}
                   <Bar dataKey="institution" stackId="h" fill={chartColors[0]} name="机构占比(%)" />
                   <Bar dataKey="individual" stackId="h" fill={chartColors[1]} name="个人占比(%)" />
                 </BarChart>
