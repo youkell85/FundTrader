@@ -2019,12 +2019,19 @@ def get_fund_manager_history(code: str) -> dict:
             "rank": rank,
         })
     if out:
-        return _rows_response(
-            code,
-            out,
-            source=rows[-1]["source"] or "fund_manager_history_snapshot",
-            as_of=rows[-1]["updated_at"],
-        )
+        name_counts: dict[str, int] = {}
+        for item in out:
+            name_counts[item["managerName"]] = name_counts.get(item["managerName"], 0) + 1
+        source = rows[-1]["source"] or "fund_manager_history_snapshot"
+        has_report_source = any(str(row["source"] or "").startswith("eastmoney:fund_announcement_report") for row in rows)
+        has_repeated_report_manager = has_report_source and any(count > 1 for count in name_counts.values())
+        if not has_repeated_report_manager:
+            return _rows_response(
+                code,
+                out,
+                source=source,
+                as_of=rows[-1]["updated_at"],
+            )
 
     try:
         from ..data.providers.tushare_provider import TushareProvider
@@ -2662,8 +2669,9 @@ def _format_report_date(year: str, month: str, day: str) -> str | None:
 
 def _extract_manager_start_date(line: str, next_line: str) -> str | None:
     joined = f"{line} {next_line}"
-    match = re.search(r"(\d{4})\s*\u5e74\s*(\d{1,2})\s*\u6708\s*(\d{1,2})(?:\s*\u65e5|[^\d]{0,120}?\u65e5)", joined)
-    if match:
+
+    match = re.search(r"(\d{4})\s*\u5e74\s*(\d{1,2})\s*\u6708\s*(\d{1,2})(?=\D|$)", line)
+    if match and "\u65e5" in next_line:
         return _format_report_date(*match.groups())
 
     match = re.search(r"(\d{4})\s*\u5e74\s*(\d{1,2})(?=\D)", line)
@@ -2671,14 +2679,18 @@ def _extract_manager_start_date(line: str, next_line: str) -> str | None:
     if match and month_day:
         return _format_report_date(match.group(1), match.group(2), month_day.group(1))
 
-    match = re.search(r"(\d{4})[-/.]\s*(\d{1,2})[-/.]\s*(\d{1,2})", joined)
-    if match:
-        return _format_report_date(*match.groups())
-
     match = re.search(r"(\d{4})-\s*(?:-|$)", line)
     month_day = re.search(r"(\d{1,2})-(\d{1,2})", next_line)
     if match and month_day:
         return _format_report_date(match.group(1), month_day.group(1), month_day.group(2))
+
+    match = re.search(r"(\d{4})\s*\u5e74\s*(\d{1,2})\s*\u6708\s*(\d{1,2})(?:\s*\u65e5|[^\d]{0,120}?\u65e5)", joined)
+    if match:
+        return _format_report_date(*match.groups())
+
+    match = re.search(r"(\d{4})[-/.]\s*(\d{1,2})[-/.]\s*(\d{1,2})", joined)
+    if match:
+        return _format_report_date(*match.groups())
     return None
 
 
@@ -2700,11 +2712,10 @@ def _extract_manager_name(lines: list[str], index: int) -> str | None:
     next_token = _manager_name_token(lines[index + 1]) if index + 1 < len(lines) else None
     if current and next_token and len(current) == 1 and len(next_token) == 1:
         return current + next_token
-    for offset in (0, 1, -1, 2, -2):
-        idx = index + offset
-        token = _manager_name_token(lines[idx]) if 0 <= idx < len(lines) else None
-        if token and len(token) >= 2:
-            return token
+    if current and len(current) >= 2:
+        return current
+    if next_token and len(next_token) >= 2:
+        return next_token
     return None
 
 
@@ -2754,6 +2765,10 @@ def _persist_manager_history_snapshot(code: str, rows: list[dict[str, Any]], sou
     now = datetime.now().isoformat()
     try:
         with get_db_context() as conn:
+            conn.execute(
+                "DELETE FROM fund_manager_history_snapshot WHERE code = ? AND source = ?",
+                (code, source),
+            )
             for row in rows:
                 conn.execute(
                     """INSERT INTO fund_manager_history_snapshot
