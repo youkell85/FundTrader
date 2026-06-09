@@ -415,6 +415,7 @@ class FundDetailContractTest(unittest.TestCase):
         text = (
             "4.1 \u57fa\u91d1\u7ecf\u7406\uff08\u6216\u57fa\u91d1\u7ecf\u7406\u5c0f\u7ec4\uff09\u7b80\u4ecb\n"
             " \u59d3\u540d    \u804c\u52a1          \u4efb\u672c\u57fa\u91d1\u7684\u57fa\u91d1\u7ecf\u7406\u671f\u9650\n"
+            "        \u672c\u57fa\u91d1                              \u5176\u4ed6\u57fa\u91d1\u7ecf\n"
             "\u5d14\u857e    \u57fa\u91d1\u7ecf  2019 \u5e74 7          -  11 \u5e74  \u7406\uff1b2019 \u5e74 6 \u6708 28\n"
             "        \u7406      \u6708 12 \u65e5\n"
             "        \u65e5\u81f3 2022 \u5e74 2 \u6708 18 \u65e5\uff0c\u4efb\u5176\u4ed6\u57fa\u91d1\u7ecf\u7406\n"

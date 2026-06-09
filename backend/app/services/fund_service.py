@@ -2682,6 +2682,9 @@ def _extract_manager_start_date(line: str, next_line: str) -> str | None:
     if match and month_day:
         return _format_report_date(match.group(1), month_day.group(1), month_day.group(2))
 
+    if not re.search(r"\d{4}", line):
+        return None
+
     match = re.search(r"(\d{4})\s*\u5e74\s*(\d{1,2})\s*\u6708\s*(\d{1,2})(?=\D|$)", line)
     if match and "\u65e5" in next_line:
         return _format_report_date(*match.groups())
