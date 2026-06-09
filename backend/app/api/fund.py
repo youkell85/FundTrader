@@ -70,10 +70,10 @@ def _rating_score_fallback(code: str) -> dict | None:
 
         with get_db_context() as conn:
             row = conn.execute(
-                """SELECT score, metrics_updated_at
+                """SELECT score, updated_at AS as_of
                    FROM fund_metrics_snapshot
                    WHERE code = ? AND score IS NOT NULL
-                   ORDER BY metrics_updated_at DESC LIMIT 1""",
+                   ORDER BY updated_at DESC LIMIT 1""",
                 (code,),
             ).fetchone()
     except Exception:
@@ -90,7 +90,7 @@ def _rating_score_fallback(code: str) -> dict | None:
         "score": score,
         "source": "fund_metrics_snapshot",
         "dataStatus": "partial",
-        "asOf": row["metrics_updated_at"],
+        "asOf": row["as_of"],
         "coverage": 0.5,
         "missingReason": "missing Tushare star rating; using local metrics score fallback",
     }

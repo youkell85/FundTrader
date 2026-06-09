@@ -111,7 +111,7 @@ class FundDetailContractTest(unittest.TestCase):
         context.__enter__.return_value = conn
         conn.execute.return_value.fetchone.return_value = {
             "score": 72.5,
-            "metrics_updated_at": "2026-06-09T14:29:41.211873",
+            "as_of": "2026-06-09T14:29:41.211873",
         }
 
         with patch("app.services.fund_service.get_fund_rating", return_value=None), \
