@@ -105,6 +105,27 @@ class FundDetailContractTest(unittest.TestCase):
         self.assertNotEqual(payload["dataStatus"], "simulated")
         self.assertIn("不再使用", payload["missingReason"])
 
+    def test_rating_endpoint_uses_metrics_score_fallback_when_star_rating_missing(self):
+        context = MagicMock()
+        conn = MagicMock()
+        context.__enter__.return_value = conn
+        conn.execute.return_value.fetchone.return_value = {
+            "score": 72.5,
+            "metrics_updated_at": "2026-06-09T14:29:41.211873",
+        }
+
+        with patch("app.services.fund_service.get_fund_rating", return_value=None), \
+            patch("app.storage.database.get_db_context", return_value=context):
+            payload = asyncio.run(fund_api.fund_rating(code="510300"))
+
+        self.assertEqual(payload["dataStatus"], "partial")
+        self.assertEqual(payload["source"], "fund_metrics_snapshot")
+        self.assertEqual(payload["score"], 72.5)
+        self.assertIsNone(payload["rating3y"])
+        self.assertIsNone(payload["rating5y"])
+        self.assertEqual(payload["asOf"], "2026-06-09T14:29:41.211873")
+        self.assertIn("metrics score", payload["missingReason"])
+
     def test_empty_bond_holdings_snapshot_allows_akshare_fallback(self):
         fallback = {
             "bond_holdings": [

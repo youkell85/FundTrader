@@ -64,6 +64,38 @@ def _empty_rows_payload(code: str, error: Exception, reason: str) -> dict:
     }
 
 
+def _rating_score_fallback(code: str) -> dict | None:
+    try:
+        from ..storage.database import get_db_context
+
+        with get_db_context() as conn:
+            row = conn.execute(
+                """SELECT score, metrics_updated_at
+                   FROM fund_metrics_snapshot
+                   WHERE code = ? AND score IS NOT NULL
+                   ORDER BY metrics_updated_at DESC LIMIT 1""",
+                (code,),
+            ).fetchone()
+    except Exception:
+        return None
+    if not row:
+        return None
+    score = row["score"]
+    if score is None:
+        return None
+    return {
+        "code": code,
+        "rating3y": None,
+        "rating5y": None,
+        "score": score,
+        "source": "fund_metrics_snapshot",
+        "dataStatus": "partial",
+        "asOf": row["metrics_updated_at"],
+        "coverage": 0.5,
+        "missingReason": "missing Tushare star rating; using local metrics score fallback",
+    }
+
+
 @router.get("/list")
 async def fund_list(
     category: str = Query(DEFAULT_CATEGORY, description="基金类型"),
@@ -818,6 +850,15 @@ async def fund_rating(code: str = Query(..., min_length=4, max_length=10, descri
         data = await run_in_threadpool(get_fund_rating, code=code)
         if data:
             has_rating = data.get("rating3y") is not None or data.get("rating5y") is not None
+            has_score = data.get("score") is not None
+            if not has_rating and has_score:
+                return {
+                    **data,
+                    "dataStatus": "partial",
+                    "asOf": data.get("asOf"),
+                    "coverage": 0.5,
+                    "missingReason": "missing Tushare star rating; using local metrics score fallback",
+                }
             return {
                 **data,
                 "dataStatus": "available" if data.get("source") == "tushare" else "partial" if has_rating else "missing",
@@ -825,6 +866,9 @@ async def fund_rating(code: str = Query(..., min_length=4, max_length=10, descri
                 "coverage": 1.0 if data.get("source") == "tushare" else 0.5 if has_rating else 0.0,
                 "missingReason": None if has_rating else "缺少真实评级数据",
             }
+        fallback = await run_in_threadpool(_rating_score_fallback, code)
+        if fallback:
+            return fallback
         return {
             "code": code,
             "rating3y": None,
