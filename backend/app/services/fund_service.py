@@ -2140,7 +2140,9 @@ def _parse_holder_structure_from_report_text(text: str, report_date: str | None)
 
 def _parse_stock_trading_activity_from_report_text(text: str, report_date: str | None) -> list[dict[str, Any]]:
     marker = "买入股票的成本总额及卖出股票的收入总额"
-    start = text.rfind(marker)
+    start = text.find(f"8.4.3 {marker}")
+    if start < 0:
+        start = text.find(marker)
     if start < 0:
         return []
     section = " ".join(text[start:start + 1200].split())
