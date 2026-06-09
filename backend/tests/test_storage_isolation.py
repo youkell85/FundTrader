@@ -8,8 +8,10 @@ import os
 import sqlite3
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
+from app.services.analysis_service import ensure_exchange_fund_holdings_snapshot
 from app.services.fund_service import ensure_exchange_fund_snapshot
 from app.storage.database import Database, FundDataStore, UserStore, init_db
 
@@ -283,6 +285,46 @@ class FundHoldingsSnapshotTest(unittest.TestCase):
         self.assertEqual(stored["nav_date"], "2026-01-02")
         self.assertEqual(len(stored["nav_data"]), 3)
         self.assertGreater(stored["near_1y"], 0)
+
+    def test_exchange_fund_holdings_snapshot_is_backfilled_from_tushare(self):
+        class FakeProvider:
+            def is_available(self):
+                return True
+
+            def get_fund_holdings(self, code):
+                return [
+                    SimpleNamespace(
+                        name="Test Stock",
+                        code="300750.SZ",
+                        ratio=19.73,
+                        industry="Power",
+                        quarter="20260331",
+                        source="Tushare fund_portfolio:159915.SZ",
+                        updated_at="20260331",
+                    )
+                ]
+
+        with patch("app.storage.database.DB_PATH", self.db_path), \
+            patch("app.services.analysis_service.TushareProvider", return_value=FakeProvider()), \
+            patch(
+                "app.services.analysis_service._fetch_real_asset_allocation",
+                return_value=[{"name": "股票", "ratio": 57.19, "report_date": "20260331", "source": "tushare"}],
+            ):
+            FundDataStore.save_quote_batch([
+                {
+                    "code": "159915",
+                    "name": "159915 ETF",
+                    "type": "ETF",
+                    "nav": 3.82,
+                    "updated_at": "2026-01-01T00:00:00",
+                }
+            ])
+            snapshot = ensure_exchange_fund_holdings_snapshot("159915")
+
+        self.assertIsNotNone(snapshot)
+        self.assertEqual(len(snapshot["holdings"]), 1)
+        self.assertEqual(snapshot["holdings"][0]["code"], "300750.SZ")
+        self.assertEqual(snapshot["asset_allocation"][0]["name"], "股票")
 
     def test_init_db_adds_data_version_to_existing_fund_master(self):
         old_fd, old_path = tempfile.mkstemp(suffix=".db")

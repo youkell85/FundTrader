@@ -226,6 +226,48 @@ def _persist_holdings_snapshot(
         pass
 
 
+def ensure_exchange_fund_holdings_snapshot(code: str) -> Dict[str, Any] | None:
+    """Fetch and persist real stock holdings/asset allocation for exchange funds only."""
+    import re
+
+    code = str(code or "").strip()
+    if not re.match(r"^(5\d{5}|508\d{3}|15\d{4}|16\d{4}|18\d{4})$", code):
+        return None
+    try:
+        from ..storage.database import FundDataStore
+
+        snapshot = FundDataStore.get_snapshot(code)
+        if snapshot and snapshot.get("holdings") and snapshot.get("asset_allocation"):
+            return snapshot
+
+        provider = TushareProvider()
+        if not provider.is_available():
+            return snapshot
+
+        raw_holdings = provider.get_fund_holdings(code)
+        holdings = [
+            {
+                "name": item.name,
+                "code": item.code,
+                "ratio": item.ratio,
+                "industry": item.industry,
+                "quarter": item.quarter,
+                "source": item.source,
+                "updated_at": item.updated_at,
+            }
+            for item in raw_holdings
+            if item.ratio is not None and item.ratio > 0
+        ]
+        fund_type = str((snapshot or {}).get("type") or "ETF")
+        asset_allocation = _fetch_real_asset_allocation(code, fund_type, holdings, "tushare")
+        if holdings or asset_allocation:
+            _persist_holdings_snapshot(code, holdings, asset_allocation, "tushare")
+            return FundDataStore.get_snapshot(code) or snapshot
+        return snapshot
+    except Exception:
+        return None
+
+
 def _fetch_industry_history(code: str) -> List[Dict]:
     """Fetch historical industry allocation across quarters from fund_portfolio + stock_basic."""
     try:

@@ -8,6 +8,7 @@ from fastapi import APIRouter, HTTPException, Query
 from starlette.concurrency import run_in_threadpool
 
 from ..constants.guoyuan_funds import FUND_CATEGORIES, FUND_TYPES, GUOYUAN_FUND_LIST
+from ..services.analysis_service import ensure_exchange_fund_holdings_snapshot
 from ..services.fund_service import (
     compute_category_metrics_1y,
     ensure_exchange_fund_snapshot,
@@ -152,6 +153,10 @@ async def fund_snapshot_detail(code: str, enqueue_missing: bool = Query(True)):
         exchange_snapshot = await run_in_threadpool(ensure_exchange_fund_snapshot, code)
         if exchange_snapshot:
             snapshot = exchange_snapshot
+    if snapshot and (not snapshot.get("holdings") or not snapshot.get("asset_allocation")):
+        holdings_snapshot = await run_in_threadpool(ensure_exchange_fund_holdings_snapshot, code)
+        if holdings_snapshot:
+            snapshot = holdings_snapshot
     job_id = None
     if enqueue_missing and (not snapshot or snapshot.get("data_quality") in {"partial", "missing", "unknown"}):
         job_id = await run_in_threadpool(
@@ -208,6 +213,10 @@ async def fund_detail_completeness(code: str = Query(..., min_length=4, max_leng
         exchange_snapshot = await run_in_threadpool(ensure_exchange_fund_snapshot, code)
         if exchange_snapshot:
             snapshot = exchange_snapshot
+    if snapshot and (not snapshot.get("holdings") or not snapshot.get("asset_allocation")):
+        holdings_snapshot = await run_in_threadpool(ensure_exchange_fund_holdings_snapshot, code)
+        if holdings_snapshot:
+            snapshot = holdings_snapshot
 
     # ---- stale helpers -------------------------------------------------------
     NAV_STALE_HOURS = 48

@@ -480,6 +480,33 @@ class FundDetailCompletenessTest(unittest.TestCase):
         self.assertEqual(result["sections"]["peerPerformance"]["source"], "fund_nav_history")
         self.assertGreater(result["coverage"], 0.25)
 
+    def test_snapshot_detail_backfills_exchange_holdings_when_missing(self):
+        base_snapshot = {
+            "code": "159915",
+            "data_quality": "computed",
+            "nav_data": [{"date": "2099-01-02", "nav": 1.0}] * 300,
+            "nav_date": "2099-01-02",
+        }
+        enriched_snapshot = {
+            **base_snapshot,
+            "holdings": [{"code": "300750.SZ", "ratio": 19.73}],
+            "asset_allocation": [{"name": "股票", "ratio": 57.19}],
+        }
+        with patch.object(db_module.FundDataStore, "get_snapshot", return_value=base_snapshot), \
+            patch.object(fund_api, "ensure_exchange_fund_snapshot") as ensure_nav, \
+            patch.object(
+                fund_api,
+                "ensure_exchange_fund_holdings_snapshot",
+                return_value=enriched_snapshot,
+            ) as ensure_holdings:
+            result = asyncio.run(fund_api.fund_snapshot_detail(code="159915", enqueue_missing=False))
+
+        ensure_nav.assert_not_called()
+        ensure_holdings.assert_called_once_with("159915")
+        self.assertEqual(result["holdings"][0]["code"], "300750.SZ")
+        self.assertEqual(result["asset_allocation"][0]["name"], "股票")
+        self.assertIsNone(result["job_id"])
+
     def test_each_section_has_full_contract(self):
         """每个 section 必须含 dataStatus / source / asOf / coverage / missingReason。"""
         result = self._invoke()
