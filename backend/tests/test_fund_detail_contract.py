@@ -484,6 +484,7 @@ class FundDetailCompletenessTest(unittest.TestCase):
         base_snapshot = {
             "code": "159915",
             "data_quality": "computed",
+            "nav": 1.0,
             "nav_data": [{"date": "2099-01-02", "nav": 1.0}] * 300,
             "nav_date": "2099-01-02",
         }

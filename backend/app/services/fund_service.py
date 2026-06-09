@@ -274,6 +274,17 @@ def _exchange_snapshot_from_nav(code: str, quote_row: dict[str, Any], nav_rows: 
     }
 
 
+def _has_nav_quote(snapshot: dict[str, Any] | None) -> bool:
+    if not snapshot:
+        return False
+    nav = _safe_float(snapshot.get("nav"))
+    return nav is not None and nav > 0 and bool(snapshot.get("nav_date"))
+
+
+def needs_exchange_fund_snapshot_refresh(snapshot: dict[str, Any] | None) -> bool:
+    return not snapshot or len(snapshot.get("nav_data") or []) < 2 or not _has_nav_quote(snapshot)
+
+
 def ensure_exchange_fund_snapshot(code: str) -> dict[str, Any] | None:
     """Create a minimal local snapshot for exchange-traded funds from real NAV history."""
     code = str(code or "").strip()
@@ -281,7 +292,7 @@ def ensure_exchange_fund_snapshot(code: str) -> dict[str, Any] | None:
         return None
 
     snapshot = FundDataStore.get_snapshot(code)
-    if snapshot and len(snapshot.get("nav_data") or []) >= 2:
+    if snapshot and len(snapshot.get("nav_data") or []) >= 2 and _has_nav_quote(snapshot):
         return snapshot
 
     nav_rows, source, _ = _get_nav_history_for_detail(code)

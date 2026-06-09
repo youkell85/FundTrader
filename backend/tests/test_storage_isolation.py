@@ -286,6 +286,30 @@ class FundHoldingsSnapshotTest(unittest.TestCase):
         self.assertEqual(len(stored["nav_data"]), 3)
         self.assertGreater(stored["near_1y"], 0)
 
+    def test_exchange_fund_snapshot_refreshes_missing_quote_with_existing_nav_history(self):
+        nav_records = [
+            {"nav_date": "2025-01-02", "nav": 1.0, "accum_nav": 1.0},
+            {"nav_date": "2026-01-02", "nav": 1.2, "accum_nav": 1.2},
+        ]
+        with patch("app.storage.database.DB_PATH", self.db_path):
+            FundDataStore.save_quote_batch([
+                {
+                    "code": "512100",
+                    "name": "512100 ETF",
+                    "type": "ETF",
+                    "updated_at": "2026-01-01T00:00:00",
+                }
+            ])
+            FundDataStore.save_nav_history_batch("512100", nav_records, source="unit-test")
+            before = FundDataStore.get_snapshot("512100")
+            snapshot = ensure_exchange_fund_snapshot("512100")
+
+        self.assertEqual(before["nav"], 0)
+        self.assertEqual(before["nav_date"], "2026-01-01")
+        self.assertEqual(snapshot["nav"], 1.2)
+        self.assertEqual(snapshot["nav_date"], "2026-01-02")
+        self.assertEqual(len(snapshot["nav_data"]), 2)
+
     def test_exchange_fund_holdings_snapshot_is_backfilled_from_tushare(self):
         class FakeProvider:
             def is_available(self):
