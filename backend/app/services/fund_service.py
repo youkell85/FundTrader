@@ -2048,6 +2048,22 @@ def get_fund_manager_history(code: str) -> dict:
             )
     except Exception as e:
         console_error(f"manager history fetch failed for {code}: {e}")
+
+    report_payload = get_fund_manager_report(code)
+    report_text = (report_payload or {}).get("report") or ""
+    report_rows = _parse_manager_history_from_report_text(report_text, (report_payload or {}).get("period"))
+    if report_rows:
+        source = (report_payload or {}).get("source") or "eastmoney:fund_announcement_report"
+        _persist_manager_history_snapshot(code, report_rows, source)
+        return _rows_response(
+            code,
+            [{k: v for k, v in row.items() if k != "reportDate"} for row in report_rows],
+            status=DETAIL_STATUS_PARTIAL,
+            source=source,
+            as_of=(report_payload or {}).get("period"),
+            coverage=0.45,
+            missing_reason="\u5b9a\u671f\u62a5\u544a\u62ab\u9732\u5f53\u524d\u57fa\u91d1\u7ecf\u7406\u548c\u4efb\u804c\u65e5\u671f\uff0c\u4efb\u804c\u56de\u62a5\u548c\u540c\u7c7b\u6392\u540d\u5f85\u8865\u5feb\u7167\u8868\u3002",
+        )
     return _rows_response(
         code,
         [],
@@ -2613,6 +2629,157 @@ def _format_pct(v) -> str:
     if abs(v) < 1:
         return f"{v * 100:.2f}%"
     return f"{v:.2f}%"
+
+
+_MANAGER_NAME_SKIP_PARTS = (
+    "\u57fa\u91d1",
+    "\u7ecf\u7406",
+    "\u4efb\u804c",
+    "\u79bb\u4efb",
+    "\u65e5\u671f",
+    "\u8bc1\u5238",
+    "\u4ece\u4e1a",
+    "\u804c\u52a1",
+    "\u8bf4\u660e",
+    "\u5e74\u9650",
+    "\u6295\u8d44",
+    "\u7814\u7a76",
+    "\u516c\u53f8",
+    "\u5386\u4efb",
+    "\u73b0\u4efb",
+    "\u7855\u58eb",
+    "\u4e2d\u56fd",
+)
+
+
+def _format_report_date(year: str, month: str, day: str) -> str | None:
+    try:
+        parsed = date(int(year), int(month), int(day))
+    except Exception:
+        return None
+    return parsed.isoformat()
+
+
+def _extract_manager_start_date(line: str, next_line: str) -> str | None:
+    joined = f"{line} {next_line}"
+    match = re.search(r"(\d{4})\s*\u5e74\s*(\d{1,2})\s*\u6708\s*(\d{1,2})(?:\s*\u65e5|[^\d]{0,120}?\u65e5)", joined)
+    if match:
+        return _format_report_date(*match.groups())
+
+    match = re.search(r"(\d{4})\s*\u5e74\s*(\d{1,2})(?=\D)", line)
+    month_day = re.search(r"\u6708\s*(\d{1,2})\s*\u65e5", next_line)
+    if match and month_day:
+        return _format_report_date(match.group(1), match.group(2), month_day.group(1))
+
+    match = re.search(r"(\d{4})[-/.]\s*(\d{1,2})[-/.]\s*(\d{1,2})", joined)
+    if match:
+        return _format_report_date(*match.groups())
+
+    match = re.search(r"(\d{4})-\s*(?:-|$)", line)
+    month_day = re.search(r"(\d{1,2})-(\d{1,2})", next_line)
+    if match and month_day:
+        return _format_report_date(match.group(1), month_day.group(1), month_day.group(2))
+    return None
+
+
+def _manager_name_token(line: str) -> str | None:
+    prefix = line[:32]
+    match = re.match(r"\s*([\u4e00-\u9fff]{2,4})(?=\s)", prefix)
+    if not match:
+        match = re.match(r"\s*([\u4e00-\u9fff])(?=\s)", prefix)
+    if not match:
+        return None
+    token = re.sub(r"\s+", "", match.group(1))
+    if any(part in token for part in _MANAGER_NAME_SKIP_PARTS):
+        return None
+    return token
+
+
+def _extract_manager_name(lines: list[str], index: int) -> str | None:
+    current = _manager_name_token(lines[index]) if 0 <= index < len(lines) else None
+    next_token = _manager_name_token(lines[index + 1]) if index + 1 < len(lines) else None
+    if current and next_token and len(current) == 1 and len(next_token) == 1:
+        return current + next_token
+    for offset in (0, 1, -1, 2, -2):
+        idx = index + offset
+        token = _manager_name_token(lines[idx]) if 0 <= idx < len(lines) else None
+        if token and len(token) >= 2:
+            return token
+    return None
+
+
+def _parse_manager_history_from_report_text(text: str, report_date: str | None = None) -> list[dict[str, Any]]:
+    start = text.find("4.1")
+    if start < 0:
+        start = text.find("\u57fa\u91d1\u7ecf\u7406")
+    if start < 0:
+        return []
+    end_candidates = [
+        text.find("\n4.2", start + 3),
+        text.find("\n\u00a75", start + 3),
+        text.find("\n5.", start + 3),
+    ]
+    end = min((idx for idx in end_candidates if idx > start), default=start + 2600)
+    section = text[start:end]
+    lines = [line.rstrip() for line in section.splitlines() if line.strip()]
+    rows: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for index, line in enumerate(lines):
+        next_line = lines[index + 1] if index + 1 < len(lines) else ""
+        start_date = _extract_manager_start_date(line, next_line)
+        if not start_date:
+            continue
+        name = _extract_manager_name(lines, index)
+        if not name:
+            continue
+        key = (name, start_date)
+        if key in seen:
+            continue
+        seen.add(key)
+        rows.append({
+            "managerName": name,
+            "startDate": start_date,
+            "endDate": None,
+            "totalReturn": None,
+            "annualizedReturn": None,
+            "rank": None,
+            "reportDate": report_date,
+        })
+    return rows
+
+
+def _persist_manager_history_snapshot(code: str, rows: list[dict[str, Any]], source: str) -> None:
+    if not rows:
+        return
+    now = datetime.now().isoformat()
+    try:
+        with get_db_context() as conn:
+            for row in rows:
+                conn.execute(
+                    """INSERT INTO fund_manager_history_snapshot
+                       (code, manager_name, start_date, end_date, total_return, annualized_return, rank_json, source, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                       ON CONFLICT(code, manager_name, start_date) DO UPDATE SET
+                         end_date = excluded.end_date,
+                         total_return = COALESCE(excluded.total_return, fund_manager_history_snapshot.total_return),
+                         annualized_return = COALESCE(excluded.annualized_return, fund_manager_history_snapshot.annualized_return),
+                         rank_json = COALESCE(NULLIF(excluded.rank_json, ''), fund_manager_history_snapshot.rank_json),
+                         source = excluded.source,
+                         updated_at = excluded.updated_at""",
+                    (
+                        code,
+                        row.get("managerName") or "",
+                        row.get("startDate") or "",
+                        row.get("endDate") or "",
+                        row.get("totalReturn"),
+                        row.get("annualizedReturn"),
+                        json.dumps(row.get("rank") or {}, ensure_ascii=False),
+                        source,
+                        now,
+                    ),
+                )
+    except Exception as e:
+        console_error(f"manager history persist failed for {code}: {e}")
 
 
 def risk_downside_estimate(metrics_row, peer_max_dd) -> float:

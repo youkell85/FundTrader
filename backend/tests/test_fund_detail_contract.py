@@ -411,6 +411,60 @@ class FundDetailContractTest(unittest.TestCase):
             ),
         )
 
+    def test_manager_history_parser_extracts_report_table_rows(self):
+        text = (
+            "4.1 \u57fa\u91d1\u7ecf\u7406\uff08\u6216\u57fa\u91d1\u7ecf\u7406\u5c0f\u7ec4\uff09\u7b80\u4ecb\n"
+            " \u59d3\u540d    \u804c\u52a1          \u4efb\u672c\u57fa\u91d1\u7684\u57fa\u91d1\u7ecf\u7406\u671f\u9650\n"
+            "\u5d14\u857e    \u57fa\u91d1\u7ecf  2019 \u5e74 7          -  11 \u5e74\n"
+            "        \u7406      \u6708 12 \u65e5\n"
+            "      \u6295\u8d44\u90e8\u603b 2012 \u5e74 5 \u6708 4\n"
+            " \u67f3\u519b \u76d1\u3001\u672c\u57fa    \u65e5        -      24 \u5e74\n"
+            " \u6210  50ETF\u3001\u6613\u65b9\u8fbe\u4e2d\u8bc1\u6e2f\u80a1  2016-    -    18 \u5e74\n"
+            " \u66e6  \u901a\u4e2d\u56fd 100ETF\u3001\u6613\u65b9\u8fbe  05-07\n"
+            "4.2 \u7ba1\u7406\u4eba\u5bf9\u62a5\u544a\u671f\u5185\u672c\u57fa\u91d1\u8fd0\u4f5c\u7684\u8bf4\u660e\n"
+        )
+
+        rows = fund_service._parse_manager_history_from_report_text(text, "2026-03-31")
+
+        self.assertEqual(
+            [(row["managerName"], row["startDate"], row["endDate"]) for row in rows],
+            [
+                ("\u5d14\u857e", "2019-07-12", None),
+                ("\u67f3\u519b", "2012-05-04", None),
+                ("\u6210\u66e6", "2016-05-07", None),
+            ],
+        )
+
+    def test_manager_history_falls_back_to_report_text_and_persists(self):
+        report_payload = {
+            "code": "512100",
+            "report": (
+                "4.1 \u57fa\u91d1\u7ecf\u7406\uff08\u6216\u57fa\u91d1\u7ecf\u7406\u5c0f\u7ec4\uff09\u7b80\u4ecb\n"
+                "\u5d14\u857e    \u57fa\u91d1\u7ecf  2019 \u5e74 7          -  11 \u5e74\n"
+                "        \u7406      \u6708 12 \u65e5\n"
+                "4.2 \u7ba1\u7406\u4eba\u5bf9\u62a5\u544a\u671f\u5185\u672c\u57fa\u91d1\u8fd0\u4f5c\u7684\u8bf4\u660e\n"
+            ),
+            "period": "2026-03-31",
+            "dataStatus": "available",
+            "source": "eastmoney:fund_announcement_report",
+            "asOf": "2026-03-31",
+            "coverage": 1.0,
+            "missingReason": None,
+        }
+
+        with patch.object(fund_service, "_safe_table_query", return_value=[]), \
+            patch("app.data.providers.tushare_provider.TushareProvider.get_fund_manager", return_value={}), \
+            patch.object(fund_service, "get_fund_manager_report", return_value=report_payload), \
+            patch.object(fund_service, "_persist_manager_history_snapshot") as persist:
+            payload = fund_service.get_fund_manager_history("512100")
+
+        self.assertEqual(payload["dataStatus"], "partial")
+        self.assertEqual(payload["source"], "eastmoney:fund_announcement_report")
+        self.assertEqual(payload["rows"][0]["managerName"], "\u5d14\u857e")
+        self.assertEqual(payload["rows"][0]["startDate"], "2019-07-12")
+        self.assertIsNone(payload["rows"][0]["totalReturn"])
+        persist.assert_called_once()
+
 
 class FundDetailCompletenessTest(unittest.TestCase):
     """P2.1: detailCompleteness 必须真实反映 section 覆盖度。"""
