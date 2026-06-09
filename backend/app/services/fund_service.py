@@ -2003,6 +2003,7 @@ def get_fund_manager_history(code: str) -> dict:
         (code,),
     )
     out = []
+    snapshot_response = None
     for row in rows:
         rank = None
         if row["rank_json"]:
@@ -2025,13 +2026,14 @@ def get_fund_manager_history(code: str) -> dict:
         source = rows[-1]["source"] or "fund_manager_history_snapshot"
         has_report_source = any(str(row["source"] or "").startswith("eastmoney:fund_announcement_report") for row in rows)
         has_repeated_report_manager = has_report_source and any(count > 1 for count in name_counts.values())
-        if not has_repeated_report_manager:
-            return _rows_response(
-                code,
-                out,
-                source=source,
-                as_of=rows[-1]["updated_at"],
-            )
+        snapshot_response = _rows_response(
+            code,
+            out,
+            source=source,
+            as_of=rows[-1]["updated_at"],
+        )
+        if not has_report_source and not has_repeated_report_manager:
+            return snapshot_response
 
     try:
         from ..data.providers.tushare_provider import TushareProvider
@@ -2071,6 +2073,8 @@ def get_fund_manager_history(code: str) -> dict:
             coverage=0.45,
             missing_reason="\u5b9a\u671f\u62a5\u544a\u62ab\u9732\u5f53\u524d\u57fa\u91d1\u7ecf\u7406\u548c\u4efb\u804c\u65e5\u671f\uff0c\u4efb\u804c\u56de\u62a5\u548c\u540c\u7c7b\u6392\u540d\u5f85\u8865\u5feb\u7167\u8868\u3002",
         )
+    if snapshot_response:
+        return snapshot_response
     return _rows_response(
         code,
         [],

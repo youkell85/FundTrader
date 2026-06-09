@@ -518,6 +518,43 @@ class FundDetailContractTest(unittest.TestCase):
         self.assertEqual(payload["rows"][0]["startDate"], "2019-07-12")
         persist.assert_called_once()
 
+    def test_manager_history_refreshes_single_report_snapshot_row(self):
+        snapshot_rows = [{
+            "manager_name": "\u5d14\u857e",
+            "start_date": "2019-06-28",
+            "end_date": "",
+            "total_return": None,
+            "annualized_return": None,
+            "rank_json": "{}",
+            "source": "eastmoney:fund_announcement_report",
+            "updated_at": "2026-06-09T00:00:00",
+        }]
+        report_payload = {
+            "code": "512100",
+            "report": (
+                "4.1 \u57fa\u91d1\u7ecf\u7406\uff08\u6216\u57fa\u91d1\u7ecf\u7406\u5c0f\u7ec4\uff09\u7b80\u4ecb\n"
+                "        \u672c\u57fa\u91d1                              \u5176\u4ed6\u57fa\u91d1\u7ecf\n"
+                "\u5d14\u857e    \u57fa\u91d1\u7ecf  2019 \u5e74 7          -  11 \u5e74  \u7406\uff1b2019 \u5e74 6 \u6708 28\n"
+                "        \u7406      \u6708 12 \u65e5\n"
+                "4.2 \u7ba1\u7406\u4eba\u5bf9\u62a5\u544a\u671f\u5185\u672c\u57fa\u91d1\u8fd0\u4f5c\u7684\u8bf4\u660e\n"
+            ),
+            "period": "2026-03-31",
+            "dataStatus": "available",
+            "source": "eastmoney:fund_announcement_report",
+            "asOf": "2026-03-31",
+            "coverage": 1.0,
+            "missingReason": None,
+        }
+
+        with patch.object(fund_service, "_safe_table_query", return_value=snapshot_rows), \
+            patch("app.data.providers.tushare_provider.TushareProvider.get_fund_manager", return_value={}), \
+            patch.object(fund_service, "get_fund_manager_report", return_value=report_payload), \
+            patch.object(fund_service, "_persist_manager_history_snapshot") as persist:
+            payload = fund_service.get_fund_manager_history("512100")
+
+        self.assertEqual(payload["rows"][0]["startDate"], "2019-07-12")
+        persist.assert_called_once()
+
 
 class FundDetailCompletenessTest(unittest.TestCase):
     """P2.1: detailCompleteness 必须真实反映 section 覆盖度。"""
