@@ -422,6 +422,64 @@ class FundDetailCompletenessTest(unittest.TestCase):
         self.assertIn("turnoverHistory", result["sections"])
 
     # ---- 2. 完整合同字段 ------------------------------------------------------
+    def test_exchange_snapshot_backfill_feeds_completeness_when_snapshot_missing(self):
+        """Missing exchange-fund snapshots should be rechecked after NAV backfill."""
+        fake_snapshot = {
+            "nav_data": [{"date": "2099-01-02", "nav": 1.0}] * 300,
+            "nav_date": "2099-01-02",
+            "updated_at": "2099-01-02T00:00:00",
+        }
+
+        def fake_execute(sql, params=None):
+            m = MagicMock()
+            sql_lower = (sql or "").lower()
+            if "sum(case" in sql_lower:
+                m.fetchone.return_value = {
+                    "holder_count": 0,
+                    "scale_count": 0,
+                    "turnover_count": 0,
+                    "bond_alloc_count": 0,
+                    "bond_hold_count": 0,
+                    "quarterly_updated": None,
+                }
+            elif "fund_manager_history_snapshot" in sql_lower or "fund_report_snapshot" in sql_lower:
+                m.fetchone.return_value = {"c": 0}
+            else:
+                m.fetchone.return_value = None
+            return m
+
+        missing_payload = {
+            "code": "510300",
+            "dataStatus": "missing",
+            "source": None,
+            "asOf": None,
+            "coverage": 0.0,
+            "missingReason": "missing",
+        }
+
+        with patch.object(db_module.FundDataStore, "get_snapshot", return_value=None), \
+            patch.object(fund_api, "ensure_exchange_fund_snapshot", return_value=fake_snapshot) as ensure, \
+            patch.object(db_module, "get_db_context") as db_ctx:
+            cm = db_ctx.return_value
+            cm.__enter__.return_value = cm
+            cm.execute = fake_execute
+            with patch.object(fund_api, "fund_scale_history", new=AsyncMock(return_value=missing_payload)), \
+                patch.object(fund_api, "fund_holder_structure", new=AsyncMock(return_value=missing_payload)), \
+                patch.object(fund_api, "fund_bond_allocation", new=AsyncMock(return_value=missing_payload)), \
+                patch.object(fund_api, "fund_bond_holdings", new=AsyncMock(return_value=missing_payload)), \
+                patch.object(fund_api, "fund_turnover_history", new=AsyncMock(return_value=missing_payload)), \
+                patch.object(fund_api, "fund_manager_history", new=AsyncMock(return_value=missing_payload)), \
+                patch.object(fund_api, "fund_purchase_info", new=AsyncMock(return_value=missing_payload)), \
+                patch.object(fund_api, "fund_rating", new=AsyncMock(return_value=missing_payload)), \
+                patch.object(fund_api, "fund_manager_report", new=AsyncMock(return_value=missing_payload)):
+                result = asyncio.run(fund_api.fund_detail_completeness(code="510300"))
+
+        ensure.assert_called_once_with("510300")
+        self.assertEqual(result["sections"]["overview"]["dataStatus"], "available")
+        self.assertEqual(result["sections"]["navDrawdown"]["dataStatus"], "available")
+        self.assertEqual(result["sections"]["peerPerformance"]["source"], "fund_nav_history")
+        self.assertGreater(result["coverage"], 0.25)
+
     def test_each_section_has_full_contract(self):
         """每个 section 必须含 dataStatus / source / asOf / coverage / missingReason。"""
         result = self._invoke()

@@ -42,6 +42,7 @@ HS300_BENCHMARK_CODE = "000300"
 PEER_PERFORMANCE_DEFAULT_WINDOW_DAYS = 365 * 5 + 2
 PEER_PERFORMANCE_DEFAULT_MAX_POINTS = 420
 BOND_HOLDINGS_FALLBACK_TIMEOUT_SECONDS = 8
+EXCHANGE_FUND_CODE_RE = re.compile(r"^(5\d{5}|508\d{3}|15\d{4}|16\d{4}|18\d{4})$")
 
 
 def _normalize_fund_type_to_bucket(raw: str, name: str = "") -> str:
@@ -194,6 +195,130 @@ def _get_nav_history_for_detail(code: str) -> tuple[list[dict[str, Any]], str | 
     except Exception as e:
         console_error(f"detail nav history fetch failed for {code}: {e}")
     return [], None, None
+
+
+def _nav_return(nav_rows: list[dict[str, Any]], days: int) -> float | None:
+    if len(nav_rows) < 2:
+        return None
+    latest_date = _to_date(nav_rows[-1].get("nav_date"))
+    latest_nav = _safe_float(nav_rows[-1].get("nav"))
+    if not latest_date or latest_nav is None or latest_nav <= 0:
+        return None
+    cutoff = latest_date - timedelta(days=days)
+    start_row = None
+    for row in nav_rows:
+        row_date = _to_date(row.get("nav_date"))
+        if row_date and row_date >= cutoff:
+            start_row = row
+            break
+    if not start_row:
+        start_row = nav_rows[0]
+    start_nav = _safe_float(start_row.get("nav"))
+    if start_nav is None or start_nav <= 0:
+        return None
+    return round((latest_nav / start_nav - 1) * 100, 4)
+
+
+def _nav_ytd_return(nav_rows: list[dict[str, Any]]) -> float | None:
+    if len(nav_rows) < 2:
+        return None
+    latest_date = _to_date(nav_rows[-1].get("nav_date"))
+    latest_nav = _safe_float(nav_rows[-1].get("nav"))
+    if not latest_date or latest_nav is None or latest_nav <= 0:
+        return None
+    start_row = None
+    for row in nav_rows:
+        row_date = _to_date(row.get("nav_date"))
+        if row_date and row_date.year == latest_date.year:
+            start_row = row
+            break
+    if not start_row:
+        return None
+    start_nav = _safe_float(start_row.get("nav"))
+    if start_nav is None or start_nav <= 0:
+        return None
+    return round((latest_nav / start_nav - 1) * 100, 4)
+
+
+def _exchange_snapshot_from_nav(code: str, quote_row: dict[str, Any], nav_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "code": code,
+        "name": quote_row.get("name") or f"{code} ETF",
+        "type": quote_row.get("type") or "ETF",
+        "company": quote_row.get("company") or "",
+        "tags": quote_row.get("tags") or ["exchange_fund"],
+        "is_xinjihui": bool(quote_row.get("is_xinjihui")),
+        "is_preferred": bool(quote_row.get("is_preferred")),
+        "nav": quote_row.get("nav") or 0,
+        "accum_nav": quote_row.get("accum_nav"),
+        "nav_date": quote_row.get("nav_date") or "",
+        "day_growth": quote_row.get("day_growth") or 0,
+        "near_1m": quote_row.get("near_1m") or 0,
+        "near_3m": quote_row.get("near_3m") or 0,
+        "near_6m": quote_row.get("near_6m") or 0,
+        "near_1y": quote_row.get("near_1y") or 0,
+        "near_3y": quote_row.get("near_3y") or 0,
+        "ytd": quote_row.get("ytd") or 0,
+        "updated_at": quote_row.get("updated_at"),
+        "data_quality": quote_row.get("data_quality") or "computed",
+        "stale_level": "fresh",
+        "nav_data": [
+            {
+                "date": row.get("nav_date"),
+                "nav": row.get("nav"),
+                "accum_nav": row.get("accum_nav"),
+                "day_growth": row.get("day_growth"),
+            }
+            for row in nav_rows[-500:]
+        ],
+    }
+
+
+def ensure_exchange_fund_snapshot(code: str) -> dict[str, Any] | None:
+    """Create a minimal local snapshot for exchange-traded funds from real NAV history."""
+    code = str(code or "").strip()
+    if not EXCHANGE_FUND_CODE_RE.match(code):
+        return None
+
+    snapshot = FundDataStore.get_snapshot(code)
+    if snapshot and len(snapshot.get("nav_data") or []) >= 2:
+        return snapshot
+
+    nav_rows, source, _ = _get_nav_history_for_detail(code)
+    if len(nav_rows) < 2:
+        return snapshot
+
+    latest = nav_rows[-1]
+    now = datetime.now().isoformat()
+    quote_row = {
+        "code": code,
+        "name": snapshot.get("name") if snapshot else f"{code} ETF",
+        "type": snapshot.get("type") if snapshot else "ETF",
+        "company": snapshot.get("company") if snapshot else "",
+        "tags": ["exchange_fund"],
+        "is_xinjihui": False,
+        "is_preferred": False,
+        "nav": latest.get("nav"),
+        "accum_nav": latest.get("accum_nav"),
+        "nav_date": latest.get("nav_date"),
+        "day_growth": latest.get("day_growth"),
+        "near_1m": _nav_return(nav_rows, 30),
+        "near_3m": _nav_return(nav_rows, 90),
+        "near_6m": _nav_return(nav_rows, 180),
+        "near_1y": _nav_return(nav_rows, 365),
+        "near_3y": _nav_return(nav_rows, 365 * 3),
+        "ytd": _nav_ytd_return(nav_rows),
+        "data_quality": "computed",
+        "updated_at": now,
+    }
+    try:
+        FundDataStore.save_quote_batch([quote_row], source=source or "exchange_fund_nav")
+        stored = FundDataStore.get_snapshot(code)
+        if stored:
+            return stored
+    except Exception as e:
+        console_error(f"exchange fund snapshot persistence failed for {code}: {e}")
+    return _exchange_snapshot_from_nav(code, quote_row, nav_rows)
 
 
 def _window_return_from_nav(nav_rows: list[dict[str, Any]], days: int) -> float | None:

@@ -8,7 +8,12 @@ from fastapi import APIRouter, HTTPException, Query
 from starlette.concurrency import run_in_threadpool
 
 from ..constants.guoyuan_funds import FUND_CATEGORIES, FUND_TYPES, GUOYUAN_FUND_LIST
-from ..services.fund_service import compute_category_metrics_1y, get_fund_list, get_fund_list_from_watchlist
+from ..services.fund_service import (
+    compute_category_metrics_1y,
+    ensure_exchange_fund_snapshot,
+    get_fund_list,
+    get_fund_list_from_watchlist,
+)
 from ..services.llm_service import call_astorn_llm
 
 logger = logging.getLogger(__name__)
@@ -143,6 +148,10 @@ async def fund_snapshot_detail(code: str, enqueue_missing: bool = Query(True)):
     from ..storage.database import FundDataStore
 
     snapshot = await run_in_threadpool(FundDataStore.get_snapshot, code)
+    if not snapshot or len(snapshot.get("nav_data") or []) < 2:
+        exchange_snapshot = await run_in_threadpool(ensure_exchange_fund_snapshot, code)
+        if exchange_snapshot:
+            snapshot = exchange_snapshot
     job_id = None
     if enqueue_missing and (not snapshot or snapshot.get("data_quality") in {"partial", "missing", "unknown"}):
         job_id = await run_in_threadpool(
@@ -195,6 +204,10 @@ async def fund_detail_completeness(code: str = Query(..., min_length=4, max_leng
     from ..storage.database import FundDataStore, get_db_context
 
     snapshot = await run_in_threadpool(FundDataStore.get_snapshot, code)
+    if not snapshot or len(snapshot.get("nav_data") or []) < 2:
+        exchange_snapshot = await run_in_threadpool(ensure_exchange_fund_snapshot, code)
+        if exchange_snapshot:
+            snapshot = exchange_snapshot
 
     # ---- stale helpers -------------------------------------------------------
     NAV_STALE_HOURS = 48

@@ -10,6 +10,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from app.services.fund_service import ensure_exchange_fund_snapshot
 from app.storage.database import Database, FundDataStore, UserStore, init_db
 
 
@@ -260,6 +261,28 @@ class FundHoldingsSnapshotTest(unittest.TestCase):
         self.assertEqual(len(after["holdings"]), 1)
         self.assertEqual(after["holdings"][0]["stockName"], "浦发银行")
         self.assertEqual(after["asset_allocation"][0]["name"], "股票")
+
+    def test_exchange_fund_snapshot_is_backfilled_from_nav_history(self):
+        nav_records = [
+            {"date": "2025-01-02", "nav": 1.0, "acc_nav": 1.0},
+            {"date": "2025-06-02", "nav": 1.1, "acc_nav": 1.1},
+            {"date": "2026-01-02", "nav": 1.2, "acc_nav": 1.2},
+        ]
+        with patch("app.storage.database.DB_PATH", self.db_path), \
+            patch("app.data.efinance_fetcher.get_fund_nav_history", return_value=nav_records):
+            snapshot = ensure_exchange_fund_snapshot("510300")
+            stored = FundDataStore.get_snapshot("510300")
+
+        self.assertIsNotNone(snapshot)
+        self.assertIsNotNone(stored)
+        self.assertEqual(stored["code"], "510300")
+        self.assertEqual(stored["name"], "510300 ETF")
+        self.assertEqual(stored["type"], "ETF")
+        self.assertFalse(stored["is_xinjihui"])
+        self.assertEqual(stored["nav"], 1.2)
+        self.assertEqual(stored["nav_date"], "2026-01-02")
+        self.assertEqual(len(stored["nav_data"]), 3)
+        self.assertGreater(stored["near_1y"], 0)
 
     def test_init_db_adds_data_version_to_existing_fund_master(self):
         old_fd, old_path = tempfile.mkstemp(suffix=".db")
