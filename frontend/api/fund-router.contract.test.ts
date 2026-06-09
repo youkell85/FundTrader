@@ -170,17 +170,18 @@ describe('fund detail contract fallbacks', () => {
         code: '512100',
         name: 'CSI 1000 ETF',
         type: 'ETF',
-        nav: 3.3712,
-        accumNav: 3.3712,
-        navDate: '2026-06-02',
-        dayGrowth: 0.12,
+        nav: 3.348,
+        accumNav: 3.348,
+        navDate: '2026-06-09',
+        dayGrowth: -0.69,
       } as any);
 
       const result = await caller.detailByCode({ code: '512100' }) as any;
 
-      expect(result.nav).toBe('3.3712');
-      expect(String(result.accumNav)).toBe('3.3712');
-      expect(String(result.dailyChange)).toBe('0.12');
+      expect(result.nav).toBe('3.348');
+      expect(result.navDate).toBe('2026-06-09');
+      expect(String(result.accumNav)).toBe('3.348');
+      expect(String(result.dailyChange)).toBe('-0.69');
       expect(result.navHistory).toHaveLength(1);
       expect(result.holdings).toHaveLength(1);
     } finally {
