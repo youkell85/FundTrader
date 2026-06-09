@@ -158,6 +158,23 @@ class FundDetailContractTest(unittest.TestCase):
         self.assertEqual(payload["dataStatus"], "missing")
         self.assertEqual(payload["rows"], [])
 
+    def test_bond_holdings_report_confirmed_empty_is_available(self):
+        report = {
+            "report_date": "2025-12-31",
+            "source": "eastmoney:periodic_report_pdf",
+            "text": "8.5 \u671f\u672b\u6309\u503a\u5238\u54c1\u79cd\u5206\u7c7b\u7684\u503a\u5238\u6295\u8d44\u7ec4\u5408\n\u672c\u57fa\u91d1\u672c\u62a5\u544a\u671f\u672b\u672a\u6301\u6709\u503a\u5238\u3002",
+        }
+        with patch.object(fund_service, "_safe_table_query", return_value=[]), \
+            patch("app.data.akshare_fetcher.get_fund_bond_portfolio", return_value={}), \
+            patch.object(fund_service, "_fetch_eastmoney_holder_report_pdf_text", return_value=report):
+            payload = fund_service.get_fund_bond_holdings("510300")
+
+        self.assertEqual(payload["dataStatus"], "available")
+        self.assertEqual(payload["rows"], [])
+        self.assertEqual(payload["coverage"], 1.0)
+        self.assertEqual(payload["source"], "eastmoney:periodic_report_pdf")
+        self.assertEqual(payload["asOf"], "2025-12-31")
+
     def test_report_pdf_text_parsers_extract_holder_and_bond_allocation(self):
         holder_text = (
             "\u00a79 \u57fa\u91d1\u4efd\u989d\u6301\u6709\u4eba\u4fe1\u606f\n"
@@ -325,6 +342,27 @@ class FundDetailContractTest(unittest.TestCase):
         self.assertEqual(payload["rows"][0]["bondType"], "\u91d1\u878d\u503a\u5238")
         self.assertEqual(payload["rows"][0]["ratio"], 3.92)
         persist.assert_called_once()
+
+    def test_bond_allocation_report_confirmed_empty_is_available(self):
+        report = {
+            "report_date": "2025-12-31",
+            "source": "eastmoney:periodic_report_pdf",
+            "text": (
+                "8.5 \u671f\u672b\u6309\u503a\u5238\u54c1\u79cd\u5206\u7c7b\u7684\u503a\u5238\u6295\u8d44\u7ec4\u5408\n"
+                "\u672c\u57fa\u91d1\u672c\u62a5\u544a\u671f\u672b\u672a\u6301\u6709\u503a\u5238\u3002\n"
+            ),
+        }
+        with patch.object(fund_service, "_safe_table_query", return_value=[]), \
+            patch.object(fund_service, "_fetch_eastmoney_holder_report_pdf_text", return_value=report), \
+            patch.object(fund_service, "_persist_quarterly_snapshot_field") as persist:
+            payload = fund_service.get_fund_bond_allocation("510300")
+
+        self.assertEqual(payload["dataStatus"], "available")
+        self.assertEqual(payload["rows"], [])
+        self.assertEqual(payload["coverage"], 1.0)
+        self.assertEqual(payload["source"], "eastmoney:periodic_report_pdf")
+        self.assertEqual(payload["asOf"], "2025-12-31")
+        persist.assert_not_called()
 
     def test_turnover_history_falls_back_to_report_trading_activity_as_partial(self):
         report = {

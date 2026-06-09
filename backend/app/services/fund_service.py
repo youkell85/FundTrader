@@ -1281,6 +1281,15 @@ def get_fund_bond_allocation(code: str) -> dict:
                 source=report.get("source") or "eastmoney:periodic_report_pdf",
                 as_of=report.get("report_date"),
             )
+        if _report_confirms_no_bonds(report["text"]):
+            return _rows_response(
+                code,
+                [],
+                status=DETAIL_STATUS_AVAILABLE,
+                source=report.get("source") or "eastmoney:periodic_report_pdf",
+                as_of=report.get("report_date"),
+                coverage=1.0,
+            )
 
     return _rows_response(
         code,
@@ -1364,6 +1373,17 @@ def get_fund_bond_holdings(code: str) -> dict:
         console_error(f"bond holdings fetch timed out for {code}")
     except Exception as e:
         console_error(f"bond holdings fetch failed for {code}: {e}")
+
+    report = _fetch_eastmoney_holder_report_pdf_text(code)
+    if report and _report_confirms_no_bonds(report["text"]):
+        return _rows_response(
+            code,
+            [],
+            status=DETAIL_STATUS_AVAILABLE,
+            source=report.get("source") or "eastmoney:periodic_report_pdf",
+            as_of=report.get("report_date"),
+            coverage=1.0,
+        )
 
     return _rows_response(
         code,
@@ -2328,6 +2348,17 @@ def _parse_bond_allocation_from_report_text(text: str) -> list[dict[str, Any]]:
             continue
         rows.append({"bondType": name, "ratio": ratio, "changeRatio": None})
     return rows
+
+
+def _report_confirms_no_bonds(text: str) -> bool:
+    compact = re.sub(r"\s+", "", text or "")
+    return any(
+        phrase in compact
+        for phrase in (
+            "\u672c\u57fa\u91d1\u672c\u62a5\u544a\u671f\u672b\u672a\u6301\u6709\u503a\u5238",
+            "\u672c\u57fa\u91d1\u672c\u62a5\u544a\u671f\u672b\u672a\u6301\u6709\u503a\u5238\u6295\u8d44",
+        )
+    )
 
 
 def _parse_holder_structure_from_report_text(text: str, report_date: str | None) -> list[dict[str, Any]]:
