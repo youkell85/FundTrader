@@ -571,6 +571,25 @@ function mergeDetailSources(...sources: Array<Record<string, any> | null | undef
   return merged;
 }
 
+function preferExchangeQuoteScalars(
+  detail: Record<string, any>,
+  code: string,
+  quote: Awaited<ReturnType<typeof fetchFundQuote>> | null,
+  snapshot: Record<string, any> | null,
+) {
+  if (!detail || !isExchangeFundCode(code)) return detail;
+
+  return {
+    ...detail,
+    code,
+    name: chooseFundName(detail?.name, quote?.name ?? snapshot?.name, code),
+    nav: quote?.nav ?? snapshot?.nav ?? detail.nav,
+    accum_nav: quote?.accumNav ?? snapshot?.accum_nav ?? detail.accum_nav,
+    nav_date: quote?.navDate ?? snapshot?.nav_date ?? detail.nav_date,
+    day_growth: quote?.dayGrowth ?? snapshot?.day_growth ?? detail.day_growth,
+  };
+}
+
 async function quoteToAnalysisWithSnapshot(code: string, quote: Awaited<ReturnType<typeof fetchFundQuote>> | null, source = "manual") {
   const base = quoteToAnalysis(code, quote, source) as (ReturnType<typeof quoteToAnalysis> & Record<string, any>) | null;
   if (!base) return null;
@@ -637,7 +656,12 @@ async function fetchFastDetailFallback(code: string, cachedFund?: any) {
   // 从 analysis 抽出 nav_data，附到 fallback 让累计收益趋势图有数据
   const navData = Array.isArray((analysis as any)?.nav_data) ? (analysis as any).nav_data : [];
   const quoteFallback = quoteToAnalysis(code, quote, cachedFund?._source || "watchlist");
-  const fallback = mergeDetailSources(quoteFallback, cachedFund, snapshot, analysis as Record<string, any> | null);
+  const fallback = preferExchangeQuoteScalars(
+    mergeDetailSources(quoteFallback, cachedFund, snapshot, analysis as Record<string, any> | null),
+    code,
+    quote,
+    snapshot as Record<string, any> | null,
+  );
   if (navData.length > 0) {
     fallback.nav_data = navData;
     fallback.navHistory = navData;

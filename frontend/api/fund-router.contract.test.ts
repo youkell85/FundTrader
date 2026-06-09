@@ -141,6 +141,53 @@ describe('fund detail contract fallbacks', () => {
     expect(result.assetAllocation).toHaveLength(1);
   });
 
+  test('detailByCode prefers exchange quote scalars over stale analysis in fast fallback', async () => {
+    vi.mocked(fundQuote.isExchangeFundCode).mockImplementation((code: string) => code === '512100');
+    try {
+      vi.mocked(fundClient.getFundSnapshot).mockResolvedValueOnce({
+        code: '512100',
+        name: 'CSI 1000 ETF',
+        type: 'ETF',
+        nav: 3.3712,
+        accum_nav: 3.3712,
+        nav_date: '2026-06-02',
+        day_growth: 0.12,
+        holdings: [
+          { stockCode: '601869.SH', stockName: 'Yangtze Optical Fibre', ratio: 0.11, quarter: '20260331' },
+        ],
+        asset_allocation: [{ name: 'stock', ratio: 3.2, report_date: '20260331' }],
+      });
+      vi.mocked(fundClient.getFundAnalysis).mockResolvedValueOnce({
+        code: '512100',
+        name: 'CSI 1000 ETF',
+        nav: 3.2524,
+        accum_nav: 3.2524,
+        nav_date: '2026-05-30',
+        day_growth: -0.35,
+        nav_data: [{ date: '2026-06-02', nav: 3.3712, day_growth: 0.12 }],
+      });
+      vi.mocked(fundQuote.fetchFundQuote).mockResolvedValueOnce({
+        code: '512100',
+        name: 'CSI 1000 ETF',
+        type: 'ETF',
+        nav: 3.3712,
+        accumNav: 3.3712,
+        navDate: '2026-06-02',
+        dayGrowth: 0.12,
+      } as any);
+
+      const result = await caller.detailByCode({ code: '512100' }) as any;
+
+      expect(result.nav).toBe('3.3712');
+      expect(String(result.accumNav)).toBe('3.3712');
+      expect(String(result.dailyChange)).toBe('0.12');
+      expect(result.navHistory).toHaveLength(1);
+      expect(result.holdings).toHaveLength(1);
+    } finally {
+      vi.mocked(fundQuote.isExchangeFundCode).mockReturnValue(false);
+    }
+  });
+
   test('yearReturns fallback returns dataStatus missing', async () => {
     const result = await caller.yearReturns({ code: '000001' });
     expectMissingFallback(result);
