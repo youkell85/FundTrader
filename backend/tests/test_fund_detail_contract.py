@@ -195,6 +195,79 @@ class FundDetailContractTest(unittest.TestCase):
         self.assertEqual(holder_rows, [{"quarter": "2025-12-31", "institution": 0.23, "individual": 99.77}])
         self.assertEqual(bond_rows, [{"bondType": "\u91d1\u878d\u503a\u5238", "ratio": 3.92, "changeRatio": None}])
 
+    def test_report_pdf_text_parser_extracts_asset_allocation(self):
+        asset_text = (
+            "8.1 \u671f\u672b\u57fa\u91d1\u8d44\u4ea7\u7ec4\u5408\u60c5\u51b5\n"
+            "1 \u56fa\u5b9a\u6536\u76ca\u6295\u8d44 8,658,973,706.49 64.00\n"
+            "\u5176\u4e2d\uff1a\u503a\u5238 8,658,973,706.49 64.00\n"
+            "2 \u4e70\u5165\u8fd4\u552e\u91d1\u878d\u8d44\u4ea7 1,568,990,176.72 11.60\n"
+            "3 \u94f6\u884c\u5b58\u6b3e\u548c\u7ed3\u7b97\u5907\u4ed8\u91d1\u5408\u8ba1 3,219,947,795.71 23.80\n"
+            "4 \u5176\u4ed6\u5404\u9879\u8d44\u4ea7 82,526,086.67 0.61\n"
+            "5 \u5408\u8ba1 13,530,437,765.59 100.00\n"
+            "8.2 \u62a5\u544a\u671f\u672b\u6309\u884c\u4e1a\u5206\u7c7b\u7684\u80a1\u7968\u6295\u8d44\u7ec4\u5408\n"
+        )
+
+        rows = fund_service._parse_asset_allocation_from_report_text(asset_text, "2026-03-31")
+
+        self.assertEqual(
+            rows,
+            [
+                {
+                    "name": "\u56fa\u5b9a\u6536\u76ca\u6295\u8d44",
+                    "ratio": 64.0,
+                    "report_date": "2026-03-31",
+                    "source": "eastmoney:periodic_report_pdf",
+                },
+                {
+                    "name": "\u4e70\u5165\u8fd4\u552e\u91d1\u878d\u8d44\u4ea7",
+                    "ratio": 11.6,
+                    "report_date": "2026-03-31",
+                    "source": "eastmoney:periodic_report_pdf",
+                },
+                {
+                    "name": "\u94f6\u884c\u5b58\u6b3e\u548c\u7ed3\u7b97\u5907\u4ed8\u91d1\u5408\u8ba1",
+                    "ratio": 23.8,
+                    "report_date": "2026-03-31",
+                    "source": "eastmoney:periodic_report_pdf",
+                },
+                {
+                    "name": "\u5176\u4ed6\u5404\u9879\u8d44\u4ea7",
+                    "ratio": 0.61,
+                    "report_date": "2026-03-31",
+                    "source": "eastmoney:periodic_report_pdf",
+                },
+            ],
+        )
+
+    def test_report_pdf_text_parser_handles_split_asset_allocation_bank_row(self):
+        asset_text = (
+            "8.1 \u671f\u672b\u57fa\u91d1\u8d44\u4ea7\u7ec4\u5408\u60c5\u51b5\n"
+            "1 \u6743\u76ca\u6295\u8d44 - -\n"
+            "2 \u57fa\u91d1\u6295\u8d44 - -\n"
+            "3 \u56fa\u5b9a\u6536\u76ca\u6295\u8d44 8,578,276,025.39 99.05\n"
+            "\u5176\u4e2d\uff1a\u503a\u5238 8,578,276,025.39 99.05\n"
+            "4 \u8d35\u91d1\u5c5e\u6295\u8d44 - -\n"
+            "5 \u91d1\u878d\u884d\u751f\u54c1\u6295\u8d44 - -\n"
+            "6 \u4e70\u5165\u8fd4\u552e\u91d1\u878d\u8d44\u4ea7 - -\n"
+            "\u94f6\u884c\u5b58\u6b3e\u548c\u7ed3\u7b97\u5907\u4ed8\u91d1\u5408\n"
+            "7 60,233,180.99 0.70\n"
+            "\u8ba1\n"
+            "8 \u5176\u4ed6\u5404\u9879\u8d44\u4ea7 21,904,009.72 0.25\n"
+            "9 \u5408\u8ba1 8,660,413,216.10 100.00\n"
+            "8.2 \u62a5\u544a\u671f\u672b\u6309\u884c\u4e1a\u5206\u7c7b\u7684\u80a1\u7968\u6295\u8d44\u7ec4\u5408\n"
+        )
+
+        rows = fund_service._parse_asset_allocation_from_report_text(asset_text, "2026-03-31")
+
+        self.assertEqual(
+            [(row["name"], row["ratio"]) for row in rows],
+            [
+                ("\u56fa\u5b9a\u6536\u76ca\u6295\u8d44", 99.05),
+                ("\u94f6\u884c\u5b58\u6b3e\u548c\u7ed3\u7b97\u5907\u4ed8\u91d1\u5408\u8ba1", 0.7),
+                ("\u5176\u4ed6\u5404\u9879\u8d44\u4ea7", 0.25),
+            ],
+        )
+
     def test_report_pdf_text_parser_extracts_etf_linked_fund_holder_structure(self):
         holder_text = (
             "9.1 \u671f\u672b\u57fa\u91d1\u4efd\u989d\u6301\u6709\u4eba\u6237\u6570\u53ca\u6301\u6709\u4eba\u7ed3\u6784\n"
@@ -386,6 +459,40 @@ class FundDetailContractTest(unittest.TestCase):
         self.assertEqual(payload["source"], "eastmoney:periodic_report_pdf")
         self.assertEqual(payload["asOf"], "2025-12-31")
         persist.assert_not_called()
+
+    def test_report_asset_allocation_snapshot_persists_without_erasing_holdings(self):
+        report = {
+            "report_date": "2026-03-31",
+            "source": "eastmoney:periodic_report_pdf",
+            "text": (
+                "8.1 \u671f\u672b\u57fa\u91d1\u8d44\u4ea7\u7ec4\u5408\u60c5\u51b5\n"
+                "1 \u56fa\u5b9a\u6536\u76ca\u6295\u8d44 8,578,276,025.39 99.05\n"
+                "2 \u5176\u4ed6\u5404\u9879\u8d44\u4ea7 21,904,009.72 0.25\n"
+                "3 \u5408\u8ba1 8,660,413,216.10 100.00\n"
+                "8.2 \u62a5\u544a\u671f\u672b\u6309\u884c\u4e1a\u5206\u7c7b\u7684\u80a1\u7968\u6295\u8d44\u7ec4\u5408\n"
+            ),
+        }
+        base_snapshot = {"code": "000016", "holdings": [{"name": "\u56fd\u503a", "ratio": 12.3}]}
+        enriched_snapshot = {
+            **base_snapshot,
+            "asset_allocation": [{"name": "\u56fa\u5b9a\u6536\u76ca\u6295\u8d44", "ratio": 99.05}],
+        }
+
+        with patch.object(db_module.FundDataStore, "get_snapshot", side_effect=[base_snapshot, enriched_snapshot]), \
+            patch.object(fund_service, "_fetch_eastmoney_holder_report_pdf_text", return_value=report), \
+            patch.object(
+                fund_service,
+                "_load_holdings_for_report_date",
+                return_value=base_snapshot["holdings"],
+            ) as load_holdings, \
+            patch.object(db_module.FundDataStore, "save_holdings_snapshot", return_value=1) as save:
+            result = fund_service.ensure_report_asset_allocation_snapshot("000016")
+
+        load_holdings.assert_called_once_with("000016", "2026-03-31")
+        save.assert_called_once()
+        self.assertEqual(save.call_args.kwargs["holdings"], base_snapshot["holdings"])
+        self.assertEqual(save.call_args.kwargs["asset_allocation"][0]["ratio"], 99.05)
+        self.assertEqual(result["asset_allocation"][0]["ratio"], 99.05)
 
     def test_turnover_history_falls_back_to_report_trading_activity_as_partial(self):
         report = {
@@ -805,6 +912,8 @@ class FundDetailCompletenessTest(unittest.TestCase):
 
         with patch.object(db_module.FundDataStore, "get_snapshot", return_value=None), \
             patch.object(fund_api, "ensure_exchange_fund_snapshot", return_value=fake_snapshot) as ensure, \
+            patch.object(fund_api, "ensure_exchange_fund_holdings_snapshot", return_value=None), \
+            patch.object(fund_api, "ensure_report_asset_allocation_snapshot", return_value=None), \
             patch.object(db_module, "get_db_context") as db_ctx:
             cm = db_ctx.return_value
             cm.__enter__.return_value = cm
@@ -852,6 +961,39 @@ class FundDetailCompletenessTest(unittest.TestCase):
         ensure_holdings.assert_called_once_with("159915")
         self.assertEqual(result["holdings"][0]["code"], "300750.SZ")
         self.assertEqual(result["asset_allocation"][0]["name"], "股票")
+        self.assertIsNone(result["job_id"])
+
+    def test_snapshot_detail_backfills_report_asset_allocation_when_holdings_snapshot_lacks_it(self):
+        base_snapshot = {
+            "code": "000016",
+            "data_quality": "computed",
+            "nav": 1.0,
+            "nav_data": [{"date": "2099-01-02", "nav": 1.0}] * 300,
+            "nav_date": "2099-01-02",
+            "holdings": [{"name": "\u503a\u5238A", "ratio": 12.3}],
+        }
+        enriched_snapshot = {
+            **base_snapshot,
+            "asset_allocation": [{"name": "\u56fa\u5b9a\u6536\u76ca\u6295\u8d44", "ratio": 99.05}],
+        }
+        with patch.object(db_module.FundDataStore, "get_snapshot", return_value=base_snapshot), \
+            patch.object(fund_api, "ensure_exchange_fund_snapshot") as ensure_nav, \
+            patch.object(
+                fund_api,
+                "ensure_exchange_fund_holdings_snapshot",
+                return_value=base_snapshot,
+            ) as ensure_holdings, \
+            patch.object(
+                fund_api,
+                "ensure_report_asset_allocation_snapshot",
+                return_value=enriched_snapshot,
+            ) as ensure_asset:
+            result = asyncio.run(fund_api.fund_snapshot_detail(code="000016", enqueue_missing=False))
+
+        ensure_nav.assert_not_called()
+        ensure_holdings.assert_called_once_with("000016")
+        ensure_asset.assert_called_once_with("000016")
+        self.assertEqual(result["asset_allocation"][0]["ratio"], 99.05)
         self.assertIsNone(result["job_id"])
 
     def test_each_section_has_full_contract(self):

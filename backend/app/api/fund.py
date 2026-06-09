@@ -12,6 +12,7 @@ from ..services.analysis_service import ensure_exchange_fund_holdings_snapshot
 from ..services.fund_service import (
     compute_category_metrics_1y,
     ensure_exchange_fund_snapshot,
+    ensure_report_asset_allocation_snapshot,
     get_fund_list,
     get_fund_list_from_watchlist,
     needs_exchange_fund_snapshot_refresh,
@@ -190,6 +191,10 @@ async def fund_snapshot_detail(code: str, enqueue_missing: bool = Query(True)):
         holdings_snapshot = await run_in_threadpool(ensure_exchange_fund_holdings_snapshot, code)
         if holdings_snapshot:
             snapshot = holdings_snapshot
+    if snapshot and not snapshot.get("asset_allocation"):
+        asset_snapshot = await run_in_threadpool(ensure_report_asset_allocation_snapshot, code)
+        if asset_snapshot:
+            snapshot = asset_snapshot
     job_id = None
     if enqueue_missing and (not snapshot or snapshot.get("data_quality") in {"partial", "missing", "unknown"}):
         job_id = await run_in_threadpool(
@@ -250,6 +255,10 @@ async def fund_detail_completeness(code: str = Query(..., min_length=4, max_leng
         holdings_snapshot = await run_in_threadpool(ensure_exchange_fund_holdings_snapshot, code)
         if holdings_snapshot:
             snapshot = holdings_snapshot
+    if snapshot and not snapshot.get("asset_allocation"):
+        asset_snapshot = await run_in_threadpool(ensure_report_asset_allocation_snapshot, code)
+        if asset_snapshot:
+            snapshot = asset_snapshot
 
     # ---- stale helpers -------------------------------------------------------
     NAV_STALE_HOURS = 48

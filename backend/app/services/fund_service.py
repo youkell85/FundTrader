@@ -2350,6 +2350,109 @@ def _parse_bond_allocation_from_report_text(text: str) -> list[dict[str, Any]]:
     return rows
 
 
+def _parse_asset_allocation_from_report_text(text: str, report_date: str | None) -> list[dict[str, Any]]:
+    marker = "\u671f\u672b\u57fa\u91d1\u8d44\u4ea7\u7ec4\u5408\u60c5\u51b5"
+    start = text.rfind(f"8.1 {marker}")
+    if start < 0:
+        start = text.rfind(marker)
+    if start < 0:
+        return []
+    end = text.find("\n8.2", start + len(marker))
+    section = text[start:end if end > start else start + 1600]
+    raw_lines = [" ".join(line.split()) for line in section.splitlines() if line.strip()]
+    lines: list[str] = []
+    i = 0
+    while i < len(raw_lines):
+        line = raw_lines[i]
+        if (
+            line == "\u94f6\u884c\u5b58\u6b3e\u548c\u7ed3\u7b97\u5907\u4ed8\u91d1\u5408"
+            and i + 2 < len(raw_lines)
+            and raw_lines[i + 2] == "\u8ba1"
+        ):
+            split_match = re.match(r"^(\d+)\s+([\d,.\-]+|-)\s+([\d.\-]+|-)$", raw_lines[i + 1])
+            if split_match:
+                num, amount, ratio = split_match.groups()
+                lines.append(f"{num} \u94f6\u884c\u5b58\u6b3e\u548c\u7ed3\u7b97\u5907\u4ed8\u91d1\u5408\u8ba1 {amount} {ratio}")
+                i += 3
+                continue
+        lines.append(line)
+        i += 1
+
+    rows: list[dict[str, Any]] = []
+    for line in lines:
+        match = re.match(r"^(\d+)\s+(.+?)\s+([\d,.\-]+|-)\s+([\d.\-]+|-)$", line)
+        if not match:
+            continue
+        _, name, _amount, ratio_raw = match.groups()
+        name = re.sub(r"\s+", "", name)
+        if not name or name in {"\u5408\u8ba1"} or name.startswith("\u5176\u4e2d"):
+            continue
+        ratio = _safe_float(ratio_raw)
+        if ratio is None or ratio <= 0:
+            continue
+        rows.append({
+            "name": name,
+            "ratio": ratio,
+            "report_date": report_date or "",
+            "source": "eastmoney:periodic_report_pdf",
+        })
+    return rows
+
+
+def _load_holdings_for_report_date(code: str, report_date: str) -> list[dict[str, Any]]:
+    try:
+        with get_db_context() as conn:
+            row = conn.execute(
+                """SELECT holdings_json
+                   FROM fund_holdings_snapshot
+                   WHERE code = ? AND report_date = ?
+                   LIMIT 1""",
+                (code, report_date),
+            ).fetchone()
+    except Exception:
+        return []
+    if not row or not row["holdings_json"]:
+        return []
+    try:
+        holdings = json.loads(row["holdings_json"])
+    except json.JSONDecodeError:
+        return []
+    return holdings if isinstance(holdings, list) else []
+
+
+def ensure_report_asset_allocation_snapshot(code: str) -> dict[str, Any] | None:
+    snapshot = FundDataStore.get_snapshot(code)
+    if snapshot and snapshot.get("asset_allocation"):
+        return snapshot
+
+    report = _fetch_eastmoney_holder_report_pdf_text(code)
+    if not report:
+        return snapshot
+
+    report_date = report.get("report_date")
+    rows = _parse_asset_allocation_from_report_text(report.get("text") or "", report_date)
+    if not rows or not report_date:
+        return snapshot
+
+    existing_holdings = _load_holdings_for_report_date(code, report_date)
+    saved = FundDataStore.save_holdings_snapshot(
+        code=code,
+        report_date=report_date,
+        holdings=existing_holdings,
+        asset_allocation=rows,
+        source="eastmoney:periodic_report_pdf",
+        data_quality="report_pdf",
+    )
+    if not saved:
+        return snapshot
+    return FundDataStore.get_snapshot(code) or {
+        "code": code,
+        "asset_allocation": rows,
+        "data_quality": "report_pdf",
+        "updated_at": datetime.now().isoformat(),
+    }
+
+
 def _report_confirms_no_bonds(text: str) -> bool:
     compact = re.sub(r"\s+", "", text or "")
     return any(
