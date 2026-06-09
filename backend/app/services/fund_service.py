@@ -2398,7 +2398,19 @@ def _parse_holder_structure_from_report_text(text: str, report_date: str | None)
         elif len(percent_values) >= 2:
             institution, individual = percent_values[:2]
         else:
-            return []
+            ratio_values = [
+                _safe_float(value)
+                for value in re.findall(r"(?<![\d,])(?:100(?:\.0+)?|\d{1,2}\.\d+)(?![\d,])", section)
+            ]
+            ratio_values = [value for value in ratio_values if value is not None]
+            ratio_count = 3 if has_linked_holder else 2
+            ratios = _find_holder_ratio_group(ratio_values, ratio_count)
+            if not ratios:
+                return []
+            if has_linked_holder and ratio_count == 3:
+                institution, individual, linked_fund = ratios
+            else:
+                institution, individual = ratios[:2]
     if institution is None or individual is None:
         return []
     row = {
@@ -2409,6 +2421,19 @@ def _parse_holder_structure_from_report_text(text: str, report_date: str | None)
     if linked_fund is not None:
         row["linkedFund"] = linked_fund
     return [row]
+
+
+def _find_holder_ratio_group(values: list[float], count: int) -> list[float] | None:
+    if count not in {2, 3}:
+        return None
+    for index in range(0, max(0, len(values) - count + 1)):
+        ratios = values[index:index + count]
+        if len(ratios) != count:
+            continue
+        total = sum(ratios)
+        if 99.5 <= total <= 100.5:
+            return ratios
+    return None
 
 
 def _parse_stock_trading_activity_from_report_text(text: str, report_date: str | None) -> list[dict[str, Any]]:

@@ -240,6 +240,29 @@ class FundDetailContractTest(unittest.TestCase):
             "linkedFund": 0.97,
         }])
 
+    def test_report_pdf_text_parser_handles_split_etf_ratio_columns(self):
+        holder_text = (
+            "\u671f\u672b\u57fa\u91d1\u4efd\u989d\u6301\u6709\u4eba\u6237\u6570\u53ca\u6301\u6709\u4eba\u7ed3\u6784\n"
+            "\u4efd\u989d\u5355\u4f4d\uff1a\u4efd\n"
+            "\u6301\u6709\u4eba\u7ed3\u6784\n"
+            "\u673a\u6784\u6295\u8d44\u8005 \u4e2a\u4eba\u6295\u8d44\u8005 \u6613\u578b\u5f00\u653e\u5f0f\u6307\u6570\u8bc1\u5238\n"
+            "\u6301\u6709\u4eba \u6237\u5747\u6301 \u6295\u8d44\u57fa\u91d1\u8054\u63a5\u57fa\u91d1\n"
+            "\u6301\u6709\u4efd\u989d \u6bd4\u4f8b \u6301\u6709\u4efd\u989d \u6bd4\u4f8b \u6301\u6709\u4efd\u989d \u6bd4\u4f8b\n"
+            "554,43 160,215. 80,189,666,631 90.2 7,974,868,591 665,052,468\n"
+            "8.98 0.75\n"
+            "8 55 .00 7 .00 .00\n"
+            "9.2 \u671f\u672b\u4e0a\u5e02\u57fa\u91d1\u524d\u5341\u540d\u6301\u6709\u4eba\n"
+        )
+
+        holder_rows = fund_service._parse_holder_structure_from_report_text(holder_text, "2025-12-31")
+
+        self.assertEqual(holder_rows, [{
+            "quarter": "2025-12-31",
+            "institution": 90.2,
+            "individual": 8.98,
+            "linkedFund": 0.75,
+        }])
+
     def test_report_pdf_text_parser_extracts_stock_trading_activity(self):
         text = (
             "8.4.3 \u4e70\u5165\u80a1\u7968\u7684\u6210\u672c\u603b\u989d\u53ca\u5356\u51fa\u80a1\u7968\u7684\u6536\u5165\u603b\u989d\n"
