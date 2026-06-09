@@ -39,6 +39,7 @@ _TYPE_BUCKET_MAP: dict[str, str] = {
 HS300_BENCHMARK_CODE = "000300"
 PEER_PERFORMANCE_DEFAULT_WINDOW_DAYS = 365 * 5 + 2
 PEER_PERFORMANCE_DEFAULT_MAX_POINTS = 420
+BOND_HOLDINGS_FALLBACK_TIMEOUT_SECONDS = 8
 
 
 def _normalize_fund_type_to_bucket(raw: str, name: str = "") -> str:
@@ -1023,7 +1024,7 @@ def get_fund_bond_allocation(code: str) -> dict:
     rows = _safe_table_query(
         """SELECT report_date, bond_allocation_json, source, updated_at
            FROM fund_detail_quarterly_snapshot
-           WHERE code = ? AND bond_allocation_json IS NOT NULL AND bond_allocation_json != ''
+           WHERE code = ? AND bond_allocation_json IS NOT NULL AND bond_allocation_json != '' AND bond_allocation_json != '[]'
            ORDER BY report_date DESC
            LIMIT 1""",
         (code,),
@@ -1059,7 +1060,7 @@ def get_fund_bond_holdings(code: str) -> dict:
     snapshot_rows = _safe_table_query(
         """SELECT report_date, bond_holdings_json, source, updated_at
            FROM fund_detail_quarterly_snapshot
-           WHERE code = ? AND bond_holdings_json IS NOT NULL AND bond_holdings_json != ''
+           WHERE code = ? AND bond_holdings_json IS NOT NULL AND bond_holdings_json != '' AND bond_holdings_json != '[]'
            ORDER BY report_date DESC
            LIMIT 1""",
         (code,),
@@ -1091,7 +1092,12 @@ def get_fund_bond_holdings(code: str) -> dict:
     try:
         from ..data.akshare_fetcher import get_fund_bond_portfolio
 
-        portfolio = get_fund_bond_portfolio(code) or {}
+        executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="bond-holdings")
+        future = executor.submit(get_fund_bond_portfolio, code)
+        try:
+            portfolio = future.result(timeout=BOND_HOLDINGS_FALLBACK_TIMEOUT_SECONDS) or {}
+        finally:
+            executor.shutdown(wait=False, cancel_futures=True)
         holdings = portfolio.get("bond_holdings") or []
         out = []
         as_of = None
@@ -1120,6 +1126,8 @@ def get_fund_bond_holdings(code: str) -> dict:
                 coverage=0.45,
                 missing_reason="债券名称和占净值比可用，票息/发行主体/评级暂缺。",
             )
+    except TimeoutError:
+        console_error(f"bond holdings fetch timed out for {code}")
     except Exception as e:
         console_error(f"bond holdings fetch failed for {code}: {e}")
 

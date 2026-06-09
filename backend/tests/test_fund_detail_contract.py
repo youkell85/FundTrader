@@ -1,4 +1,5 @@
 import asyncio
+import time
 import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -75,6 +76,38 @@ class FundDetailContractTest(unittest.TestCase):
         self.assertEqual(payload["rows"], [])
         self.assertNotEqual(payload["dataStatus"], "simulated")
         self.assertIn("不再使用", payload["missingReason"])
+
+    def test_empty_bond_holdings_snapshot_allows_akshare_fallback(self):
+        fallback = {
+            "bond_holdings": [
+                {
+                    "name": "\u6d4b\u8bd5\u503a\u5238",
+                    "ratio": 12.34,
+                    "quarter": "2026-03-31",
+                }
+            ]
+        }
+        with patch.object(fund_service, "_safe_table_query", return_value=[]), \
+            patch("app.data.akshare_fetcher.get_fund_bond_portfolio", return_value=fallback):
+            payload = fund_service.get_fund_bond_holdings("000001")
+
+        self.assertEqual(payload["dataStatus"], "partial")
+        self.assertEqual(payload["rows"][0]["bondName"], "\u6d4b\u8bd5\u503a\u5238")
+        self.assertEqual(payload["rows"][0]["navRatio"], 12.34)
+        self.assertEqual(payload["asOf"], "2026-03-31")
+
+    def test_bond_holdings_fallback_timeout_returns_missing(self):
+        def slow_fetch(code):
+            time.sleep(0.05)
+            return {"bond_holdings": [{"name": "\u8d85\u65f6\u503a\u5238", "ratio": 1.0}]}
+
+        with patch.object(fund_service, "_safe_table_query", return_value=[]), \
+            patch.object(fund_service, "BOND_HOLDINGS_FALLBACK_TIMEOUT_SECONDS", 0.001), \
+            patch("app.data.akshare_fetcher.get_fund_bond_portfolio", side_effect=slow_fetch):
+            payload = fund_service.get_fund_bond_holdings("000001")
+
+        self.assertEqual(payload["dataStatus"], "missing")
+        self.assertEqual(payload["rows"], [])
 
     def test_cached_analysis_persists_cached_holdings_snapshot(self):
         cached = {
