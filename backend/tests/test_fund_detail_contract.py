@@ -150,6 +150,31 @@ class FundDetailContractTest(unittest.TestCase):
             "linkedFund": 0.97,
         }])
 
+    def test_report_pdf_text_parser_handles_split_etf_linked_fund_header(self):
+        holder_text = (
+            "9.1 \u671f\u672b\u57fa\u91d1\u4efd\u989d\u6301\u6709\u4eba\u6237\u6570\u53ca\u6301\u6709\u4eba\u7ed3\u6784\n"
+            "\u4efd\u989d\u5355\u4f4d\uff1a\u4efd\n"
+            "\u6301\u6709\u4eba\u7ed3\u6784\n"
+            "\u5357\u65b9\u4e2d\u8bc1 1000 \u4ea4\u6613\n"
+            "\u6301\u6709\u4eba \u6237\u5747\u6301 \u578b\u5f00\u653e\u5f0f\u6307\u6570\u8bc1\u5238\n"
+            "\u673a\u6784\u6295\u8d44\u8005 \u4e2a\u4eba\u6295\u8d44\u8005\n"
+            "\u6237\u6570 \u6709\u7684\u57fa \u6295\u8d44\u57fa\u91d1\u53d1\u8d77\u5f0f\u8054\n"
+            "\uff08\u6237\uff09 \u91d1\u4efd\u989d \u63a5\u57fa\u91d1\n"
+            "\u6301\u6709\u4efd \u5360\u603b\u4efd \u6301\u6709\u4efd \u5360\u603b\u4efd \u6301\u6709\u4efd \u5360\u603b\u4efd\n"
+            "47,119 72,339.0 95.02% 4.01% 0.97%\n"
+            "9.2 \u671f\u672b\u4e0a\u5e02\u57fa\u91d1\u524d\u5341\u540d\u6301\u6709\u4eba\n"
+            "1 \u4e2d\u592e\u6c47\u91d1\u8d44\u4ea7\u7ba1\u7406\u6709\u9650\u8d23\u4efb\u516c\u53f8 51.51%\n"
+        )
+
+        holder_rows = fund_service._parse_holder_structure_from_report_text(holder_text, "2025-12-31")
+
+        self.assertEqual(holder_rows, [{
+            "quarter": "2025-12-31",
+            "institution": 95.02,
+            "individual": 4.01,
+            "linkedFund": 0.97,
+        }])
+
     def test_report_pdf_text_parser_extracts_stock_trading_activity(self):
         text = (
             "8.4.3 \u4e70\u5165\u80a1\u7968\u7684\u6210\u672c\u603b\u989d\u53ca\u5356\u51fa\u80a1\u7968\u7684\u6536\u5165\u603b\u989d\n"
@@ -203,6 +228,35 @@ class FundDetailContractTest(unittest.TestCase):
         self.assertEqual(payload["dataStatus"], "available")
         self.assertEqual(payload["rows"][0]["linkedFund"], 0.97)
         fetch.assert_not_called()
+
+    def test_holder_structure_reparses_malformed_cached_snapshot(self):
+        rows = [{
+            "report_date": "2025-12-31",
+            "holder_structure_json": "[{\"quarter\":\"2025-12-31\",\"institution\":4.01,\"individual\":0.97}]",
+            "source": "eastmoney:periodic_report_pdf",
+            "data_quality": "report_pdf",
+            "updated_at": "2026-06-09T00:00:00",
+        }]
+        report = {
+            "report_date": "2025-12-31",
+            "source": "eastmoney:periodic_report_pdf",
+            "text": (
+                "9.1 \u671f\u672b\u57fa\u91d1\u4efd\u989d\u6301\u6709\u4eba\u6237\u6570\u53ca\u6301\u6709\u4eba\u7ed3\u6784\n"
+                "\u673a\u6784\u6295\u8d44\u8005 \u4e2a\u4eba\u6295\u8d44\u8005 \u63a5\u57fa\u91d1\n"
+                "47,119 72,339.0 95.02% 4.01% 0.97%\n"
+                "9.2 \u671f\u672b\u4e0a\u5e02\u57fa\u91d1\u524d\u5341\u540d\u6301\u6709\u4eba\n"
+            ),
+        }
+        with patch.object(fund_service, "_safe_table_query", return_value=rows), \
+            patch.object(fund_service, "_fetch_eastmoney_holder_report_pdf_text", return_value=report), \
+            patch.object(fund_service, "_persist_quarterly_snapshot_field") as persist:
+            payload = fund_service.get_fund_holder_structure("512100", periods=8)
+
+        self.assertEqual(payload["dataStatus"], "available")
+        self.assertEqual(payload["rows"][0]["institution"], 95.02)
+        self.assertEqual(payload["rows"][0]["individual"], 4.01)
+        self.assertEqual(payload["rows"][0]["linkedFund"], 0.97)
+        persist.assert_called_once()
 
     def test_bond_allocation_falls_back_to_report_pdf_and_persists(self):
         report = {

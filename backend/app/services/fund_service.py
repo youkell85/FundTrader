@@ -1144,6 +1144,9 @@ def get_fund_holder_structure(code: str, periods: int = 40) -> dict:
             indiv = _safe_float(item.get("individual") or item.get("individual_ratio"))
             linked_fund = _safe_float(item.get("linkedFund") or item.get("linked_fund") or item.get("feederFund") or item.get("feeder_fund"))
             if quarter and inst is not None and indiv is not None:
+                total_ratio = inst + indiv + (linked_fund or 0)
+                if not 95 <= total_ratio <= 105:
+                    continue
                 row = {"quarter": quarter, "institution": inst, "individual": indiv}
                 if linked_fund is not None:
                     row["linkedFund"] = linked_fund
@@ -2280,10 +2283,16 @@ def _parse_holder_structure_from_report_text(text: str, report_date: str | None)
             for value in re.findall(r"([\d.]+)\s*%", section)
         ]
         percent_values = [value for value in percent_values if value is not None]
-        if len(percent_values) >= 3 and ("\u8054\u63a5\u57fa\u91d1" in section or "\u53d1\u8d77\u5f0f\u8054\u63a5" in section):
-            institution, individual, linked_fund = percent_values[-3:]
+        compact_section = re.sub(r"\s+", "", section)
+        has_linked_holder = (
+            len(percent_values) == 3
+            or "\u8054\u63a5\u57fa\u91d1" in compact_section
+            or ("\u53d1\u8d77\u5f0f\u8054" in compact_section and "\u63a5\u57fa\u91d1" in compact_section)
+        )
+        if len(percent_values) >= 3 and has_linked_holder:
+            institution, individual, linked_fund = percent_values[:3]
         elif len(percent_values) >= 2:
-            institution, individual = percent_values[-2:]
+            institution, individual = percent_values[:2]
         else:
             return []
     if institution is None or individual is None:
