@@ -20,6 +20,15 @@ import {
 import { trpc } from "@/providers/trpc";
 import { getChangeTextClass } from "@/lib/colors";
 import {
+  backendReturnSeries,
+  chartDateTick,
+  navPointsToReturnSeries,
+  resolveFundReturnSeries,
+  type NavPoint,
+  type ReturnSeriesPoint,
+  type ReturnSeriesResult,
+} from "@/lib/fund-detail-chart";
+import {
   num,
   pct,
   numFmt,
@@ -330,7 +339,7 @@ export default function FundDetail() {
     return () => window.clearTimeout(timer);
   }, [detailQuery, fund?._partial, partialRetries]);
 
-  const navPoints = useMemo<Array<{ d: string; nav: number }>>(
+  const navPoints = useMemo<NavPoint[]>(
     () => {
       const arr: Array<{ d: string; nav: number }> = [];
       for (const x of (fund?.navHistory || []) as any[]) {
@@ -411,34 +420,22 @@ export default function FundDetail() {
       | undefined)?.series;
 
     // 本基金累计收益（前端计算）
-    const fundData = !scopedPoints.length
-      ? []
-      : (() => {
-          const base = scopedPoints[0].nav;
-          return scopedPoints.map<{ d: string; value: number }>((x) => ({
-            d: x.d.slice(5),
-            value: base > 0 ? ((x.nav / base) - 1) * 100 : 0,
-          }));
-        })();
+    const fundSeries = resolveFundReturnSeries(scopedPoints, ppSeries?.fund);
     // 映射后端 series 数据到 PeerSeries 格式
-    const mapSeries = (raw: Array<{ date: string; return: number }> | undefined, fallbackData: Array<{ d: string; value: number }>) => {
-      if (raw && raw.length > 0) {
-        const mapped = raw.map<{ d: string; value: number }>((pt) => ({
-          d: pt.date.slice(5),
-          value: pt.return,
-        }));
-        const lastVal = mapped.length > 0 ? mapped[mapped.length - 1].value : null;
-        return { data: mapped, rangeReturn: lastVal };
-      }
+    const mapSeries = (
+      raw: Array<{ date: string; return: number }> | undefined,
+      fallbackData: ReturnSeriesPoint[] = [],
+    ): ReturnSeriesResult => {
+      const mapped = backendReturnSeries(raw);
+      if (mapped.data.length > 0) return mapped;
       return { data: fallbackData, rangeReturn: null };
     };
 
-    const fundSeries = mapSeries(ppSeries?.fund, fundData);
-    // fundRangeReturn 优先使用后端数据，后端无数据时用前端计算值
+    // fundRangeReturn follows the selected fund series: navHistory first, backend series as fallback.
     const finalFundRangeReturn = fundSeries.rangeReturn;
-    const peerSeries = mapSeries(ppSeries?.peer, []);
-    const indexSeries = mapSeries(ppSeries?.index, []);
-    const benchSeries = mapSeries(ppSeries?.benchmark, []);
+    const peerSeries = mapSeries(ppSeries?.peer);
+    const indexSeries = mapSeries(ppSeries?.index);
+    const benchSeries = mapSeries(ppSeries?.benchmark);
 
     return [
       { name: "本基金累计收益", data: fundSeries.data, rangeReturn: finalFundRangeReturn, color: SERIES_COLORS.fund },
@@ -529,10 +526,9 @@ export default function FundDetail() {
   // 优先使用前端 navPoints（来自 fund.navHistory），当 navHistory 为空时降级使用后端 series.fund
   const navSeries = useMemo(() => {
     if (scopedPoints.length > 0) {
-      const base = scopedPoints[0].nav;
-      return scopedPoints.map((x) => ({
-        d: x.d.slice(5),
-        fund: base > 0 ? ((x.nav / base) - 1) * 100 : 0,
+      return navPointsToReturnSeries(scopedPoints).data.map((x) => ({
+        d: x.d,
+        fund: x.value,
         dd: risk.drawdownSeries.find((dd) => dd.d === x.d)?.dd ?? 0,
       }));
     }
@@ -542,7 +538,7 @@ export default function FundDetail() {
     const ppDrawdown = (peerPerformanceQ.data as any)?.series?.fund_drawdown as Array<{ date: string; drawdown: number }> | undefined;
     if (ppFund && ppFund.length > 0) {
       return ppFund.map((x, i) => ({
-        d: x.date.slice(5),
+        d: x.date,
         fund: x.return,
         dd: ppDrawdown?.[i]?.drawdown ?? 0,
       }));
@@ -1258,7 +1254,7 @@ function PerformanceSection({
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart data={comparisonChartData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                <XAxis dataKey="d" tick={{ fontSize: 11 }} />
+                <XAxis dataKey="d" tick={{ fontSize: 11 }} tickFormatter={chartDateTick} />
                 <YAxis tick={{ fontSize: 11 }} />
                 <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(value: number) => [`${Number(value).toFixed(2)}%`, ""]} />
                 <Line dataKey="fund" stroke={SERIES_COLORS.fund} dot={false} name="本基金" />
@@ -1271,7 +1267,7 @@ function PerformanceSection({
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart data={navSeries}>
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                <XAxis dataKey="d" tick={{ fontSize: 11 }} />
+                <XAxis dataKey="d" tick={{ fontSize: 11 }} tickFormatter={chartDateTick} />
                 <YAxis tick={{ fontSize: 11 }} />
                 <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(value: number) => [`${Number(value).toFixed(2)}%`, ""]} />
                 <Line
@@ -1674,7 +1670,7 @@ function RiskSection({
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart data={navSeries}>
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                <XAxis dataKey="d" tick={{ fontSize: 11 }} />
+                <XAxis dataKey="d" tick={{ fontSize: 11 }} tickFormatter={chartDateTick} />
                 <YAxis tick={{ fontSize: 11 }} />
                 <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(value: number) => [`${Number(value).toFixed(2)}%`, ""]} />
                 <defs>
