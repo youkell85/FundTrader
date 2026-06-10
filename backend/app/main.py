@@ -219,10 +219,12 @@ async def lifespan(app: FastAPI):
         logger.warning("Startup data refresh timed out — loading from SQLite cache")
         from .allocation.data.market_data_service import market_data_service as mds
         mds._load_macro_from_db()
+        mds._load_stats_from_db()
     except Exception as e:
         logger.warning(f"Startup data refresh failed — loading from SQLite cache: {e}")
         from .allocation.data.market_data_service import market_data_service as mds
         mds._load_macro_from_db()
+        mds._load_stats_from_db()
 
     # Spawn background refresh tasks
     task = asyncio.create_task(_background_refresh_loop())

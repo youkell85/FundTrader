@@ -307,6 +307,45 @@ class MarketDataService:
         except Exception as e:
             logger.debug(f"Failed to load macro from SQLite: {e}")
 
+    def _load_stats_from_db(self) -> None:
+        """Load rolling statistics and volatility from SQLite cache."""
+        try:
+            from app.storage.database import StatsSnapshotCache
+
+            cached_vol = StatsSnapshotCache.get("volatility")
+            cached_stats = StatsSnapshotCache.get("rolling_stats")
+
+            with self._lock:
+                if cached_vol:
+                    self._vol_snapshot = VolatilitySnapshot(
+                        current_vol_20d=float(cached_vol["current_vol_20d"]),
+                        long_term_vol_252d=float(cached_vol["long_term_vol_252d"]),
+                        vol_ratio=float(cached_vol["vol_ratio"]),
+                        as_of_date=str(cached_vol.get("as_of_date") or ""),
+                    )
+                if cached_stats:
+                    returns = cached_stats.get("returns") or {}
+                    vols = cached_stats.get("vols") or {}
+                    corr = cached_stats.get("correlation_matrix") or []
+                    self._rolling_stats = (returns, vols, corr)
+
+                    stats_ex = cached_stats.get("stats_ex")
+                    if stats_ex:
+                        self._rolling_stats_ex = stats_ex
+                    elif cached_stats.get("quality"):
+                        self._rolling_stats_ex = {"quality": cached_stats["quality"]}
+
+                if cached_vol or cached_stats:
+                    self._last_refresh = datetime.now().isoformat()
+
+            logger.info(
+                "Loaded stats from SQLite cache: rolling=%s, volatility=%s",
+                bool(cached_stats),
+                bool(cached_vol),
+            )
+        except Exception as e:
+            logger.debug(f"Failed to load stats from SQLite: {e}")
+
     def _save_stats_to_db(self) -> None:
         """Save rolling stats and vol snapshot to SQLite."""
         try:
@@ -316,11 +355,16 @@ class MarketDataService:
                     "vol_ratio": self._vol_snapshot.vol_ratio,
                     "current_vol_20d": self._vol_snapshot.current_vol_20d,
                     "long_term_vol_252d": self._vol_snapshot.long_term_vol_252d,
+                    "as_of_date": self._vol_snapshot.as_of_date,
                 })
             if self._rolling_stats:
-                rets, vols, _ = self._rolling_stats
+                rets, vols, corr = self._rolling_stats
                 StatsSnapshotCache.save("rolling_stats", {
-                    "returns": rets, "vols": vols,
+                    "returns": rets,
+                    "vols": vols,
+                    "correlation_matrix": corr,
+                    "quality": (self._rolling_stats_ex or {}).get("quality", {}),
+                    "stats_ex": self._rolling_stats_ex,
                 })
         except Exception as e:
             logger.debug(f"Failed to save stats to SQLite: {e}")

@@ -65,6 +65,37 @@ class AllocationMarketDataQualityTest(unittest.TestCase):
         self.assertEqual(status["invalid_assets"]["money_fund"], "abnormal_price_jump")
         self.assertIn("cash:no_representative_etf", status["assumptions_used"])
 
+    def test_market_data_service_loads_stats_cache(self):
+        service = MarketDataService()
+
+        def fake_get(snapshot_type):
+            if snapshot_type == "volatility":
+                return {
+                    "vol_ratio": 1.25,
+                    "current_vol_20d": 0.2,
+                    "long_term_vol_252d": 0.16,
+                    "as_of_date": "2026-06-10",
+                }
+            if snapshot_type == "rolling_stats":
+                return {
+                    "returns": {"a_share_large": 8.0},
+                    "vols": {"a_share_large": 18.0},
+                    "correlation_matrix": [[1.0]],
+                    "quality": {"a_share_large": {"status": "available"}},
+                }
+            return None
+
+        with patch("app.storage.database.StatsSnapshotCache.get", side_effect=fake_get):
+            service._load_stats_from_db()
+
+        status = service.get_status()
+
+        self.assertEqual(status["vol_ratio"], 1.25)
+        self.assertTrue(status["rolling_stats_available"])
+        self.assertEqual(status["health"], "degraded")
+        self.assertEqual(status["rolling_coverage"], 1.0)
+        self.assertEqual(status["valid_assets"], ["a_share_large"])
+
 
 if __name__ == "__main__":
     unittest.main()
