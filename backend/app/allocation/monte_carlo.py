@@ -48,15 +48,29 @@ def simulate(
 
     # Weights vector
     weights = np.array([allocations.get(a, 0.0) for a in ASSET_CLASSES])
+    if not np.all(np.isfinite(weights)):
+        raise ValueError("Monte Carlo input allocations contain non-finite values")
 
     # Monthly parameters
     annual_returns = np.array([cma.expected_returns[a] / 100.0 for a in ASSET_CLASSES])
+    if not np.all(np.isfinite(annual_returns)):
+        raise ValueError("Monte Carlo expected returns contain non-finite values")
+    if np.any(annual_returns <= -1.0):
+        raise ValueError("Monte Carlo expected returns must be greater than -100%")
     monthly_returns = np.power(1 + annual_returns, 1 / 12.0) - 1
+    if not np.all(np.isfinite(monthly_returns)):
+        raise ValueError("Monte Carlo monthly returns contain non-finite values")
 
     # Annual covariance to monthly
     cov_annual = np.array(cma.covariance_matrix, dtype=np.float64)
+    if cov_annual.shape != (N_ASSETS, N_ASSETS):
+        raise ValueError("Monte Carlo covariance matrix has invalid shape")
+    if not np.all(np.isfinite(cov_annual)):
+        raise ValueError("Monte Carlo covariance matrix contains non-finite values")
     cov_monthly = cov_annual / 12.0
     cov_monthly = ensure_positive_definite(cov_monthly)
+    if not np.all(np.isfinite(cov_monthly)):
+        raise ValueError("Monte Carlo monthly covariance contains non-finite values")
 
     # Cholesky decomposition
     L = np.linalg.cholesky(cov_monthly)
@@ -83,9 +97,16 @@ def simulate(
 
         # Portfolio return for this month
         port_returns = asset_returns @ weights  # (n_paths,)
+        if not np.all(np.isfinite(port_returns)):
+            raise ValueError("Monte Carlo generated non-finite portfolio returns")
 
         # Update portfolio value
         portfolio_values[:, t + 1] = portfolio_values[:, t] * (1 + port_returns)
+        if (
+            not np.all(np.isfinite(portfolio_values[:, t + 1]))
+            or np.any(portfolio_values[:, t + 1] <= 0)
+        ):
+            raise ValueError("Monte Carlo generated invalid portfolio values")
 
     # Terminal values
     terminal = portfolio_values[:, -1]
@@ -118,6 +139,13 @@ def simulate(
 
     # Probability of positive return
     prob_positive = float((total_returns > 0).mean())
+
+    stats = [
+        median_return, p10, p25, p75, p90, max_dd_95,
+        var_95, cvar_95, var_95_annual, cvar_95_annual, prob_positive,
+    ]
+    if not np.all(np.isfinite(stats)):
+        raise ValueError("Monte Carlo output contains non-finite values")
 
     return MonteCarloResult(
         median_return=round(median_return * 100, 2),
