@@ -157,6 +157,10 @@ export interface FundRankingItem {
   custody_fee: number;
   aum: number;
   tracking_error: number;
+  metadata_status?: "real" | "partial" | "assumption" | "stale" | "missing" | "rejected";
+  metadata_source?: string;
+  metadata_as_of?: string | null;
+  stale_days?: number | null;
 }
 
 export interface FundRankingResponse {

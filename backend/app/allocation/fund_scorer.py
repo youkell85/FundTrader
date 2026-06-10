@@ -38,6 +38,10 @@ class FundProfile:
     sharpe_1y: float = 0.0
     # 基础质量分 (人工赋分)
     base_quality: float = 85.0
+    metadata_status: str = "assumption"
+    metadata_source: str = "static_fund_pool"
+    metadata_as_of: Optional[str] = None
+    stale_days: Optional[int] = None
 
 
 @dataclass
@@ -62,6 +66,10 @@ class FundScore:
     is_recommended: bool = False
     # 评分理由
     reasons: List[str] = field(default_factory=list)
+    metadata_status: str = "assumption"
+    metadata_source: str = "static_fund_pool"
+    metadata_as_of: Optional[str] = None
+    stale_days: Optional[int] = None
 
 
 # 五维度权重 — 针对被动指数基金/ETF的最优权重
@@ -84,6 +92,10 @@ def score_fund(profile: FundProfile, peers: List[FundProfile]) -> FundScore:
         fund_type=profile.fund_type,
         asset_class=profile.asset_class,
         company=profile.company,
+        metadata_status=profile.metadata_status,
+        metadata_source=profile.metadata_source,
+        metadata_as_of=profile.metadata_as_of,
+        stale_days=profile.stale_days,
     )
 
     # 1. 跟踪质量 — 跟踪误差越小越好

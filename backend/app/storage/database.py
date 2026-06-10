@@ -824,11 +824,15 @@ class FundNAVCache:
         from datetime import datetime
         now = datetime.now().isoformat()
         with get_db() as conn:
+            numeric_items = [
+                (code, k, v, metrics.get("data_points"), now)
+                for k, v in metrics.items()
+                if k != "data_points" and isinstance(v, (int, float))
+            ]
             conn.executemany(
                 """INSERT OR REPLACE INTO fund_nav_cache (code, metric, value, data_points, computed_at)
                    VALUES (?, ?, ?, ?, ?)""",
-                [(code, k, v, metrics.get("data_points"), now) for k, v in metrics.items()
-                 if k != "data_points"]
+                numeric_items
             )
         _qcache.invalidate_prefix(f"snapshot:{code}")
         _qcache.invalidate_prefix("list:")

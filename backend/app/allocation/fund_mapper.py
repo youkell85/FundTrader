@@ -230,6 +230,10 @@ def map_funds(
             role=role,
             reason=reason,
             score=best.total_score,
+            metadata_status=best.metadata_status,
+            metadata_source=best.metadata_source,
+            metadata_as_of=best.metadata_as_of,
+            stale_days=best.stale_days,
         ))
 
     return funds

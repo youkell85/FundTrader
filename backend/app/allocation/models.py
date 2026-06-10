@@ -117,6 +117,10 @@ class FundItem(BaseModel):
     role: str
     reason: str
     score: float
+    metadata_status: str = "assumption"
+    metadata_source: str = "static_fund_pool"
+    metadata_as_of: Optional[str] = None
+    stale_days: Optional[int] = None
 
 
 class StressScenarioItem(BaseModel):
@@ -254,6 +258,10 @@ class FundRankingItem(BaseModel):
     custody_fee: float
     aum: float
     tracking_error: float
+    metadata_status: str = "assumption"
+    metadata_source: str = "static_fund_pool"
+    metadata_as_of: Optional[str] = None
+    stale_days: Optional[int] = None
 
 
 class FundRankingRequest(BaseModel):

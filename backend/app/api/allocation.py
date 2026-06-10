@@ -226,6 +226,10 @@ async def get_fund_ranking(request: FundRankingRequest):
                 custody_fee=_get_fee(s.code, "custody_fee"),
                 aum=_get_fee(s.code, "aum"),
                 tracking_error=_get_fee(s.code, "tracking_error"),
+                metadata_status=s.metadata_status,
+                metadata_source=s.metadata_source,
+                metadata_as_of=s.metadata_as_of,
+                stale_days=s.stale_days,
             )
             for s in scores
         ]

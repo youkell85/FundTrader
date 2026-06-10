@@ -57,6 +57,10 @@ def _build_updated_profile(profile: FundProfile, metrics: dict) -> FundProfile:
         return_1y=metrics.get("return_1y", profile.return_1y),
         sharpe_1y=metrics.get("sharpe_1y", profile.sharpe_1y),
         base_quality=profile.base_quality,
+        metadata_status=metrics.get("metadata_status", "real"),
+        metadata_source=metrics.get("metadata_source", "computed_nav"),
+        metadata_as_of=metrics.get("metadata_as_of"),
+        stale_days=metrics.get("stale_days"),
     )
 
 
@@ -73,6 +77,10 @@ def _get_sqlite_metrics(code: str) -> Optional[dict]:
             "tracking_error": FundNAVCache.get(code, "tracking_error"),
             "daily_turnover": FundNAVCache.get(code, "daily_turnover"),
             "data_points": FundNAVCache.get(code, "data_points"),
+            "metadata_status": "real",
+            "metadata_source": "sqlite_cache",
+            "metadata_as_of": None,
+            "stale_days": 0,
         }
     except Exception:
         return None
@@ -154,6 +162,10 @@ def _compute_metrics(code: str) -> Optional[Dict]:
         "tracking_error": round(float(ann_vol), 4),
         "daily_turnover": daily_turnover,
         "data_points": len(log_returns),
+        "metadata_status": "real",
+        "metadata_source": "computed_nav",
+        "metadata_as_of": datetime.now().date().isoformat(),
+        "stale_days": 0,
     }
 
 
