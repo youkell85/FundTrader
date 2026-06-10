@@ -219,13 +219,54 @@ class MarketDataService:
     def get_status(self) -> dict:
         """Get service status for diagnostics."""
         with self._lock:
+            rolling_quality = self._summarize_rolling_quality_locked()
+            health = "healthy"
+            if self._macro_snapshot is None or self._rolling_stats is None or self._vol_snapshot is None:
+                health = "degraded"
+            if not rolling_quality["rolling_stats_available"]:
+                health = "critical" if self._rolling_stats is None else "degraded"
+            elif rolling_quality["invalid_assets"] or rolling_quality["rolling_coverage"] < 0.7:
+                health = "degraded"
             return {
                 "last_refresh": self._last_refresh,
                 "macro_available": self._macro_snapshot is not None,
                 "macro_confidence": self._macro_snapshot.overall_confidence if self._macro_snapshot else 0,
                 "rolling_stats_available": self._rolling_stats is not None,
                 "vol_ratio": self._vol_snapshot.vol_ratio if self._vol_snapshot else None,
+                "health": health,
+                **rolling_quality,
             }
+
+    def _summarize_rolling_quality_locked(self) -> dict:
+        quality = {}
+        if self._rolling_stats_ex:
+            quality = self._rolling_stats_ex.get("quality", {}) or {}
+
+        invalid_assets = {
+            asset: item.get("reason") or item.get("status") or "invalid"
+            for asset, item in quality.items()
+            if item.get("status") == "rejected"
+        }
+        assumption_assets = [
+            asset for asset, item in quality.items()
+            if item.get("status") == "assumption"
+        ]
+        valid_assets = [
+            asset for asset, item in quality.items()
+            if item.get("status") == "available"
+        ]
+        total_assets = len(quality) or 0
+        rolling_coverage = (len(valid_assets) / total_assets) if total_assets else 0.0
+
+        return {
+            "rolling_stats_available": self._rolling_stats is not None,
+            "rolling_coverage": round(rolling_coverage, 4),
+            "valid_assets": valid_assets,
+            "invalid_assets": invalid_assets,
+            "assumptions_used": [
+                f"{asset}:no_representative_etf" for asset in assumption_assets
+            ],
+        }
 
     def _save_macro_to_db(self, snapshot) -> None:
         """Persist macro indicators to SQLite for cross-restart survival."""

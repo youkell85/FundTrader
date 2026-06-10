@@ -121,6 +121,11 @@ export interface MarketDataStatus {
   macro_confidence: number;
   rolling_stats_available: boolean;
   vol_ratio: number | null;
+  health?: "healthy" | "degraded" | "critical" | "unknown";
+  rolling_coverage?: number;
+  valid_assets?: string[];
+  invalid_assets?: Record<string, string>;
+  assumptions_used?: string[];
 }
 
 export const REGIME_COLORS: Record<string, string> = {

@@ -4,6 +4,7 @@ from unittest.mock import patch
 import numpy as np
 
 from app.allocation.data import market_data_fetcher
+from app.allocation.data.market_data_service import MarketDataService
 
 
 class AllocationMarketDataQualityTest(unittest.TestCase):
@@ -44,6 +45,25 @@ class AllocationMarketDataQualityTest(unittest.TestCase):
         cov = np.asarray(result["covariance_matrix"], dtype=float)
         self.assertTrue(np.all(np.isfinite(corr)))
         self.assertTrue(np.all(np.isfinite(cov)))
+
+    def test_market_data_status_exposes_invalid_assets_and_health(self):
+        service = MarketDataService()
+        service._rolling_stats = ({}, {}, [])
+        service._rolling_stats_ex = {
+            "quality": {
+                "a_share_large": {"status": "available", "reason": None},
+                "money_fund": {"status": "rejected", "reason": "abnormal_price_jump"},
+                "cash": {"status": "assumption", "reason": "no_representative_etf"},
+            }
+        }
+
+        status = service.get_status()
+
+        self.assertEqual(status["health"], "degraded")
+        self.assertTrue(status["rolling_stats_available"])
+        self.assertEqual(status["rolling_coverage"], 0.3333)
+        self.assertEqual(status["invalid_assets"]["money_fund"], "abnormal_price_jump")
+        self.assertIn("cash:no_representative_etf", status["assumptions_used"])
 
 
 if __name__ == "__main__":
