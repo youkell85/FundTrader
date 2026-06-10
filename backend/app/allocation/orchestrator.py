@@ -13,10 +13,12 @@ from .constraint_checker import check_constraints
 from .factor_exposure import calculate_exposures
 from .fund_mapper import map_funds
 from .models import (
+    AllocationDataQuality,
     AllocationMeta,
     AllocationRequest,
     AllocationResponse,
     CMAResult,
+    DataQualityItem,
     SAASummary,
     UserProfileSummary,
     VariantComparison,
@@ -459,6 +461,7 @@ def run(
         constraints=constraint_checks,
         risk_disclaimer=risk_disclaimer,
         warnings=warnings,
+        data_quality=_build_data_quality(cma, diags, fund_list, mc_result),
     )
 
 
@@ -500,6 +503,87 @@ def get_pipeline_health() -> dict:
         },
         "health": last_run["health"] if last_run else "unknown",
     }
+
+
+def _build_data_quality(
+    cma: CMAResult,
+    diags: List[_StepDiag],
+    fund_list: list,
+    mc_result,
+) -> AllocationDataQuality:
+    cma_quality = cma.quality or {}
+    cma_status = cma_quality.get("data_status") or "assumption"
+    invalid_assets = dict(cma_quality.get("invalid_assets") or {})
+    assumptions_used: List[str] = []
+    if cma_status in {"partial", "assumption"}:
+        assumptions_used.append("cma_anchor_fallback")
+
+    degraded_steps = {d.name: d for d in diags if d.status in {"degraded", "error"}}
+    market_items: Dict[str, DataQualityItem] = {}
+    for asset in cma_quality.get("valid_assets", []) or []:
+        market_items[asset] = DataQualityItem(
+            status="real",
+            source="representative_etf",
+            coverage=cma_quality.get("rolling_coverage"),
+        )
+    for asset, reason in invalid_assets.items():
+        market_items[asset] = DataQualityItem(
+            status="rejected",
+            source="representative_etf",
+            reason=reason,
+        )
+    for asset in cma_quality.get("anchor_assets", []) or []:
+        market_items.setdefault(
+            asset,
+            DataQualityItem(status="assumption", source="anchor", reason="no_valid_signal"),
+        )
+
+    factor_status = "real" if "factor_exposure" not in degraded_steps else "missing"
+    fund_status = "real" if fund_list else "missing"
+    mc_status = "real" if mc_result is not None else "missing"
+
+    if fund_status == "missing":
+        assumptions_used.append("fund_mapping_missing")
+    if mc_status == "missing":
+        assumptions_used.append("monte_carlo_missing")
+
+    overall_status = "real"
+    if any(item.status == "rejected" for item in market_items.values()):
+        overall_status = "partial"
+    if cma_status in {"partial", "assumption"}:
+        overall_status = cma_status
+    if any(step in degraded_steps for step in {"monte_carlo", "fund_mapping", "factor_exposure"}):
+        overall_status = "partial" if overall_status == "real" else overall_status
+
+    return AllocationDataQuality(
+        overall_status=overall_status,
+        macro={},
+        market=market_items,
+        cma=DataQualityItem(
+            status=cma_status,
+            source=cma_quality.get("source"),
+            coverage=cma_quality.get("rolling_coverage"),
+            reason=None if cma_status == "real" else "uses_anchor_or_partial_signal",
+        ),
+        factor=DataQualityItem(
+            status=factor_status,
+            source="factor_exposure",
+            reason=degraded_steps.get("factor_exposure").detail if "factor_exposure" in degraded_steps else None,
+        ),
+        fund_mapping=DataQualityItem(
+            status=fund_status,
+            source="fund_mapper",
+            coverage=1.0 if fund_list else 0.0,
+            reason=None if fund_list else "no_funds_mapped",
+        ),
+        monte_carlo=DataQualityItem(
+            status=mc_status,
+            source="monte_carlo",
+            reason=degraded_steps.get("monte_carlo").detail if "monte_carlo" in degraded_steps else None,
+        ),
+        invalid_assets=invalid_assets,
+        assumptions_used=assumptions_used,
+    )
 
 
 def _compute_group_allocations(allocations: Dict[str, float]) -> Dict[str, float]:

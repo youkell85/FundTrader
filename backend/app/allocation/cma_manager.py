@@ -44,7 +44,12 @@ def estimate_cma(regime: RegimeState) -> CMAResult:
     anchor_corr = np.array(DEFAULT_CORR, dtype=np.float64)
 
     # ─── Signal Layer (dynamic) ───
-    signal_returns, signal_vols, signal_corr = _get_signal_layer()
+    signal_returns, signal_vols, signal_corr, signal_quality = _get_signal_layer()
+    signal_returns, signal_vols, invalid_assets = _sanitize_signal_layer(
+        signal_returns,
+        signal_vols,
+        signal_quality,
+    )
 
     # ─── Blend Layer ───
     blend_lambda = _compute_blend_weight(regime, signal_returns)
@@ -79,10 +84,16 @@ def estimate_cma(regime: RegimeState) -> CMAResult:
         expected_returns=expected_returns,
         volatilities=volatilities,
         covariance_matrix=cov.tolist(),
+        quality=_build_cma_quality(blend_lambda, signal_quality, invalid_assets),
     )
 
 
-def _get_signal_layer() -> Tuple[Optional[Dict[str, float]], Optional[Dict[str, float]], Optional[List[List[float]]]]:
+def _get_signal_layer() -> Tuple[
+    Optional[Dict[str, float]],
+    Optional[Dict[str, float]],
+    Optional[List[List[float]]],
+    Dict[str, dict],
+]:
     """Get Signal layer from market data service.
 
     Uses multi-window stats: blends short (60d) and long (252d) returns for
@@ -92,21 +103,114 @@ def _get_signal_layer() -> Tuple[Optional[Dict[str, float]], Optional[Dict[str, 
     """
     try:
         from .data import market_data_service
-        result = market_data_service.get_rolling_stats()
+        result = market_data_service.get_rolling_stats_ex()
         if result is None:
-            return None, None, None
+            basic = market_data_service.get_rolling_stats()
+            if basic is None:
+                return None, None, None, {}
+            returns_dict, vols_dict, corr_matrix = basic
+            return returns_dict, vols_dict, corr_matrix, {}
 
-        returns_dict, vols_dict, corr_matrix = result
+        returns_dict = result.get("returns_long", {})
+        vols_dict = result.get("vols_long", {})
+        corr_matrix = result.get("correlation_matrix")
+        quality = result.get("quality", {})
 
         # Validate: need at least some valid data
         valid_returns = sum(1 for v in returns_dict.values() if v is not None)
         if valid_returns < 5:
-            return None, None, None
+            return None, None, None, quality
 
-        return returns_dict, vols_dict, corr_matrix
+        return returns_dict, vols_dict, corr_matrix, quality
     except Exception as e:
         logger.debug(f"Signal layer unavailable: {e}")
-        return None, None, None
+        return None, None, None, {}
+
+
+def _sanitize_signal_layer(
+    signal_returns: Optional[Dict[str, float]],
+    signal_vols: Optional[Dict[str, float]],
+    quality: Dict[str, dict],
+) -> Tuple[Optional[Dict[str, float]], Optional[Dict[str, float]], Dict[str, str]]:
+    """Remove impossible signal values before they reach the CMA blend."""
+    if signal_returns is None or signal_vols is None:
+        return signal_returns, signal_vols, {}
+
+    cleaned_returns = dict(signal_returns)
+    cleaned_vols = dict(signal_vols)
+    invalid_assets: Dict[str, str] = {}
+
+    for asset in ASSET_CLASSES:
+        ok, reason = _validate_signal_value(
+            asset,
+            cleaned_returns.get(asset),
+            cleaned_vols.get(asset),
+            quality.get(asset, {}),
+        )
+        if not ok:
+            cleaned_returns[asset] = None
+            cleaned_vols[asset] = None
+            invalid_assets[asset] = reason or "invalid_signal"
+
+    return cleaned_returns, cleaned_vols, invalid_assets
+
+
+def _validate_signal_value(
+    asset: str,
+    ret: Optional[float],
+    vol: Optional[float],
+    quality_item: dict,
+) -> Tuple[bool, Optional[str]]:
+    status = quality_item.get("status")
+    if status in {"rejected", "missing"}:
+        return False, quality_item.get("reason") or status
+    if ret is None or vol is None:
+        return False, "missing_signal"
+    if not np.isfinite(ret) or not np.isfinite(vol):
+        return False, "non_finite_signal"
+
+    group = ASSET_TO_GROUP.get(asset)
+    ret_min, ret_max = -80.0, 120.0
+    vol_min, vol_max = 5.0, 100.0
+    if group == "fixed_income":
+        ret_min, ret_max = -30.0, 40.0
+        vol_min, vol_max = 0.5, 35.0
+    if group == "cash_equiv" or asset in {"money_fund", "cash"}:
+        ret_min, ret_max = -2.0, 8.0
+        vol_min, vol_max = 0.0, 3.0
+
+    if ret < ret_min or ret > ret_max:
+        return False, "return_out_of_bounds"
+    if vol < vol_min or vol > vol_max:
+        return False, "vol_out_of_bounds"
+    return True, None
+
+
+def _build_cma_quality(blend_lambda: float, quality: Dict[str, dict], invalid_assets: Dict[str, str]) -> dict:
+    valid_assets = [
+        asset for asset, item in quality.items()
+        if item.get("status") == "available" and asset not in invalid_assets
+    ]
+    assumption_assets = [
+        asset for asset, item in quality.items()
+        if item.get("status") == "assumption" and asset not in invalid_assets
+    ]
+    coverage = len(valid_assets) / len(ASSET_CLASSES) if ASSET_CLASSES else 0.0
+    status = "real"
+    if blend_lambda <= 0:
+        status = "assumption"
+    elif coverage < 0.7 or invalid_assets or assumption_assets:
+        status = "partial"
+
+    return {
+        "data_status": status,
+        "blend_lambda": round(float(blend_lambda), 4),
+        "rolling_coverage": round(float(coverage), 4),
+        "valid_assets": valid_assets,
+        "invalid_assets": invalid_assets,
+        "anchor_assets": [asset for asset in ASSET_CLASSES if asset not in valid_assets],
+        "source": "anchor_signal_blend" if blend_lambda > 0 else "anchor_fallback",
+    }
 
 
 def get_dynamic_cma(regime: RegimeState, prices_df=None) -> CMAResult:

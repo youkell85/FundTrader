@@ -4,6 +4,7 @@ import { ResponsiveContainer, PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, 
 import { useAllocationData } from '@/hooks/useAllocationData';
 import { useAllocationStore } from '@/store/allocationStore';
 import { ASSET_CLASS_LABELS, ASSET_GROUP_LABELS, GROUP_COLORS, RISK_LABELS, GOAL_LABELS, HORIZON_LABELS, VARIANT_LABELS, VARIANT_COLORS } from '@/types/allocation';
+import type { AllocationDataQuality } from '@/types/allocation';
 import { generateVariants } from '@/lib/api';
 
 /** 缺值兜底 */
@@ -192,7 +193,7 @@ export default function StrategyPage() {
             />
           </div>
           <p className="mt-3 text-[11px] text-white/35 leading-relaxed">
-            当前引擎使用 Black-Litterman + SLSQP 两层优化，SAA 阶段求解战略配置，TAA 阶段在 ±10% 区间内做战术微调。
+            当前引擎使用两层贝叶斯混合框架（Anchor先验 + Signal数据驱动）+ SLSQP 6级fallback优化，SAA 阶段求解战略配置，TAA 阶段在 ±10% 区间内做战术微调。
           </p>
         </section>
 
@@ -583,6 +584,7 @@ export default function StrategyPage() {
               ⚠ {w}
             </div>
           ))}
+          <StrategyQualitySummary quality={d.data_quality} />
           {meta.taa_skipped && (
             <div className="rounded border border-[#5AA9FF]/20 bg-[#5AA9FF]/[0.05] px-3 py-2 text-xs text-[#5AA9FF]">
               TAA 调整已跳过（市场状态不明或信号不足），仅使用 SAA 战略配置。
@@ -605,10 +607,10 @@ export default function StrategyPage() {
           )}
           <div className="text-[11px] text-white/30 leading-relaxed mt-2">
             <p className="font-medium text-white/40 mb-1">模型说明</p>
-            <p><strong className="text-white/45">SAA（战略配置）</strong>：Black-Litterman 框架 + 生命周期下滑路径，SLSQP 两层优化求解。目标是在给定风险预算和约束下最大化风险调整后收益。</p>
+            <p><strong className="text-white/45">SAA（战略配置）</strong>：两层贝叶斯混合框架（Anchor先验均衡 + Signal数据驱动更新）+ 生命周期下滑路径 + SLSQP 6级fallback优化。目标是在给定风险预算和约束下最大化风险调整后收益。</p>
             <p className="mt-1"><strong className="text-white/45">TAA（战术调整）</strong>：综合宏观信号（PMI、CPI、FED 模型、信用利差等），在 SAA ±10% 区间内做动态微调。</p>
             <p className="mt-1"><strong className="text-white/45">压力测试</strong>：覆盖滞胀、衰退、利率冲击、权益暴跌等历史情景。</p>
-            <p className="mt-1"><strong className="text-white/45">蒙特卡洛</strong>：10,000 次路径模拟，正态分布假设。</p>
+            <p className="mt-1"><strong className="text-white/45">蒙特卡洛</strong>：1,000 次路径模拟，Cholesky 关联 + 体制感知跳跃扩散。</p>
             <p className="mt-1"><strong className="text-white/45">数据来源</strong>：基金净值（天天基金/akshare）、宏观指标（Tushare/IFind）、市场状态（自定义 regime detector）。</p>
           </div>
         </div>
@@ -657,6 +659,29 @@ function InfoRow({ label, value }: { label: string; value: string }) {
     <div className="flex justify-between py-0.5">
       <span className="text-white/40">{label}</span>
       <span className="text-white/65">{value}</span>
+    </div>
+  );
+}
+
+function StrategyQualitySummary({ quality }: { quality?: AllocationDataQuality | null }) {
+  if (!quality) return null;
+  const statusText: Record<string, string> = {
+    real: '真实',
+    partial: '部分降级',
+    assumption: '假设',
+    stale: '过期',
+    missing: '缺失',
+    rejected: '已拒绝',
+  };
+  const invalidAssets = Object.entries(quality.invalid_assets || {});
+  return (
+    <div className="rounded border border-[#FAC858]/20 bg-[#FAC858]/[0.05] px-3 py-2 text-xs text-[#FAC858]">
+      数据质量: {statusText[quality.overall_status] || quality.overall_status}
+      <span className="ml-2 text-white/40">
+        CMA {statusText[quality.cma?.status] || quality.cma?.status}
+        {quality.cma?.coverage != null ? ` / 覆盖率 ${(quality.cma.coverage * 100).toFixed(0)}%` : ''}
+        {invalidAssets.length > 0 ? ` / 无效资产 ${invalidAssets.length} 项` : ''}
+      </span>
     </div>
   );
 }

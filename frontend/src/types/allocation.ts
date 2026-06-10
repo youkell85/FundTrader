@@ -19,6 +19,7 @@ export interface AllocationResponse {
   monte_carlo: MonteCarloResult | null; scenario_analysis: ScenarioAnalysis | null;
   factor_exposures: Record<string, number>; constraints: ConstraintCheckItem[];
   risk_disclaimer: string; warnings: string[];
+  data_quality?: AllocationDataQuality | null;
 }
 
 export interface AllocationMeta {
@@ -72,6 +73,29 @@ export interface ScenarioAnalysis {
   scenarios: { scenario:string; description:string; probability:number; impact:number }[];
 }
 export interface ConstraintCheckItem { rule:string; value:string; limit:string; passed:boolean; }
+
+export type DataStatus = "real" | "partial" | "assumption" | "stale" | "missing" | "rejected";
+
+export interface DataQualityItem {
+  status: DataStatus;
+  source?: string | null;
+  as_of?: string | null;
+  coverage?: number | null;
+  reason?: string | null;
+  confidence?: number | null;
+}
+
+export interface AllocationDataQuality {
+  overall_status: DataStatus;
+  macro: Record<string, DataQualityItem>;
+  market: Record<string, DataQualityItem>;
+  cma: DataQualityItem;
+  factor: DataQualityItem;
+  fund_mapping: DataQualityItem;
+  monte_carlo: DataQualityItem;
+  invalid_assets: Record<string, string>;
+  assumptions_used: string[];
+}
 
 export const ASSET_CLASS_LABELS: Record<string,string> = {
   a_share_large:"A股大盘",a_share_small:"A股小盘",a_share_value:"A股价值",

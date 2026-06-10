@@ -158,6 +158,30 @@ class ConstraintCheckItem(BaseModel):
     passed: bool
 
 
+DataStatus = Literal["real", "partial", "assumption", "stale", "missing", "rejected"]
+
+
+class DataQualityItem(BaseModel):
+    status: DataStatus
+    source: Optional[str] = None
+    as_of: Optional[str] = None
+    coverage: Optional[float] = None
+    reason: Optional[str] = None
+    confidence: Optional[float] = None
+
+
+class AllocationDataQuality(BaseModel):
+    overall_status: DataStatus = "real"
+    macro: Dict[str, DataQualityItem] = Field(default_factory=dict)
+    market: Dict[str, DataQualityItem] = Field(default_factory=dict)
+    cma: DataQualityItem
+    factor: DataQualityItem
+    fund_mapping: DataQualityItem
+    monte_carlo: DataQualityItem
+    invalid_assets: Dict[str, str] = Field(default_factory=dict)
+    assumptions_used: List[str] = Field(default_factory=list)
+
+
 # ─── Full Response ───
 
 class AllocationResponse(BaseModel):
@@ -174,6 +198,7 @@ class AllocationResponse(BaseModel):
     constraints: List[ConstraintCheckItem]
     risk_disclaimer: str = ""
     warnings: List[str] = Field(default_factory=list)
+    data_quality: Optional[AllocationDataQuality] = None
 
 
 # ─── Internal Intermediate Types ───
@@ -196,6 +221,7 @@ class CMAResult(BaseModel):
     expected_returns: Dict[str, float]  # annualized %
     volatilities: Dict[str, float]  # annualized %
     covariance_matrix: List[List[float]]  # 14×14
+    quality: Optional[Dict[str, Any]] = None
 
 
 class RegimeState(BaseModel):

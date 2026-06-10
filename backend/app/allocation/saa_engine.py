@@ -1,5 +1,15 @@
 """SAA Engine — 6-level fallback optimizer for Strategic Asset Allocation.
 
+Implements a two-layer Bayesian Blend approach:
+- Layer 1: Equilibrium prior (Anchor — config.py static parameters)
+- Layer 2: Data-driven signal (CMA Signal from rolling ETF returns)
+The CMA estimate_cma() function blends these layers before optimization.
+
+This is NOT the full Black-Litterman model (which requires explicit investor
+views with confidence matrices). The Anchor/Signal/Blend architecture in
+cma_manager.py achieves similar goals — combining prior expectations with
+data-driven updates — without the full B-L mathematical machinery.
+
 Levels:
   L1: SLSQP risk-budget optimization
   L2: Minimum Volatility

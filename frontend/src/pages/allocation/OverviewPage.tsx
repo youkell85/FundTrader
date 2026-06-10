@@ -11,7 +11,7 @@ import { useAllocationStore } from '@/store/allocationStore';
 import { generateAllocationStream, getMarketDataStatus } from '@/lib/api';
 import AllocationProgress, { type StepState, STEP_LABELS } from '@/components/allocation/AllocationProgress';
 import DataFreshnessBar from '@/components/allocation/DataFreshnessBar';
-import type { MarketDataStatus } from '@/types/allocation';
+import type { AllocationDataQuality, MarketDataStatus } from '@/types/allocation';
 
 const GLABELS = ASSET_GROUP_LABELS;
 
@@ -186,6 +186,7 @@ export default function OverviewPage() {
       )}
 
       <DataFreshnessBar status={marketStatus} generatedAt={meta.generated_at} />
+      <AllocationQualitySummary quality={d.data_quality} />
 
       {/* ===== 预期指标条 ===== */}
       <div className="grid grid-cols-2 md:grid-cols-6 gap-2 md:gap-3">
@@ -407,10 +408,10 @@ export default function OverviewPage() {
           )}
           <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-4 py-3 text-xs text-white/45 leading-relaxed">
             <p className="font-medium text-white/55 mb-1">模型说明</p>
-            <p>SAA：基于 Black-Litterman + 生命周期下滑路径，使用 SLSQP 两层优化求解。</p>
+            <p>SAA：基于两层贝叶斯混合框架（Anchor先验 + Signal数据驱动）+ 生命周期下滑路径，使用 SLSQP 6级fallback优化求解。</p>
             <p>TAA：综合宏观信号（PMI、CPI、FED模型、信用利差等）对 SAA 做±10%区间调整。</p>
             <p>压力测试：覆盖滞胀、衰退、利率冲击、权益暴跌等情景。</p>
-            <p>蒙特卡洛：10,000 次路径模拟，正态分布假设，未考虑尾部极端事件。</p>
+            <p>蒙特卡洛：1,000 次路径模拟，Cholesky 分解关联 + 体制感知跳跃扩散（非正态尾部）。</p>
           </div>
         </div>
       </section>
@@ -477,6 +478,45 @@ function ProfileItem({ icon: Icon, label, value, behavior }: { icon: any; label:
         {value}
         {behavior && <span className="ml-1 text-[10px] text-[#FAC858]">(校准)</span>}
       </div>
+    </div>
+  );
+}
+
+function AllocationQualitySummary({ quality }: { quality?: AllocationDataQuality | null }) {
+  if (!quality) return null;
+  const invalidAssets = Object.entries(quality.invalid_assets || {});
+  const assumptions = quality.assumptions_used || [];
+  const statusText: Record<string, string> = {
+    real: '真实',
+    partial: '部分降级',
+    assumption: '假设',
+    stale: '过期',
+    missing: '缺失',
+    rejected: '已拒绝',
+  };
+  const tone = quality.overall_status === 'real'
+    ? 'border-[#16C784]/20 bg-[#16C784]/[0.05] text-[#16C784]'
+    : 'border-[#FAC858]/20 bg-[#FAC858]/[0.05] text-[#FAC858]';
+
+  return (
+    <div className={`rounded-lg border px-4 py-3 text-xs ${tone}`}>
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="font-medium">数据质量: {statusText[quality.overall_status] || quality.overall_status}</span>
+        <span>CMA: {statusText[quality.cma?.status] || quality.cma?.status}</span>
+        {quality.cma?.coverage != null && <span>覆盖率: {(quality.cma.coverage * 100).toFixed(0)}%</span>}
+        <span>基金映射: {statusText[quality.fund_mapping?.status] || quality.fund_mapping?.status}</span>
+        <span>蒙特卡洛: {statusText[quality.monte_carlo?.status] || quality.monte_carlo?.status}</span>
+      </div>
+      {(invalidAssets.length > 0 || assumptions.length > 0) && (
+        <div className="mt-2 text-white/45 leading-relaxed">
+          {invalidAssets.length > 0 && (
+            <div>无效资产: {invalidAssets.map(([asset, reason]) => `${asset}(${reason})`).join(', ')}</div>
+          )}
+          {assumptions.length > 0 && (
+            <div>使用假设: {assumptions.join(', ')}</div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
