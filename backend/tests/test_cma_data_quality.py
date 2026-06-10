@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 from app.allocation import cma_manager
 from app.allocation.config import ASSET_CLASSES, DEFAULT_CORR
@@ -7,6 +8,60 @@ from app.allocation.models import RegimeState
 
 
 class CMADataQualityTest(unittest.TestCase):
+    def test_historical_anchor_is_used_when_signal_layer_missing(self):
+        returns = {asset: float(index + 1) for index, asset in enumerate(ASSET_CLASSES)}
+        vols = {asset: float(index + 10) for index, asset in enumerate(ASSET_CLASSES)}
+        snapshot = {
+            "equilibrium_returns": {
+                "values": returns,
+                "source": "historical_market_data",
+                "as_of": "2026-06-10",
+                "coverage": 1.0,
+                "valid_assets": list(ASSET_CLASSES),
+                "invalid_assets": {},
+                "assumptions_used": [],
+                "calibration_version": "historical-calibrator-v1",
+            },
+            "equilibrium_vols": {
+                "values": vols,
+                "source": "historical_market_data",
+                "as_of": "2026-06-10",
+                "coverage": 1.0,
+                "valid_assets": list(ASSET_CLASSES),
+                "invalid_assets": {},
+                "assumptions_used": [],
+                "calibration_version": "historical-calibrator-v1",
+            },
+            "correlation_matrix": {
+                "matrix": DEFAULT_CORR,
+                "source": "historical_market_data",
+                "as_of": "2026-06-10",
+                "coverage": 1.0,
+                "valid_assets": list(ASSET_CLASSES),
+                "invalid_assets": {},
+                "assumptions_used": [],
+                "calibration_version": "historical-calibrator-v1",
+            },
+        }
+
+        with patch("app.allocation.cma_manager._get_signal_layer", return_value=(None, None, None, {})), patch(
+            "app.allocation.cma_manager._load_cached_anchor_snapshot",
+            return_value=None,
+        ), patch(
+            "app.allocation.cma_manager._current_market_stats_snapshot",
+            return_value={"returns_long": returns, "vols_long": vols, "correlation_matrix": DEFAULT_CORR, "quality": {}},
+        ), patch(
+            "app.allocation.data.historical_calibrator.HistoricalCalibrator.calibrate_all",
+            return_value=snapshot,
+        ):
+            cma = cma_manager.estimate_cma(RegimeState())
+
+        self.assertEqual(cma.expected_returns["a_share_large"], returns["a_share_large"])
+        self.assertEqual(cma.quality["data_status"], "partial")
+        self.assertEqual(cma.quality["anchor_source"], "historical_market_data")
+        self.assertEqual(cma.quality["source"], "historical_anchor")
+        self.assertEqual(cma.quality["calibration_version"], "historical-calibrator-v1")
+
     def test_rejected_signal_asset_is_reported_and_excluded(self):
         returns = {asset: 4.0 for asset in ASSET_CLASSES}
         vols = {asset: 12.0 for asset in ASSET_CLASSES}

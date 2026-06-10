@@ -92,6 +92,7 @@ class HistoricalCalibrator:
             EQUILIBRIUM_RETURNS,
             "equilibrium_returns",
             _assumptions_from_quality((stats or {}).get("quality") or {}),
+            (stats or {}).get("quality") or {},
         )
 
     def calibrate_equilibrium_vols(self) -> dict:
@@ -104,6 +105,7 @@ class HistoricalCalibrator:
             EQUILIBRIUM_VOLS,
             "equilibrium_vols",
             _assumptions_from_quality((stats or {}).get("quality") or {}),
+            (stats or {}).get("quality") or {},
         )
 
     def calibrate_correlation_matrix(self) -> dict:
@@ -174,6 +176,7 @@ class HistoricalCalibrator:
         fallback: Dict[str, float],
         assumption_name: str,
         quality_assumptions: List[str],
+        quality: Dict[str, dict],
     ) -> dict:
         valid_assets: List[str] = []
         invalid_assets: Dict[str, str] = {}
@@ -181,7 +184,13 @@ class HistoricalCalibrator:
 
         for asset in ASSET_CLASSES:
             value = observed.get(asset)
-            if _is_finite_number(value):
+            quality_item = quality.get(asset) or {}
+            quality_status = quality_item.get("status")
+            if quality_status in {"rejected", "missing", "assumption"}:
+                reason = quality_item.get("reason") or quality_status
+                merged[asset] = float(fallback[asset])
+                invalid_assets[asset] = str(reason)
+            elif _is_finite_number(value):
                 merged[asset] = round(float(value), 4)
                 valid_assets.append(asset)
             else:

@@ -8,7 +8,7 @@ Three-layer architecture:
 Falls back to pure Anchor layer if Signal data is unavailable.
 """
 import logging
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -39,9 +39,7 @@ def estimate_cma(regime: RegimeState) -> CMAResult:
     - Blend: Weighted mix, regime-dependent lambda
     """
     # ─── Anchor Layer (static) ───
-    anchor_returns = {a: EQUILIBRIUM_RETURNS[a] for a in ASSET_CLASSES}
-    anchor_vols = {a: EQUILIBRIUM_VOLS[a] for a in ASSET_CLASSES}
-    anchor_corr = np.array(DEFAULT_CORR, dtype=np.float64)
+    anchor_returns, anchor_vols, anchor_corr, anchor_quality = _get_anchor_layer()
 
     # ─── Signal Layer (dynamic) ───
     signal_returns, signal_vols, signal_corr, signal_quality = _get_signal_layer()
@@ -84,8 +82,102 @@ def estimate_cma(regime: RegimeState) -> CMAResult:
         expected_returns=expected_returns,
         volatilities=volatilities,
         covariance_matrix=cov.tolist(),
-        quality=_build_cma_quality(blend_lambda, signal_quality, invalid_assets),
+        quality=_build_cma_quality(blend_lambda, signal_quality, invalid_assets, anchor_quality),
     )
+
+
+def _get_anchor_layer() -> Tuple[Dict[str, float], Dict[str, float], np.ndarray, Dict[str, Any]]:
+    """Load auditable CMA anchors from historical calibration, falling back to config."""
+    static_returns = {a: EQUILIBRIUM_RETURNS[a] for a in ASSET_CLASSES}
+    static_vols = {a: EQUILIBRIUM_VOLS[a] for a in ASSET_CLASSES}
+    static_corr = np.array(DEFAULT_CORR, dtype=np.float64)
+    static_quality = {
+        "source": "static_assumption",
+        "as_of": None,
+        "coverage": 0.0,
+        "invalid_assets": {asset: "static_anchor" for asset in ASSET_CLASSES},
+        "assumptions_used": [f"{asset}:static_anchor" for asset in ASSET_CLASSES],
+        "calibration_version": "static-cma-anchor",
+    }
+
+    try:
+        from .data.historical_calibrator import HistoricalCalibrator
+
+        snapshot = _load_cached_anchor_snapshot()
+        if snapshot is None:
+            stats_snapshot = _current_market_stats_snapshot()
+            if stats_snapshot is None:
+                return static_returns, static_vols, static_corr, static_quality
+            snapshot = HistoricalCalibrator(stats_snapshot=stats_snapshot).calibrate_all(persist=False)
+        returns_result = snapshot.get("equilibrium_returns") or {}
+        vols_result = snapshot.get("equilibrium_vols") or {}
+        corr_result = snapshot.get("correlation_matrix") or {}
+
+        returns = _merge_anchor_series(returns_result.get("values") or {}, static_returns)
+        vols = _merge_anchor_series(vols_result.get("values") or {}, static_vols)
+        corr = _anchor_corr_matrix(corr_result.get("matrix"), static_corr)
+        quality = {
+            "source": _anchor_source(
+                {
+                    returns_result.get("source"),
+                    vols_result.get("source"),
+                    corr_result.get("source"),
+                }
+            ),
+            "as_of": returns_result.get("as_of") or vols_result.get("as_of") or corr_result.get("as_of"),
+            "coverage": min(
+                float(returns_result.get("coverage") or 0.0),
+                float(vols_result.get("coverage") or 0.0),
+                float(corr_result.get("coverage") or 0.0),
+            ),
+            "invalid_assets": _merge_invalid_assets(returns_result, vols_result, corr_result),
+            "assumptions_used": sorted(
+                set(
+                    (returns_result.get("assumptions_used") or [])
+                    + (vols_result.get("assumptions_used") or [])
+                    + (corr_result.get("assumptions_used") or [])
+                )
+            ),
+            "calibration_version": returns_result.get("calibration_version")
+            or vols_result.get("calibration_version")
+            or corr_result.get("calibration_version")
+            or "historical-calibrator-v1",
+        }
+        return returns, vols, corr, quality
+    except Exception as exc:
+        logger.debug("CMA anchor calibration unavailable, using static config: %s", exc)
+        return static_returns, static_vols, static_corr, static_quality
+
+
+def _load_cached_anchor_snapshot() -> Optional[dict]:
+    try:
+        from app.storage.database import StatsSnapshotCache
+
+        cached = StatsSnapshotCache.get("historical_calibration")
+        return cached if isinstance(cached, dict) else None
+    except Exception:
+        return None
+
+
+def _current_market_stats_snapshot() -> Optional[dict]:
+    try:
+        from .data import market_data_service
+
+        stats = market_data_service.get_rolling_stats_ex()
+        if isinstance(stats, dict):
+            return stats
+        basic = market_data_service.get_rolling_stats()
+        if basic is None:
+            return None
+        returns, vols, corr = basic
+        return {
+            "returns_long": returns,
+            "vols_long": vols,
+            "correlation_matrix": corr,
+            "quality": {},
+        }
+    except Exception:
+        return None
 
 
 def _get_signal_layer() -> Tuple[
@@ -186,7 +278,54 @@ def _validate_signal_value(
     return True, None
 
 
-def _build_cma_quality(blend_lambda: float, quality: Dict[str, dict], invalid_assets: Dict[str, str]) -> dict:
+def _merge_anchor_series(values: Dict[str, Any], fallback: Dict[str, float]) -> Dict[str, float]:
+    merged: Dict[str, float] = {}
+    for asset in ASSET_CLASSES:
+        value = values.get(asset)
+        if value is not None and np.isfinite(float(value)):
+            merged[asset] = float(value)
+        else:
+            merged[asset] = float(fallback[asset])
+    return merged
+
+
+def _anchor_corr_matrix(matrix: Any, fallback: np.ndarray) -> np.ndarray:
+    try:
+        corr = np.asarray(matrix, dtype=np.float64)
+        if corr.shape != (len(ASSET_CLASSES), len(ASSET_CLASSES)):
+            return fallback
+        corr = np.nan_to_num(corr, nan=0.0, posinf=1.0, neginf=-1.0)
+        corr = np.clip((corr + corr.T) / 2.0, -1.0, 1.0)
+        np.fill_diagonal(corr, 1.0)
+        return corr
+    except Exception:
+        return fallback
+
+
+def _anchor_source(sources: set) -> str:
+    cleaned = {source for source in sources if source}
+    if "historical_market_data" in cleaned:
+        return "historical_market_data"
+    if "sqlite_cache" in cleaned:
+        return "sqlite_cache"
+    return "static_assumption"
+
+
+def _merge_invalid_assets(*results: dict) -> Dict[str, str]:
+    invalid: Dict[str, str] = {}
+    for result in results:
+        for asset, reason in (result.get("invalid_assets") or {}).items():
+            invalid.setdefault(asset, str(reason))
+    return invalid
+
+
+def _build_cma_quality(
+    blend_lambda: float,
+    quality: Dict[str, dict],
+    invalid_assets: Dict[str, str],
+    anchor_quality: Optional[Dict[str, Any]] = None,
+) -> dict:
+    anchor_quality = anchor_quality or {}
     valid_assets = [
         asset for asset, item in quality.items()
         if item.get("status") == "available" and asset not in invalid_assets
@@ -201,15 +340,27 @@ def _build_cma_quality(blend_lambda: float, quality: Dict[str, dict], invalid_as
         status = "assumption"
     elif coverage < 0.7 or invalid_assets or assumption_assets:
         status = "partial"
+    if status == "assumption" and anchor_quality.get("source") in {"historical_market_data", "sqlite_cache"}:
+        status = "partial"
+
+    merged_invalid = dict(anchor_quality.get("invalid_assets") or {})
+    merged_invalid.update(invalid_assets)
+    source_prefix = "historical_anchor" if anchor_quality.get("source") != "static_assumption" else "static_anchor"
 
     return {
         "data_status": status,
         "blend_lambda": round(float(blend_lambda), 4),
         "rolling_coverage": round(float(coverage), 4),
         "valid_assets": valid_assets,
-        "invalid_assets": invalid_assets,
+        "invalid_assets": merged_invalid,
         "anchor_assets": [asset for asset in ASSET_CLASSES if asset not in valid_assets],
-        "source": "anchor_signal_blend" if blend_lambda > 0 else "anchor_fallback",
+        "source": f"{source_prefix}_signal_blend" if blend_lambda > 0 else source_prefix,
+        "anchor_source": anchor_quality.get("source", "static_assumption"),
+        "anchor_as_of": anchor_quality.get("as_of"),
+        "anchor_coverage": round(float(anchor_quality.get("coverage") or 0.0), 4),
+        "anchor_invalid_assets": anchor_quality.get("invalid_assets") or {},
+        "anchor_assumptions_used": anchor_quality.get("assumptions_used") or [],
+        "calibration_version": anchor_quality.get("calibration_version"),
     }
 
 
@@ -239,9 +390,7 @@ def _estimate_cma_from_prices(prices_df: pd.DataFrame, regime: RegimeState) -> C
         return estimate_cma(regime)
 
     # Anchor layer
-    anchor_returns = {a: EQUILIBRIUM_RETURNS.get(a, 2.0) for a in ASSET_CLASSES}
-    anchor_vols = {a: EQUILIBRIUM_VOLS.get(a, 10.0) for a in ASSET_CLASSES}
-    anchor_corr = np.array(DEFAULT_CORR, dtype=np.float64)
+    anchor_returns, anchor_vols, anchor_corr, anchor_quality = _get_anchor_layer()
 
     # Signal layer from realized prices
     signal_returns = {}
@@ -310,6 +459,7 @@ def _estimate_cma_from_prices(prices_df: pd.DataFrame, regime: RegimeState) -> C
         expected_returns=expected_returns,
         volatilities=volatilities,
         covariance_matrix=cov.tolist(),
+        quality=_build_cma_quality(blend_lambda, {}, {}, anchor_quality),
     )
 
 
