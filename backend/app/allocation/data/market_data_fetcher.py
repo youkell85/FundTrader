@@ -88,19 +88,37 @@ def compute_rolling_stats_ex() -> Optional[Dict]:
     # Fetch NAV data for all ETFs
     returns_matrix = {}  # asset_class → np.array of daily log returns
 
+    quality = {}
+
     for asset_class in ASSET_ORDER:
         etf_code = REPRESENTATIVE_ETFS.get(asset_class)
         if etf_code is None:
             returns_matrix[asset_class] = None
+            quality[asset_class] = {
+                "status": "assumption",
+                "source": "static",
+                "reason": "no_representative_etf",
+            }
             continue
 
         nav_series = _fetch_etf_nav(etf_code)
-        if nav_series is not None and len(nav_series) >= MIN_DAYS:
+        is_valid, reason = _validate_price_series(asset_class, etf_code, nav_series)
+        if is_valid:
             log_returns = np.diff(np.log(nav_series))
             returns_matrix[asset_class] = log_returns
+            quality[asset_class] = {
+                "status": "available",
+                "source": f"representative_etf:{etf_code}",
+                "reason": None,
+            }
         else:
-            logger.warning(f"Insufficient NAV data for {asset_class} (ETF: {etf_code})")
+            logger.warning(f"Rejected NAV data for {asset_class} (ETF: {etf_code}): {reason}")
             returns_matrix[asset_class] = None
+            quality[asset_class] = {
+                "status": "rejected",
+                "source": f"representative_etf:{etf_code}",
+                "reason": reason,
+            }
 
     # Count valid assets
     valid_count = sum(1 for v in returns_matrix.values() if v is not None)
@@ -144,8 +162,31 @@ def compute_rolling_stats_ex() -> Optional[Dict]:
         else:
             vol_regime[asset_class] = 1.0
     result["vol_regime"] = vol_regime
+    result["quality"] = quality
 
     return result
+
+
+def _validate_price_series(
+    asset_class: str,
+    code: str,
+    prices: Optional[np.ndarray],
+) -> Tuple[bool, str | None]:
+    """Reject impossible ETF price series before they contaminate CMA inputs."""
+    if prices is None or len(prices) < MIN_DAYS:
+        return False, "insufficient_points"
+    arr = np.asarray(prices, dtype=np.float64)
+    if not np.all(np.isfinite(arr)) or np.any(arr <= 0):
+        return False, "non_positive_or_non_finite_price"
+    log_returns = np.diff(np.log(arr))
+    if len(log_returns) == 0 or not np.all(np.isfinite(log_returns)):
+        return False, "non_finite_return"
+    if float(np.nanmax(np.abs(log_returns))) > 0.25:
+        return False, "abnormal_price_jump"
+    if asset_class in {"money_fund", "cash"} and len(log_returns) >= 60:
+        if float(np.nanstd(log_returns[-60:])) > 0.02:
+            return False, "money_fund_vol_too_high"
+    return True, None
 
 
 def _compute_ewma_correlation(
