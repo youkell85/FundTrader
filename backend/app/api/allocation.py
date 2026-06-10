@@ -2,9 +2,10 @@
 import asyncio
 import json
 import logging
+import math
 import queue
 import threading
-from typing import AsyncGenerator
+from typing import Any, AsyncGenerator
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -41,11 +42,33 @@ from ..allocation.rebalancer import run_rebalance_check, get_mock_history
 router = APIRouter(prefix="/allocation", tags=["资产配置"])
 
 
+def assert_json_finite(obj: Any, path: str = "$") -> None:
+    """Reject NaN/Inf before FastAPI or SSE JSON serialization."""
+    if isinstance(obj, float):
+        if not math.isfinite(obj):
+            raise ValueError(f"non_finite_response_value at {path}")
+        return
+    if isinstance(obj, dict):
+        for key, value in obj.items():
+            assert_json_finite(value, f"{path}.{key}")
+        return
+    if isinstance(obj, (list, tuple)):
+        for index, value in enumerate(obj):
+            assert_json_finite(value, f"{path}[{index}]")
+
+
+def _response_payload(result: Any) -> Any:
+    if hasattr(result, "model_dump"):
+        return result.model_dump()
+    return result
+
+
 @router.post("/generate", response_model=AllocationResponse)
 async def generate_allocation(request: AllocationRequest, user: dict = Depends(get_current_user)):
     """生成资产配置方案 — 14步量化管线"""
     try:
         result = await run_in_threadpool(run_allocation, request)
+        assert_json_finite(_response_payload(result))
         return result
     except Exception as e:
         logger.exception("Allocation pipeline crashed")
@@ -103,7 +126,9 @@ async def generate_allocation_stream(request: AllocationRequest, user: dict = De
     def _run_pipeline():
         try:
             result = run_allocation(request, _progress_callback, cancel_event)
-            progress_queue.put({"type": "result", "data": result.model_dump()})
+            payload = _response_payload(result)
+            assert_json_finite(payload)
+            progress_queue.put({"type": "result", "data": payload})
         except TaskCancelledError:
             progress_queue.put({"type": "cancelled", "message": "任务已取消"})
         except Exception as e:
