@@ -220,10 +220,14 @@ Rules:
 - Work in one bounded implementation pass. If the task grows too large, stop and report a follow-up plan.
 
 After implementation and validation, write a concise Markdown report with:
-1. Summary
-2. Files changed
-3. Validation commands and results
-4. Open risks or PM decisions needed
+1. PM Digest at the top, under 12 lines:
+   Status, Changed, Validation, Risk, Decision, Next
+2. Status
+3. Summary
+4. Files changed
+5. Validation commands and results
+6. Scope / safety
+7. Open risks or PM decisions needed
 "@
 
 $claude = Get-Command $ClaudeCommand -ErrorAction SilentlyContinue

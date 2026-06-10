@@ -178,6 +178,13 @@ while ($round -lt $MaxRounds) {
     $reviewExit = $LASTEXITCODE
 
     $reviewMdPath = Join-Path $reviewDir "$taskId.review.md"
+    $briefScript = Join-Path $root "scripts\pm-brief.ps1"
+    if (Test-Path -LiteralPath $briefScript -PathType Leaf) {
+        Write-Host ""
+        Write-Host "Brief..."
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $briefScript -Task $currentTaskPath
+        Write-Host ""
+    }
 
     switch ($reviewExit) {
         0 {

@@ -477,6 +477,7 @@ def get_pipeline_health() -> dict:
     - Last run status (per-step timing, degradation, errors)
     - Subsystem status (regime, circuit breaker)
     - Historical run summary (last 10 runs)
+    - Calibration audit (read-only snapshot of historical calibration cache)
     """
     # Subsystem status
     regime_status = get_regime_status()
@@ -493,6 +494,28 @@ def get_pipeline_health() -> dict:
             if total_runs > 0 else 0.0
         )
 
+    # Calibration audit (read-only)
+    calibration = {}
+    try:
+        from .calibration_audit import audit_calibration
+
+        calibration = audit_calibration()
+    except Exception:
+        calibration = {
+            "health": "unknown",
+            "sections": [],
+            "warning_count": 0,
+            "missing_count": 0,
+            "policy": {
+                "return_drift_threshold": 3.0,
+                "vol_drift_threshold": 5.0,
+                "jump_probability_min": 0.0,
+                "jump_probability_max": 0.10,
+                "coverage_threshold": 0.7,
+                "policy_source": "static_defaults",
+            },
+        }
+
     return {
         "last_run": last_run,
         "subsystems": {
@@ -506,6 +529,7 @@ def get_pipeline_health() -> dict:
             "critical": critical_runs,
             "avg_total_ms": round(avg_ms, 2),
         },
+        "calibration": calibration,
         "health": last_run["health"] if last_run else "unknown",
     }
 

@@ -1,7 +1,9 @@
 [CmdletBinding()]
 param(
     [string]$TaskId,
-    [int]$Tail = 30
+    [int]$Tail = 30,
+    [switch]$IncludeReportTail,
+    [switch]$IncludeLogTail
 )
 
 $ErrorActionPreference = "Stop"
@@ -106,14 +108,31 @@ foreach ($entry in $groups.GetEnumerator()) {
 $report = $groups["Reports"] | Select-Object -First 1
 if ($report) {
     Write-Host ""
-    Write-Host "== Report tail =="
-    Get-Content -LiteralPath $report.FullName -Tail $Tail
+    Write-Host "== Report metadata =="
+    Write-Host "Path: $(ConvertTo-RepoRelative -Path $report.FullName -Root $root)"
+    Write-Host "Size: $($report.Length) bytes"
+    Write-Host "LastWrite: $($report.LastWriteTime.ToString('o'))"
+    if ($IncludeReportTail) {
+        Write-Host ""
+        Write-Host "== Report tail =="
+        Get-Content -LiteralPath $report.FullName -Tail $Tail
+    } else {
+        Write-Host "Use -IncludeReportTail to read report tail, or pm-brief.ps1 for a short summary."
+    }
 }
 
 $log = $groups["Logs"] | Select-Object -First 1
 if ($log) {
     Write-Host ""
-    Write-Host "== Log tail =="
-    Get-Content -LiteralPath $log.FullName -Tail $Tail
+    Write-Host "== Log metadata =="
+    Write-Host "Path: $(ConvertTo-RepoRelative -Path $log.FullName -Root $root)"
+    Write-Host "Size: $($log.Length) bytes"
+    Write-Host "LastWrite: $($log.LastWriteTime.ToString('o'))"
+    if ($IncludeLogTail) {
+        Write-Host ""
+        Write-Host "== Log tail =="
+        Get-Content -LiteralPath $log.FullName -Tail $Tail
+    } else {
+        Write-Host "Use -IncludeLogTail to read raw log tail."
+    }
 }
-

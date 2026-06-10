@@ -477,6 +477,36 @@ export interface PipelineHealthRecord {
   health: "healthy" | "degraded" | "critical";
 }
 
+export interface CalibrationSectionItem {
+  key: string;
+  status: "real" | "partial" | "assumption" | "stale" | "missing" | "rejected";
+  source: string;
+  as_of?: string | null;
+  calibration_version?: string | null;
+  coverage?: number | null;
+  invalid_count: number;
+  assumption_count: number;
+  warnings: string[];
+}
+
+export interface CalibrationAuditPolicy {
+  return_drift_threshold: number;
+  vol_drift_threshold: number;
+  jump_probability_min: number;
+  jump_probability_max: number;
+  coverage_threshold: number;
+  policy_source: string;
+  policy_version?: string | null;
+}
+
+export interface CalibrationAudit {
+  health: "healthy" | "degraded" | "critical" | "unknown";
+  sections: CalibrationSectionItem[];
+  warning_count: number;
+  missing_count: number;
+  policy?: CalibrationAuditPolicy | null;
+}
+
 export interface PipelineHealthResponse {
   last_run: PipelineHealthRecord | null;
   subsystems: {
@@ -490,6 +520,7 @@ export interface PipelineHealthResponse {
     critical: number;
     avg_total_ms: number;
   };
+  calibration?: CalibrationAudit | null;
   health: "healthy" | "degraded" | "critical" | "unknown";
 }
 
@@ -499,6 +530,16 @@ export const STEP_LABELS: Record<string, string> = {
   constraint_check: "约束检查", fund_mapping: "基金映射", monte_carlo: "蒙特卡洛",
   stress_test: "压力测试", factor_exposure: "因子暴露", scenario_analysis: "情景分析",
   portfolio_metrics: "组合指标", output_assembly: "输出组装",
+};
+
+export const CALIBRATION_SECTION_LABELS: Record<string, string> = {
+  equilibrium_returns: "均衡收益", equilibrium_vols: "均衡波动", correlation_matrix: "相关性矩阵",
+  jump_params: "跳跃参数", stress_scenarios: "压力情景", regime_thresholds: "体制阈值",
+  circuit_breaker_destination: "断路器目标", scenario_analysis: "情景分析", risk_questionnaire: "风险问卷",
+};
+
+export const CALIBRATION_STATUS_LABELS: Record<string, string> = {
+  real: "实时", partial: "部分", assumption: "假设", stale: "过期", missing: "缺失", rejected: "已拒绝",
 };
 
 export const HEALTH_COLORS: Record<string, string> = {

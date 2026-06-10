@@ -1,0 +1,25 @@
+{
+    "taskId":  "P3-LOCAL-INTEGRATION-ACCEPT-001",
+    "mode":  "list",
+    "generatedAt":  "2026-06-10T22:33:30.2524827+08:00",
+    "taskPath":  "docs\\pm\\outbox\\P3-LOCAL-INTEGRATION-ACCEPT-001.md",
+    "summary":  {
+                    "totalBlocks":  8,
+                    "safe":  1,
+                    "skipped_unsafe":  0,
+                    "unsupported":  0,
+                    "passed":  0,
+                    "failed":  0
+                },
+    "recommendedNext":  "Review listed blocks. Use -Run to execute safe blocks.",
+    "blocks":  {
+                   "number":  1,
+                   "language":  "powershell",
+                   "classification":  "safe",
+                   "reason":  "Passed safety checks",
+                   "command":  "git rev-parse --short HEAD\ngit status --short --untracked-files=all\ncd backend\npython -m pytest tests/test_calibration_audit.py::PipelineHealthIncludesCalibrationTest -q\npython -c \"from app.allocation.orchestrator import get_pipeline_health; r=get_pipeline_health(); c=r.get(\u0027calibration\u0027) or {}; p=c.get(\u0027policy\u0027) or {}; required=[\u0027return_drift_threshold\u0027,\u0027vol_drift_threshold\u0027,\u0027jump_probability_min\u0027,\u0027jump_probability_max\u0027,\u0027coverage_threshold\u0027,\u0027policy_source\u0027]; missing=[k for k in required if k not in p]; print({\u0027health\u0027: c.get(\u0027health\u0027), \u0027policy_source\u0027: p.get(\u0027policy_source\u0027), \u0027missing_policy_keys\u0027: missing}); raise SystemExit(1 if missing else 0)\"",
+                   "exitCode":  null,
+                   "stdout":  null,
+                   "stderr":  null
+               }
+}

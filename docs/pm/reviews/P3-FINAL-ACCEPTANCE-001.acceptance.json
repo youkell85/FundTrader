@@ -1,0 +1,25 @@
+{
+    "taskId":  "P3-FINAL-ACCEPTANCE-001",
+    "mode":  "list",
+    "generatedAt":  "2026-06-10T22:24:59.0300567+08:00",
+    "taskPath":  "docs\\pm\\outbox\\P3-FINAL-ACCEPTANCE-001.md",
+    "summary":  {
+                    "totalBlocks":  8,
+                    "safe":  1,
+                    "skipped_unsafe":  0,
+                    "unsupported":  0,
+                    "passed":  0,
+                    "failed":  0
+                },
+    "recommendedNext":  "Review listed blocks. Use -Run to execute safe blocks.",
+    "blocks":  {
+                   "number":  1,
+                   "language":  "powershell",
+                   "classification":  "safe",
+                   "reason":  "Passed safety checks",
+                   "command":  "git log --oneline -5\ngit rev-parse --short HEAD\ngit status --short --untracked-files=all\ncd backend\npython -m pytest tests/test_calibration_audit.py tests/test_allocation_api_contract.py -q\ncd ..\\frontend\nnpm.cmd run check\ncd ..\n.\\scripts\\check-production-allocation.ps1 -BaseUrl http://43.160.226.62/fund/api",
+                   "exitCode":  null,
+                   "stdout":  null,
+                   "stderr":  null
+               }
+}

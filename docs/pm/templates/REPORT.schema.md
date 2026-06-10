@@ -8,6 +8,15 @@ do not need to conform immediately.
 ```markdown
 # <TASK_ID> Final Report
 
+## PM Digest
+
+Status: complete | needs_fix | blocked | decision_needed
+Changed: file1, file2
+Validation: passed | failed | skipped - command names only
+Risk: none | brief risk
+Decision: none | exact PM/user question
+Next: accept | create_hotfix | run_followup | ask_user
+
 ## Status
 
 status: complete | needs_fix | blocked
@@ -27,6 +36,13 @@ status: complete | needs_fix | blocked
 
 ## Section Guidance
 
+### PM Digest
+
+Keep this section at the top of every report and under 12 lines. It is the
+default Codex PM read path for low-token acceptance. Put only the final status,
+changed-file summary, validation result, risk, decision need, and next action
+here. Do not include command output, long prose, or hidden reasoning.
+
 ### Status
 
 One of:
@@ -34,6 +50,7 @@ One of:
 - `complete` - all implementation tasks finished, validation passed.
 - `needs_fix` - implementation done but validation failed or scope violation detected.
 - `blocked` - could not proceed due to missing decisions, repo drift, or external dependency.
+- `decision_needed` - implementation should not continue until PM/user chooses.
 
 ### Summary
 

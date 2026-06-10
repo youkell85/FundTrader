@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { CheckCircle, AlertTriangle, XCircle, RefreshCw } from 'lucide-react';
-import { STEP_LABELS, HEALTH_COLORS } from '@/types/allocation';
-import type { PipelineHealthResponse } from '@/types/allocation';
+import { STEP_LABELS, HEALTH_COLORS, CALIBRATION_SECTION_LABELS, CALIBRATION_STATUS_LABELS } from '@/types/allocation';
+import type { PipelineHealthResponse, CalibrationSectionItem, CalibrationAuditPolicy } from '@/types/allocation';
 import { getPipelineHealth } from '@/lib/api';
 
 const STATUS_ICON = {
@@ -85,6 +85,40 @@ export default function PipelineHealthPanel() {
           {data.history_summary.total_runs > 0 && (
             <div className="text-xs text-white/40">
               运行 {data.history_summary.total_runs} 次 · 健康 {data.history_summary.healthy} · 降级 {data.history_summary.degraded} · 异常 {data.history_summary.critical} · 平均 {data.history_summary.avg_total_ms.toFixed(0)}ms
+            </div>
+          )}
+
+          {/* Calibration Audit */}
+          {data.calibration && (
+            <div className="py-2">
+              <div className="flex items-center gap-2 mb-1.5">
+                <span className="text-xs text-white/50">校准审核</span>
+                <span className="px-1.5 py-0.5 rounded text-xs font-medium" style={{ background: (HEALTH_COLORS[data.calibration.health] || '#666') + '30', color: HEALTH_COLORS[data.calibration.health] || '#666' }}>
+                  {data.calibration.health === 'healthy' ? '健康' : data.calibration.health === 'degraded' ? '降级' : data.calibration.health === 'critical' ? '异常' : '未知'}
+                </span>
+              </div>
+              {data.calibration.warning_count > 0 && (
+                <div className="text-xs text-yellow-300/70">警告 {data.calibration.warning_count} · 缺失 {data.calibration.missing_count}</div>
+              )}
+              {data.calibration.policy && (() => {
+                const p: CalibrationAuditPolicy = data.calibration.policy;
+                const fmt = (v: unknown): string => (typeof v === 'number' && isFinite(v)) ? v.toFixed(2) : '--';
+                return (
+                  <div className="text-xs text-white/40 mt-0.5">
+                    src {p.policy_source}{p.policy_version ? ` v${p.policy_version}` : ''}{' '}
+                    | ret {fmt(p.return_drift_threshold)} | vol {fmt(p.vol_drift_threshold)}{' '}
+                    | jump {fmt(p.jump_probability_min)}-{fmt(p.jump_probability_max)}{' '}
+                    | cov {fmt(p.coverage_threshold)}
+                  </div>
+                );
+              })()}
+              {data.calibration.sections.filter((s: CalibrationSectionItem) => s.status !== 'real').slice(0, 4).map((s: CalibrationSectionItem) => (
+                <div key={s.key} className="flex items-center gap-1.5 px-3 py-1 text-xs">
+                  <span className={`w-1.5 h-1.5 rounded-full ${s.status === 'missing' ? 'bg-red-400' : s.status === 'assumption' ? 'bg-yellow-400' : 'bg-yellow-400'}`} />
+                  <span className="text-white/70">{CALIBRATION_SECTION_LABELS[s.key] || s.key}</span>
+                  <span className="text-white/40">{CALIBRATION_STATUS_LABELS[s.status] || s.status}</span>
+                </div>
+              ))}
             </div>
           )}
 

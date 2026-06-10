@@ -1,0 +1,25 @@
+{
+    "taskId":  "P3-PROD-SMOKE-001",
+    "mode":  "list",
+    "generatedAt":  "2026-06-10T21:30:03.0456909+08:00",
+    "taskPath":  "docs\\pm\\outbox\\P3-PROD-SMOKE-001.md",
+    "summary":  {
+                    "totalBlocks":  8,
+                    "safe":  1,
+                    "skipped_unsafe":  0,
+                    "unsupported":  0,
+                    "passed":  0,
+                    "failed":  0
+                },
+    "recommendedNext":  "Review listed blocks. Use -Run to execute safe blocks.",
+    "blocks":  {
+                   "number":  1,
+                   "language":  "powershell",
+                   "classification":  "safe",
+                   "reason":  "Passed safety checks",
+                   "command":  ".\\scripts\\check-production-allocation.ps1 -BaseUrl http://43.160.226.62/fund/api -SkipGenerate\n\n# Run generate if the endpoint is reachable and does not require unavailable auth in this environment.\n.\\scripts\\check-production-allocation.ps1 -BaseUrl http://43.160.226.62/fund/api\n\ncd D:\\Workspace\\Fundtrader\\backend\npython -m pytest tests/test_calibration_audit.py tests/test_allocation_api_contract.py -q",
+                   "exitCode":  null,
+                   "stdout":  null,
+                   "stderr":  null
+               }
+}

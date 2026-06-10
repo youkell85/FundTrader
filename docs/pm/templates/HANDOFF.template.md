@@ -81,9 +81,28 @@ Stop and write a report instead of guessing when:
 
 Write `docs/pm/reports/{{TASK_ID}}.md` with:
 
-1. Summary
-2. Files changed
-3. Validation commands and results
-4. Open risks or PM decisions needed
+Start the report with this short machine-readable digest:
+
+```markdown
+## PM Digest
+
+Status: complete | needs_fix | blocked | decision_needed
+Changed: file1, file2
+Validation: passed | failed | skipped - command names only
+Risk: none | brief risk
+Decision: none | exact PM/user question
+Next: accept | create_hotfix | run_followup | ask_user
+```
+
+Then include:
+
+1. Status
+2. Summary
+3. Files changed
+4. Validation commands and results
+5. Scope / safety
+6. Open risks or PM decisions needed
+7. Recommended next action
 
 Do not include hidden chain-of-thought or `<think>` blocks.
+Keep successful command output summarized. Include full output only for failures.

@@ -82,6 +82,66 @@ function Parse-AllowedFiles {
     }
 }
 
+function Normalize-DigestKey {
+    param([Parameter(Mandatory = $true)][string]$Key)
+    return ($Key.Trim().ToLowerInvariant() -replace '[^a-z0-9]+', '_').Trim("_")
+}
+
+function Parse-PmDigest {
+    param([string]$ReportPath)
+
+    $empty = [ordered]@{
+        found = $false
+        values = [ordered]@{}
+        raw = @()
+    }
+
+    if ([string]::IsNullOrWhiteSpace($ReportPath) -or -not (Test-Path -LiteralPath $ReportPath -PathType Leaf)) {
+        return $empty
+    }
+
+    $lines = Get-Content -LiteralPath $ReportPath -ErrorAction SilentlyContinue
+    $inDigest = $false
+    $raw = [System.Collections.Generic.List[string]]::new()
+    $values = [ordered]@{}
+
+    foreach ($line in $lines) {
+        if ($line -match '^##\s+PM\s+Digest\s*$') {
+            $inDigest = $true
+            continue
+        }
+
+        if ($inDigest -and $line -match '^##\s+') {
+            break
+        }
+
+        if (-not $inDigest) {
+            continue
+        }
+
+        if ([string]::IsNullOrWhiteSpace($line)) {
+            continue
+        }
+
+        [void]$raw.Add($line)
+        if ($line -match '^\s*[-*]?\s*([A-Za-z][A-Za-z0-9 _/-]{0,40})\s*:\s*(.*?)\s*$') {
+            $key = Normalize-DigestKey -Key $Matches[1]
+            $value = $Matches[2]
+            if ($values.Contains($key)) {
+                $values[$key] = "$($values[$key]); $value"
+            } else {
+                $values[$key] = $value
+            }
+        }
+    }
+
+    return [ordered]@{
+        found = $raw.Count -gt 0
+        values = $values
+        raw = $raw.ToArray()
+    }
+}
+
 function Test-PathInAllowedScope {
     param(
         [Parameter(Mandatory = $true)][string]$ChangedPath,
@@ -184,6 +244,8 @@ if (-not $reportExists -and $status -ne "blocked") {
     $status = "blocked"
     [void]$issues.Add("Report not found: $reportPath")
 }
+
+$pmDigest = Parse-PmDigest -ReportPath $reportPath
 
 # Check: running lock still exists
 $lockExists = Test-Path -LiteralPath $lockPath -PathType Leaf
@@ -295,6 +357,7 @@ $reviewJson = [ordered]@{
     logPath         = $logRel
     lockPath        = $lockRel
     reportExists    = $reportExists
+    pmDigest        = $pmDigest
     lockExists      = $lockExists
     diffCheckPassed = $diffCheckPassed
     diffCheckOutput = $diffCheckOutput.Trim()
@@ -333,6 +396,12 @@ $reviewMd = @"
 ```
 $($diffCheckOutput.Trim())
 ```
+
+## PM Digest
+
+Found: $($pmDigest.found)
+
+$($pmDigest.raw -join "`n")
 
 ## Allowed Files (parsed from task)
 

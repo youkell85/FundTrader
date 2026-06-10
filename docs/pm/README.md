@@ -19,10 +19,22 @@ This project has the reusable Codex PM -> Claude coding-agent workflow installed
 .\scripts\pm-review.ps1 -Task docs\pm\outbox\TASK-XXX.md
 .\scripts\pm-accept.ps1 -Task docs\pm\outbox\TASK-XXX.md
 .\scripts\pm-accept.ps1 -Task docs\pm\outbox\TASK-XXX.md -Run
+.\scripts\pm-brief.ps1 -Task docs\pm\outbox\TASK-XXX.md
 .\scripts\pm-loop.ps1 -Task docs\pm\outbox\TASK-XXX.md -MaxRounds 3 -MaxMinutes 90
 .\scripts\pm-cost.ps1
 .\scripts\pm-status.ps1
 ```
+
+## Low-token PM Acceptance
+
+- Prefer `pm-brief.ps1` for Codex PM review. It reads structured review,
+  acceptance, report digest, and log metadata without opening raw Claude logs.
+- Do not read `docs\pm\logs\*.jsonl` unless Claude failed before writing a
+  report or the gateway produced malformed output.
+- Start every Claude report with `## PM Digest`; Codex should read the full
+  report only when the digest says `needs_fix`, `blocked`, or
+  `decision_needed`.
+- Use `git diff --name-only` and `git diff --stat` before any full diff read.
 
 ## Safety Rules
 
