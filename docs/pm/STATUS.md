@@ -2,7 +2,7 @@
 
 ## Current State
 
-PM workflow installed. P1 and P2 allocation calibration tasks are complete and locally accepted.
+PM workflow installed. P1, P2, and P3 allocation calibration tasks are complete.
 
 Latest accepted scope:
 
@@ -16,8 +16,17 @@ Latest accepted scope:
 - P3 calibration audit policy config
 - P3 calibration audit policy UI
 - P3 production allocation smoke script
+- P3 post-deploy production acceptance
+- P3 closeout
 
 No active running PM task.
+
+P3 status: closed.
+
+- Closed at commit: `e6d8c61 Complete P3 calibration audit workflow`
+- Deployed to production: yes
+- Post-deploy acceptance: passed
+- Closeout report: `docs/pm/reports/P3-CLOSEOUT-001.md`
 
 ## Tools
 
@@ -43,7 +52,7 @@ Accepted locally with:
 - `scripts/check-production-allocation.ps1 -BaseUrl http://43.160.226.62/fund/api -SkipGenerate`
 - `scripts/check-production-allocation.ps1 -BaseUrl http://43.160.226.62/fund/api`
 
-Deployment still requires explicit user approval.
+Latest deployment was explicitly approved and completed for P3 commit `e6d8c61`.
 
 P3 note: unauthenticated production `POST /fund/api/allocation/generate`
 returning HTTP 401 is accepted as WARN, not FAIL, in the current smoke policy.

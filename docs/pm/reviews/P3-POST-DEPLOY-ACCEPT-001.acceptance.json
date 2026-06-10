@@ -1,0 +1,25 @@
+{
+    "taskId":  "P3-POST-DEPLOY-ACCEPT-001",
+    "mode":  "list",
+    "generatedAt":  "2026-06-10T22:44:02.5651776+08:00",
+    "taskPath":  "docs\\pm\\outbox\\P3-POST-DEPLOY-ACCEPT-001.md",
+    "summary":  {
+                    "totalBlocks":  8,
+                    "safe":  0,
+                    "skipped_unsafe":  1,
+                    "unsupported":  0,
+                    "passed":  0,
+                    "failed":  0
+                },
+    "recommendedNext":  "Review listed blocks. Use -Run to execute safe blocks.",
+    "blocks":  {
+                   "number":  1,
+                   "language":  "powershell",
+                   "classification":  "skipped_unsafe",
+                   "reason":  "Contains unsafe pattern: systemctl",
+                   "command":  "git rev-parse --short HEAD\ngit status --short --untracked-files=all\nssh -o StrictHostKeyChecking=no -i C:\\Users\\youke\\.ssh\\id_ed25519_nopass -p 22222 root@43.160.226.62 \"cd /opt/fundtrader \u0026\u0026 git rev-parse --short HEAD \u0026\u0026 systemctl is-active fundtrader \u0026\u0026 systemctl is-active fundtrader-frontend\"\ncurl.exe -s http://43.160.226.62/fund/api/health\ncurl.exe -o NUL -s -w \"%{http_code}\" http://43.160.226.62/fund/\n.\\scripts\\check-production-allocation.ps1 -BaseUrl http://43.160.226.62/fund/api\npowershell -NoProfile -Command \"$r = Invoke-RestMethod -Uri \u0027http://43.160.226.62/fund/api/allocation/pipeline-health\u0027 -TimeoutSec 30; $p = $r.calibration.policy; $required = @(\u0027return_drift_threshold\u0027,\u0027vol_drift_threshold\u0027,\u0027jump_probability_min\u0027,\u0027jump_probability_max\u0027,\u0027coverage_threshold\u0027,\u0027policy_source\u0027); $missing = @($required | Where-Object { -not $p.PSObject.Properties[$_] }); [pscustomobject]@{ calibration_health=$r.calibration.health; policy_source=$p.policy_source; missing_policy_keys=($missing -join \u0027,\u0027) } | ConvertTo-Json -Compress; if ($missing.Count -gt 0) { exit 1 }\"",
+                   "exitCode":  null,
+                   "stdout":  null,
+                   "stderr":  null
+               }
+}
