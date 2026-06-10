@@ -34,6 +34,7 @@ MAX_SINGLE_ADJUSTMENT = 0.15
 
 # FED model neutral rate (Taylor rule approximation)
 _FED_NEUTRAL_RATE = 2.5
+_CONFIDENCE_GAMMA = 1.5
 
 
 def _compute_fed_model() -> dict:
@@ -249,9 +250,12 @@ def _generate_live_signals() -> List[MacroSignalItem]:
     for name, category, scorer in signal_defs:
         value = macro.get_value(name) if macro else None
         confidence_str = "low"
+        conf = 0.0
+        attenuation = 0.0
+        raw_score = 0.0
 
         if value is not None:
-            score = scorer(value)
+            raw_score = scorer(value)
             conf = macro.get_confidence(name) if macro else 0.3
             if conf >= 0.8:
                 confidence_str = "high"
@@ -259,7 +263,7 @@ def _generate_live_signals() -> List[MacroSignalItem]:
                 confidence_str = "medium"
             else:
                 confidence_str = "low"
-                score = 0  # Low confidence indicators should not influence TAA
+            score, attenuation = _attenuate_score(raw_score, conf)
             threshold_desc = f"当前值: {value:.2f}"
         else:
             score = 0
@@ -272,6 +276,9 @@ def _generate_live_signals() -> List[MacroSignalItem]:
             confidence=confidence_str,
             value=value,
             threshold_desc=threshold_desc,
+            raw_score=round(raw_score, 3),
+            confidence_value=round(conf, 3),
+            attenuation=round(attenuation, 3),
         ))
 
     return signals
@@ -289,6 +296,13 @@ def _linear_score(value: float, low: float, high: float) -> float:
 def _linear_score_inverted(value: float, low: float, high: float) -> float:
     """Inverted linear scoring: value below low -> +1, above high -> -1."""
     return -_linear_score(value, low, high)
+
+
+def _attenuate_score(raw_score: float, confidence: float) -> tuple[float, float]:
+    """Smoothly attenuate low-confidence signals instead of hard-zeroing them."""
+    bounded_confidence = max(0.0, min(1.0, confidence))
+    attenuation = bounded_confidence ** _CONFIDENCE_GAMMA
+    return raw_score * attenuation, attenuation
 
 
 def _get_macro_snapshot():
@@ -491,9 +505,12 @@ def _generate_signals_from_snapshot(
     signals = []
     for name, category, scorer in signal_defs:
         value = snapshot.get(name)
+        raw_score = 0.0
+        conf = 0.0
+        attenuation = 0.0
 
         if value is not None:
-            score = scorer(value)
+            raw_score = scorer(value)
             conf = confidences.get(name, 1.0) if confidences else 1.0
             if conf >= 0.8:
                 confidence_str = "high"
@@ -501,7 +518,7 @@ def _generate_signals_from_snapshot(
                 confidence_str = "medium"
             else:
                 confidence_str = "low"
-                score = 0  # B5 parity: low-confidence indicators should not influence TAA
+            score, attenuation = _attenuate_score(raw_score, conf)
             threshold_desc = f"当前值: {value:.2f}"
         else:
             score = 0
@@ -515,6 +532,9 @@ def _generate_signals_from_snapshot(
             confidence=confidence_str,
             value=value,
             threshold_desc=threshold_desc,
+            raw_score=round(raw_score, 3),
+            confidence_value=round(conf, 3),
+            attenuation=round(attenuation, 3),
         ))
 
     return signals

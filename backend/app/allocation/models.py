@@ -71,6 +71,9 @@ class MacroSignalItem(BaseModel):
     confidence: str
     value: Optional[float] = None
     threshold_desc: Optional[str] = None
+    raw_score: Optional[float] = None
+    confidence_value: Optional[float] = None
+    attenuation: Optional[float] = None
 
 
 class CategorySignal(BaseModel):

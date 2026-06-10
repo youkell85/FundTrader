@@ -51,6 +51,7 @@ export interface TAASummary {
 export interface MacroSignalItem {
   factor_name: string; category: string; score: number;
   confidence: string; value: number|null; threshold_desc: string|null;
+  raw_score?: number | null; confidence_value?: number | null; attenuation?: number | null;
 }
 export interface CategorySignal { name:string; weight:number; avg_score:number; interpretation:string; signal_count:number; }
 export interface BusinessCycle {
