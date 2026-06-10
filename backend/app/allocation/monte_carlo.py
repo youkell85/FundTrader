@@ -1,6 +1,6 @@
 """Monte Carlo Simulation — Cholesky-correlated path generation with regime-aware jumps."""
 import numpy as np
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 from .config import ASSET_CLASSES, N_ASSETS
 from .matrix_utils import ensure_positive_definite
@@ -77,7 +77,7 @@ def simulate(
 
     # Jump parameters (regime-aware)
     regime_key = regime.regime if regime else "baseline"
-    jp = _JUMP_PARAMS.get(regime_key, _JUMP_PARAMS["baseline"])
+    jp, jump_metadata = _load_jump_params(regime_key)
     jump_sensitivity = np.array([_ASSET_JUMP_SENSITIVITY.get(a, 1.0) for a in ASSET_CLASSES])
 
     # Simulate paths
@@ -159,4 +159,42 @@ def simulate(
         var_95_annual=round(var_95_annual * 100, 2),
         cvar_95_annual=round(cvar_95_annual * 100, 2),
         prob_positive=round(prob_positive * 100, 1),
+        jump_source=jump_metadata.get("source"),
+        jump_as_of=jump_metadata.get("as_of"),
+        jump_sample_size=jump_metadata.get("sample_size"),
+        calibration_version=jump_metadata.get("calibration_version"),
     )
+
+
+def _load_jump_params(regime_key: str) -> Tuple[dict, dict]:
+    """Load calibrated jump parameters when available, otherwise regime defaults."""
+    fallback = dict(_JUMP_PARAMS.get(regime_key, _JUMP_PARAMS["baseline"]))
+    fallback_metadata = {
+        "source": "static_assumption",
+        "as_of": None,
+        "sample_size": None,
+        "calibration_version": "static-jump-params",
+    }
+    try:
+        from app.storage.database import StatsSnapshotCache
+
+        snapshot = StatsSnapshotCache.get("historical_calibration") or {}
+        section = snapshot.get("jump_params") or {}
+        params = section.get("params") or {}
+        prob = params.get("prob", params.get("jump_probability"))
+        mean = params.get("mean", params.get("jump_mean"))
+        vol = params.get("vol", params.get("jump_vol"))
+        if prob is not None and mean is not None and vol is not None:
+            return {
+                "prob": float(prob),
+                "mean": float(mean),
+                "vol": float(vol),
+            }, {
+                "source": section.get("source") or "sqlite_cache",
+                "as_of": section.get("as_of"),
+                "sample_size": params.get("sample_size"),
+                "calibration_version": section.get("calibration_version"),
+            }
+    except Exception:
+        pass
+    return fallback, fallback_metadata

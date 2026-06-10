@@ -419,6 +419,11 @@ def run(
         age=profile.age,
         amount=profile.amount,
         horizon=profile.horizon,
+        behavior_score=profile.behavior_score,
+        behavior_question_count=profile.behavior_question_count,
+        behavior_source=profile.behavior_source,
+        behavior_calibration_version=profile.behavior_calibration_version,
+        behavior_as_of=profile.behavior_as_of,
     )
 
     # Meta

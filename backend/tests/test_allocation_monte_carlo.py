@@ -33,7 +33,7 @@ class AllocationMonteCarloTest(unittest.TestCase):
 
         json.dumps(payload, allow_nan=False)
         for value in payload.values():
-            if value is not None:
+            if isinstance(value, (int, float)):
                 self.assertTrue(np.isfinite(value))
 
 

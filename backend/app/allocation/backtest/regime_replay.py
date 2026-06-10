@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 
 from ..models import RegimeState
+from ..regime_detector import get_regime_thresholds
 
 logger = logging.getLogger(__name__)
 
@@ -24,8 +25,6 @@ REGIME_LABELS = {
 
 # Persistence threshold: 2 consecutive detections to confirm switch
 PERSISTENCE_THRESHOLD = 2
-# Growth/inflation classification threshold
-QUADRANT_THRESHOLD = 0.2
 
 
 def build_macro_snapshot_at(
@@ -155,16 +154,17 @@ def compute_vol_ratio_at(prices_df: pd.DataFrame, as_of_date: pd.Timestamp) -> O
 
 def _score_growth(snapshot: Dict[str, Optional[float]]) -> float:
     """Score growth dimension: PMI + GDP. Range [-1, +1]."""
+    t = get_regime_thresholds()
     scores = []
 
     pmi = snapshot.get("PMI制造业")
     if pmi is not None:
-        s = max(-1.0, min(1.0, (pmi - 50.0) / 2.0))
+        s = max(-1.0, min(1.0, (pmi - t.pmi_neutral) / t.pmi_scale))
         scores.append(s)
 
     gdp = snapshot.get("GDP同比")
     if gdp is not None:
-        s = max(-1.0, min(1.0, (gdp - 4.5) / 3.0))
+        s = max(-1.0, min(1.0, (gdp - t.gdp_neutral) / t.gdp_scale))
         scores.append(s)
 
     return sum(scores) / len(scores) if scores else 0.0
@@ -172,16 +172,17 @@ def _score_growth(snapshot: Dict[str, Optional[float]]) -> float:
 
 def _score_inflation(snapshot: Dict[str, Optional[float]]) -> float:
     """Score inflation dimension: CPI + PPI. Range [-1, +1]. Positive = inflationary."""
+    t = get_regime_thresholds()
     scores = []
 
     cpi = snapshot.get("CPI同比")
     if cpi is not None:
-        s = max(-1.0, min(1.0, (cpi - 2.0) / 2.0))
+        s = max(-1.0, min(1.0, (cpi - t.cpi_neutral) / t.cpi_scale))
         scores.append(s)
 
     ppi = snapshot.get("PPI同比")
     if ppi is not None:
-        s = max(-1.0, min(1.0, ppi / 4.0))
+        s = max(-1.0, min(1.0, (ppi - t.ppi_neutral) / t.ppi_scale))
         scores.append(s)
 
     return sum(scores) / len(scores) if scores else 0.0
@@ -189,16 +190,17 @@ def _score_inflation(snapshot: Dict[str, Optional[float]]) -> float:
 
 def _score_monetary(snapshot: Dict[str, Optional[float]]) -> float:
     """Score monetary/liquidity dimension. Range [-1, +1]. Positive = easing."""
+    t = get_regime_thresholds()
     scores = []
 
     m2 = snapshot.get("M2增速")
     if m2 is not None:
-        s = max(-1.0, min(1.0, (m2 - 8.5) / 3.0))
+        s = max(-1.0, min(1.0, (m2 - t.m2_neutral) / t.m2_scale))
         scores.append(s)
 
     yield_10y = snapshot.get("10Y国债收益率")
     if yield_10y is not None:
-        s = max(-1.0, min(1.0, (3.0 - yield_10y) / 1.0))
+        s = max(-1.0, min(1.0, (t.yield_10y_neutral - yield_10y) / t.yield_10y_scale))
         scores.append(s)
 
     return sum(scores) / len(scores) if scores else 0.0
@@ -206,13 +208,15 @@ def _score_monetary(snapshot: Dict[str, Optional[float]]) -> float:
 
 def _classify_quadrant(growth: float, inflation: float, monetary: float) -> str:
     """Classify regime from growth and inflation scores."""
-    if growth > QUADRANT_THRESHOLD and inflation < -QUADRANT_THRESHOLD:
+    t = get_regime_thresholds()
+
+    if growth > t.quadrant and inflation < -t.quadrant:
         return "goldilocks"
-    elif growth > QUADRANT_THRESHOLD and inflation > QUADRANT_THRESHOLD:
+    elif growth > t.quadrant and inflation > t.quadrant:
         return "overheat"
-    elif growth < -QUADRANT_THRESHOLD and inflation > QUADRANT_THRESHOLD:
+    elif growth < -t.quadrant and inflation > t.quadrant:
         return "stagflation"
-    elif growth < -QUADRANT_THRESHOLD and inflation < -QUADRANT_THRESHOLD:
+    elif growth < -t.quadrant and inflation < -t.quadrant:
         return "deflation"
     else:
         return "baseline"

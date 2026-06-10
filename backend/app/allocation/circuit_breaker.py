@@ -67,7 +67,8 @@ def evaluate_breaker(
         f"(raw={raw_level}, prev={prev})"
     )
     reduction = EQUITY_REDUCTION[effective_level]
-    adjusted = _reduce_equity(allocations, reduction)
+    destination = _load_destination_policy()
+    adjusted = _reduce_equity(allocations, reduction, destination)
     return adjusted, True
 
 
@@ -127,8 +128,14 @@ def _apply_asymmetric_recovery(raw_level: int) -> int:
         return _previous_level
 
 
-def _reduce_equity(allocations: Dict[str, float], reduction: float) -> Dict[str, float]:
-    """Reduce equity allocation by `reduction` fraction, shift to cash_equiv."""
+def _reduce_equity(allocations: Dict[str, float], reduction: float,
+                   destination: Optional[Dict[str, float]] = None) -> Dict[str, float]:
+    """Reduce equity allocation by `reduction` fraction, shift to cash_equiv.
+
+    If `destination` is provided (normalized {asset: weight} for cash_equiv
+    assets), the equity cut is distributed according to those weights.
+    Otherwise, uses the current proportional-to-existing-weights behavior.
+    """
     adjusted = dict(allocations)
     equity_assets = GROUP_MAP["equity"]
     cash_assets = GROUP_MAP["cash_equiv"]
@@ -139,19 +146,78 @@ def _reduce_equity(allocations: Dict[str, float], reduction: float) -> Dict[str,
         adjusted[a] = adjusted.get(a, 0.0) - cut
         total_eq_cut += cut
 
-    # Distribute cut to cash equivalents proportionally
-    cash_total = sum(adjusted.get(a, 0.0) for a in cash_assets)
-    if cash_total > 0:
-        for a in cash_assets:
-            share = adjusted.get(a, 0.0) / cash_total
-            adjusted[a] = adjusted.get(a, 0.0) + total_eq_cut * share
-    else:
-        # Equal distribution to cash_equiv
-        per_asset = total_eq_cut / len(cash_assets)
-        for a in cash_assets:
-            adjusted[a] = adjusted.get(a, 0.0) + per_asset
+    # Determine distribution weights
+    if destination:
+        # Validate: only accept if at least one positive weight
+        valid = {a: w for a, w in destination.items() if a in cash_assets and w > 0}
+        if valid:
+            total = sum(valid.values())
+            for a in cash_assets:
+                share = valid.get(a, 0.0) / total
+                adjusted[a] = adjusted.get(a, 0.0) + total_eq_cut * share
+        else:
+            # Invalid destination — fall back to default
+            destination = None
+
+    if not destination:
+        # Default: distribute proportionally to existing cash-equivalent weights
+        cash_total = sum(adjusted.get(a, 0.0) for a in cash_assets)
+        if cash_total > 0:
+            for a in cash_assets:
+                share = adjusted.get(a, 0.0) / cash_total
+                adjusted[a] = adjusted.get(a, 0.0) + total_eq_cut * share
+        else:
+            # Equal distribution to cash_equiv
+            per_asset = total_eq_cut / len(cash_assets)
+            for a in cash_assets:
+                adjusted[a] = adjusted.get(a, 0.0) + per_asset
 
     return adjusted
+
+
+def _load_destination_policy() -> Optional[Dict[str, float]]:
+    """Load circuit-breaker destination weights from cached calibration.
+
+    Reads StatsSnapshotCache("historical_calibration") ->
+    circuit_breaker_destination.params, expecting:
+      {"money_fund": 0.7, "cash": 0.3}
+
+    Returns normalized destination weights for cash_equiv assets, or None
+    (fall back to default proportional distribution) when:
+    - No cache entry exists
+    - params is missing or not a dict
+    - All weights for cash_equiv assets are zero or missing
+    - Any weight is negative
+    - Any non-cash-equiv asset is ignored (only cash_equiv assets accepted)
+    """
+    try:
+        from app.storage.database import StatsSnapshotCache
+
+        cached = StatsSnapshotCache.get("historical_calibration")
+        if not isinstance(cached, dict):
+            return None
+
+        dest = cached.get("circuit_breaker_destination", {})
+        if isinstance(dest, dict):
+            # Support both {"params": {...}} and flat {...}
+            dest = dest.get("params", dest)
+        if not isinstance(dest, dict) or not dest:
+            return None
+
+        cash_assets = GROUP_MAP["cash_equiv"]
+        raw = {}
+        for a in cash_assets:
+            w = dest.get(a)
+            if isinstance(w, (int, float)) and w > 0:
+                raw[a] = float(w)
+
+        total = sum(raw.values())
+        if total <= 0:
+            return None
+
+        return {a: w / total for a, w in raw.items()}
+    except Exception:
+        return None
 
 
 def get_breaker_status() -> dict:

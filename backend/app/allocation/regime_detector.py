@@ -7,6 +7,7 @@ import logging
 import os
 import threading
 import time
+from dataclasses import dataclass, fields
 from typing import Optional
 
 from .models import RegimeState
@@ -32,6 +33,61 @@ _regime_lock = threading.Lock()
 # confirmed. Prevents fast-loop callers (e.g., SSE regenerate) from confirming
 # a regime switch on the same dataset within milliseconds.
 _PERSISTENCE_MIN_INTERVAL_S = 60.0
+
+
+# ─── Calibratable Thresholds ────────────────────────────────────────────────────
+
+@dataclass
+class RegimeThresholds:
+    """Calibratable regime scoring and classification thresholds.
+
+    All fields have sensible defaults matching current hard-coded values.
+    When a historical calibration snapshot is available via
+    StatsSnapshotCache("historical_calibration") -> regime_thresholds.params,
+    fields are overridden per-field with fallback to these defaults.
+    """
+    quadrant: float = 0.2
+    pmi_neutral: float = 50.0
+    pmi_scale: float = 2.0
+    gdp_neutral: float = 4.5
+    gdp_scale: float = 3.0
+    cpi_neutral: float = 2.0
+    cpi_scale: float = 2.0
+    ppi_neutral: float = 0.0
+    ppi_scale: float = 4.0
+    m2_neutral: float = 8.5
+    m2_scale: float = 3.0
+    yield_10y_neutral: float = 3.0
+    yield_10y_scale: float = 1.0
+
+
+def get_regime_thresholds() -> RegimeThresholds:
+    """Return active regime thresholds, preferring cached calibration when valid.
+
+    Loads from StatsSnapshotCache("historical_calibration") ->
+    regime_thresholds.params, with per-field fallback to RegimeThresholds defaults.
+
+    Only numeric (int/float, not bool) values are accepted as overrides;
+    missing, null, or non-numeric values fall back to the dataclass default.
+    """
+    thresholds = RegimeThresholds()
+    try:
+        from app.storage.database import StatsSnapshotCache
+
+        cached = StatsSnapshotCache.get("historical_calibration")
+        if isinstance(cached, dict):
+            params = cached.get("regime_thresholds", {})
+            if isinstance(params, dict):
+                # Support both nested {"params": {...}} and flat {...}
+                params = params.get("params", params)
+            if isinstance(params, dict):
+                for f in fields(RegimeThresholds):
+                    val = params.get(f.name)
+                    if isinstance(val, (int, float)) and not isinstance(val, bool):
+                        setattr(thresholds, f.name, float(val))
+    except Exception:
+        pass
+    return thresholds
 
 
 def detect_regime() -> RegimeState:
@@ -153,18 +209,19 @@ def _get_macro_snapshot():
 
 def _score_growth(macro) -> float:
     """Score growth dimension: PMI + GDP. Range [-1, +1]."""
+    t = get_regime_thresholds()
     scores = []
 
     pmi = macro.get_value("PMI制造业")
     if pmi is not None:
-        # PMI: 50 is neutral. Score: (PMI - 50) / 2, clamped to [-1, 1]
-        s = max(-1.0, min(1.0, (pmi - 50.0) / 2.0))
+        # PMI: neutral point configurable. Score: (PMI - neutral) / scale, clamped to [-1, 1]
+        s = max(-1.0, min(1.0, (pmi - t.pmi_neutral) / t.pmi_scale))
         scores.append(s)
 
     gdp = macro.get_value("GDP同比")
     if gdp is not None:
-        # GDP: 4.5% is neutral. Score: (GDP - 4.5) / 3, clamped
-        s = max(-1.0, min(1.0, (gdp - 4.5) / 3.0))
+        # GDP: neutral point configurable. Score: (GDP - neutral) / scale, clamped
+        s = max(-1.0, min(1.0, (gdp - t.gdp_neutral) / t.gdp_scale))
         scores.append(s)
 
     if not scores:
@@ -174,18 +231,19 @@ def _score_growth(macro) -> float:
 
 def _score_inflation(macro) -> float:
     """Score inflation dimension: CPI + PPI. Range [-1, +1]. Positive = inflationary."""
+    t = get_regime_thresholds()
     scores = []
 
     cpi = macro.get_value("CPI同比")
     if cpi is not None:
-        # CPI: 2% is neutral. Score: (CPI - 2) / 2, clamped
-        s = max(-1.0, min(1.0, (cpi - 2.0) / 2.0))
+        # CPI: neutral point configurable. Score: (CPI - neutral) / scale, clamped
+        s = max(-1.0, min(1.0, (cpi - t.cpi_neutral) / t.cpi_scale))
         scores.append(s)
 
     ppi = macro.get_value("PPI同比")
     if ppi is not None:
-        # PPI: 0% is neutral. Score: PPI / 4, clamped
-        s = max(-1.0, min(1.0, ppi / 4.0))
+        # PPI: neutral point configurable. Score: (PPI - neutral) / scale, clamped
+        s = max(-1.0, min(1.0, (ppi - t.ppi_neutral) / t.ppi_scale))
         scores.append(s)
 
     if not scores:
@@ -195,18 +253,19 @@ def _score_inflation(macro) -> float:
 
 def _score_monetary(macro) -> float:
     """Score monetary/liquidity dimension: M2 + 10Y yield. Range [-1, +1]. Positive = easing."""
+    t = get_regime_thresholds()
     scores = []
 
     m2 = macro.get_value("M2增速")
     if m2 is not None:
-        # M2: 8.5% is neutral. Higher = more easing
-        s = max(-1.0, min(1.0, (m2 - 8.5) / 3.0))
+        # M2: neutral point configurable. Higher = more easing
+        s = max(-1.0, min(1.0, (m2 - t.m2_neutral) / t.m2_scale))
         scores.append(s)
 
     yield_10y = macro.get_value("10Y国债收益率")
     if yield_10y is not None:
-        # 10Y yield: 3% is neutral. LOWER = more easing (inverted)
-        s = max(-1.0, min(1.0, (3.0 - yield_10y) / 1.0))
+        # 10Y yield: neutral point configurable. LOWER = more easing (inverted)
+        s = max(-1.0, min(1.0, (t.yield_10y_neutral - yield_10y) / t.yield_10y_scale))
         scores.append(s)
 
     if not scores:
@@ -216,16 +275,15 @@ def _score_monetary(macro) -> float:
 
 def _classify_quadrant(growth: float, inflation: float, monetary: float) -> str:
     """Classify regime from growth and inflation scores."""
-    # Signal thresholds
-    THRESHOLD = 0.2
+    t = get_regime_thresholds()
 
-    if growth > THRESHOLD and inflation < -THRESHOLD:
+    if growth > t.quadrant and inflation < -t.quadrant:
         return "goldilocks"
-    elif growth > THRESHOLD and inflation > THRESHOLD:
+    elif growth > t.quadrant and inflation > t.quadrant:
         return "overheat"
-    elif growth < -THRESHOLD and inflation > THRESHOLD:
+    elif growth < -t.quadrant and inflation > t.quadrant:
         return "stagflation"
-    elif growth < -THRESHOLD and inflation < -THRESHOLD:
+    elif growth < -t.quadrant and inflation < -t.quadrant:
         return "deflation"
     else:
         return "baseline"

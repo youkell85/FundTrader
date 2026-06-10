@@ -47,6 +47,12 @@ class UserProfileSummary(BaseModel):
     age: int
     amount: float
     horizon: str
+    # ─── Behavior calibration provenance (optional, API-compatible) ───
+    behavior_score: Optional[float] = None
+    behavior_question_count: Optional[int] = None
+    behavior_source: Optional[str] = None
+    behavior_calibration_version: Optional[str] = None
+    behavior_as_of: Optional[str] = None
 
 
 class SAASummary(BaseModel):
@@ -130,6 +136,9 @@ class StressScenarioItem(BaseModel):
     scenario: str
     impact: float
     max_loss: float
+    source: Optional[str] = None
+    source_window: Optional[str] = None
+    calibration_version: Optional[str] = None
 
 
 class MonteCarloResult(BaseModel):
@@ -144,6 +153,10 @@ class MonteCarloResult(BaseModel):
     var_95_annual: Optional[float] = None  # Annualized (comparable across horizons)
     cvar_95_annual: Optional[float] = None
     prob_positive: float
+    jump_source: Optional[str] = None
+    jump_as_of: Optional[str] = None
+    jump_sample_size: Optional[int] = None
+    calibration_version: Optional[str] = None
 
 
 class ScenarioItem(BaseModel):
@@ -156,6 +169,11 @@ class ScenarioItem(BaseModel):
 class ScenarioAnalysis(BaseModel):
     weighted_return: float
     scenarios: List[ScenarioItem]
+    source: Optional[str] = None
+    calibration_version: Optional[str] = None
+    as_of_date: Optional[str] = None
+    probability_source: Optional[str] = None
+    baseline_source: Optional[str] = None
 
 
 class ConstraintCheckItem(BaseModel):
@@ -222,6 +240,12 @@ class RiskProfile(BaseModel):
     amount: float
     horizon: InvestmentHorizon
     horizon_months: int
+    # ─── Behavior calibration provenance (optional) ───
+    behavior_score: Optional[float] = None
+    behavior_question_count: Optional[int] = None
+    behavior_source: Optional[str] = None
+    behavior_calibration_version: Optional[str] = None
+    behavior_as_of: Optional[str] = None
 
 
 class CMAResult(BaseModel):

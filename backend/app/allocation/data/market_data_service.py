@@ -158,69 +158,144 @@ class MarketDataService:
             return self._ic_decay_cache
 
     def _compute_ic_decay(self) -> None:
-        """Compute IC decay for each signal category using cached data.
+        """Compute IC decay for each signal category using cached historical data.
 
-        Requires both macro snapshot (signal values) and rolling stats (returns).
-        Silently skips if either is unavailable.
+        Uses MacroCache.get_history() for macro signal time series and
+        ETFPriceCache.get_range() for proxy asset returns. Both are local
+        SQLite reads — no network calls.
+
+        Sets _ic_decay_cache with per-category dicts containing:
+            quality, half_life, ic_mean, source, sample_size, as_of_date
+        When history is insufficient, sets source="insufficient_history" so
+        _get_adaptive_weights() falls back to static weights.
         """
         import numpy as np
         from . import ic_decay
 
-        macro = self.get_macro_snapshot()
+        try:
+            from app.storage.database import MacroCache, ETFPriceCache
+        except ImportError:
+            logger.debug("  IC decay: database module unavailable")
+            return
+
         stats_ex = self.get_rolling_stats_ex()
-        if macro is None or stats_ex is None:
+        if stats_ex is None:
+            logger.debug("  IC decay: no rolling stats available")
             return
 
         # Map signal categories to macro indicator names
+        # NOTE: uses "社融增量" (DB column name), not "社融增速"
         category_signals = {
             "growth": ["PMI制造业", "GDP同比"],
             "inflation": ["CPI同比", "PPI同比"],
             "interest": ["10Y国债收益率", "DR007"],
-            "credit_money": ["社融增速", "M2增速"],
+            "credit_money": ["社融增量", "M2增速"],
             "liquidity": ["融资余额变化", "北向资金净流入"],
             "policy": ["财政赤字率"],
             "overseas": ["美联储利率", "美元指数"],
         }
 
-        # Get returns for equity as proxy (a_share_large)
+        # Get proxy asset returns from ETF price cache
+        proxy_etf = "510300"  # a_share_large → 沪深300ETF
         returns_short = stats_ex.get("returns_short", {})
-        proxy_asset = "a_share_large"
-        proxy_returns = returns_short.get(proxy_asset)
+        proxy_returns = returns_short.get("a_share_large")
         if proxy_returns is None:
+            logger.debug("  IC decay: no proxy returns for a_share_large")
             return
 
-        returns_arr = np.array(proxy_returns, dtype=np.float64)
-        if len(returns_arr) < 60:
+        # Build return date index from ETF price cache
+        try:
+            price_data = ETFPriceCache.get_range(proxy_etf, "2000-01-01", "2099-12-31")
+        except Exception:
+            price_data = {}
+
+        if len(price_data) < 60:
+            logger.debug(
+                "  IC decay: insufficient ETF price cache (%d days) for %s",
+                len(price_data), proxy_etf,
+            )
             return
+
+        # Sort dates oldest-first, compute daily log returns
+        sorted_dates = sorted(price_data.keys())
+        prices = np.array([price_data[d] for d in sorted_dates], dtype=np.float64)
+        log_rets = np.diff(np.log(prices))
+        return_dates = sorted_dates[1:]  # Align returns to date after price
 
         result = {}
-        for cat_key, indicator_names in category_signals.items():
-            # Average signal values across indicators in this category
-            signal_values = []
-            for name in indicator_names:
-                ind = macro.indicators.get(name)
-                if ind and ind.value is not None:
-                    signal_values.append(ind.value)
+        as_of_date = sorted_dates[-1] if sorted_dates else datetime.now().strftime("%Y-%m-%d")
 
-            if not signal_values:
+        for cat_key, indicator_names in category_signals.items():
+            # Build daily signal series by averaging available indicators
+            daily_series_list = []
+            valid_indicator_count = 0
+
+            for name in indicator_names:
+                try:
+                    history = MacroCache.get_history(name, limit=60)
+                except Exception:
+                    continue
+
+                if not history or len(history) < 6:
+                    continue
+
+                daily = ic_decay.build_daily_signal_series(history, return_dates)
+                if daily is not None:
+                    daily_series_list.append(daily)
+                    valid_indicator_count += 1
+
+            if not daily_series_list:
                 continue
 
-            # Use average signal as a scalar — compute a simplified IC proxy
-            # Since we only have one signal snapshot (not a time series),
-            # we estimate quality from signal confidence instead
-            avg_confidence = macro.overall_confidence
-            avg_signal = np.mean(signal_values)
+            # Average across available indicators
+            avg_signal = np.mean(daily_series_list, axis=0)
+
+            # Align signal with returns — trim to common valid range
+            valid_mask = np.isfinite(avg_signal) & np.isfinite(log_rets)
+            valid_count = valid_mask.sum()
+            if valid_count < 60:
+                continue
+
+            signal_aligned = avg_signal[valid_mask]
+            rets_aligned = log_rets[valid_mask]
+
+            ic = ic_decay.compute_ic_series(signal_aligned, rets_aligned)
+            quality = ic_decay.signal_quality_score(ic)
+            hl = ic_decay.ic_half_life(ic)
+
+            # IC mean: average |IC| across horizons
+            ic_vals = [abs(v) for v in ic.values() if v is not None]
+            ic_mean = round(float(np.mean(ic_vals)), 4) if ic_vals else 0.0
 
             result[cat_key] = {
-                "quality": round(avg_confidence, 4),
-                "half_life": "6m",  # Default estimate
-                "ic_mean": round(float(avg_signal) * avg_confidence * 0.1, 4),
+                "quality": round(quality, 4),
+                "half_life": hl or ">12m",
+                "ic_mean": ic_mean,
+                "source": "historical_ic",
+                "sample_size": int(valid_count),
+                "as_of_date": as_of_date,
+                "indicators_used": valid_indicator_count,
+                "ic_series": ic,
             }
 
         if result:
             with self._lock:
                 self._ic_decay_cache = result
-            logger.debug(f"  IC decay: computed for {len(result)} categories")
+            logger.debug(
+                "  IC decay: historical IC computed for %d/%d categories",
+                len(result), len(category_signals),
+            )
+        else:
+            # Mark as insufficient — no fabricated proxy IC
+            with self._lock:
+                self._ic_decay_cache = {
+                    "_meta": {
+                        "source": "insufficient_history",
+                        "as_of_date": as_of_date,
+                        "reason": "fewer than 60 aligned observations per category",
+                    }
+                }
+            logger.debug("  IC decay: insufficient history for all categories")
 
     def _calibrate_factors(self) -> None:
         """Refresh non-critical calibration snapshots without impacting API reads."""

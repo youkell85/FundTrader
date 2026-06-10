@@ -31,6 +31,12 @@ export interface UserProfileSummary {
   risk_tolerance: RiskTolerance; risk_label: string;
   effective_risk: RiskTolerance; behavior_adjusted: boolean;
   age: number; amount: number; horizon: string;
+  // ─── Behavior calibration provenance (optional, API-compatible) ───
+  behavior_score?: number | null;
+  behavior_question_count?: number | null;
+  behavior_source?: string | null;
+  behavior_calibration_version?: string | null;
+  behavior_as_of?: string | null;
 }
 export interface SAASummary {
   allocations: Record<string, number>; group_allocations: Record<string, number>;
@@ -62,16 +68,30 @@ export interface FundItem {
   code: string; name: string; type: string; asset_class: string;
   company: string;
   weight: number; amount: number; role: string; reason: string; score: number;
+  metadata_status?: "real" | "partial" | "assumption" | "stale" | "missing" | "rejected";
+  metadata_source?: string;
+  metadata_as_of?: string | null;
+  stale_days?: number | null;
 }
-export interface StressScenarioItem { scenario: string; impact: number; max_loss: number; }
+export interface StressScenarioItem {
+  scenario: string; impact: number; max_loss: number;
+  source?: string | null; source_window?: string | null; calibration_version?: string | null;
+}
 export interface MonteCarloResult {
   median_return: number; percentile_10: number; percentile_25: number;
   percentile_75: number; percentile_90: number; max_drawdown_95: number;
   var_95: number; cvar_95: number; prob_positive: number;
+  var_95_annual?: number | null; cvar_95_annual?: number | null;
+  jump_source?: string | null; jump_as_of?: string | null; jump_sample_size?: number | null; calibration_version?: string | null;
 }
 export interface ScenarioAnalysis {
   weighted_return: number;
   scenarios: { scenario:string; description:string; probability:number; impact:number }[];
+  source?: string | null;
+  calibration_version?: string | null;
+  as_of_date?: string | null;
+  probability_source?: string | null;
+  baseline_source?: string | null;
 }
 export interface ConstraintCheckItem { rule:string; value:string; limit:string; passed:boolean; }
 

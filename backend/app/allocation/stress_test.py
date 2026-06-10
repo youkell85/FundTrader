@@ -6,7 +6,7 @@ Convertible bonds get independent three-dimensional stress:
   2. Credit spread channel (floor value erosion)
   3. Interest rate channel (duration effect)
 """
-from typing import Dict, List
+from typing import Dict, List, Tuple
 
 from .config import ASSET_CLASSES, STRESS_SCENARIOS
 from .models import StressScenarioItem
@@ -39,7 +39,8 @@ def run_stress_tests(allocations: Dict[str, float]) -> List[StressScenarioItem]:
     """
     results = []
 
-    for scenario_name, drawdowns in STRESS_SCENARIOS.items():
+    scenarios, metadata = _load_stress_scenarios()
+    for scenario_name, drawdowns in scenarios.items():
         # Compute convertible 3D stress independently
         cb_stress = _compute_convertible_stress(scenario_name)
 
@@ -61,6 +62,9 @@ def run_stress_tests(allocations: Dict[str, float]) -> List[StressScenarioItem]:
             scenario=scenario_name,
             impact=round(impact, 4),
             max_loss=round(max_loss, 4),
+            source=metadata.get("source"),
+            source_window=metadata.get("source_window"),
+            calibration_version=metadata.get("calibration_version"),
         ))
 
     # Add dedicated convertible stress scenario
@@ -72,6 +76,30 @@ def run_stress_tests(allocations: Dict[str, float]) -> List[StressScenarioItem]:
     results.sort(key=lambda x: x.impact)
 
     return results
+
+
+def _load_stress_scenarios() -> Tuple[Dict[str, Dict[str, float]], dict]:
+    """Load calibrated stress scenarios when available, otherwise static config."""
+    fallback_metadata = {
+        "source": "static_assumption",
+        "source_window": None,
+        "calibration_version": "static-stress-scenarios",
+    }
+    try:
+        from app.storage.database import StatsSnapshotCache
+
+        snapshot = StatsSnapshotCache.get("historical_calibration") or {}
+        section = snapshot.get("stress_scenarios") or {}
+        params = section.get("params")
+        if isinstance(params, dict) and params:
+            return params, {
+                "source": section.get("source") or "sqlite_cache",
+                "source_window": section.get("source_window"),
+                "calibration_version": section.get("calibration_version"),
+            }
+    except Exception:
+        pass
+    return STRESS_SCENARIOS, fallback_metadata
 
 
 def _compute_convertible_stress(scenario_name: str) -> float:
@@ -137,4 +165,7 @@ def _compute_convertible_dedicated_stress(allocations: Dict[str, float]) -> Stre
         scenario="可转债三维压力(股-30%/利差+200bp/利率+100bp)",
         impact=round(portfolio_impact, 4),
         max_loss=round(max_loss, 4),
+        source="static_assumption",
+        source_window=None,
+        calibration_version="static-convertible-stress",
     )

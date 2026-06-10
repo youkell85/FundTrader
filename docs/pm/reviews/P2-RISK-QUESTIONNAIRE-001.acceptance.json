@@ -1,0 +1,25 @@
+{
+    "taskId":  "P2-RISK-QUESTIONNAIRE-001",
+    "mode":  "list",
+    "generatedAt":  "2026-06-10T20:00:37.8391415+08:00",
+    "taskPath":  "docs\\pm\\outbox\\P2-RISK-QUESTIONNAIRE-001.md",
+    "summary":  {
+                    "totalBlocks":  8,
+                    "safe":  1,
+                    "skipped_unsafe":  0,
+                    "unsupported":  0,
+                    "passed":  0,
+                    "failed":  0
+                },
+    "recommendedNext":  "Review listed blocks. Use -Run to execute safe blocks.",
+    "blocks":  {
+                   "number":  1,
+                   "language":  "powershell",
+                   "classification":  "safe",
+                   "reason":  "Passed safety checks",
+                   "command":  "cd D:\\Workspace\\Fundtrader\\backend\npython -m pytest tests/test_risk_profiler_questionnaire.py tests/test_allocation_api_contract.py -q\npython -m pytest -q\n\ncd D:\\Workspace\\Fundtrader\\frontend\nnpm.cmd run check\nnpm.cmd run build",
+                   "exitCode":  null,
+                   "stdout":  null,
+                   "stderr":  null
+               }
+}

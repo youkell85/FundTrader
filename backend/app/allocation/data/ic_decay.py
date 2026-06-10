@@ -19,6 +19,7 @@ Key metrics:
   - Signal quality score: composite of IC strength and persistence
 """
 import logging
+from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
@@ -163,6 +164,79 @@ def signal_quality_score(ic_series: Dict[str, Optional[float]]) -> float:
 
     score = 0.4 * strength + 0.3 * persistence + 0.3 * stability
     return round(float(np.clip(score, 0, 1)), 3)
+
+
+def build_daily_signal_series(
+    history: List[Tuple[str, float, str]],
+    return_dates: List[str],
+) -> Optional[np.ndarray]:
+    """Convert monthly macro history to a daily signal series aligned to return dates.
+
+    Forward-fills each monthly value to all subsequent trading days until the
+    next monthly observation. This is the standard approach for aligning
+    low-frequency macro data with daily asset returns.
+
+    Args:
+        history: List of (date_str, value, source) from MacroCache.get_history(),
+                 ordered newest-first. date_str is "YYYY-MM" (monthly).
+        return_dates: List of "YYYY-MM-DD" trading dates, oldest-first.
+
+    Returns:
+        1D numpy array of signal values aligned to return_dates, or None if
+        fewer than 6 monthly observations are available.
+    """
+    if len(history) < 6:
+        return None
+
+    # Parse monthly observations, oldest-first
+    monthly = []
+    for date_str, value, _source in history:
+        try:
+            parts = date_str.split("-")
+            if len(parts) == 2:
+                year, month = int(parts[0]), int(parts[1])
+                monthly.append((year, month, float(value)))
+            elif len(parts) == 3:
+                # "YYYY-MM-DD" format — treat as monthly by year-month
+                year, month = int(parts[0]), int(parts[1])
+                monthly.append((year, month, float(value)))
+        except (ValueError, IndexError):
+            continue
+
+    if len(monthly) < 6:
+        return None
+
+    # Sort oldest-first
+    monthly.sort(key=lambda x: (x[0], x[1]))
+
+    # Build daily signal by forward-filling
+    signal = np.full(len(return_dates), np.nan, dtype=np.float64)
+    month_idx = 0
+    for i, date_str in enumerate(return_dates):
+        try:
+            parts = date_str.split("-")
+            d_year, d_month = int(parts[0]), int(parts[1])
+        except (ValueError, IndexError):
+            continue
+
+        # Advance to the latest monthly observation <= this trading date
+        while month_idx + 1 < len(monthly):
+            ny, nm = monthly[month_idx + 1][0], monthly[month_idx + 1][1]
+            if (ny, nm) <= (d_year, d_month):
+                month_idx += 1
+            else:
+                break
+
+        my, mm = monthly[month_idx][0], monthly[month_idx][1]
+        if (my, mm) <= (d_year, d_month):
+            signal[i] = monthly[month_idx][2]
+
+    # Drop leading NaN (before first monthly observation)
+    valid_mask = np.isfinite(signal)
+    if valid_mask.sum() < 60:
+        return None
+
+    return signal
 
 
 def analyze_macro_signals(
