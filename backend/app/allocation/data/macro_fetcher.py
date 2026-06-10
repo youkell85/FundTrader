@@ -54,19 +54,26 @@ def fetch_all() -> MacroSnapshot:
 
     for name, fetcher, ttl in fetchers:
         try:
-            value = fetcher()
-            src = "tushare" if pro and name not in ("北向资金净流入","财政赤字率","美联储利率","美元指数") else "akshare"
             if name == "财政赤字率":
-                src = "static"
-            elif name == "美元指数":
-                src = "forex_api"
+                value, src = _fetch_fiscal_deficit_with_source()
+            else:
+                value = fetcher()
+                src = "tushare" if pro and name not in ("北向资金净流入","财政赤字率","美联储利率","美元指数") else "akshare"
+                if name == "美元指数":
+                    src = "forex_api"
             if value is not None:
                 conf = 0.95 if src == "tushare" else 0.9
-                # 财政赤字率: hardcoded placeholder, force low confidence so
-                # TAA score=0 (B5). Without this, the placeholder would
-                # affect allocations with full weight.
+                # 财政赤字率: dynamic confidence based on data source
+                # - akshare realized data → high confidence
+                # - akshare gov target → medium confidence
+                # - hardcoded 3.0 fallback → low confidence (0.3)
                 if name == "财政赤字率":
-                    conf = 0.3
+                    if src.startswith("akshare"):
+                        conf = 0.85  # API data
+                    elif src == "official_target":
+                        conf = 0.75
+                    else:
+                        conf = 0.3   # hardcoded fallback
                 # DR007: confidence depends on actual data source used
                 # - FR007 (akshare) is best proxy → conf 0.9
                 # - Shibor 1W (tushare) is rough proxy → conf 0.7
@@ -447,12 +454,85 @@ def _fetch_northbound() -> Optional[float]:
 # ─── 11. 财政赤字率 (static placeholder; real source needs iFinD/EDB) ──────────
 
 def _fetch_fiscal_deficit() -> Optional[float]:
-    """财政赤字率 (%). Placeholder until iFinD EDB / official data source wired.
+    value, _source = _fetch_fiscal_deficit_with_source()
+    return value
 
-    The hardcoded 3.0 below is the 2026 government work report target. Treat
-    as low confidence in fetch_all() — confidence is overridden to 0.3 there.
+
+def _fetch_fiscal_deficit_with_source() -> tuple[Optional[float], str]:
+    """财政赤字率 (%). Sources: akshare fiscal data, fallback to MOF announcement.
+
+    Attempts to fetch actual fiscal deficit/GDP ratio from akshare's
+    macro_china_fiscal_deficit endpoint. Falls back to the latest
+    government work report target if API data is unavailable.
+
+    Previously hardcoded to 3.0 (2026 target). Now multi-source:
+      1. akshare macro_china_fiscal_deficit (actual realized deficit)
+      2. akshare macro_china_gov_report_target (official target)
+      3. Hardcoded fallback: 3.0 (last known target, confidence=0.3)
     """
-    return 3.0
+    # 1. Try akshare for realized fiscal deficit
+    val = _ak_fiscal_deficit()
+    if val is not None:
+        return val, "akshare:fiscal_deficit"
+
+    # 2. Try akshare for government work report target
+    val = _ak_gov_deficit_target()
+    if val is not None:
+        return val, "official_target"
+
+    # 3. Fallback: last known target with explicit low confidence
+    # (confidence overridden to 0.3 in fetch_all())
+    return 3.0, "static"
+
+
+def _ak_fiscal_deficit() -> Optional[float]:
+    """Fetch 实际财政赤字率 from akshare."""
+    try:
+        import akshare as ak
+
+        fetcher = getattr(ak, "macro_china_fiscal_deficit", None)
+        if fetcher is None:
+            return None
+        # Attempt to get fiscal revenue/expenditure data
+        df = fetcher()
+        if df is not None and not df.empty:
+            # Look for deficit ratio column
+            for col in df.columns:
+                col_text = str(col).lower()
+                if "赤字率" not in str(col) and "deficit" not in col_text:
+                    continue
+                vals = pd.to_numeric(df[col], errors="coerce").dropna()
+                if not vals.empty:
+                    return round(float(vals.iloc[-1]), 2)
+    except Exception:
+        pass
+    return None
+
+
+def _ak_gov_deficit_target() -> Optional[float]:
+    """Fetch 政府工作报告赤字目标 from akshare."""
+    try:
+        import akshare as ak
+
+        fetcher = getattr(ak, "macro_china_gov_report", None)
+        if fetcher is None:
+            return None
+        df = fetcher()
+        if df is not None and not df.empty:
+            for col in df.columns:
+                col_text = str(col).lower()
+                if (
+                    "赤字率" not in str(col)
+                    and "deficit" not in col_text
+                    and "目标" not in str(col)
+                ):
+                    continue
+                vals = pd.to_numeric(df[col], errors="coerce").dropna()
+                if not vals.empty:
+                    return round(float(vals.iloc[-1]), 2)
+    except Exception:
+        pass
+    return None
 
 
 # ─── 12. 美联储利率 (akshare — Tushare us_trl not available at 6000pts) ─────────
@@ -482,23 +562,36 @@ def _fetch_usd_index() -> Optional[float]:
         r = requests.get("https://open.er-api.com/v6/latest/USD", timeout=10)
         if r.status_code == 200:
             rates = r.json().get("rates", {})
-            eur, jpy = rates.get("EUR"), rates.get("JPY")
-            gbp, cad = rates.get("GBP"), rates.get("CAD")
-            sek, chf = rates.get("SEK"), rates.get("CHF")
-            if eur and jpy:
-                dxy = (
-                    50.14348112
-                    * (eur ** 0.576)     # EURUSD^-0.576 → (1/eur)^-0.576 = eur^0.576
-                    * (jpy ** 0.136)     # USDJPY
-                    * (gbp ** 0.119)     # GBPUSD^-0.119 → (1/gbp)^-0.119 = gbp^0.119
-                    * (cad ** 0.091)     # USDCAD
-                    * (sek ** 0.042)     # USDSEK
-                    * (chf ** 0.036)     # USDCHF
-                )
+            dxy = _calculate_dxy_from_usd_rates(rates)
+            if dxy is not None:
                 return round(dxy, 2)
     except Exception:
         pass
     return None
+
+
+def _calculate_dxy_from_usd_rates(rates: dict) -> Optional[float]:
+    """Calculate DXY from rates quoted as one USD equals N units of currency."""
+    try:
+        eur = float(rates["EUR"])
+        jpy = float(rates["JPY"])
+        gbp = float(rates["GBP"])
+        cad = float(rates["CAD"])
+        sek = float(rates["SEK"])
+        chf = float(rates["CHF"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if any(rate <= 0 for rate in (eur, jpy, gbp, cad, sek, chf)):
+        return None
+    return (
+        50.14348112
+        * (eur ** 0.576)  # EURUSD^-0.576 -> (1 / EUR_per_USD)^-0.576
+        * (jpy ** 0.136)  # USDJPY
+        * (gbp ** 0.119)  # GBPUSD^-0.119 -> (1 / GBP_per_USD)^-0.119
+        * (cad ** 0.091)  # USDCAD
+        * (sek ** 0.042)  # USDSEK
+        * (chf ** 0.036)  # USDCHF
+    )
 
 
 # ─── Date helpers ──────────────────────────────────────────────────────────────
