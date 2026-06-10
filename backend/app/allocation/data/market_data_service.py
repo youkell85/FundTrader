@@ -99,6 +99,12 @@ class MarketDataService:
         except Exception as e:
             logger.debug(f"  IC decay computation failed: {e}")
 
+        # 5. Factor loadings calibration (latest-window OLS regression)
+        try:
+            self._calibrate_factors()
+        except Exception as e:
+            logger.debug(f"  Factor calibration failed: {e}")
+
         self._last_refresh = datetime.now().isoformat()
         logger.info(f"MarketDataService: Refresh complete at {self._last_refresh}")
 
@@ -215,6 +221,47 @@ class MarketDataService:
             with self._lock:
                 self._ic_decay_cache = result
             logger.debug(f"  IC decay: computed for {len(result)} categories")
+
+    def _calibrate_factors(self) -> None:
+        """Refresh non-critical calibration snapshots without impacting API reads."""
+        historical_source = "static_assumption"
+        try:
+            from .historical_calibrator import HistoricalCalibrator
+
+            stats_snapshot = self._rolling_stats_ex
+            if stats_snapshot is None and self._rolling_stats is not None:
+                returns, vols, corr = self._rolling_stats
+                stats_snapshot = {
+                    "returns_long": returns,
+                    "vols_long": vols,
+                    "correlation_matrix": corr,
+                    "quality": (self._rolling_stats_ex or {}).get("quality", {}),
+                    "vol_regime": (self._rolling_stats_ex or {}).get("vol_regime", {}),
+                }
+            historical = HistoricalCalibrator(stats_snapshot=stats_snapshot)
+            historical_snapshot = historical.calibrate_all(persist=True)
+            historical_source = (
+                historical_snapshot.get("equilibrium_returns", {}).get("source")
+                or "static_assumption"
+            )
+        except Exception as exc:
+            logger.warning("  Historical calibration snapshot failed: %s", exc)
+
+        try:
+            from .. import factor_calibrator
+
+            factor_calibrator.clear_cache()
+            bundle = factor_calibrator.get_calibration_bundle(force_refresh=True)
+            summary = bundle.get("summary") or {}
+            logger.info(
+                "  Factor calibration: %s/%s assets via %s (historical=%s)",
+                len(summary.get("valid_assets") or []),
+                14,
+                summary.get("source", "static_assumption"),
+                historical_source,
+            )
+        except Exception as exc:
+            logger.warning("  Factor calibration degraded to static fallback: %s", exc)
 
     def get_status(self) -> dict:
         """Get service status for diagnostics."""
