@@ -1461,11 +1461,34 @@ def get_fund_year_returns(code: str) -> dict:
     """历年回报：从真实净值历史计算本基金年度收益，同时计算沪深300同期年度收益和同类均值。"""
     nav_rows, source, as_of = _get_nav_history_for_detail(code)
     if len(nav_rows) < 2:
-        return _rows_response(
-            code,
-            [],
-            missing_reason="缺少净值历史，无法计算年度收益。",
-        )
+        # Fallback: use quote snapshot scalar returns when nav history is insufficient
+        try:
+            with get_db_context() as conn:
+                q = conn.execute(
+                    "SELECT near_1y, near_3y, ytd FROM fund_quote_snapshot WHERE code = ?",
+                    (code,),
+                ).fetchone()
+            if q and (q["near_1y"] is not None or q["near_3y"] is not None or q["ytd"] is not None):
+                from datetime import date as date_type
+                current_year = date_type.today().year
+                rows_out = []
+                if q["ytd"] is not None:
+                    rows_out.append({"year": current_year, "fundReturn": _safe_float(q["ytd"]), "hs300Return": None, "peerReturn": None, "rank": None})
+                if q["near_1y"] is not None:
+                    rows_out.append({"year": current_year - 1, "fundReturn": _safe_float(q["near_1y"]), "hs300Return": None, "peerReturn": None, "rank": None})
+                if q["near_3y"] is not None:
+                    rows_out.append({"year": f"{current_year-3}-{current_year-1}", "fundReturn": _safe_float(q["near_3y"]), "hs300Return": None, "peerReturn": None, "rank": None})
+                return _rows_response(
+                    code, rows_out,
+                    status=DETAIL_STATUS_PARTIAL,
+                    source="fund_quote_snapshot_fallback",
+                    as_of=as_of,
+                    coverage=0.3,
+                    missing_reason="净值历史不足，年度收益由快照收益率推算。",
+                )
+        except Exception:
+            pass
+        return _rows_response(code, [], missing_reason="缺少净值历史，无法计算年度收益。")
     years = sorted({_to_date(row.get("nav_date")).year for row in nav_rows if _to_date(row.get("nav_date"))})
     latest_years = years[-5:]
 
@@ -1835,24 +1858,40 @@ def get_fund_peer_performance(
         except Exception as e:
             console_error(f"drawdown series calc failed for {code}: {e}")
 
+        # Fallback: when fund cumulative series is empty but quote has scalar returns,
+        # at least return benchmark comparison with scalar values
+        if not series_data["fund"] and quote:
+            fund_row = _empty_perf_row()
+            fund_row["return1y"] = _pct_for_api(quote.get("near_1y"))
+            fund_row["return3m"] = _pct_for_api(quote.get("near_3m"))
+            fund_row["return6m"] = _pct_for_api(quote.get("near_6m"))
+            coverage = max(coverage, 0.2)
+            source = source or "fund_quote_snapshot_scalar_fallback"
+
         status = DETAIL_STATUS_PARTIAL if quote or peer_1y is not None else DETAIL_STATUS_MISSING
         if series_data["index"]:
             coverage = min(1.0, coverage + 0.15)
+
+        # Build fund scalar dict, using fallback fund_row if series is empty
+        fund_scalar = {
+            "return3m": _pct_for_api(quote["near_3m"]) if quote else None,
+            "return6m": _pct_for_api(quote["near_6m"]) if quote else None,
+            "return1y": _pct_for_api(quote["near_1y"]) if quote else None,
+            "return3y": _pct_for_api(quote["near_3y"]) if quote else None,
+            "return5y": None,
+            "returnSinceInception": None,
+            "annualizedReturn": None,
+        }
+        # Override with fallback values if series was empty
+        if not series_data["fund"] and quote:
+            fund_scalar = fund_row
 
         return {
             "code": code,
             "peer": peer_row,
             "index": index_row,
             "benchmark": empty.copy(),
-            "fund": {
-                "return3m": _pct_for_api(quote["near_3m"]) if quote else None,
-                "return6m": _pct_for_api(quote["near_6m"]) if quote else None,
-                "return1y": _pct_for_api(quote["near_1y"]) if quote else None,
-                "return3y": _pct_for_api(quote["near_3y"]) if quote else None,
-                "return5y": None,
-                "returnSinceInception": None,
-                "annualizedReturn": None,
-            },
+            "fund": fund_scalar,
             "series": series_data,
             **_detail_meta(
                 status=status,

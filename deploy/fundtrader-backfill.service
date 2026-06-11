@@ -1,0 +1,10 @@
+﻿
+
+[Unit]
+Description=Fund detail snapshots backfill
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/fundtrader
+ExecStart=/usr/bin/python3 /opt/fundtrader/scripts/backfill_detail_snapshots.py --limit 100
+User=root

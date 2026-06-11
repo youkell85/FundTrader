@@ -335,6 +335,31 @@ async def fund_detail_completeness(code: str = Query(..., min_length=4, max_leng
     holdings_count = len(snapshot.get("holdings") or []) if snapshot else 0
     asset_count = len(snapshot.get("asset_allocation") or []) if snapshot else 0
 
+    # ---- JSON depth validation -----------------------------------------------
+    # SQL counts only check if JSON columns are non-empty strings;
+    # we also need to verify the JSON is parseable and contains required fields.
+    def _validate_json_field(code: str, field: str) -> int:
+        """Check JSON field is parseable and contains non-empty list."""
+        import json as _json
+        try:
+            with get_db_context() as vconn:
+                rows = vconn.execute(
+                    f"SELECT {field} FROM fund_detail_quarterly_snapshot "
+                    f"WHERE code = ? AND {field} IS NOT NULL AND {field} != ''",
+                    (code,),
+                ).fetchall()
+            count = 0
+            for row in rows:
+                try:
+                    parsed = _json.loads(row[field])
+                    if isinstance(parsed, list) and len(parsed) > 0:
+                        count += 1
+                except (_json.JSONDecodeError, TypeError):
+                    pass
+            return count
+        except Exception:
+            return 0
+
     # peerPerformance: quote has priority; nav_count>=250 is fallback
     quote_has_peer_data = quote_row is not None and (quote_row.get("near_1y") is not None or quote_row.get("near_3y") is not None)
     peer_has_data = quote_has_peer_data or nav_count >= 250
@@ -355,11 +380,11 @@ async def fund_detail_completeness(code: str = Query(..., min_length=4, max_leng
         except Exception:
             return 0
 
-    holder_count = qcount("holder_count")
+    holder_count = _validate_json_field(code, "holder_structure_json") or qcount("holder_count")
     scale_count = qcount("scale_count")
     turnover_count = qcount("turnover_count")
-    bond_alloc_count = qcount("bond_alloc_count")
-    bond_hold_count = qcount("bond_hold_count")
+    bond_alloc_count = _validate_json_field(code, "bond_allocation_json") or qcount("bond_alloc_count")
+    bond_hold_count = _validate_json_field(code, "bond_holdings_json") or qcount("bond_hold_count")
 
     # ---- asOf sources --------------------------------------------------------
     nav_as_of = nav_date or (snapshot.get("updated_at") if snapshot else None)
