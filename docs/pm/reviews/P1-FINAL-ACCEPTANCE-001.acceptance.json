@@ -1,9 +1,19 @@
 {
-  "task_id": "P1-FINAL-ACCEPTANCE-001",
-  "status": "passed",
+  "task": "P1-FINAL-ACCEPTANCE-001",
   "verdict": "accepted",
-  "passed": 58,
-  "failed": 0,
-  "notes": "All P1 sub-requirements have task reports and acceptance. Static fallback only labeled assumption/fallback.",
-  "accepted_at": "2026-06-11T12:50:00+08:00"
+  "date": "2026-06-12",
+  "evidence": {
+    "p1_1": "P1-1-LONG-WINDOW-FINAL-ACCEPT-001 accepted",
+    "p1_2": "P1-2-FACTOR-CALIBRATION-CLOSEOUT-001 accepted",
+    "p1_3": "P1-3-MACRO-SOURCE-GOVERNANCE-001 accepted",
+    "p1_4": "P1-REAL-IC-DECAY-001 accepted",
+    "p1_5": "P1-5-FUND-METADATA-REFRESH-001 accepted (xreview P0 stale fix applied)",
+    "p1_6": "P1-STRESS-MC-PROVENANCE-001 accepted",
+    "static_fallback_never_real": true,
+    "backend_tests": "359 passed, 0 failed",
+    "frontend_tsc": "clean",
+    "xreview_audits": "5 completed, no blocking P0/P1",
+    "production_health": "backend ok, frontend 200"
+  },
+  "section_15_gates": "all 8 gates pass"
 }
