@@ -1,0 +1,32 @@
+# Acceptance: P4-SCOPE-AUDIT-001
+
+**Mode:** list
+**Generated:** 2026-06-10T22:59:05.3280705+08:00
+
+## Summary
+
+| Metric | Count |
+|--------|-------|
+| Total blocks | 8 |
+| Safe | 1 |
+| Skipped (unsafe) | 0 |
+| Unsupported | 0 |
+
+## Blocks
+
+### Block 1
+
+- **Classification:** safe
+- **Reason:** Passed safety checks
+- **Language:** powershell
+
+```powershell
+git log --oneline -5
+git rev-parse --short HEAD
+git status --short --untracked-files=all
+rg -n "EQUILIBRIUM_RETURNS|DEFAULT_CORR|DEFAULT_CORRELATION|anchor|calibrat|historical|blend_lambda|quality" backend/app/allocation docs/0610 docs/pm/STATUS.md
+```
+
+## Recommended Next Action
+
+Review listed blocks. Use -Run to execute safe blocks.

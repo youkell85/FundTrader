@@ -1,0 +1,25 @@
+{
+    "taskId":  "P4-LONG-WINDOW-MANUAL-TRIGGER-V1",
+    "mode":  "list",
+    "generatedAt":  "2026-06-10T23:59:26.7063947+08:00",
+    "taskPath":  "docs\\pm\\outbox\\P4-LONG-WINDOW-MANUAL-TRIGGER-V1.md",
+    "summary":  {
+                    "totalBlocks":  8,
+                    "safe":  1,
+                    "skipped_unsafe":  0,
+                    "unsupported":  0,
+                    "passed":  0,
+                    "failed":  0
+                },
+    "recommendedNext":  "Review listed blocks. Use -Run to execute safe blocks.",
+    "blocks":  {
+                   "number":  1,
+                   "language":  "powershell",
+                   "classification":  "safe",
+                   "reason":  "Passed safety checks",
+                   "command":  "python -m py_compile backend\\app\\allocation\\data\\long_window_producer.py\n.\\scripts\\build-long-window-stats.ps1 -AsOfDate 2026-06-10 -Json\ncd backend; python -m pytest tests/test_long_window_producer.py tests/test_historical_calibrator.py -q",
+                   "exitCode":  null,
+                   "stdout":  null,
+                   "stderr":  null
+               }
+}

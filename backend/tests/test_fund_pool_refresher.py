@@ -1,72 +1,100 @@
+"""Tests for fund_pool_refresher — P1-5 metadata refresh and stale penalty."""
+import sys
 import unittest
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import patch, MagicMock
 
-import numpy as np
-
-from app.allocation import fund_data_refresher
-from app.allocation.fund_mapper import map_funds
-from app.allocation.fund_scorer import FundProfile
-
-
-def _profile(code: str = "510300") -> FundProfile:
-    return FundProfile(
-        code=code,
-        name="Test Fund",
-        fund_type="ETF",
-        asset_class="a_share_large",
-        company="Test",
-        aum=10.0,
-        daily_turnover=1000.0,
-        tracking_error=0.02,
-    )
+from app.allocation.fund_scorer import FundProfile, FundScore, score_fund, rank_funds_for_asset_class
+from app.allocation.fund_pool_refresher import (
+    refresh_pool_metadata,
+    _compute_stale_days,
+    _update_profile,
+)
 
 
 class FundPoolRefresherTest(unittest.TestCase):
-    def setUp(self) -> None:
-        fund_data_refresher.clear_cache()
 
-    def tearDown(self) -> None:
-        fund_data_refresher.clear_cache()
+    def _make_profile(self, code="518880", stale_days=None, metadata_status="assumption",
+                      metadata_as_of=None, aum=100.0) -> FundProfile:
+        return FundProfile(
+            code=code, name="Test Gold ETF", fund_type="商品型-贵金属",
+            asset_class="gold", company="TestFund",
+            aum=aum, daily_turnover=50000.0, tracking_error=0.01,
+            metadata_status=metadata_status, metadata_source="static_fund_pool",
+            metadata_as_of=metadata_as_of, stale_days=stale_days,
+        )
 
-    def test_dynamic_nav_refresh_marks_metadata_real(self):
-        prices = np.linspace(1.0, 1.2, 260, dtype=np.float64)
-        turnover = np.linspace(10000.0, 20000.0, 260, dtype=np.float64)
+    def test_compute_stale_days_none_as_of(self):
+        self.assertIsNone(_compute_stale_days(None))
 
-        with patch("app.allocation.fund_data_refresher._get_sqlite_metrics", return_value=None), patch(
-            "app.allocation.fund_data_refresher._fetch_nav_series",
-            return_value=(prices, turnover),
-        ), patch("app.storage.database.FundNAVCache.save", return_value=None):
-            refreshed = fund_data_refresher.refresh_fund_profile(_profile())
+    def test_compute_stale_days_recent(self):
+        from datetime import date
+        today = date.today().isoformat()
+        self.assertEqual(_compute_stale_days(today), 0)
 
-        self.assertEqual(refreshed.metadata_status, "real")
-        self.assertEqual(refreshed.metadata_source, "computed_nav")
-        self.assertTrue(refreshed.metadata_as_of)
-        self.assertEqual(refreshed.stale_days, 0)
-        self.assertNotEqual(refreshed.return_1y, 0.0)
+    def test_compute_stale_days_old(self):
+        from datetime import date, timedelta
+        old = (date.today() - timedelta(days=10)).isoformat()
+        self.assertEqual(_compute_stale_days(old), 10)
 
-    def test_missing_nav_keeps_static_metadata_assumption(self):
-        with patch("app.allocation.fund_data_refresher._get_sqlite_metrics", return_value=None), patch(
-            "app.allocation.fund_data_refresher._fetch_nav_series",
-            return_value=None,
-        ):
-            refreshed = fund_data_refresher.refresh_fund_profile(_profile())
+    def test_stale_penalty_applied_after_7_days(self):
+        """Funds with stale_days > 7 should have total_score penalized."""
+        fresh = self._make_profile(code="FRESH", stale_days=0)
+        stale = self._make_profile(code="STALE", stale_days=15)
+        peers = [fresh, stale]
+        score_fresh = score_fund(fresh, peers)
+        score_stale = score_fund(stale, peers)
+        self.assertGreater(score_fresh.total_score, score_stale.total_score)
+        self.assertTrue(any("陈旧" in r for r in score_stale.reasons))
 
-        self.assertEqual(refreshed.metadata_status, "assumption")
-        self.assertEqual(refreshed.metadata_source, "static_fund_pool")
+    def test_missing_metadata_heavy_penalty(self):
+        """Funds with metadata_status=missing should be heavily penalized."""
+        ok_fund = self._make_profile(code="OK", metadata_status="real")
+        missing_fund = self._make_profile(code="MISS", metadata_status="missing")
+        peers = [ok_fund, missing_fund]
+        score_ok = score_fund(ok_fund, peers)
+        score_miss = score_fund(missing_fund, peers)
+        self.assertGreater(score_ok.total_score - score_miss.total_score, 30)
 
-    def test_map_funds_exposes_metadata_fields(self):
-        refreshed = _profile()
-        refreshed.metadata_status = "real"
-        refreshed.metadata_source = "computed_nav"
-        refreshed.metadata_as_of = "2026-06-10"
-        refreshed.stale_days = 0
+    def test_update_profile_preserves_unchanged_fields(self):
+        profile = self._make_profile()
+        updated = _update_profile(profile, {"aum": 200.0, "metadata_status": "real"})
+        self.assertEqual(updated.aum, 200.0)
+        self.assertEqual(updated.metadata_status, "real")
+        self.assertEqual(updated.code, profile.code)
+        self.assertEqual(updated.name, profile.name)
+        self.assertEqual(updated.asset_class, profile.asset_class)
 
-        with patch("app.allocation.fund_mapper.refresh_fund_profile", return_value=refreshed):
-            funds = map_funds({"a_share_large": 1.0}, 10000.0, [])
+    def test_refresh_pool_metadata_marks_stale_when_no_live_data(self):
+        """When no live data is available and as_of is old, profile should be marked stale."""
+        from datetime import date, timedelta
+        old_date = (date.today() - timedelta(days=10)).isoformat()
+        profile = self._make_profile(metadata_as_of=old_date, metadata_status="real")
+        pool = {"518880": profile}
 
-        self.assertTrue(funds)
-        self.assertEqual(funds[0].metadata_status, "real")
-        self.assertEqual(funds[0].metadata_source, "computed_nav")
+        with patch("app.allocation.fund_pool_refresher._fetch_efinance_meta", return_value=None), \
+             patch("app.allocation.fund_pool_refresher._fetch_tushare_meta", return_value=None), \
+             patch("app.allocation.fund_pool_refresher._fetch_sqlite_meta", return_value=None):
+            result = refresh_pool_metadata(pool)
+
+        self.assertEqual(result["518880"].metadata_status, "stale")
+        self.assertEqual(result["518880"].stale_days, 10)
+
+    def test_refresh_pool_metadata_marks_real_when_live_data(self):
+        """When live data is available, profile should be marked real."""
+        profile = self._make_profile(metadata_status="assumption")
+        pool = {"518880": profile}
+
+        live_meta = {"_source": "efinance", "aum": 250.0, "name": "Updated ETF"}
+        with patch("app.allocation.fund_pool_refresher._fetch_efinance_meta", return_value=live_meta), \
+             patch("app.allocation.fund_pool_refresher._fetch_tushare_meta", return_value=None), \
+             patch("app.allocation.fund_pool_refresher._fetch_sqlite_meta", return_value=None):
+            result = refresh_pool_metadata(pool)
+
+        self.assertEqual(result["518880"].metadata_status, "real")
+        self.assertEqual(result["518880"].metadata_source, "efinance")
+        self.assertEqual(result["518880"].aum, 250.0)
+        self.assertEqual(result["518880"].stale_days, 0)
 
 
 if __name__ == "__main__":

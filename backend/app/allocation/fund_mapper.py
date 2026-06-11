@@ -6,6 +6,7 @@ from .config import ASSET_CLASSES, ASSET_TO_GROUP, FUND_ASSET_MAP
 from .models import FundItem
 from .fund_scorer import FundProfile, FundScore, rank_funds_for_asset_class
 from .fund_data_refresher import refresh_fund_profile
+from .fund_pool_refresher import refresh_pool_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -248,7 +249,9 @@ def get_ranked_for_class(
     Dynamically refreshes fund metrics from real NAV data before scoring.
     Falls back to static metadata if refresh fails.
     """
-    profiles = [p for p in _FUND_POOL.values() if p.asset_class == asset_class]
+    # Refresh pool metadata (AUM, fees, staleness) before selecting
+    _refreshed_pool = refresh_pool_metadata(_FUND_POOL)
+    profiles = [p for p in _refreshed_pool.values() if p.asset_class == asset_class]
     if not profiles:
         return []
 

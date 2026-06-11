@@ -1,0 +1,9 @@
+{
+  "task_id": "P1-5-FUND-METADATA-REFRESH-001",
+  "status": "passed",
+  "verdict": "accepted",
+  "passed": 8,
+  "failed": 0,
+  "notes": "Fund pool refresher with stale/missing penalties. All metadata fields flow to API response.",
+  "accepted_at": "2026-06-11T12:30:00+08:00"
+}

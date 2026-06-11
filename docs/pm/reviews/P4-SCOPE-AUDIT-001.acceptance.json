@@ -1,0 +1,25 @@
+{
+    "taskId":  "P4-SCOPE-AUDIT-001",
+    "mode":  "list",
+    "generatedAt":  "2026-06-10T22:59:05.3280705+08:00",
+    "taskPath":  "docs\\pm\\outbox\\P4-SCOPE-AUDIT-001.md",
+    "summary":  {
+                    "totalBlocks":  8,
+                    "safe":  1,
+                    "skipped_unsafe":  0,
+                    "unsupported":  0,
+                    "passed":  0,
+                    "failed":  0
+                },
+    "recommendedNext":  "Review listed blocks. Use -Run to execute safe blocks.",
+    "blocks":  {
+                   "number":  1,
+                   "language":  "powershell",
+                   "classification":  "safe",
+                   "reason":  "Passed safety checks",
+                   "command":  "git log --oneline -5\ngit rev-parse --short HEAD\ngit status --short --untracked-files=all\nrg -n \"EQUILIBRIUM_RETURNS|DEFAULT_CORR|DEFAULT_CORRELATION|anchor|calibrat|historical|blend_lambda|quality\" backend/app/allocation docs/0610 docs/pm/STATUS.md",
+                   "exitCode":  null,
+                   "stdout":  null,
+                   "stderr":  null
+               }
+}

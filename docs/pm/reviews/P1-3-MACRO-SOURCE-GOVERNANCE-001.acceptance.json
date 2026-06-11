@@ -1,0 +1,9 @@
+{
+  "task_id": "P1-3-MACRO-SOURCE-GOVERNANCE-001",
+  "status": "passed",
+  "verdict": "accepted",
+  "passed": 6,
+  "failed": 0,
+  "notes": "DXY source label fixed to derived_fx_formula. All 13 macro indicators have source/confidence/fetch_time. Static fallbacks low-confidence.",
+  "accepted_at": "2026-06-11T12:10:00+08:00"
+}

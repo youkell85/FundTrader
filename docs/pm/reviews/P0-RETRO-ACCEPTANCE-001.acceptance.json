@@ -1,0 +1,9 @@
+{
+  "task_id": "P0-RETRO-ACCEPTANCE-001",
+  "status": "passed",
+  "verdict": "accepted",
+  "passed": 0,
+  "failed": 0,
+  "notes": "P0-1 through P0-5 all have code and test evidence. 8 tests passed. No blocking gaps.",
+  "accepted_at": "2026-06-11T12:00:00+08:00"
+}

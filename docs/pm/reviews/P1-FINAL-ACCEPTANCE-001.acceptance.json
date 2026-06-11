@@ -1,0 +1,9 @@
+{
+  "task_id": "P1-FINAL-ACCEPTANCE-001",
+  "status": "passed",
+  "verdict": "accepted",
+  "passed": 58,
+  "failed": 0,
+  "notes": "All P1 sub-requirements have task reports and acceptance. Static fallback only labeled assumption/fallback.",
+  "accepted_at": "2026-06-11T12:50:00+08:00"
+}

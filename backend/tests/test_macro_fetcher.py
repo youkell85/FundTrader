@@ -95,6 +95,42 @@ class MacroFetcherTest(unittest.TestCase):
             "CHF": 0,
         }))
 
+    def test_fetch_all_labels_dxy_source_as_derived_formula(self):
+        """P1-3: DXY source must be 'derived_fx_formula', not 'forex_api'."""
+        fake_rates = {"EUR": 0.92, "JPY": 157.0, "GBP": 0.79,
+                      "CAD": 1.37, "SEK": 10.52, "CHF": 0.89}
+        fake_response = SimpleNamespace(status_code=200, json=lambda: {"rates": fake_rates})
+        patches = [
+            patch.object(macro_fetcher, "_get_tushare", return_value=None),
+            patch.object(macro_fetcher, "_fetch_pmi", return_value=None),
+            patch.object(macro_fetcher, "_fetch_gdp", return_value=None),
+            patch.object(macro_fetcher, "_fetch_cpi", return_value=None),
+            patch.object(macro_fetcher, "_fetch_ppi", return_value=None),
+            patch.object(macro_fetcher, "_fetch_bond_yield_10y", return_value=None),
+            patch.object(macro_fetcher, "_fetch_dr007", return_value=None),
+            patch.object(macro_fetcher, "_fetch_social_financing", return_value=None),
+            patch.object(macro_fetcher, "_fetch_m2", return_value=None),
+            patch.object(macro_fetcher, "_fetch_margin_balance", return_value=None),
+            patch.object(macro_fetcher, "_fetch_northbound", return_value=None),
+            patch.object(
+                macro_fetcher,
+                "_fetch_fiscal_deficit_with_source",
+                return_value=(3.0, "static"),
+            ),
+            patch.object(macro_fetcher, "_fetch_fed_rate", return_value=None),
+        ]
+        for item in patches:
+            item.start()
+        try:
+            snapshot = macro_fetcher.fetch_all()
+        finally:
+            for item in reversed(patches):
+                item.stop()
+
+        indicator = snapshot.indicators["美元指数"]
+        self.assertEqual(indicator.source, "derived_fx_formula")
+        self.assertAlmostEqual(indicator.confidence, 0.7)
+
 
 if __name__ == "__main__":
     unittest.main()

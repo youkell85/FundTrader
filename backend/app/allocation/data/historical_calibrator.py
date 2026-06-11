@@ -35,9 +35,14 @@ class CalibrationResult:
     invalid_assets: Dict[str, str]
     assumptions_used: List[str]
     calibration_version: str = CALIBRATION_VERSION
+    data_status: str = "assumption"
     values: Dict[str, float] | None = None
     matrix: List[List[float]] | None = None
     params: Dict[str, Any] | None = None
+    window_start: str | None = None
+    window_end: str | None = None
+    n_observations: int | None = None
+    confidence_score: float | None = None
 
     def to_dict(self) -> dict:
         data = {
@@ -48,6 +53,7 @@ class CalibrationResult:
             "invalid_assets": self.invalid_assets,
             "assumptions_used": self.assumptions_used,
             "calibration_version": self.calibration_version,
+            "data_status": self.data_status,
         }
         if self.values is not None:
             data["values"] = self.values
@@ -55,6 +61,14 @@ class CalibrationResult:
             data["matrix"] = self.matrix
         if self.params is not None:
             data["params"] = self.params
+        if self.window_start is not None:
+            data["window_start"] = self.window_start
+        if self.window_end is not None:
+            data["window_end"] = self.window_end
+        if self.n_observations is not None:
+            data["n_observations"] = self.n_observations
+        if self.confidence_score is not None:
+            data["confidence_score"] = self.confidence_score
         return data
 
 
@@ -64,6 +78,7 @@ class HistoricalCalibrator:
     def __init__(self, stats_snapshot: dict | None = None):
         self._stats_snapshot = stats_snapshot
         self._stats_source = "static_assumption"
+        self._long_window_meta: dict = {}
 
     def calibrate_all(self, persist: bool = False) -> dict:
         result = {
@@ -84,9 +99,11 @@ class HistoricalCalibrator:
 
     def calibrate_equilibrium_returns(self) -> dict:
         stats = self._load_stats()
-        values = (stats or {}).get("returns") or {}
+        long_window = _extract_long_window(stats)
+        values = long_window.get("returns") or (stats or {}).get("returns_long") or {}
         if not values:
-            values = (stats or {}).get("returns_long") or {}
+            values = (stats or {}).get("returns") or {}
+        self._long_window_meta = _extract_long_window_meta(long_window, "returns")
         return self._series_result(
             values,
             EQUILIBRIUM_RETURNS,
@@ -97,9 +114,11 @@ class HistoricalCalibrator:
 
     def calibrate_equilibrium_vols(self) -> dict:
         stats = self._load_stats()
-        values = (stats or {}).get("vols") or {}
+        long_window = _extract_long_window(stats)
+        values = long_window.get("vols") or (stats or {}).get("vols_long") or {}
         if not values:
-            values = (stats or {}).get("vols_long") or {}
+            values = (stats or {}).get("vols") or {}
+        self._long_window_meta = _extract_long_window_meta(long_window, "vols")
         return self._series_result(
             values,
             EQUILIBRIUM_VOLS,
@@ -110,29 +129,66 @@ class HistoricalCalibrator:
 
     def calibrate_correlation_matrix(self) -> dict:
         stats = self._load_stats()
-        matrix = (stats or {}).get("correlation_matrix")
+        long_window = _extract_long_window(stats)
+        matrix = long_window.get("correlation_matrix")
+        if not _is_valid_corr_matrix(matrix):
+            matrix = (stats or {}).get("correlation_matrix")
+        self._long_window_meta = _extract_long_window_meta(long_window, "correlation")
         if _is_valid_corr_matrix(matrix):
             quality = (stats or {}).get("quality") or {}
             valid_assets = _quality_assets(quality, "available")
             invalid_assets = _invalid_assets_from_quality(quality)
             coverage = round(len(valid_assets) / len(ASSET_CLASSES), 4)
             if coverage >= MIN_COVERAGE:
-                return CalibrationResult(
+                return self._build_matrix_result(
                     source=self._stats_source,
-                    as_of=_today(),
                     coverage=coverage,
                     valid_assets=valid_assets,
                     invalid_assets=invalid_assets,
                     assumptions_used=_assumptions_from_quality(quality),
                     matrix=_sanitize_corr_matrix(matrix),
-            ).to_dict()
+                )
 
-        return _static_matrix_result("insufficient_historical_correlation")
+        return self._build_matrix_result(
+            source="static_assumption",
+            coverage=0.0,
+            valid_assets=[],
+            invalid_assets={asset: "insufficient_historical_correlation" for asset in ASSET_CLASSES},
+            assumptions_used=[f"{asset}:insufficient_historical_correlation" for asset in ASSET_CLASSES],
+            matrix=_sanitize_corr_matrix(DEFAULT_CORR),
+        )
+
+    def _build_matrix_result(self, **kwargs) -> dict:
+        meta = self._long_window_meta if self._long_window_meta else {}
+        return CalibrationResult(
+            as_of=_today(),
+            **kwargs,
+            data_status=_calibration_data_status(
+                kwargs.get("source", "static_assumption"),
+                float(kwargs.get("coverage", 0.0)),
+                kwargs.get("invalid_assets", {}),
+                kwargs.get("assumptions_used", []),
+            ),
+            window_start=meta.get("window_start"),
+            window_end=meta.get("window_end"),
+            n_observations=meta.get("n_observations"),
+            confidence_score=meta.get("confidence_score"),
+        ).to_dict()
 
     def _load_stats(self) -> dict | None:
         if self._stats_snapshot:
-            self._stats_source = "historical_market_data"
+            self._stats_source = (
+                "long_window_snapshot"
+                if _extract_long_window(self._stats_snapshot)
+                else "historical_market_data"
+            )
             return self._stats_snapshot
+
+        long_window_stats = _load_long_window_cache()
+        if long_window_stats:
+            self._stats_source = "long_window_cache"
+            return long_window_stats
+
         try:
             from . import market_data_fetcher
 
@@ -198,6 +254,7 @@ class HistoricalCalibrator:
                 invalid_assets[asset] = f"{assumption_name}_fallback"
 
         coverage = round(len(valid_assets) / len(ASSET_CLASSES), 4)
+        meta = self._long_window_meta if self._long_window_meta else {}
         if coverage >= MIN_COVERAGE:
             return CalibrationResult(
                 source=self._stats_source,
@@ -211,7 +268,17 @@ class HistoricalCalibrator:
                         + quality_assumptions
                     )
                 ),
+                data_status=_calibration_data_status(
+                    self._stats_source,
+                    coverage,
+                    invalid_assets,
+                    quality_assumptions,
+                ),
                 values=merged,
+                window_start=meta.get("window_start"),
+                window_end=meta.get("window_end"),
+                n_observations=meta.get("n_observations"),
+                confidence_score=meta.get("confidence_score"),
             ).to_dict()
 
         return CalibrationResult(
@@ -221,6 +288,7 @@ class HistoricalCalibrator:
             valid_assets=valid_assets,
             invalid_assets={asset: f"{assumption_name}_static_assumption" for asset in ASSET_CLASSES},
             assumptions_used=[f"{asset}:{assumption_name}_static_assumption" for asset in ASSET_CLASSES],
+            data_status="assumption",
             values={asset: float(fallback[asset]) for asset in ASSET_CLASSES},
         ).to_dict()
 
@@ -233,6 +301,63 @@ def _load_rolling_stats() -> dict | None:
         return cached if isinstance(cached, dict) else None
     except Exception:
         return None
+
+
+def _load_long_window_cache() -> dict | None:
+    """Load a long-window equilibrium snapshot from the cache (key: ``long_window_stats``).
+
+    The snapshot may be a flat dict with ``returns_long`` / ``vols_long`` /
+    ``correlation_matrix`` keys, or it may contain a nested ``long_window`` block.
+    """
+    try:
+        from app.storage.database import StatsSnapshotCache
+
+        cached = StatsSnapshotCache.get("long_window_stats")
+        if not isinstance(cached, dict):
+            return None
+        return cached
+    except Exception:
+        return None
+
+
+def _extract_long_window(stats: dict | None) -> dict:
+    """Return normalized long-window data from *stats* when present."""
+    if not isinstance(stats, dict):
+        return {}
+    long_window = stats.get("long_window")
+    if isinstance(long_window, dict):
+        normalized = dict(long_window)
+    else:
+        normalized = {}
+
+    has_flat_long = bool(stats.get("returns_long") or stats.get("vols_long"))
+    if has_flat_long:
+        normalized.setdefault("returns", stats.get("returns_long") or {})
+        normalized.setdefault("vols", stats.get("vols_long") or {})
+        if stats.get("correlation_matrix") is not None:
+            normalized.setdefault("correlation_matrix", stats.get("correlation_matrix"))
+
+    for key in ("window_start", "window_end", "n_observations", "confidence_score"):
+        if key not in normalized and stats.get(key) is not None:
+            normalized[key] = stats[key]
+
+    return normalized
+
+
+def _extract_long_window_meta(long_window: dict, data_kind: str) -> dict:
+    """Pull optional metadata keys from a long_window dict for a specific *data_kind*.
+
+    Returns optional ``window_start``, ``window_end``, ``n_observations``, and
+    ``confidence_score`` keys when those values are present.
+    """
+    if not isinstance(long_window, dict):
+        return {}
+    meta: dict = {}
+    for key in ("window_start", "window_end", "n_observations", "confidence_score"):
+        val = long_window.get(key)
+        if val is not None:
+            meta[key] = val
+    return meta
 
 
 def _today() -> str:
@@ -282,6 +407,21 @@ def _assumptions_from_quality(quality: dict) -> List[str]:
     ]
 
 
+def _calibration_data_status(
+    source: str,
+    coverage: float,
+    invalid_assets: Dict[str, str],
+    assumptions_used: List[str],
+) -> str:
+    if source == "static_assumption" or coverage <= 0:
+        return "assumption"
+    if coverage >= 1.0 and not invalid_assets and not assumptions_used:
+        return "real"
+    if coverage >= MIN_COVERAGE:
+        return "partial"
+    return "assumption"
+
+
 def _static_matrix_result(reason: str) -> dict:
     return CalibrationResult(
         source="static_assumption",
@@ -290,6 +430,7 @@ def _static_matrix_result(reason: str) -> dict:
         valid_assets=[],
         invalid_assets={asset: reason for asset in ASSET_CLASSES},
         assumptions_used=[f"{asset}:{reason}" for asset in ASSET_CLASSES],
+        data_status="assumption",
         matrix=_sanitize_corr_matrix(DEFAULT_CORR),
     ).to_dict()
 
@@ -302,6 +443,7 @@ def _static_params_result(name: str, params: dict, reason: str) -> dict:
         valid_assets=[],
         invalid_assets={name: reason},
         assumptions_used=[f"{name}:{reason}"],
+        data_status="assumption",
         params=params,
     ).to_dict()
 

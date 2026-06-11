@@ -1,0 +1,25 @@
+{
+    "taskId":  "P4-LONG-WINDOW-PRODUCER-V1",
+    "mode":  "list",
+    "generatedAt":  "2026-06-10T23:30:48.5316978+08:00",
+    "taskPath":  "docs\\pm\\outbox\\P4-LONG-WINDOW-PRODUCER-V1.md",
+    "summary":  {
+                    "totalBlocks":  8,
+                    "safe":  1,
+                    "skipped_unsafe":  0,
+                    "unsupported":  0,
+                    "passed":  0,
+                    "failed":  0
+                },
+    "recommendedNext":  "Review listed blocks. Use -Run to execute safe blocks.",
+    "blocks":  {
+                   "number":  1,
+                   "language":  "powershell",
+                   "classification":  "safe",
+                   "reason":  "Passed safety checks",
+                   "command":  "git log --oneline -5\ngit rev-parse --short HEAD\ngit status --short --untracked-files=all\ncd backend; python -m py_compile app/allocation/data/long_window_producer.py tests/test_long_window_producer.py\ncd backend; python -m pytest tests/test_long_window_producer.py -q\ncd backend; python -m pytest tests/test_historical_calibrator.py -q",
+                   "exitCode":  null,
+                   "stdout":  null,
+                   "stderr":  null
+               }
+}

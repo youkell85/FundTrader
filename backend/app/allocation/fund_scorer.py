@@ -138,6 +138,15 @@ def score_fund(profile: FundProfile, peers: List[FundProfile]) -> FundScore:
         1
     )
 
+    # Stale/delisted penalty: degrade total_score if metadata is not fresh
+    if profile.stale_days is not None and profile.stale_days > 7:
+        penalty = min(30, (profile.stale_days - 7) * 2)
+        result.total_score = max(0, result.total_score - penalty)
+        result.reasons.append(f"元数据陈旧({profile.stale_days}天)")
+    if profile.metadata_status in ("missing", "rejected"):
+        result.total_score = max(0, result.total_score - 40)
+        result.reasons.append("元数据缺失或拒绝")
+
     return result
 
 

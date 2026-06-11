@@ -60,7 +60,7 @@ def fetch_all() -> MacroSnapshot:
                 value = fetcher()
                 src = "tushare" if pro and name not in ("北向资金净流入","财政赤字率","美联储利率","美元指数") else "akshare"
                 if name == "美元指数":
-                    src = "forex_api"
+                    src = "derived_fx_formula"
             if value is not None:
                 conf = 0.95 if src == "tushare" else 0.9
                 # 财政赤字率: dynamic confidence based on data source

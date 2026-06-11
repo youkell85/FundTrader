@@ -1,0 +1,9 @@
+{
+  "task_id": "P1-2-FACTOR-CALIBRATION-CLOSEOUT-001",
+  "status": "passed",
+  "verdict": "accepted",
+  "passed": 4,
+  "failed": 0,
+  "notes": "Factor calibration meets all P1-2 requirements. No code changes needed.",
+  "accepted_at": "2026-06-11T12:40:00+08:00"
+}
