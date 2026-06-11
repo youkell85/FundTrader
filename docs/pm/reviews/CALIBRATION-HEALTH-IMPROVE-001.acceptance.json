@@ -1,0 +1,9 @@
+{
+  "task_id": "CALIBRATION-HEALTH-IMPROVE-001",
+  "status": "passed",
+  "verdict": "accepted",
+  "passed": 357,
+  "failed": 0,
+  "notes": "P2 parameter defaults seeded in historical_calibration cache. missing_count reduced from 4 to 0. calibration.health=degraded (expected, non-blocking, real drift). xreview P0/P1 issues fixed.",
+  "accepted_at": "2026-06-11T23:55:00+08:00"
+}
