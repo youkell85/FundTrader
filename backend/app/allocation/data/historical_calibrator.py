@@ -86,8 +86,9 @@ class HistoricalCalibrator:
             "equilibrium_vols": self.calibrate_equilibrium_vols(),
             "correlation_matrix": self.calibrate_correlation_matrix(),
             "jump_params": self.calibrate_jump_params(),
-            "stress_scenarios": self.calibrate_stress_scenarios(),
-        }
+           "stress_scenarios": self.calibrate_stress_scenarios(),
+       }
+        result.update(self._p2_defaults())
         if persist:
             try:
                 from app.storage.database import StatsSnapshotCache
@@ -96,6 +97,44 @@ class HistoricalCalibrator:
             except Exception:
                 pass
         return result
+
+    @staticmethod
+    def _p2_defaults() -> dict:
+        """P2 parameter defaults for cache seeding.
+
+        When historical_calibration is persisted, these sections ensure
+        calibration audit sees 'assumption' instead of 'missing'.
+        """
+        try:
+            from ..regime_detector import RegimeThresholds
+            from dataclasses import fields as dc_fields
+            from ..config import GROUP_MAP, EQUILIBRIUM_RETURNS
+
+            rt_defaults = {f.name: getattr(RegimeThresholds, f.name) for f in dc_fields(RegimeThresholds)}
+            cash_assets = GROUP_MAP.get("cash_equiv", ["money_fund", "cash"])
+            n_cash = len(cash_assets)
+            dest_weights = {a: round(1.0 / n_cash, 4) for a in cash_assets}
+
+            return {
+                "regime_thresholds": {"params": rt_defaults, "source": "static_assumption", "status": "assumption"},
+                "circuit_breaker_destination": {"params": dest_weights, "source": "static_assumption", "status": "assumption"},
+                "scenario_analysis": {
+                    "params": {
+                        "baseline_returns": dict(EQUILIBRIUM_RETURNS),
+                        "probabilities": [0.25, 0.50, 0.25],
+                        "multiplier_overrides": None,
+                    },
+                    "source": "static_assumption",
+                    "status": "assumption",
+                },
+                "risk_questionnaire": {
+                    "params": {"weights": None, "shift_down_threshold": -0.5, "shift_up_threshold": 1.5},
+                    "source": "static_assumption",
+                    "status": "assumption",
+                },
+            }
+        except Exception:
+            return {}
 
     def calibrate_equilibrium_returns(self) -> dict:
         stats = self._load_stats()
