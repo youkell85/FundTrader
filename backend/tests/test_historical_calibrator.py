@@ -282,5 +282,104 @@ class HistoricalCalibratorTest(unittest.TestCase):
         self.assertAlmostEqual(result["values"]["a_share_large"], 8.75, places=2)
 
 
+class BayesianShrinkageTest(unittest.TestCase):
+    """Tests for _apply_bayesian_shrinkage edge cases and Winsorizing."""
+
+    def test_empty_observed_returns_empty(self):
+        from app.allocation.data.historical_calibrator import _apply_bayesian_shrinkage
+        result = _apply_bayesian_shrinkage({}, {"a_share_large": 7.5}, None)
+        self.assertEqual(result, {})
+
+    def test_empty_prior_returns_observed(self):
+        from app.allocation.data.historical_calibrator import _apply_bayesian_shrinkage
+        result = _apply_bayesian_shrinkage({"a_share_large": 8.0}, {}, None)
+        self.assertEqual(result["a_share_large"], 8.0)
+
+    def test_extreme_positive_value_is_winsorized(self):
+        from app.allocation.data.historical_calibrator import _apply_bayesian_shrinkage
+        stats = {"long_window": {"n_observations": 500}}
+        result = _apply_bayesian_shrinkage({"a_share_large": 50.0}, {"a_share_large": 7.5}, stats)
+        self.assertLess(result["a_share_large"], 20.0)
+
+    def test_extreme_negative_value_is_winsorized(self):
+        from app.allocation.data.historical_calibrator import _apply_bayesian_shrinkage
+        stats = {"long_window": {"n_observations": 500}}
+        result = _apply_bayesian_shrinkage({"a_share_large": -50.0}, {"a_share_large": 7.5}, stats)
+        self.assertGreater(result["a_share_large"], -20.0)
+
+    def test_shrinkage_decreases_with_more_observations(self):
+        from app.allocation.data.historical_calibrator import _apply_bayesian_shrinkage
+        sample = {"a_share_large": 5.0}
+        prior = {"a_share_large": 7.5}
+        result_few = _apply_bayesian_shrinkage(sample, prior, {"long_window": {"n_observations": 50}})
+        result_many = _apply_bayesian_shrinkage(sample, prior, {"long_window": {"n_observations": 5000}})
+        # Fewer obs: closer to prior (more shrinkage); more obs: closer to sample
+        self.assertLess(abs(result_few["a_share_large"] - 7.5), abs(result_many["a_share_large"] - 7.5))
+        # But both should be between sample and prior
+        self.assertGreater(result_few["a_share_large"], 5.0)
+        self.assertLess(result_few["a_share_large"], 7.5)
+        self.assertGreater(result_many["a_share_large"], 5.0)
+        self.assertLess(result_many["a_share_large"], 7.5)
+
+    def test_nan_sample_uses_prior(self):
+        from app.allocation.data.historical_calibrator import _apply_bayesian_shrinkage
+        result = _apply_bayesian_shrinkage({"a_share_large": float('nan')}, {"a_share_large": 7.5}, None)
+        self.assertAlmostEqual(result["a_share_large"], 7.5, places=2)
+
+    def test_zero_n_obs_defaults_to_500(self):
+        from app.allocation.data.historical_calibrator import _apply_bayesian_shrinkage
+        result = _apply_bayesian_shrinkage({"a_share_large": 5.0}, {"a_share_large": 7.5}, None)
+        expected = 0.8333 * 5.0 + 0.1667 * 7.5
+        self.assertAlmostEqual(result["a_share_large"], expected, places=1)
+
+
+class JumpParamsFallbackTest(unittest.TestCase):
+    """Tests for _extract_jump_params_from_stats fallback-only behavior."""
+
+    def test_always_returns_defaults(self):
+        from app.allocation.data.historical_calibrator import _extract_jump_params_from_stats
+        defaults = {"jump_probability": 0.03, "jump_mean": -0.04, "jump_vol": 0.08}
+        result = _extract_jump_params_from_stats(None, defaults)
+        self.assertEqual(result, defaults)
+
+    def test_returns_defaults_even_with_stats(self):
+        from app.allocation.data.historical_calibrator import _extract_jump_params_from_stats
+        defaults = {"jump_probability": 0.03, "jump_mean": -0.04, "jump_vol": 0.08}
+        stats = {
+            "long_window": {"returns": {"a_share_large": -15.0}, "n_observations": 72},
+            "quality": {a: {"status": "available"} for a in ASSET_CLASSES},
+        }
+        result = _extract_jump_params_from_stats(stats, defaults)
+        self.assertEqual(result, defaults)
+
+
+class StressScenarioScalingTest(unittest.TestCase):
+    """Tests for _scale_stress_scenarios_from_stats config-driven scaling."""
+
+    def test_no_stats_returns_base(self):
+        from app.allocation.data.historical_calibrator import _scale_stress_scenarios_from_stats
+        base = {"crash": {"a_share_large": -0.25}}
+        result = _scale_stress_scenarios_from_stats(None, base)
+        self.assertEqual(result, base)
+
+    def test_insufficient_quality_returns_base(self):
+        from app.allocation.data.historical_calibrator import _scale_stress_scenarios_from_stats
+        base = {"crash": {"a_share_large": -0.25}}
+        stats = {"long_window": {"vols": {}}, "quality": {}}
+        result = _scale_stress_scenarios_from_stats(stats, base)
+        self.assertEqual(result, base)
+
+    def test_vol_ratio_scaling_uses_config(self):
+        from app.allocation.data.historical_calibrator import _scale_stress_scenarios_from_stats
+        from app.allocation.config import EQUILIBRIUM_VOLS
+        quality = {a: {"status": "available"} for a in ASSET_CLASSES if a != "cash"}
+        quality["cash"] = {"status": "assumption", "reason": "no_representative_etf"}
+        vols = {a: EQUILIBRIUM_VOLS.get(a, 10.0) * 1.5 for a in ASSET_CLASSES}
+        stats = {"long_window": {"vols": vols}, "quality": quality}
+        base = {"crash": {"a_share_large": -0.25, "rate_bond": 0.05, "gold": -0.10}}
+        result = _scale_stress_scenarios_from_stats(stats, base)
+        self.assertLess(result["crash"]["a_share_large"], -0.25)
+
+
 if __name__ == "__main__":
     unittest.main()

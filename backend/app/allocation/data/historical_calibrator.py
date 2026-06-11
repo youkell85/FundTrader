@@ -12,6 +12,9 @@ from datetime import datetime
 from typing import Any, Dict, List
 
 import numpy as np
+import logging
+
+logger = logging.getLogger(__name__)
 
 from ..config import (
     ASSET_CLASSES,
@@ -97,7 +100,7 @@ class HistoricalCalibrator:
 
                 StatsSnapshotCache.save("historical_calibration", result)
             except Exception:
-                pass
+                logger.warning("calibrate_all persist failed", exc_info=True)
         return result
 
     @staticmethod
@@ -136,6 +139,7 @@ class HistoricalCalibrator:
                 },
             }
         except Exception:
+            logger.warning("_p2_defaults failed", exc_info=True)
             return {}
 
     def calibrate_equilibrium_returns(self) -> dict:
@@ -240,7 +244,7 @@ class HistoricalCalibrator:
                 self._stats_source = "historical_market_data"
                 return live
         except Exception:
-            pass
+            logger.debug("_load_stats: live fetch failed", exc_info=True)
 
         cached = _load_rolling_stats()
         if cached:
@@ -386,6 +390,7 @@ def _load_rolling_stats() -> dict | None:
         cached = StatsSnapshotCache.get("rolling_stats")
         return cached if isinstance(cached, dict) else None
     except Exception:
+        logger.debug("_load_rolling_stats: cache miss", exc_info=True)
         return None
 
 
@@ -403,6 +408,7 @@ def _load_long_window_cache() -> dict | None:
             return None
         return cached
     except Exception:
+        logger.debug("_load_long_window_cache: miss", exc_info=True)
         return None
 
 
@@ -467,8 +473,13 @@ def _apply_bayesian_shrinkage(
         blended[asset] = (1 - shrinkage) * sample + shrinkage * prior
 
     N is the number of trading-day observations in the long-window snapshot.
-    With ~727 observations, shrinkage ~ 0.12 — a mild anchor that prevents
+    With ~727 observations, shrinkage ~ 0.12 -- a mild anchor that prevents
     extreme short-window values (e.g. A-share -14% return) from dominating.
+
+    Extreme values in observed are Winsorized to 2x the prior before blending,
+    preventing extreme sample estimates from polluting the result even after
+    shrinkage. For returns, the clip range is [-2*|prior|, 2*|prior|] when the
+    prior is non-zero; for vols, the floor is max(0.1, 0.5*|prior|).
     """
     if not observed or not prior:
         return observed if isinstance(observed, dict) else {}
@@ -486,21 +497,44 @@ def _apply_bayesian_shrinkage(
                     if dp > n_obs:
                         n_obs = dp
     if n_obs <= 0:
-        n_obs = 500  # conservative default
+        logger.debug("bayesian_shrinkage: n_obs unavailable, defaulting to 500")
+        n_obs = 500  # ~2 years of trading days
 
     shrinkage = 100.0 / (100.0 + n_obs)
     result: Dict[str, float] = {}
     for asset in observed:
         sample_val = observed.get(asset)
         prior_val = prior.get(asset)
-        if _is_finite_number(sample_val) and _is_finite_number(prior_val):
-            blended = (1 - shrinkage) * float(sample_val) + shrinkage * float(prior_val)
-            result[asset] = round(blended, 4)
-        elif _is_finite_number(sample_val):
-            result[asset] = float(sample_val)
+        if not _is_finite_number(sample_val) or not _is_finite_number(prior_val):
+            if _is_finite_number(sample_val):
+                result[asset] = float(sample_val)
+            elif _is_finite_number(prior_val):
+                result[asset] = float(prior_val)
+            else:
+                result[asset] = 0.0
+            continue
+
+        s = float(sample_val)
+        p = float(prior_val)
+
+        # Winsorize extreme sample values before blending.
+        # Clip returns to [-2*|prior|, 2*|prior|]; clip vols to [0.1, 2*|prior|].
+        abs_p = abs(p)
+        if abs_p > 0.01:
+            clip_lo = -2.0 * abs_p
+            clip_hi = 2.0 * abs_p
         else:
-            result[asset] = float(prior_val) if _is_finite_number(prior_val) else 0.0
+            clip_lo = -50.0
+            clip_hi = 50.0
+        # For volatilities (always positive), enforce a reasonable floor
+        if p >= 0 and s < 0.1:
+            clip_lo = max(0.1, 0.5 * abs_p)
+        s = max(clip_lo, min(clip_hi, s))
+
+        blended = (1 - shrinkage) * s + shrinkage * p
+        result[asset] = round(blended, 4)
     return result
+
 
 
 def _is_valid_corr_matrix(matrix: Any) -> bool:
@@ -515,66 +549,16 @@ def _extract_jump_params_from_stats(
     stats: dict | None,
     defaults: dict,
 ) -> dict:
-    """Estimate jump diffusion params from long-window tail statistics.
+    """Fallback-only jump diffusion parameter estimation.
 
-    When daily return data is available, we identify tail events (|daily return| > 3σ)
-    and compute jump probability, mean jump size, and jump volatility from those events.
-    When insufficient data, return the static defaults unchanged.
+    Jump parameters require daily return time-series data to estimate tail
+    event frequency and severity. The long-window snapshot stores only
+    cross-sectional averages, which cannot support a statistically valid
+    jump calibration. Return static defaults and mark provenance explicitly.
+
+    A future producer that stores per-day return distribution statistics
+    in the long-window snapshot can enable real calibration here.
     """
-    if not stats or not isinstance(stats, dict):
-        return dict(defaults)
-
-    # Check if we have per-asset return data to extract tail events from
-    long_window = stats.get("long_window") or {}
-    returns_data = long_window.get("returns") or stats.get("returns_long") or {}
-    quality = stats.get("quality") or {}
-
-    # Count assets with real data
-    available = sum(
-        1 for a in ASSET_CLASSES
-        if quality.get(a, {}).get("status") == "available"
-    )
-    if available < 5:
-        return dict(defaults)
-
-    # Use aggregate equity returns as proxy for jump calibration
-    equity_assets = ["a_share_large", "a_share_small", "a_share_value", "a_share_growth"]
-    equity_rets = [returns_data.get(a) for a in equity_assets]
-    valid_rets = [r for r in equity_rets if _is_finite_number(r)]
-    if len(valid_rets) < 2:
-        return dict(defaults)
-
-    # Estimate jump params from the spread between equity returns
-    # This is a rough but reasonable proxy for tail-event intensity
-    avg_ret = sum(float(r) for r in valid_rets) / len(valid_rets)
-    max_ret = max(float(r) for r in valid_rets)
-    min_ret = min(float(r) for r in valid_rets)
-    spread = max_ret - min_ret
-
-    # Higher spread & more negative min → more frequent/severe jumps
-    # Scale jump probability by how extreme the worst return is
-    n_obs = long_window.get("n_observations", 0)
-    if n_obs > 0:
-        # Base probability: default 3%, scale by observed extreme frequency
-        # If min_ret < -10%, probability increases
-        jump_prob = 0.03
-        if min_ret < -10.0:
-            jump_prob = min(0.08, 0.03 + abs(min_ret + 10.0) * 0.005)
-        elif min_ret > -5.0:
-            jump_prob = max(0.01, 0.03 - abs(min_ret + 5.0) * 0.003)
-
-        # Jump mean scales with worst return
-        jump_mean = max(-0.08, min(-0.02, avg_ret / 100.0 * 0.3))
-
-        # Jump vol scales with return spread
-        jump_vol = min(0.15, max(0.05, spread / 100.0 * 0.4))
-
-        return {
-            "jump_probability": round(jump_prob, 4),
-            "jump_mean": round(jump_mean, 4),
-            "jump_vol": round(jump_vol, 4),
-        }
-
     return dict(defaults)
 
 
@@ -588,9 +572,20 @@ def _scale_stress_scenarios_from_stats(
     long-term), stress scenario impacts are amplified proportionally.
     When vol is below long-term, impacts are moderated. This makes stress
     tests responsive to actual market conditions instead of being pure static.
+
+    Scaling coefficients and blend weight come from config.STRESS_VOL_SCALING
+    and config.STRESS_BLEND_WEIGHT so they can be tuned without code changes.
     """
     if not stats or not isinstance(stats, dict):
         return dict(base_scenarios)
+
+    from ..config import (
+        EQUILIBRIUM_VOLS,
+        ASSET_TO_GROUP,
+        STRESS_VOL_SCALING,
+        STRESS_BLEND_WEIGHT,
+        STRESS_VOL_RATIO_RANGE,
+    )
 
     long_window = stats.get("long_window") or {}
     vols_data = long_window.get("vols") or stats.get("vols_long") or {}
@@ -599,7 +594,6 @@ def _scale_stress_scenarios_from_stats(
     quality = stats.get("quality") or {}
 
     # Compute vol scaling factor from available assets
-    from ..config import EQUILIBRIUM_VOLS
     vol_ratios = []
     for asset in ASSET_CLASSES:
         if quality.get(asset, {}).get("status") != "available":
@@ -614,11 +608,10 @@ def _scale_stress_scenarios_from_stats(
 
     # Median vol ratio across assets (robust to outliers)
     vol_ratio = float(np.median(vol_ratios))
-    # Clamp to reasonable range [0.5, 1.5]
-    vol_ratio = max(0.5, min(1.5, vol_ratio))
+    # Clamp to configured range
+    vol_ratio = max(STRESS_VOL_RATIO_RANGE[0], min(STRESS_VOL_RATIO_RANGE[1], vol_ratio))
 
-    # Scale stress scenarios: blend 60% scaled + 40% base to avoid extreme swings
-    blend_weight = 0.60
+    # Scale stress scenarios: blend scaled + base to avoid extreme swings
     scaled = {}
     for scenario_name, impacts in base_scenarios.items():
         scaled_impacts = {}
@@ -626,20 +619,16 @@ def _scale_stress_scenarios_from_stats(
             if not _is_finite_number(impact):
                 scaled_impacts[asset] = impact
                 continue
-            # Equity-like assets scale with vol ratio; bonds/gold less so
-            from ..config import ASSET_TO_GROUP
+            # Per-group vol sensitivity from config
             group = ASSET_TO_GROUP.get(asset, "cash_equiv")
-            if group == "equity":
-                scaling = vol_ratio
-            elif group == "alternative":
-                scaling = 0.7 * vol_ratio + 0.3
-            elif group == "fixed_income":
-                scaling = 0.3 * vol_ratio + 0.7
-            else:
-                scaling = 1.0
+            sensitivity = STRESS_VOL_SCALING.get(group, 0.0)
+            # scaling = sensitivity * vol_ratio + (1 - sensitivity)
+            # When sensitivity=1.0 (equity): scaling = vol_ratio
+            # When sensitivity=0.0 (cash):   scaling = 1.0 (no change)
+            scaling = sensitivity * vol_ratio + (1.0 - sensitivity)
             scaled_impact = float(impact) * scaling
             # Blend scaled with base
-            blended_impact = (1 - blend_weight) * float(impact) + blend_weight * scaled_impact
+            blended_impact = (1 - STRESS_BLEND_WEIGHT) * float(impact) + STRESS_BLEND_WEIGHT * scaled_impact
             scaled_impacts[asset] = round(blended_impact, 2)
         scaled[scenario_name] = scaled_impacts
 

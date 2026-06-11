@@ -294,6 +294,20 @@ FUND_ASSET_MAP: Dict[str, str] = {
     "508088": "reits", "508027": "reits", "180101": "reits",
 }
 
+
+# ─── Stress Scenario Vol-Scaling Config ───
+# When long-window vol data is available, stress scenarios are scaled by
+# the ratio of current vol to long-term vol. These control how aggressively
+# each asset group responds to vol changes.
+STRESS_VOL_SCALING: Dict[str, float] = {
+    "equity": 1.0,        # full vol-ratio scaling
+    "alternative": 0.7,   # 70% vol-ratio + 30% flat
+    "fixed_income": 0.3,  # 30% vol-ratio + 70% flat
+    "cash_equiv": 0.0,    # no vol-ratio scaling
+}
+STRESS_BLEND_WEIGHT: float = 0.60  # blend 60% scaled + 40% base to avoid extreme swings
+STRESS_VOL_RATIO_RANGE: tuple = (0.5, 1.5)  # clamp vol ratio to this range
+
 # ─── Horizon Mapping (frontend key → months) ───
 HORIZON_MONTHS: Dict[str, int] = {
     "short": 12,
