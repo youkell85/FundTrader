@@ -162,7 +162,7 @@ _FUND_POOL: Dict[str, FundProfile] = {
         aum=5.0, daily_turnover=1500.0, tracking_error=0.038, base_quality=74),
 
     # ═══ REITs ═══
-    "508000": FundProfile(code="508000", name="华安张江光大REIT", fund_type="REITs",
+    "508088": FundProfile(code="508088", name="华安CESREITs", fund_type="REITs",
         asset_class="reits",
         company="华安基金", management_fee=0.003, custody_fee=0.001,
         aum=15.0, daily_turnover=5000.0, tracking_error=0.030, base_quality=83),

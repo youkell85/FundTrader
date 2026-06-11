@@ -57,6 +57,26 @@ EQUILIBRIUM_RETURNS: Dict[str, float] = {
     "cash": 1.5,
 }
 
+DMS_PRIOR_RETURNS: Dict[str, float] = {
+    # Bayesian shrinkage priors based on DMS global long-term data (opus.md section 2.3.1).
+    # These represent 100+ year cross-country averages, providing a conservative anchor
+    # that prevents short-window extreme samples from dominating the equilibrium estimate.
+    "a_share_large": 7.5,
+    "a_share_small": 9.0,
+    "a_share_value": 7.0,
+    "a_share_growth": 10.0,
+    "hk_equity": 8.0,
+    "us_equity": 8.0,
+    "rate_bond": 3.0,
+    "credit_bond": 3.5,
+    "convertible": 5.5,
+    "money_fund": 2.0,
+    "gold": 3.5,
+    "commodity": 3.0,
+    "reits": 6.0,
+    "cash": 1.5,
+}
+
 # ─── Equilibrium Volatilities (annualized, %) ───
 EQUILIBRIUM_VOLS: Dict[str, float] = {
     "a_share_large": 22.0,
@@ -78,6 +98,26 @@ EQUILIBRIUM_VOLS: Dict[str, float] = {
 # ─── Default Correlation Matrix (14×14) ───
 # Order: a_share_large, a_share_small, a_share_value, a_share_growth, hk_equity, us_equity,
 #         rate_bond, credit_bond, convertible, money_fund, gold, commodity, reits, cash
+
+DMS_PRIOR_VOLS: Dict[str, float] = {
+    # Bayesian shrinkage priors for volatilities based on DMS long-term data (opus.md section 2.3.1).
+    # Cross-country long-term realized volatilities as a conservative anchor.
+    "a_share_large": 20.0,
+    "a_share_small": 25.0,
+    "a_share_value": 18.0,
+    "a_share_growth": 26.0,
+    "hk_equity": 22.0,
+    "us_equity": 16.0,
+    "rate_bond": 3.0,
+    "credit_bond": 4.5,
+    "convertible": 14.0,
+    "money_fund": 0.5,
+    "gold": 15.0,
+    "commodity": 18.0,
+    "reits": 16.0,
+    "cash": 0.3,
+}
+
 DEFAULT_CORR: List[List[float]] = [
     # large  small  value  growth hk     us     rate   credit conv   money  gold   comm   reits  cash
     [ 1.00,  0.90,  0.92,  0.88,  0.65,  0.40,  -0.10, 0.05,  0.60,  0.00,  0.05,  0.10,  0.25,  0.00],  # large
@@ -251,7 +291,7 @@ FUND_ASSET_MAP: Dict[str, str] = {
     # 商品
     "161815": "commodity", "165513": "commodity",
     # REITs
-    "508000": "reits", "508027": "reits", "180101": "reits",
+    "508088": "reits", "508027": "reits", "180101": "reits",
 }
 
 # ─── Horizon Mapping (frontend key → months) ───

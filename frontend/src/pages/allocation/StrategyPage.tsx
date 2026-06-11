@@ -6,6 +6,7 @@ import { useAllocationStore } from '@/store/allocationStore';
 import { ASSET_CLASS_LABELS, ASSET_GROUP_LABELS, GROUP_COLORS, RISK_LABELS, GOAL_LABELS, HORIZON_LABELS, VARIANT_LABELS, VARIANT_COLORS } from '@/types/allocation';
 import type { AllocationDataQuality } from '@/types/allocation';
 import { generateVariants } from '@/lib/api';
+import CalibrationHealthBar from '@/components/allocation/CalibrationHealthBar';
 
 /** 缺值兜底 */
 function fmt(v: number | null | undefined, suffix?: string, digits = 1): string {
@@ -161,6 +162,10 @@ export default function StrategyPage() {
           )}
         </div>
       </section>
+
+
+      {/* Calibration Health */}
+      <CalibrationHealthBar />
 
       {/* ===== 优化目标与组合摘要 ===== */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

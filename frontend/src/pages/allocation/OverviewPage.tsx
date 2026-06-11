@@ -11,6 +11,7 @@ import { useAllocationStore } from '@/store/allocationStore';
 import { generateAllocationStream, getMarketDataStatus } from '@/lib/api';
 import AllocationProgress, { type StepState, STEP_LABELS } from '@/components/allocation/AllocationProgress';
 import DataFreshnessBar from '@/components/allocation/DataFreshnessBar';
+import CalibrationHealthBar from '@/components/allocation/CalibrationHealthBar';
 import type { AllocationDataQuality, MarketDataStatus } from '@/types/allocation';
 
 const GLABELS = ASSET_GROUP_LABELS;
@@ -186,6 +187,7 @@ export default function OverviewPage() {
       )}
 
       <DataFreshnessBar status={marketStatus} generatedAt={meta.generated_at} />
+      <CalibrationHealthBar />
       <AllocationQualitySummary quality={d.data_quality} />
 
       {/* ===== 预期指标条 ===== */}

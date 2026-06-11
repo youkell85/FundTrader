@@ -29,7 +29,7 @@ ASSET_ETFS = {
     "money_fund": "511880",
     "gold": "518880",
     "commodity": "161815",
-    "reits": "508000",
+    "reits": "508088",
     "cash": None,
 }
 
