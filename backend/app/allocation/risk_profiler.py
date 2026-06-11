@@ -51,8 +51,19 @@ def _load_calibration() -> Tuple[Optional[dict], Optional[dict]]:
 
         section = cached.get("risk_questionnaire", {})
         if isinstance(section, dict):
+            # Preserve meta fields from parent section before extracting params
+            _parent_source = section.get("source")
+            _parent_cal_ver = section.get("calibration_version")
+            _parent_as_of = section.get("as_of")
             # Support both {"params": {...}} and flat {...}
             section = section.get("params", section)
+            # Re-inject parent meta so section.get("source") works
+            if _parent_source is not None:
+                section.setdefault("source", _parent_source)
+            if _parent_cal_ver is not None:
+                section.setdefault("calibration_version", _parent_cal_ver)
+            if _parent_as_of is not None:
+                section.setdefault("as_of", _parent_as_of)
         if not isinstance(section, dict) or not section:
             return None, None
 

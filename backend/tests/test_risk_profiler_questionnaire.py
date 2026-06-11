@@ -44,7 +44,8 @@ def _make_cache_section(**kwargs):
 class TestDefaultStaticBehavior:
     """Without any cache, behavior must match pre-calibration hard-coded values."""
 
-    def test_no_answers_returns_base_risk(self):
+    @patch("app.allocation.risk_profiler._load_calibration", return_value=(None, None))
+    def test_no_answers_returns_base_risk(self, _mock_cal):
         profile = profile_user(_make_request())
         assert profile.risk_tolerance == "balanced"
         assert profile.effective_risk == "balanced"
@@ -298,7 +299,8 @@ class TestInvalidCacheFallback:
 class TestProvenanceFields:
     """Provenance metadata flows from RiskProfile through to UserProfileSummary."""
 
-    def test_static_defaults_provenance(self):
+    @patch("app.allocation.risk_profiler._load_calibration", return_value=(None, None))
+    def test_static_defaults_provenance(self, _mock_cal):
         profile = profile_user(_make_request(
             {"q1_drawdown": "hold"}, risk_tolerance="balanced"
         ))
@@ -370,7 +372,8 @@ class TestProvenanceFields:
 class TestIntegrationWire:
     """End-to-end: profile_user() output can construct UserProfileSummary."""
 
-    def test_profile_to_summary_wire(self):
+    @patch("app.allocation.risk_profiler._load_calibration", return_value=(None, None))
+    def test_profile_to_summary_wire(self, _mock_cal):
         answers = {"q1_drawdown": "sell", "q2_rally": "all_out", "q3_volatility": "none"}
         profile = profile_user(_make_request(answers, risk_tolerance="balanced"))
 
