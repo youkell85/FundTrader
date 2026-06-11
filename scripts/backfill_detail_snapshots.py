@@ -203,7 +203,7 @@ def main():
         codes = [c.strip() for c in args.codes.split(",") if c.strip()]
     else:
         with get_db_context() as conn:
-            rows = conn.execute("SELECT DISTINCT code FROM watchlist WHERE is_active = 1").fetchall()
+            rows = conn.execute("SELECT DISTINCT code FROM fund_master").fetchall()
             codes = [row["code"] for row in rows]
 
     if args.limit > 0:
