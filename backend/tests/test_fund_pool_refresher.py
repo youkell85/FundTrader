@@ -97,5 +97,33 @@ class FundPoolRefresherTest(unittest.TestCase):
         self.assertEqual(result["518880"].stale_days, 0)
 
 
+    def test_refresh_pool_metadata_marks_missing_when_never_refreshed(self):
+        """When no live data and metadata_as_of is None, profile should be marked missing."""
+        profile = self._make_profile(metadata_as_of=None, metadata_status="assumption")
+        pool = {"518880": profile}
+
+        with patch("app.allocation.fund_pool_refresher._fetch_efinance_meta", return_value=None), \
+             patch("app.allocation.fund_pool_refresher._fetch_tushare_meta", return_value=None), \
+             patch("app.allocation.fund_pool_refresher._fetch_sqlite_meta", return_value=None):
+            result = refresh_pool_metadata(pool)
+
+        self.assertEqual(result["518880"].metadata_status, "missing")
+        self.assertIsNone(result["518880"].stale_days)
+
+    def test_refresh_pool_metadata_marks_assumption_within_grace_period(self):
+        """When no live data but as_of is recent, profile should be marked assumption."""
+        from datetime import date, timedelta
+        recent = (date.today() - timedelta(days=3)).isoformat()
+        profile = self._make_profile(metadata_as_of=recent, metadata_status="real")
+        pool = {"518880": profile}
+
+        with patch("app.allocation.fund_pool_refresher._fetch_efinance_meta", return_value=None), \
+             patch("app.allocation.fund_pool_refresher._fetch_tushare_meta", return_value=None), \
+             patch("app.allocation.fund_pool_refresher._fetch_sqlite_meta", return_value=None):
+            result = refresh_pool_metadata(pool)
+
+        self.assertEqual(result["518880"].metadata_status, "assumption")
+        self.assertEqual(result["518880"].stale_days, 3)
+
 if __name__ == "__main__":
     unittest.main()

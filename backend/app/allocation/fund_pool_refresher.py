@@ -7,15 +7,12 @@ subscription/redemption status, and staleness tracking.
 Sources: efinance (primary) → Tushare (secondary) → SQLite cache → static.
 """
 import logging
-import threading
 from datetime import datetime, timedelta
 from typing import Dict, Optional
 
 logger = logging.getLogger(__name__)
 
 _STALE_THRESHOLD_DAYS = 7
-_cache_lock = threading.Lock()
-
 
 def refresh_pool_metadata(profiles: Dict) -> Dict:
     """Refresh metadata for all funds in the pool.
@@ -42,14 +39,24 @@ def _refresh_single(profile) -> object:
         meta = _fetch_sqlite_meta(profile.code)
 
     if meta is None:
-        # No live data available — mark stale based on existing as_of
+        # No live data available — determine staleness from last known as_of
+        if profile.metadata_as_of is None:
+            # Never refreshed successfully — mark as missing
+            return _update_profile(profile, {
+                "metadata_status": "missing",
+                "stale_days": None,
+            })
         stale_days = _compute_stale_days(profile.metadata_as_of)
         if stale_days is not None and stale_days > _STALE_THRESHOLD_DAYS:
             return _update_profile(profile, {
                 "metadata_status": "stale",
                 "stale_days": stale_days,
             })
-        return profile
+        # Within grace period — keep current status but note assumption
+        return _update_profile(profile, {
+            "metadata_status": "assumption",
+            "stale_days": stale_days,
+        })
 
     # Apply live metadata
     meta["metadata_status"] = "real"
@@ -74,7 +81,7 @@ def _update_profile(profile, updates: dict) -> object:
         "custody_fee": updates.get("custody_fee", profile.custody_fee),
         "aum": updates.get("aum", profile.aum),
         "daily_turnover": updates.get("daily_turnover", profile.daily_turnover),
-        "tracking_error": profile.tracking_error,
+        "tracking_error": updates.get("tracking_error", profile.tracking_error),
         "return_1y": profile.return_1y,
         "sharpe_1y": profile.sharpe_1y,
         "base_quality": profile.base_quality,
@@ -106,6 +113,9 @@ def _fetch_efinance_meta(code: str) -> Optional[dict]:
                     result[key] = val
                 except (ValueError, TypeError):
                     pass
+        # daily_turnover: efinance doesn't provide a direct column for this,
+        # but we can compute from 成交量 if available
+        # TODO: add volume mapping once efinance API column is confirmed
         return result
     except Exception as e:
         logger.debug(f"efinance metadata fetch failed for {code}: {e}")
