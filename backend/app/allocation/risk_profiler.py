@@ -1,5 +1,8 @@
 """Risk Profiler — maps user inputs to internal RiskProfile."""
+import logging
 from typing import Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 from .config import RISK_PROFILES, HORIZON_MONTHS
 from .models import AllocationRequest, RiskProfile, RiskTolerance
@@ -49,23 +52,25 @@ def _load_calibration() -> Tuple[Optional[dict], Optional[dict]]:
         if not isinstance(cached, dict):
             return None, None
 
-        section = cached.get("risk_questionnaire", {})
-        if isinstance(section, dict):
-            # Preserve meta fields from parent section before extracting params
-            _parent_source = section.get("source")
-            _parent_cal_ver = section.get("calibration_version")
-            _parent_as_of = section.get("as_of")
-            # Support both {"params": {...}} and flat {...}
-            section = section.get("params", section)
-            # Re-inject parent meta so section.get("source") works
-            if _parent_source is not None:
-                section.setdefault("source", _parent_source)
-            if _parent_cal_ver is not None:
-                section.setdefault("calibration_version", _parent_cal_ver)
-            if _parent_as_of is not None:
-                section.setdefault("as_of", _parent_as_of)
-        if not isinstance(section, dict) or not section:
+        raw_section = cached.get("risk_questionnaire")
+        if raw_section is None:
             return None, None
+        if not isinstance(raw_section, dict):
+            return None, None
+
+        # Preserve meta fields from parent section before extracting params
+        _parent_source = raw_section.get("source")
+        _parent_cal_ver = raw_section.get("calibration_version")
+        _parent_as_of = raw_section.get("as_of")
+
+        # Support both {"params": {...}} and flat {...}
+        section = raw_section.get("params", raw_section)
+        if section is None or not isinstance(section, dict) or not section:
+            return None, None
+
+        # Build meta with parent-level provenance taking precedence
+        # (parent source > params-level source > sqlite_cache fallback)
+        _source = _parent_source if _parent_source is not None else section.get("source")
 
         weights = section.get("weights")
         if not isinstance(weights, dict) or not weights:
@@ -80,7 +85,8 @@ def _load_calibration() -> Tuple[Optional[dict], Optional[dict]]:
                 validated_answers = {}
                 for ans, val in answers.items():
                     if isinstance(val, (int, float)) and not isinstance(val, bool):
-                        validated_answers[str(ans)] = float(val)
+                        if abs(val) != float("inf") and val == val:  # reject NaN/Inf
+                            validated_answers[str(ans)] = float(val)
                 if validated_answers:
                     validated[str(qid)] = validated_answers
             weights = validated if validated else None
@@ -96,14 +102,15 @@ def _load_calibration() -> Tuple[Optional[dict], Optional[dict]]:
             shift_up = float(raw_up)
 
         meta = {
-            "source": section.get("source") or "sqlite_cache",
-            "calibration_version": section.get("calibration_version"),
-            "as_of": section.get("as_of"),
+            "source": _source if _source is not None else "sqlite_cache",
+            "calibration_version": _parent_cal_ver if _parent_cal_ver is not None else section.get("calibration_version"),
+            "as_of": _parent_as_of if _parent_as_of is not None else section.get("as_of"),
             "shift_down_threshold": shift_down,
             "shift_up_threshold": shift_up,
         }
         return weights, meta
     except Exception:
+        logger.warning("_load_calibration failed, falling back to static defaults", exc_info=True)
         return None, None
 
 
