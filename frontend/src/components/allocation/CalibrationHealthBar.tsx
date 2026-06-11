@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Shield, AlertTriangle, XCircle, Info, ChevronDown, ChevronRight } from 'lucide-react';
-import { CALIBRATION_SECTION_LABELS, CALIBRATION_STATUS_LABELS, HEALTH_COLORS, ASSET_CLASS_LABELS } from '@/types/allocation';
+import { Shield, AlertTriangle, XCircle, ChevronDown, ChevronRight } from 'lucide-react';
+import { CALIBRATION_SECTION_LABELS, CALIBRATION_STATUS_LABELS, HEALTH_COLORS } from '@/types/allocation';
 import type { CalibrationAudit } from '@/types/allocation';
 import { getPipelineHealth } from '@/lib/api';
 

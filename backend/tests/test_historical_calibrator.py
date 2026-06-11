@@ -156,8 +156,8 @@ class HistoricalCalibratorTest(unittest.TestCase):
         self.assertEqual(result["source"], "long_window_cache")
         self.assertEqual(result["data_status"], "partial")
         self.assertGreater(result["coverage"], 0.9)
-        # long-window values are index+3, not index+1 (short-window)
-        self.assertAlmostEqual(result["values"]["a_share_large"], 3.0, places=1)
+        # Bayesian shrinkage blends long-window (index+3) with DMS priors
+        self.assertAlmostEqual(result["values"]["a_share_large"], 5.6163, places=2)
 
     def test_long_window_vols_preferred_over_short_window(self):
         """Long-window vols should be preferred."""
@@ -170,8 +170,8 @@ class HistoricalCalibratorTest(unittest.TestCase):
         self.assertEqual(result["source"], "long_window_cache")
         self.assertEqual(result["data_status"], "partial")
         self.assertGreater(result["coverage"], 0.9)
-        # long-window vol values are index+15, not index+10 (short-window)
-        self.assertAlmostEqual(result["values"]["a_share_large"], 15.0, places=1)
+        # Bayesian shrinkage blends long-window (index+15) with DMS priors
+        self.assertAlmostEqual(result["values"]["a_share_large"], 17.907, places=2)
 
     def test_long_window_correlation_matrix_preferred(self):
         """Long-window correlation matrix should be preferred over top-level."""
@@ -208,7 +208,8 @@ class HistoricalCalibratorTest(unittest.TestCase):
 
         self.assertEqual(result["source"], "long_window_snapshot")
         self.assertEqual(result["data_status"], "partial")
-        self.assertAlmostEqual(result["values"]["a_share_large"], 3.0, places=1)
+        # Bayesian shrinkage blends long-window (index+3) with DMS priors
+        self.assertAlmostEqual(result["values"]["a_share_large"], 5.6163, places=2)
 
     def test_long_window_metadata_not_surfaced_when_absent(self):
         """Metadata keys should not appear when the snapshot lacks them."""
@@ -256,7 +257,8 @@ class HistoricalCalibratorTest(unittest.TestCase):
         self.assertEqual(result["source"], "long_window_cache")
         self.assertEqual(result["data_status"], "real")
         self.assertGreater(result["coverage"], 0.9)
-        self.assertAlmostEqual(result["values"]["a_share_large"], 15.0, places=1)
+        # Bayesian shrinkage with default n_obs=500: blend of 15.0 and DMS prior 20.0
+        self.assertAlmostEqual(result["values"]["a_share_large"], 15.8333, places=2)
 
     # Backward compatibility: flat long-window keys.
 
@@ -276,7 +278,8 @@ class HistoricalCalibratorTest(unittest.TestCase):
             result = HistoricalCalibrator().calibrate_equilibrium_returns()
 
         self.assertEqual(result["source"], "historical_market_data")
-        self.assertAlmostEqual(result["values"]["a_share_large"], 9.0, places=1)
+        # Bayesian shrinkage with default n_obs=500: blend of 9.0 and DMS prior 7.5
+        self.assertAlmostEqual(result["values"]["a_share_large"], 8.75, places=2)
 
 
 if __name__ == "__main__":
