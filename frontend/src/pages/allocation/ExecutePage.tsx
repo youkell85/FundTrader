@@ -147,7 +147,7 @@ export default function ExecutePage() {
     return (
       <div className="space-y-5">
         <PageHeader title="执行计划" regime={meta.regime} regimeLabel={meta.regime_label} generatedAt={meta.generated_at} />
-        <div className="liquid-glass p-6 flex flex-col items-center gap-4 text-center">
+        <div className="surface-elevated p-6 flex flex-col items-center gap-4 text-center">
           <AlertCircle className="w-10 h-10 text-[#3B6CFF]/50" />
           <h2 className="text-lg text-white/70">尚未生成配置方案</h2>
           <p className="text-sm text-white/45">请先完成资产配置画像采集，生成真实配置方案后再进入执行计划。</p>
@@ -222,10 +222,10 @@ export default function ExecutePage() {
                 value={config.strategy}
                 onValueChange={(v) => handleConfigChange({ strategy: v as DcaConfig['strategy'] })}
               >
-                <SelectTrigger className="w-full h-10 bg-[#0B1021] border-white/[0.08] text-white text-xs">
+                <SelectTrigger className="w-full h-10 input-focus text-white text-xs">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="bg-[#0B1021] border-white/[0.08]">
+                <SelectContent className="input-focus">
                   {strategies.map((s) => (
                     <SelectItem key={s.value} value={s.value} className="text-white text-xs focus:bg-white/[0.06] focus:text-white">
                       {s.label}
@@ -240,10 +240,10 @@ export default function ExecutePage() {
                 value={config.investFrequency}
                 onValueChange={(v) => handleConfigChange({ investFrequency: v as DcaConfig['investFrequency'] })}
               >
-                <SelectTrigger className="w-full h-10 bg-[#0B1021] border-white/[0.08] text-white text-xs">
+                <SelectTrigger className="w-full h-10 input-focus text-white text-xs">
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent className="bg-[#0B1021] border-white/[0.08]">
+                <SelectContent className="input-focus">
                   {frequencies.map((f) => (
                     <SelectItem key={f.value} value={f.value} className="text-white text-xs focus:bg-white/[0.06] focus:text-white">
                       {f.label}
@@ -260,7 +260,7 @@ export default function ExecutePage() {
                 step={100}
                 value={config.investAmount}
                 onChange={(e) => handleConfigChange({ investAmount: Number(e.target.value) })}
-                className="w-full h-10 px-3 rounded-lg bg-[#0B1021] border border-white/[0.08] text-white text-xs data-number focus:outline-none focus:border-[#3B6CFF]/50"
+                className="w-full h-10 px-3 rounded-lg input-focus text-white text-xs data-number"
               />
             </div>
             <div>
@@ -270,7 +270,7 @@ export default function ExecutePage() {
                 value={config.startDate}
                 max={config.endDate}
                 onChange={(e) => handleConfigChange({ startDate: e.target.value })}
-                className="w-full h-10 px-3 rounded-lg bg-[#0B1021] border border-white/[0.08] text-white text-xs data-number focus:outline-none focus:border-[#3B6CFF]/50"
+                className="w-full h-10 px-3 rounded-lg input-focus text-white text-xs data-number"
               />
             </div>
             <div>
@@ -280,7 +280,7 @@ export default function ExecutePage() {
                 value={config.endDate}
                 min={config.startDate}
                 onChange={(e) => handleConfigChange({ endDate: e.target.value })}
-                className="w-full h-10 px-3 rounded-lg bg-[#0B1021] border border-white/[0.08] text-white text-xs data-number focus:outline-none focus:border-[#3B6CFF]/50"
+                className="w-full h-10 px-3 rounded-lg input-focus text-white text-xs data-number"
               />
             </div>
           </div>
@@ -302,35 +302,35 @@ export default function ExecutePage() {
 
         {result && (
           <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3">
-            <div className="rounded-lg border border-white/[0.06] bg-white/[0.03] p-3">
+            <div className="surface p-3">
               <div className="text-[10px] text-white/50">累计投入</div>
               <div className="data-number text-sm text-white/80">{Math.round(result.totalInvested).toLocaleString()}</div>
             </div>
-            <div className="rounded-lg border border-white/[0.06] bg-white/[0.03] p-3">
+            <div className="surface p-3">
               <div className="text-[10px] text-white/50">期末市值</div>
               <div className="data-number text-sm text-[#16C784]">{Math.round(result.finalValue).toLocaleString()}</div>
             </div>
-            <div className="rounded-lg border border-white/[0.06] bg-white/[0.03] p-3">
+            <div className="surface p-3">
               <div className="text-[10px] text-white/50">总收益</div>
               <div className={`data-number text-sm ${result.totalReturn >= 0 ? 'text-[#16C784]' : 'text-[#EE6666]'}`}>
                 {result.totalReturn >= 0 ? '+' : ''}{result.totalReturn.toFixed(2)}%
               </div>
             </div>
-            <div className="rounded-lg border border-white/[0.06] bg-white/[0.03] p-3">
+            <div className="surface p-3">
               <div className="text-[10px] text-white/50">年化收益</div>
               <div className={`data-number text-sm ${result.annualizedReturn >= 0 ? 'text-[#16C784]' : 'text-[#EE6666]'}`}>
                 {result.annualizedReturn >= 0 ? '+' : ''}{result.annualizedReturn.toFixed(2)}%
               </div>
             </div>
-            <div className="rounded-lg border border-white/[0.06] bg-white/[0.03] p-3">
+            <div className="surface p-3">
               <div className="text-[10px] text-white/50">最大回撤</div>
               <div className="data-number text-sm text-[#EE6666]">{result.maxDrawdown.toFixed(2)}%</div>
             </div>
-            <div className="rounded-lg border border-white/[0.06] bg-white/[0.03] p-3">
+            <div className="surface p-3">
               <div className="text-[10px] text-white/50">夏普比率</div>
               <div className="data-number text-sm text-[#5470C6]">{result.sharpeRatio.toFixed(2)}</div>
             </div>
-            <div className="rounded-lg border border-white/[0.06] bg-white/[0.03] p-3">
+            <div className="surface p-3">
               <div className="text-[10px] text-white/50">费率成本</div>
               <div className="data-number text-sm text-[#FAC858]">{Math.round(result.feeCost).toLocaleString()}</div>
             </div>

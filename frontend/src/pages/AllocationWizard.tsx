@@ -36,7 +36,7 @@ const TAG_OPTIONS = [{ key: "gold", label: "黄金ETF" },{ key: "qdii", label: "
 
 function StepBar({ current }: { current: number }) {
   return (
-    <div className="flex items-center justify-center gap-2 mb-8">
+    <div className="hidden sm:flex items-center justify-center gap-2 mb-8">
       {STEPS.map((label, i) => {
         const n = i + 1, active = n === current, done = n < current;
         return (
@@ -166,15 +166,18 @@ export default function AllocationWizard() {
           <p className="mt-2 text-white/45 text-sm">DeepSeek 3.0 — SAA+TAA+压力测试+蒙特卡洛</p>
         </div>
         <StepBar current={wizardStep} />
-        <div className="liquid-glass p-6 md:p-8">
+        <div className="sm:hidden text-center text-xs text-white/50 mb-2">
+          第 {wizardStep} 步 / 共 5 步 · {STEPS[wizardStep - 1]}
+        </div>
+        <div className="surface-elevated p-6 md:p-8">
 
           {/* Step 1 */}
           {wizardStep === 1 && (
             <div className="space-y-6">
               <h2 className="text-lg text-white font-medium flex items-center gap-2"><Wallet className="w-5 h-5" style={{color:"#3B6CFF"}} />投资目标</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div><label className="text-xs text-white/40 mb-1 block">年龄</label><input type="number" min={18} max={80} value={config.age} onChange={e => update({ age: Number(e.target.value) })} className="w-full h-11 px-3 rounded-lg bg-[#0B1021] border border-white/[0.08] text-white data-number focus:outline-none focus:border-[#3B6CFF]/50" /></div>
-                <div><label className="text-xs text-white/40 mb-1 block">投资金额 (元)</label><input type="number" min={1000} step={1000} value={config.amount} onChange={e => update({ amount: Number(e.target.value) })} className="w-full h-11 px-3 rounded-lg bg-[#0B1021] border border-white/[0.08] text-white data-number focus:outline-none focus:border-[#3B6CFF]/50" /></div>
+                <div><label className="text-xs text-white/40 mb-1 block">年龄</label><input type="number" min={18} max={80} value={config.age} onChange={e => update({ age: Number(e.target.value) })} className="w-full h-11 px-3 rounded-lg input-focus text-white data-number" /></div>
+                <div><label className="text-xs text-white/40 mb-1 block">投资金额 (元)</label><input type="number" min={1000} step={1000} value={config.amount} onChange={e => update({ amount: Number(e.target.value) })} className="w-full h-11 px-3 rounded-lg input-focus text-white data-number" /></div>
               </div>
               <div><label className="text-xs text-white/40 mb-2 block">投资目标</label><div className="grid grid-cols-2 md:grid-cols-4 gap-2">{(Object.entries(GOAL_LABELS) as [GoalType, string][]).map(([k, v]) => (<button key={k} onClick={() => update({ goal_type: k })} className={`h-12 rounded-lg border text-sm transition-all ${config.goal_type===k ? 'bg-[#3B6CFF]/15 border-[#3B6CFF]/35 text-[#5AA9FF]' : 'bg-white/[0.03] border-white/[0.07] text-white/50 hover:text-white/75'}`}>{v}</button>))}</div></div>
               <div><label className="text-xs text-white/40 mb-2 block">投资期限</label><div className="grid grid-cols-4 gap-2">{(Object.entries(HORIZON_LABELS) as [InvestmentHorizon, string][]).map(([k, v]) => (<button key={k} onClick={() => update({ investment_horizon: k })} className={`h-10 rounded-lg border text-xs transition-all ${config.investment_horizon===k ? 'bg-[#00F0FF]/12 border-[#00F0FF]/35 text-[#00F0FF]' : 'bg-white/[0.03] border-white/[0.07] text-white/45'}`}>{v}</button>))}</div></div>

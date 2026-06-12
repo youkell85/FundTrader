@@ -119,7 +119,7 @@ export default function StrategyPage() {
   return (
     <div className="space-y-5">
       {/* ===== 工作台头部 ===== */}
-      <section className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4 md:p-5">
+      <section className="surface p-4 md:p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h1 className="text-xl md:text-2xl font-semibold text-white tracking-tight">
@@ -170,9 +170,9 @@ export default function StrategyPage() {
       {/* ===== 优化目标与组合摘要 ===== */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {/* 优化目标 */}
-        <section className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4">
+        <section className="surface p-4">
           <h3 className="text-xs text-white/40 uppercase tracking-wider mb-3 flex items-center gap-2">
-            <Target className="w-3.5 h-3.5 text-[#3B6CFF]" />
+            <Target className="w-3.5 h-3.5 text-primary" />
             优化目标
           </h3>
           <div className="space-y-2">
@@ -203,7 +203,7 @@ export default function StrategyPage() {
         </section>
 
         {/* 组合 KPI */}
-        <section className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4">
+        <section className="surface p-4">
           <h3 className="text-xs text-white/40 uppercase tracking-wider mb-3 flex items-center gap-2">
             <BarChart3 className="w-3.5 h-3.5 text-[#5AA9FF]" />
             组合摘要
@@ -221,7 +221,7 @@ export default function StrategyPage() {
         </section>
 
         {/* 用户画像 */}
-        <section className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4">
+        <section className="surface p-4">
           <h3 className="text-xs text-white/40 uppercase tracking-wider mb-3 flex items-center gap-2">
             <Info className="w-3.5 h-3.5 text-[#FAC858]" />
             输入画像
@@ -242,7 +242,7 @@ export default function StrategyPage() {
       {/* ===== 资产配置与权重 ===== */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* 大类配置 */}
-        <section className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4">
+        <section className="surface p-4">
           <h3 className="text-xs text-white/40 uppercase tracking-wider mb-3 flex items-center gap-2">
             <PieChartIcon className="w-3.5 h-3.5 text-[#EE6666]" />
             大类资产配置
@@ -278,7 +278,7 @@ export default function StrategyPage() {
         </section>
 
         {/* SAA 资产级权重 */}
-        <section className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4">
+        <section className="surface p-4">
           <h3 className="text-xs text-white/40 uppercase tracking-wider mb-3 flex items-center gap-2">
             <Scale className="w-3.5 h-3.5 text-[#9D7BFF]" />
             SAA 战略配置权重
@@ -329,7 +329,7 @@ export default function StrategyPage() {
       </div>
 
       {/* ===== 约束条件 ===== */}
-      <section className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4">
+      <section className="surface p-4">
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-xs text-white/40 uppercase tracking-wider flex items-center gap-2">
             <Shield className="w-3.5 h-3.5 text-[#16C784]" />
@@ -362,7 +362,7 @@ export default function StrategyPage() {
 
       {/* ===== 风险贡献 / 风险预算 ===== */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <section className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4">
+        <section className="surface p-4">
           <div className="flex items-center justify-between mb-3">
             <h3 className="text-xs text-white/40 uppercase tracking-wider flex items-center gap-2">
               <AlertTriangle className="w-3.5 h-3.5 text-[#EE6666]" />
@@ -407,7 +407,7 @@ export default function StrategyPage() {
         </section>
 
         {/* 集中度检查 */}
-        <section className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4">
+        <section className="surface p-4">
           <h3 className="text-xs text-white/40 uppercase tracking-wider mb-3 flex items-center gap-2">
             <Scale className="w-3.5 h-3.5 text-[#FAC858]" />
             集中度检查
@@ -462,7 +462,7 @@ export default function StrategyPage() {
       </div>
 
       {/* ===== 组合对比 (Variants) ===== */}
-      <section className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4">
+      <section className="surface p-4">
         <div className="flex flex-wrap items-center justify-between mb-3 gap-2">
           <h3 className="text-xs text-white/40 uppercase tracking-wider flex items-center gap-2">
             <TrendingUp className="w-3.5 h-3.5 text-[#5AA9FF]" />
@@ -548,7 +548,7 @@ export default function StrategyPage() {
       </section>
 
       {/* ===== 压力测试摘要 ===== */}
-      <section className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4">
+      <section className="surface p-4">
         <h3 className="text-xs text-white/40 uppercase tracking-wider mb-3 flex items-center gap-2">
           <AlertTriangle className="w-3.5 h-3.5 text-[#EE6666]" />
           压力测试摘要
@@ -558,7 +558,7 @@ export default function StrategyPage() {
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
             {[...d.stress_tests].sort((a, b) => a.impact - b.impact).map((s) => (
-              <div key={s.scenario} className="rounded-md border border-white/[0.04] bg-white/[0.02] px-3 py-2.5">
+              <div key={s.scenario} className="surface px-3 py-2.5">
                 <div className="text-[11px] text-white/45">{s.scenario}</div>
                 <div className={`mt-1 text-sm font-medium data-number ${s.impact < -15 ? 'text-[#EE6666]' : s.impact < -5 ? 'text-[#FFB800]' : 'text-white/70'}`}>
                   {fmt(s.impact, '%')}
@@ -573,7 +573,7 @@ export default function StrategyPage() {
       </section>
 
       {/* ===== 数据透明与模型说明 ===== */}
-      <section className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4">
+      <section className="surface p-4">
         <h3 className="text-xs text-white/40 uppercase tracking-wider mb-3 flex items-center gap-2">
           <Info className="w-3.5 h-3.5 text-[#73C0DE]" />
           数据状态与模型说明
@@ -637,12 +637,12 @@ function PieChartIcon({ className, style }: { className?: string; style?: React.
 
 function ObjectiveRow({ label, active, desc }: { label: string; active: boolean; desc: string }) {
   return (
-    <div className={`flex items-start gap-2 rounded px-2 py-1.5 text-xs ${active ? 'bg-[#3B6CFF]/[0.06] border border-[#3B6CFF]/15' : 'border border-transparent'}`}>
-      <div className={`w-3.5 h-3.5 rounded-full border shrink-0 mt-0.5 ${active ? 'border-[#3B6CFF] bg-[#3B6CFF]/20' : 'border-white/15'}`}>
-        {active && <div className="w-1.5 h-1.5 rounded-full bg-[#3B6CFF] mx-auto mt-0.75" />}
+    <div className={`flex items-start gap-2 rounded px-2 py-1.5 text-xs ${active ? 'bg-primary/[0.06] border border-primary/15 border-l-[3px] border-l-primary' : 'border border-transparent'}`}>
+      <div className={`w-3.5 h-3.5 rounded-full border shrink-0 mt-0.5 ${active ? 'border-primary bg-primary/20' : 'border-white/15'}`}>
+        {active && <div className="w-2 h-2 rounded-full bg-primary mx-auto mt-[1px]" />}
       </div>
       <div>
-        <span className={active ? 'text-[#5AA9FF] font-medium' : 'text-white/50'}>{label}</span>
+        <span className={active ? 'text-primary font-medium' : 'text-white/50'}>{label}</span>
         <p className="text-[11px] text-white/30 mt-0.5">{desc}</p>
       </div>
     </div>
@@ -652,7 +652,7 @@ function ObjectiveRow({ label, active, desc }: { label: string; active: boolean;
 function Kpi({ label, value, tone }: { label: string; value: string; tone?: 'positive' | 'negative' | 'neutral' }) {
   const color = tone === 'positive' ? 'text-[#16C784]' : tone === 'negative' ? 'text-[#EE6666]' : 'text-white/70';
   return (
-    <div className="rounded-md border border-white/[0.05] bg-white/[0.02] px-2.5 py-2">
+    <div className="surface px-2.5 py-2">
       <div className="text-[10px] text-white/35">{label}</div>
       <div className={`mt-0.5 text-sm font-medium data-number ${color}`}>{value}</div>
     </div>

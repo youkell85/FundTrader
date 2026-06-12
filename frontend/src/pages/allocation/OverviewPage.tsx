@@ -101,7 +101,7 @@ export default function OverviewPage() {
   return (
     <div className="space-y-5">
       {/* ===== 报告摘要区 ===== */}
-      <section className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4 md:p-5">
+      <section className="surface p-4 md:p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h1 className="text-xl md:text-2xl font-semibold text-white tracking-tight">
@@ -148,7 +148,7 @@ export default function OverviewPage() {
 
       {/* 生成按钮区 */}
       {isMock && (
-        <div className="liquid-glass p-4 border border-[#3B6CFF]/20 bg-[#3B6CFF]/[0.05]">
+        <div className="surface p-4 border border-[#3B6CFF]/20 bg-[#3B6CFF]/[0.05]">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
               <p className="text-sm text-white/70">当前显示为示例数据，点击生成真实配置方案</p>
@@ -191,7 +191,7 @@ export default function OverviewPage() {
       <AllocationQualitySummary quality={d.data_quality} />
 
       {/* ===== 预期指标条 ===== */}
-      <div className="grid grid-cols-2 md:grid-cols-6 gap-2 md:gap-3">
+      <div className="grid grid-cols-3 md:grid-cols-6 gap-2 md:gap-3">
         <KpiCard label="预期年化" value={fmtPct(pm.expected_return)} tone={pm.expected_return >= 0 ? 'positive' : 'negative'} />
         <KpiCard label="波动率" value={fmtPct(pm.volatility)} />
         <KpiCard label="最大回撤" value={fmtPct(pm.max_drawdown)} tone="negative" />
@@ -203,11 +203,11 @@ export default function OverviewPage() {
       {/* ===== 资产配置 ===== */}
       <section>
         <h2 className="text-base font-semibold text-white/85 mb-3 flex items-center gap-2">
-          <PieIcon className="w-4 h-4 text-[#3B6CFF]" />
+          <PieIcon className="w-4 h-4 text-primary" />
           资产配置
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="liquid-glass p-4">
+          <div className="surface p-4">
             <h3 className="text-xs text-white/50 mb-3">大类权重</h3>
             <div className="h-[220px]">
               <ResponsiveContainer width="100%" height="100%">
@@ -223,7 +223,7 @@ export default function OverviewPage() {
               </ResponsiveContainer>
             </div>
           </div>
-          <div className="liquid-glass p-4">
+          <div className="surface p-4">
             <h3 className="text-xs text-white/50 mb-3">风险预算瀑布</h3>
             <div className="space-y-2">
               {Object.entries(saa.group_allocations).map(([k, v]) => (
@@ -243,12 +243,13 @@ export default function OverviewPage() {
       </section>
 
       {/* ===== 基金候选 ===== */}
+      <div className="border-t border-white/[0.06] my-6" />
       <section>
         <h2 className="text-base font-semibold text-white/85 mb-3 flex items-center gap-2">
           <BarChart3 className="w-4 h-4 text-[#5AA9FF]" />
           核心基金候选
         </h2>
-        <div className="liquid-glass p-4 overflow-x-auto">
+        <div className="surface p-4 overflow-x-auto">
           {funds.length === 0 ? (
             <div className="text-sm text-white/45 py-6 text-center">暂无基金映射数据</div>
           ) : (
@@ -283,6 +284,7 @@ export default function OverviewPage() {
       </section>
 
       {/* ===== 风险与压力测试 ===== */}
+      <div className="border-t border-white/[0.06] my-6" />
       <section>
         <h2 className="text-base font-semibold text-white/85 mb-3 flex items-center gap-2">
           <Gauge className="w-4 h-4 text-[#EE6666]" />
@@ -290,7 +292,7 @@ export default function OverviewPage() {
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {/* 压力情景 */}
-          <div className="liquid-glass p-4">
+          <div className="surface p-4">
             <h3 className="text-xs text-white/50 mb-3">压力情景</h3>
             <div className="space-y-2">
               {stressData.length === 0 ? (
@@ -309,7 +311,7 @@ export default function OverviewPage() {
           </div>
 
           {/* 蒙特卡洛 */}
-          <div className="liquid-glass p-4">
+          <div className="surface p-4">
             <h3 className="text-xs text-white/50 mb-3">蒙特卡洛 (1y)</h3>
             {mc ? (
               <div className="grid grid-cols-2 gap-2 text-xs">
@@ -328,7 +330,7 @@ export default function OverviewPage() {
 
         {/* 约束检查 */}
         {constraints.length > 0 && (
-          <div className="mt-3 liquid-glass p-4">
+          <div className="mt-3 surface p-4">
             <h3 className="text-xs text-white/50 mb-2">约束检查</h3>
             <div className="space-y-1.5">
               {constraints.map((c) => (
@@ -382,6 +384,7 @@ export default function OverviewPage() {
       </section>
 
       {/* ===== 数据缺口与模型说明 ===== */}
+      <div className="border-t border-white/[0.06] my-6" />
       <section>
         <h2 className="text-base font-semibold text-white/85 mb-3 flex items-center gap-2">
           <AlertCircle className="w-4 h-4 text-[#FFB800]" />
@@ -399,7 +402,7 @@ export default function OverviewPage() {
             </div>
           ))}
           {meta.taa_skipped && (
-            <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-4 py-2 text-xs text-white/45">
+            <div className="surface px-4 py-2 text-xs text-white/45">
               TAA 调整已跳过（市场状态不明或信号不足），仅使用 SAA 战略配置。
             </div>
           )}
@@ -408,7 +411,7 @@ export default function OverviewPage() {
               市场状态待确认：{meta.regime_pending} ({meta.regime_pending_count}/2)
             </div>
           )}
-          <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] px-4 py-3 text-xs text-white/45 leading-relaxed">
+          <div className="surface px-4 py-3 text-xs text-white/45 leading-relaxed">
             <p className="font-medium text-white/55 mb-1">模型说明</p>
             <p>SAA：基于两层贝叶斯混合框架（Anchor先验 + Signal数据驱动）+ 生命周期下滑路径，使用 SLSQP 6级fallback优化求解。</p>
             <p>TAA：综合宏观信号（PMI、CPI、FED模型、信用利差等）对 SAA 做±10%区间调整。</p>
@@ -419,7 +422,7 @@ export default function OverviewPage() {
       </section>
 
       {/* ===== 审计日志 ===== */}
-      <div className="liquid-glass p-4">
+      <div className="surface p-4">
         <button
           aria-expanded={expandLog}
           onClick={() => setExpandLog(!expandLog)}
@@ -460,7 +463,7 @@ export default function OverviewPage() {
         )}
       </div>
 
-      <div className="liquid-glass p-4 border border-[#FFB800]/10 bg-[#FFB800]/[0.03]">
+      <div className="surface p-4 border border-[#FFB800]/10 bg-[#FFB800]/[0.03]">
         <p className="text-xs text-white/55 leading-relaxed">{d.risk_disclaimer}</p>
       </div>
     </div>
@@ -471,7 +474,7 @@ export default function OverviewPage() {
 
 function ProfileItem({ icon: Icon, label, value, behavior }: { icon: any; label: string; value: string; behavior?: boolean }) {
   return (
-    <div className="rounded-md border border-white/[0.05] bg-white/[0.02] px-3 py-2">
+    <div className="surface px-3 py-2">
       <div className="flex items-center gap-1.5 text-[11px] text-white/35">
         <Icon className="w-3 h-3" />
         {label}
@@ -526,7 +529,7 @@ function AllocationQualitySummary({ quality }: { quality?: AllocationDataQuality
 function KpiCard({ label, value, tone }: { label: string; value: string; tone?: 'positive' | 'negative' | 'neutral' }) {
   const color = tone === 'positive' ? 'text-[#16C784]' : tone === 'negative' ? 'text-[#EE6666]' : 'text-white/80';
   return (
-    <div className="rounded-md border border-white/[0.06] bg-white/[0.02] px-3 py-2.5">
+    <div className="surface px-3 py-2.5">
       <div className="text-[11px] text-white/40">{label}</div>
       <div className={`mt-1 text-base font-semibold data-number ${color}`}>{value}</div>
     </div>
@@ -535,7 +538,7 @@ function KpiCard({ label, value, tone }: { label: string; value: string; tone?: 
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md border border-white/[0.05] bg-white/[0.02] px-2.5 py-2">
+    <div className="surface px-2.5 py-2">
       <div className="text-[10px] text-white/35">{label}</div>
       <div className="mt-0.5 text-xs font-medium data-number text-white/70">{value}</div>
     </div>
@@ -544,7 +547,7 @@ function Metric({ label, value }: { label: string; value: string }) {
 
 function SuggestionCard({ icon: Icon, title, desc, action }: { icon: any; title: string; desc: string; action?: { label: string; href: string } }) {
   return (
-    <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4">
+    <div className="surface p-4">
       <div className="flex items-center gap-2 mb-2">
         <Icon className="w-4 h-4 text-[#5AA9FF]" />
         <h3 className="text-sm font-medium text-white/80">{title}</h3>

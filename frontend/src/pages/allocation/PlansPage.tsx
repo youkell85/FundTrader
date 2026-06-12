@@ -97,7 +97,7 @@ function PlanItem({ plan, restoring, onRestore, onDelete, onToggleFavorite, onEx
   };
 
   return (
-    <div className="p-3 rounded-lg border border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.04] transition-colors">
+    <div className="p-3 surface hover:bg-white/[0.04] transition-colors">
       {/* Header row */}
       <div className="flex items-start gap-3">
         {/* Info */}
@@ -252,7 +252,7 @@ function PlanItem({ plan, restoring, onRestore, onDelete, onToggleFavorite, onEx
                     Object.entries((plan.response as any).saa.group_allocations as Record<string, number>)
                       .slice(0, 4)
                       .map(([k, v]) => (
-                        <div key={k} className="text-[10px] px-2 py-1 rounded bg-white/[0.02] border border-white/[0.04]">
+                        <div key={k} className="text-[10px] px-2 py-1 rounded surface">
                           <span className="text-white/40">{k}:</span>{' '}
                           <span className="text-white/60 data-number">{v}%</span>
                         </div>
@@ -318,7 +318,7 @@ function PlanItem({ plan, restoring, onRestore, onDelete, onToggleFavorite, onEx
                   {summary.hasResearchCandidates && (
                     <div className="flex flex-wrap gap-1">
                       {(plan.response as any)?.researchReportSnapshot?.candidates?.slice(0, 3).map((c: any, i: number) => (
-                        <span key={i} className="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.02] border border-white/[0.04] text-white/40">
+                        <span key={i} className="text-[10px] px-1.5 py-0.5 rounded surface text-white/40">
                           {c.fundCode || c.code} {c.fundName || c.name}
                         </span>
                       ))}
@@ -330,7 +330,7 @@ function PlanItem({ plan, restoring, onRestore, onDelete, onToggleFavorite, onEx
                   {summary.hasConstraintDraft && (
                     <div className="flex flex-wrap gap-1">
                       {(plan.response as any)?.researchReportSnapshot?.constraintDrafts?.slice(0, 3).map((d: any, i: number) => (
-                        <span key={i} className="text-[10px] px-1.5 py-0.5 rounded bg-white/[0.02] border border-white/[0.04] text-white/40">
+                        <span key={i} className="text-[10px] px-1.5 py-0.5 rounded surface text-white/40">
                           {d.fundCode} {d.action}
                         </span>
                       ))}

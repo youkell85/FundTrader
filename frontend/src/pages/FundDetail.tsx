@@ -66,12 +66,13 @@ const chartColors = ["#3B6CFF", "#46C6C2", "#E9AB60", "#5CA8DF", "#9D7BFF", "#FF
 
 // 统一 Tooltip 样式：半透明背景+紧凑
 const TOOLTIP_STYLE = {
-  backgroundColor: "rgba(255,255,255,0.95)",
-  border: "1px solid hsl(var(--border))",
+  backgroundColor: "rgba(0,2,18,0.92)",
+  border: "1px solid rgba(255,255,255,0.08)",
   borderRadius: 6,
   fontSize: 12,
   padding: "6px 10px",
-  boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+  boxShadow: "0 4px 12px rgba(0,0,0,0.4)",
+  color: "rgba(255,255,255,0.85)",
 };
 
 const ANCHOR_ITEMS = [

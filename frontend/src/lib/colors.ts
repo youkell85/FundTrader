@@ -38,7 +38,7 @@ export function getChangeBgColor(value: number | string | null | undefined): str
 export function getChangeTextClass(value: number | string | null | undefined): string {
   const v = typeof value === "number" ? value : parseFloat(String(value ?? "0"));
   if (!Number.isFinite(v) || v === 0) return "text-white/60";
-  return v > 0 ? "text-[#F5384B]" : "text-[#16C784]";
+  return v > 0 ? "text-danger" : "text-success";
 }
 
 // === 风险/回撤指标专用色（始终为绿色或暖色）===

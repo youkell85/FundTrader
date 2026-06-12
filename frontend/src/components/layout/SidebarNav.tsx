@@ -84,7 +84,7 @@ export default function SidebarNav() {
       {/* Sidebar */}
       <aside
         className={`fixed md:sticky top-12 left-0 z-40 h-[calc(100vh-3rem)] bg-[#08080C]/92 backdrop-blur-xl border-r border-white/[0.04] transition-all duration-300 ${
-          collapsed ? 'w-16' : 'w-56'
+          collapsed ? 'w-16' : 'w-52'
         } ${mobileOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}`}
       >
         <div className="flex items-center justify-between px-3 py-2.5 border-b border-white/[0.04]">
@@ -95,9 +95,17 @@ export default function SidebarNav() {
             onClick={() => setCollapsed(!collapsed)}
             className="hidden md:flex p-1 rounded hover:bg-white/[0.06] text-white/40 focus-visible:ring-2 focus-visible:ring-[#3B6CFF]/50"
           >
-            {collapsed ? <ChevronRight className="w-4 h-4" aria-hidden="true" /> : <ChevronLeft className="w-4 h-4" aria-hidden="true" />}
-          </button>
-        </div>
+           {collapsed ? <ChevronRight className="w-4 h-4" aria-hidden="true" /> : <ChevronLeft className="w-4 h-4" aria-hidden="true" />}
+         </button>
+       </div>
+          {mobileOpen && (
+            <button
+              onClick={closeMobile}
+              className="md:hidden ml-auto p-1 rounded hover:bg-white/[0.06] text-white/40"
+            >
+              <X className="w-4 h-4" aria-hidden="true" />
+            </button>
+          )}
 
         <nav className="p-2 space-y-1">
           {NAV_ITEMS.map((item) => {
@@ -135,7 +143,7 @@ export default function SidebarNav() {
                     className={({ isActive: navActive }) =>
                       `flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${
                         navActive
-                              ? 'text-white/90 bg-white/[0.04] border-l-2 border-[#3B6CFF]/60'
+                              ? 'text-white/90 bg-white/[0.04] border-l-2 border-primary/70 font-medium'
                               : 'text-white/40 hover:bg-white/[0.03] hover:text-white/60'
                       }`
                     }

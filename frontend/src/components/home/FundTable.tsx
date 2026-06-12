@@ -57,7 +57,7 @@ export default function FundTable({
 }: FundTableProps) {
   return (
     <section className="px-4 md:px-6 max-w-7xl mx-auto">
-      <div className="liquid-glass overflow-hidden">
+      <div className="surface overflow-hidden">
         <div className="hidden md:grid md:grid-cols-[minmax(260px,2fr)_repeat(5,minmax(92px,1fr))_minmax(150px,1fr)] gap-3 px-5 py-3 text-xs text-white/50 font-medium border-b border-white/[0.06] items-center">
           <div>基金产品</div>
           <div className="text-right">净值</div>

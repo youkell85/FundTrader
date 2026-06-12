@@ -43,7 +43,7 @@ function StatusBadge({ status, text }: { status: 'real' | 'demo' | 'degraded' | 
 function Kpi({ label, value, tone }: { label: string; value: string; tone?: 'positive' | 'negative' | 'neutral' }) {
   const color = tone === 'positive' ? 'text-[#16C784]' : tone === 'negative' ? 'text-[#EE6666]' : 'text-white/70';
   return (
-    <div className="rounded-md border border-white/[0.05] bg-white/[0.02] px-2.5 py-2">
+    <div className="surface px-2.5 py-2">
       <div className="text-[10px] text-white/35">{label}</div>
       <div className={`mt-0.5 text-sm font-medium data-number ${color}`}>{value}</div>
     </div>
@@ -132,7 +132,7 @@ export default function BacktestPage() {
   return (
     <div className="space-y-5">
       {/* ===== 报告头部 ===== */}
-      <section className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4 md:p-5">
+      <section className="surface p-4 md:p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h1 className="text-xl md:text-2xl font-semibold text-white tracking-tight">
@@ -179,7 +179,7 @@ export default function BacktestPage() {
 
       {/* ===== 快速操作区（无结果时） ===== */}
       {!hasAnyResult && (
-        <section className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4">
+        <section className="surface p-4">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
               <p className="text-sm text-white/70">
@@ -261,7 +261,7 @@ export default function BacktestPage() {
 
           {/* 月度收益表 */}
           {backtestResult?.monthly_returns && Object.keys(backtestResult.monthly_returns).length > 0 && (
-            <section className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4 overflow-x-auto">
+            <section className="surface p-4 overflow-x-auto">
               <h3 className="text-xs text-white/40 uppercase tracking-wider mb-3">月度收益</h3>
               {Object.entries(backtestResult.monthly_returns).map(([mode, months]) => {
                 const entries = Object.entries(months).sort(([a], [b]) => a.localeCompare(b));
@@ -271,16 +271,35 @@ export default function BacktestPage() {
                     <div className="text-[11px] font-medium mb-1" style={{ color: MODE_COLORS[mode as ComparisonMode] || '#fff' }}>
                       {MODE_LABELS[mode as ComparisonMode] || mode}
                     </div>
-                    <div className="flex flex-wrap gap-1">
-                      {entries.slice(-24).map(([month, ret]) => (
-                        <div key={month} className="text-[10px] px-1.5 py-0.5 rounded border" style={{
-                          borderColor: ret >= 0 ? 'rgba(22,199,132,0.2)' : 'rgba(238,102,102,0.2)',
-                          backgroundColor: ret >= 0 ? 'rgba(22,199,132,0.05)' : 'rgba(238,102,102,0.05)',
-                          color: ret >= 0 ? '#16C784' : '#EE6666',
-                        }}>
-                          {month}: {ret >= 0 ? '+' : ''}{ret.toFixed(2)}%
-                        </div>
-                      ))}
+                    <div className="space-y-2">
+                      {(() => {
+                        const byYear: Record<string, [string, number][]> = {};
+                        entries.forEach(([m, r]) => {
+                          const y = m.slice(0, 4);
+                          (byYear[y] ??= []).push([m, r]);
+                        });
+                        return Object.entries(byYear).map(([year, months]) => (
+                          <div key={year}>
+                            <div className="text-[10px] text-white/30 mb-1">{year}</div>
+                            <div className="grid grid-cols-6 sm:grid-cols-12 gap-1">
+                              {months.map(([month, ret]) => {
+                                const abs = Math.min(Math.abs(ret), 10);
+                                const intensity = abs / 10;
+                                return (
+                                  <div key={month} className="text-[10px] text-center px-1 py-1 rounded" style={{
+                                    backgroundColor: ret >= 0
+                                      ? `rgba(22,199,132,${0.08 + intensity * 0.35})`
+                                      : `rgba(238,102,102,${0.08 + intensity * 0.35})`,
+                                    color: ret >= 0 ? '#16C784' : '#EE6666',
+                                  }} title={`${month}: ${ret >= 0 ? '+' : ''}${ret.toFixed(2)}%`}>
+                                    {month.slice(5)}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        ));
+                      })()}
                     </div>
                   </div>
                 );
@@ -305,7 +324,7 @@ export default function BacktestPage() {
 
           {/* Benchmark 状态 */}
           {backtestResult?.metrics && (
-            <div className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4">
+            <div className="surface p-4">
               <h3 className="text-xs text-white/40 uppercase tracking-wider mb-2">基准数据状态</h3>
               <div className="space-y-1 text-xs text-white/35">
                 {(['equal_weight', 'sixty_forty'] as ComparisonMode[]).map(mode => {
@@ -330,7 +349,7 @@ export default function BacktestPage() {
       {/* ===== DCA 定投回测结果 ===== */}
       {hasDcaBacktest && (
         <>
-          <section className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4">
+          <section className="surface p-4">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-xs text-white/40 uppercase tracking-wider flex items-center gap-2">
                 <Wallet className="w-3.5 h-3.5 text-[#5AA9FF]" />
@@ -422,7 +441,7 @@ export default function BacktestPage() {
 
       {/* ===== 无数据提示 ===== */}
       {!hasAnyResult && isReal && !backtestLoading && (
-        <section className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4">
+        <section className="surface p-4">
           <h3 className="text-xs text-white/40 uppercase tracking-wider mb-3 flex items-center gap-2">
             <Activity className="w-3.5 h-3.5 text-[#73C0DE]" />
             回测说明
@@ -438,7 +457,7 @@ export default function BacktestPage() {
 
       {/* ===== 数据质量与基准状态 ===== */}
       {hasAnyResult && (
-        <section className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4">
+        <section className="surface p-4">
           <h3 className="text-xs text-white/40 uppercase tracking-wider mb-3 flex items-center gap-2">
             <Info className="w-3.5 h-3.5 text-[#73C0DE]" />
             数据质量与基准状态
@@ -449,13 +468,13 @@ export default function BacktestPage() {
             <div className="space-y-3">
               {/* 核心指标行 */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                <div className="rounded-md border border-white/[0.05] bg-white/[0.02] px-2.5 py-2">
+                <div className="surface px-2.5 py-2">
                   <div className="text-[10px] text-white/30">回测区间</div>
                   <div className="mt-0.5 text-xs font-medium text-white/70 data-number">
                     {backtestResult!.data_quality.earliest_common_date || '—'}
                   </div>
                 </div>
-                <div className="rounded-md border border-white/[0.05] bg-white/[0.02] px-2.5 py-2">
+                <div className="surface px-2.5 py-2">
                   <div className="text-[10px] text-white/30">回测天数</div>
                   <div className="mt-0.5 text-xs font-medium text-white/70 data-number">
                     {backtestResult!.data_quality.total_trading_days != null
@@ -463,7 +482,7 @@ export default function BacktestPage() {
                       : '—'}
                   </div>
                 </div>
-                <div className="rounded-md border border-white/[0.05] bg-white/[0.02] px-2.5 py-2">
+                <div className="surface px-2.5 py-2">
                   <div className="text-[10px] text-white/30">资产覆盖率</div>
                   <div className="mt-0.5 text-xs font-medium data-number"
                     style={{
@@ -479,7 +498,7 @@ export default function BacktestPage() {
                       : '—'}
                   </div>
                 </div>
-                <div className="rounded-md border border-white/[0.05] bg-white/[0.02] px-2.5 py-2">
+                <div className="surface px-2.5 py-2">
                   <div className="text-[10px] text-white/30">完整 / 部分资产</div>
                   <div className="mt-0.5 text-xs font-medium text-white/70 data-number">
                     {backtestResult!.data_quality.assets_with_full_history != null && backtestResult!.data_quality.assets_with_partial_history != null

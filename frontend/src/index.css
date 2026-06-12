@@ -16,14 +16,32 @@
     --secondary-foreground: 210 40% 98%;
     --muted: 228 30% 12%;
     --muted-foreground: 215 20% 65%;
-    --accent: 228 30% 12%;
-    --accent-foreground: 210 40% 98%;
+    --accent: 35 95% 55%;
+    --accent-foreground: 228 50% 6%;
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 210 40% 98%;
     --border: 228 20% 16%;
     --input: 228 20% 16%;
     --ring: 217 91% 60%;
     --radius: 0.5rem;
+    /* Semantic status colors */
+    --success: 152 72% 48%;
+    --success-foreground: 152 72% 12%;
+    --danger: 0 84% 61%;
+    --danger-foreground: 0 84% 12%;
+    --warning: 35 95% 55%;
+    --warning-foreground: 35 95% 12%;
+    --info: 210 100% 68%;
+    --info-foreground: 210 100% 12%;
+    /* Sidebar */
+    --sidebar-background: 228 50% 4%;
+    --sidebar-foreground: 210 40% 98%;
+    --sidebar-primary: 217 91% 60%;
+    --sidebar-primary-foreground: 210 40% 98%;
+    --sidebar-accent: 228 30% 10%;
+    --sidebar-accent-foreground: 210 40% 98%;
+    --sidebar-border: 228 20% 12%;
+    --sidebar-ring: 217 91% 60%;
   }
 }
 
@@ -35,10 +53,8 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     overflow-x: hidden;
-    /* Mobile: prevent overscroll bounce and tap highlight */
     overscroll-behavior-y: contain;
     -webkit-tap-highlight-color: transparent;
-    /* iPhone notch safe area */
     padding-top: env(safe-area-inset-top);
   }
 
@@ -118,6 +134,19 @@
     box-shadow: none;
   }
 
+  /* Unified content surface - use for all section cards & panels */
+  .surface {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 12px;
+  }
+
+  .surface-elevated {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+  }
+
   .glow-text-blue {
     text-shadow: 0 0 12px rgba(59, 108, 255, 0.3);
   }
@@ -150,14 +179,39 @@
     left: 150%;
   }
 
-  /* Mobile: ensure Recharts containers are touch-scrollable */
   .recharts-wrapper {
     touch-action: pan-y;
   }
 
-  /* Mobile: prevent text selection on interactive elements */
   button, a, [role="button"] {
     user-select: none;
     -webkit-user-select: none;
+  }
+
+  /* Dark tooltip for Recharts charts */
+  .chart-tooltip-dark {
+    background: rgba(0, 2, 18, 0.92) !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border-radius: 6px !important;
+    color: rgba(255, 255, 255, 0.85) !important;
+    font-size: 12px !important;
+    padding: 6px 10px !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4) !important;
+  }
+
+  /* Table zebra stripe utility */
+  .table-zebra tbody tr:nth-child(even) {
+    background: rgba(255, 255, 255, 0.015);
+  }
+
+  /* Input focus utility */
+  .input-focus {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.10);
+  }
+  .input-focus:focus {
+    border-color: #3B6CFF;
+    box-shadow: 0 0 0 1px rgba(59, 108, 255, 0.3);
+    outline: none;
   }
 }

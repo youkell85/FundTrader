@@ -95,7 +95,7 @@ export default function RiskPage() {
             </Bar>
           </BarChart>
         </ResponsiveContainer>
-        <div className="mt-3 p-3 rounded-lg bg-white/[0.03] border border-white/[0.06] text-xs text-white/45">
+        <div className="mt-3 p-3 surface text-xs text-white/45">
           最坏情景: {worst?.scenario} ({worst?.impact}%, 预计损失 {worst?.max_loss.toLocaleString()}元)
         </div>
       </SectionCard>

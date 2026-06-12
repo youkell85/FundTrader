@@ -99,7 +99,7 @@ export default function OpsPage() {
         </div>
         {dualData && (
           <div className="mt-3 space-y-2">
-            <div className="p-2 rounded-lg bg-white/[0.03] border border-white/[0.06] text-xs text-white/60">
+            <div className="p-2 surface text-xs text-white/60">
               {dualData.comparison.assessment}
             </div>
             <div className="flex gap-3 text-[10px] text-white/40">

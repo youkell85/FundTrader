@@ -152,7 +152,7 @@ export default function FundsPage() {
       </SectionCard>
 
       {!isReal && (
-        <div className="liquid-glass p-4 border border-[#3B6CFF]/20 bg-[#3B6CFF]/[0.05] flex items-center gap-3">
+        <div className="surface p-4 border border-[#3B6CFF]/20 bg-[#3B6CFF]/[0.05] flex items-center gap-3">
           <AlertCircle className="w-4 h-4 text-[#5AA9FF]" />
           <p className="text-xs text-white/55">当前为演示数据，排名接口未调用。请先生成真实配置方案以查看基金排名。</p>
         </div>

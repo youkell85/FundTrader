@@ -25,7 +25,7 @@ export default function SectionCard({
   if (interactive) {
     return (
       <div
-        className={`liquid-glass p-4 md:p-5 ${className}`}
+        className={`surface p-4 md:p-5 ${className}`}
         style={accent ? { borderLeft: `3px solid ${accentColor}` } : undefined}
       >
         <h3 className="text-sm text-white/70 mb-3 flex items-center gap-2">
@@ -38,7 +38,7 @@ export default function SectionCard({
   }
 
   return (
-    <div className={className} style={accent ? { borderLeft: `2px solid ${accentColor}` } : undefined}>
+    <div className={`surface p-4 md:p-5 ${className}`} style={accent ? { borderLeft: `2px solid ${accentColor}` } : undefined}>
       <h3 className="text-xs text-white/40 uppercase tracking-wider mb-3 flex items-center gap-2">
         {Icon && <Icon className="w-3.5 h-3.5" style={{ color: iconColor }} />}
         {title}

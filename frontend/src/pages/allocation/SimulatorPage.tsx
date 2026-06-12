@@ -59,22 +59,22 @@ export default function SimulatorPage() {
         </div>
         {simData && (
           <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-2">
-            <div className="rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-2">
+            <div className="surface px-3 py-2">
               <div className="text-white/55 text-[10px]">预期收益</div>
               <div className="data-number text-sm text-[#16C784]">{simData.expected_return.toFixed(2)}%</div>
               {simData.delta_return !== 0 && <div className="text-[10px] data-number" style={{ color: simData.delta_return > 0 ? '#16C784' : '#EE6666' }}>{simData.delta_return > 0 ? '+' : ''}{simData.delta_return.toFixed(2)}</div>}
             </div>
-            <div className="rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-2">
+            <div className="surface px-3 py-2">
               <div className="text-white/55 text-[10px]">波动率</div>
               <div className="data-number text-sm text-[#FAC858]">{simData.expected_volatility.toFixed(2)}%</div>
               {simData.delta_volatility !== 0 && <div className="text-[10px] data-number" style={{ color: simData.delta_volatility > 0 ? '#16C784' : '#EE6666' }}>{simData.delta_volatility > 0 ? '+' : ''}{simData.delta_volatility.toFixed(2)}</div>}
             </div>
-            <div className="rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-2">
+            <div className="surface px-3 py-2">
               <div className="text-white/55 text-[10px]">夏普比率</div>
               <div className="data-number text-sm text-[#5470C6]">{simData.sharpe_ratio.toFixed(2)}</div>
               {simData.delta_sharpe !== 0 && <div className="text-[10px] data-number" style={{ color: simData.delta_sharpe > 0 ? '#16C784' : '#EE6666' }}>{simData.delta_sharpe > 0 ? '+' : ''}{simData.delta_sharpe.toFixed(2)}</div>}
             </div>
-            <div className="rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-2">
+            <div className="surface px-3 py-2">
               <div className="text-white/55 text-[10px]">最大回撤</div>
               <div className="data-number text-sm text-[#EE6666]">{simData.max_drawdown.toFixed(2)}%</div>
             </div>

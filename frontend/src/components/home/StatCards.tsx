@@ -23,7 +23,7 @@ export default function StatCards({ currentOverview, categoryStats, category, on
           { label: "平均年化收益", value: currentOverview.avgReturn, suffix: currentOverview.avgReturn === "—" ? "" : "%", icon: TrendingUp, color: parseFloat(currentOverview.avgReturn) >= 0 ? UP_COLOR : DOWN_COLOR },
           { label: "平均夏普比率", value: currentOverview.avgSharpe, suffix: "", icon: Shield, color: POSITIVE_METRIC_COLOR },
         ].map((card) => (
-          <div key={card.label} className="liquid-glass-sm p-3 md:p-4 group hover:bg-white/[0.06] transition-all">
+          <div key={card.label} className="surface p-3 md:p-4 group hover:bg-white/[0.06] transition-all">
             <div className="flex items-center gap-2 mb-1.5 md:mb-2">
               <card.icon className="w-4 h-4" style={{ color: card.color }} />
               <span className="text-white/40 text-[11px] md:text-xs">{card.label}</span>
@@ -43,7 +43,7 @@ export default function StatCards({ currentOverview, categoryStats, category, on
             onClick={() => onCategoryClick(item.key ?? item.label)}
             className={`rounded-lg border px-3 py-3 text-left transition-colors ${
               category === (item.key ?? item.label)
-                ? "border-[#3B6CFF]/35 bg-[#3B6CFF]/[0.10]"
+                ? "border-primary/35 bg-primary/10 ring-1 ring-primary/20 scale-[1.01] transition-all"
                 : "border-white/[0.06] bg-white/[0.025] hover:bg-white/[0.05]"
             }`}
           >

@@ -100,7 +100,7 @@ export default function Navbar() {
                 <span className="hidden sm:inline text-white/80 text-sm">{user.name || "用户"}</span>
               </button>
               {showUserMenu && (
-                <div role="menu" className="absolute right-0 top-full mt-2 w-44 liquid-glass-sm py-2 z-50">
+                <div role="menu" className="absolute right-0 top-full mt-2 w-44 surface-elevated py-2 z-50">
                   <div className="px-3 py-2 text-xs text-white/40 border-b border-white/5">个人数据已保存</div>
                   <button
                     role="menuitem"
@@ -149,7 +149,7 @@ export default function Navbar() {
                     </span>
                   )}
                 </div>
-                <span>{item.label}</span>
+                <span className="hidden min-[375px]:block">{item.label}</span>
               </Link>
             );
           })}
