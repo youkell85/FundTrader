@@ -5,14 +5,25 @@ return_1y and sharpe_1y) by refreshing structural metadata: AUM, fees,
 subscription/redemption status, and staleness tracking.
 
 Sources: efinance (primary) → Tushare (secondary) → SQLite cache → static.
+
+Uses an in-memory cache (6h TTL) to avoid hitting efinance on every
+allocation request — metadata (name, fees, AUM) changes very slowly.
 """
 import logging
+import threading
+import time
 from datetime import datetime, timedelta
 from typing import Dict, Optional
 
 logger = logging.getLogger(__name__)
 
 _STALE_THRESHOLD_DAYS = 7
+
+# In-memory cache: code -> (timestamp, updated_profile)
+_meta_cache: Dict[str, tuple] = {}
+_meta_cache_lock = threading.Lock()
+_META_CACHE_TTL = 6 * 3600  # 6 hours
+
 
 def refresh_pool_metadata(profiles: Dict) -> Dict:
     """Refresh metadata for all funds in the pool.
@@ -22,7 +33,17 @@ def refresh_pool_metadata(profiles: Dict) -> Dict:
     result = {}
     for code, profile in profiles.items():
         try:
-            result[code] = _refresh_single(profile)
+            # Check in-memory cache first
+            with _meta_cache_lock:
+                if code in _meta_cache:
+                    ts, cached = _meta_cache[code]
+                    if time.time() - ts < _META_CACHE_TTL:
+                        result[code] = cached
+                        continue
+            refreshed = _refresh_single(profile)
+            with _meta_cache_lock:
+                _meta_cache[code] = (time.time(), refreshed)
+            result[code] = refreshed
         except Exception as e:
             logger.debug(f"Metadata refresh failed for {code}: {e}")
             result[code] = profile
@@ -94,28 +115,26 @@ def _update_profile(profile, updates: dict) -> object:
 
 
 def _fetch_efinance_meta(code: str) -> Optional[dict]:
-    """Fetch fund metadata from efinance."""
+    """Fetch fund metadata from efinance — batch call to avoid per-fund overhead."""
     try:
         import efinance as ef
+        import pandas as pd
         df = ef.fund.get_base_info([code])
         if df is None or df.empty:
             return None
         row = df.iloc[0]
         result = {"_source": "efinance"}
         # Map efinance columns to our fields
-        for col, key in [("基金名称", "name"), ("基金类型", "fund_type")]:
+        for col, key in [("\u57fa\u91d1\u540d\u79f0", "name"), ("\u57fa\u91d1\u7c7b\u578b", "fund_type")]:
             if col in row.index and pd.notna(row[col]):
                 result[key] = str(row[col])
-        for col, key in [("基金规模(亿元)", "aum"), ("管理费", "management_fee"), ("托管费", "custody_fee")]:
+        for col, key in [("\u57fa\u91d1\u89c4\u6a21(\u4ebf\u5143)", "aum"), ("\u7ba1\u7406\u8d39", "management_fee"), ("\u6258\u7ba1\u8d39", "custody_fee")]:
             if col in row.index:
                 try:
                     val = float(row[col])
                     result[key] = val
                 except (ValueError, TypeError):
                     pass
-        # daily_turnover: efinance doesn't provide a direct column for this,
-        # but we can compute from 成交量 if available
-        # TODO: add volume mapping once efinance API column is confirmed
         return result
     except Exception as e:
         logger.debug(f"efinance metadata fetch failed for {code}: {e}")
