@@ -80,6 +80,20 @@ app.all("/fund/api/*", async (c) => {
     );
     try {
       const res = await fetch(targetUrl, { method, headers, body, signal: controller.signal });
+      clearTimeout(timeout); // fetch completed — no need for proxy timeout
+      // SSE stream: proxy chunk-by-chunk without buffering
+      const contentType = res.headers.get("content-type") || "";
+      if (contentType.includes("text/event-stream") && res.body) {
+        return new Response(res.body, {
+          status: res.status,
+          headers: {
+            "Content-Type": "text/event-stream",
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+          },
+        });
+      }
       const data = await res.text();
       return c.body(data, res.status as any, { "Content-Type": "application/json" });
     } finally {
