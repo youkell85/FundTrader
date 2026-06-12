@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router';
 import {
   Loader2,
@@ -7,8 +7,11 @@ import {
   Wallet,
   ArrowLeft,
   Save,
+  Timer,
+  CheckCircle2,
   SlidersHorizontal,
 } from 'lucide-react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { useAllocationData } from '@/hooks/useAllocationData';
 import { useAllocationStore } from '@/store/allocationStore';
 import PageHeader from '@/components/ui/PageHeader';
@@ -59,6 +62,18 @@ export default function ExecutePage() {
   const [result, setResult] = useState<ParsedDcaResult | null>(state.dcaResult);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [elapsed, setElapsed] = useState(0);
+  const timerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
+
+  const startTimer = useCallback(() => {
+    setElapsed(0);
+    timerRef.current = setInterval(() => setElapsed(e => e + 1), 1000);
+  }, []);
+  const stopTimer = useCallback(() => {
+    if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = undefined; }
+  }, []);
+
+  useEffect(() => { return () => { if (timerRef.current) clearInterval(timerRef.current); }; }, []);
 
   // 初始化：从 allocation output 构建执行计划
   useEffect(() => {
@@ -116,6 +131,7 @@ export default function ExecutePage() {
     if (guard.blocked || !plan || !config) return;
     setLoading(true);
     setError(null);
+    startTimer();
     try {
       const raw = await utils.fund.runBacktest.fetch({
         fundCodes: plan.funds.map((f) => f.code),
@@ -135,6 +151,7 @@ export default function ExecutePage() {
       setError(e?.message || '回测失败，请检查参数后重试');
     } finally {
       setLoading(false);
+      stopTimer();
     }
   };
 
@@ -161,6 +178,8 @@ export default function ExecutePage() {
       </div>
     );
   }
+
+  const hasBenchmark = result?.curve?.some(p => (p as any).benchmark != null);
 
   return (
     <div className="space-y-5">
@@ -206,8 +225,8 @@ export default function ExecutePage() {
               </table>
             </div>
             <div className="flex justify-between text-xs text-white/40 px-1">
-              <span>总权重: {plan.funds.reduce((s, f) => s + f.weight, 0)}%</span>
-              <span>总金额: {plan.totalAmount.toLocaleString()}元</span>
+              <span>总权重 {plan.funds.reduce((s, f) => s + f.weight, 0)}%</span>
+              <span>总金额 {plan.totalAmount.toLocaleString()}元</span>
             </div>
           </div>
         )}
@@ -288,20 +307,58 @@ export default function ExecutePage() {
       </SectionCard>
 
       <SectionCard title="定投回测" icon={TrendingUp} iconColor="#16C784">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={handleRunBacktest}
-            disabled={loading || guard.blocked}
-            className="px-4 py-2 rounded-lg bg-[#16C784]/20 text-[#16C784] text-xs font-medium hover:bg-[#16C784]/30 disabled:opacity-50 flex items-center gap-2"
-          >
-            {loading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-            {loading ? '回测中...' : '运行定投回测'}
-          </button>
-          {error && <span className="text-xs text-[#EE6666]">{error}</span>}
-        </div>
+        {/* Loading progress indicator */}
+        {loading && (
+          <div className="mb-4 rounded-lg border border-[#3B6CFF]/20 bg-[#3B6CFF]/[0.05] p-4 flex items-center gap-4">
+            <div className="relative shrink-0">
+              <Loader2 className="w-8 h-8 text-[#3B6CFF] animate-spin" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 text-sm text-white/70">
+                <Timer className="w-4 h-4 text-[#5AA9FF]" />
+                <span>回测运行中...</span>
+              </div>
+              <div className="mt-1.5 flex items-center gap-3">
+                <span className="text-xs text-white/50 tabular-nums">已耗时 {elapsed}s</span>
+                <div className="flex-1 h-1.5 rounded-full bg-white/[0.04] overflow-hidden max-w-[200px]">
+                  <div
+                    className="h-full rounded-full bg-[#3B6CFF] transition-all duration-1000"
+                    style={{ width: `${Math.min(100, (elapsed / 60) * 100)}%` }}
+                  />
+                </div>
+                <span className="text-[10px] text-white/30">预计 30-60s</span>
+              </div>
+              <p className="mt-1.5 text-[11px] text-white/35">
+                正在获取基金净值数据并模拟定投路径，多基金组合回测需要逐个拉取数据，请耐心等待
+              </p>
+            </div>
+            <button
+              onClick={() => { setLoading(false); stopTimer(); setError('已取消'); }}
+              className="px-3 py-1.5 rounded-md border border-white/[0.1] bg-white/[0.03] text-xs text-white/50 hover:text-white/70 hover:bg-white/[0.06] transition-colors shrink-0"
+            >
+              取消
+            </button>
+          </div>
+        )}
 
+        {/* Run button */}
+        {!loading && (
+          <div className="flex items-center gap-3 mb-3">
+            <button
+              onClick={handleRunBacktest}
+              disabled={guard.blocked}
+              className="px-4 py-2 rounded-lg bg-[#16C784]/20 text-[#16C784] text-xs font-medium hover:bg-[#16C784]/30 disabled:opacity-50 flex items-center gap-2"
+            >
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              运行定投回测
+            </button>
+            {error && <span className="text-xs text-[#EE6666]">{error}</span>}
+          </div>
+        )}
+
+        {/* KPI cards */}
         {result && (
-          <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
             <div className="surface p-3">
               <div className="text-[10px] text-white/50">累计投入</div>
               <div className="data-number text-sm text-white/80">{Math.round(result.totalInvested).toLocaleString()}</div>
@@ -334,6 +391,52 @@ export default function ExecutePage() {
               <div className="text-[10px] text-white/50">费率成本</div>
               <div className="data-number text-sm text-[#FAC858]">{Math.round(result.feeCost).toLocaleString()}</div>
             </div>
+          </div>
+        )}
+
+        {/* Curve chart */}
+        {result?.curve && result.curve.length > 2 && (
+          <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-5">
+            <h3 className="text-sm font-medium text-white/70 mb-4">定投累计收益曲线</h3>
+            <ResponsiveContainer width="100%" height={320}>
+              <LineChart
+                data={result.curve}
+                margin={{ top: 5, right: 20, bottom: 5, left: 10 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                <XAxis
+                  dataKey="date"
+                  tick={{ fill: 'rgba(255,255,255,0.35)', fontSize: 11 }}
+                  tickFormatter={(d: string) => String(d).slice(0, 7)}
+                  interval="preserveStartEnd"
+                />
+                <YAxis
+                  tick={{ fill: 'rgba(255,255,255,0.35)', fontSize: 11 }}
+                  tickFormatter={(v: number) => v >= 10000 ? `${(v / 10000).toFixed(1)}万` : v.toFixed(0)}
+                />
+                <Tooltip
+                  contentStyle={{ background: '#1a1a2e', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8 }}
+                  labelStyle={{ color: 'rgba(255,255,255,0.5)' }}
+                  formatter={(val: number, name: string) => {
+                    const labels: Record<string, string> = { value: '组合市值', invested: '累计投入', benchmark: '买入持有' };
+                    const formatted = val >= 10000 ? `${(val / 10000).toFixed(2)}万` : val.toFixed(2);
+                    return [formatted, labels[name] || name];
+                  }}
+                />
+                <Legend
+                  formatter={(v: string) => {
+                    const labels: Record<string, string> = { value: '组合市值', invested: '累计投入', benchmark: '买入持有' };
+                    return labels[v] || v;
+                  }}
+                  wrapperStyle={{ fontSize: 12 }}
+                />
+                <Line type="monotone" dataKey="invested" stroke="#5470C6" strokeWidth={1.5} strokeDasharray="4 2" dot={false} name="invested" />
+                <Line type="monotone" dataKey="value" stroke="#16C784" strokeWidth={2} dot={false} name="value" />
+                {hasBenchmark && (
+                  <Line type="monotone" dataKey="benchmark" stroke="#9D7BFF" strokeWidth={1.5} strokeDasharray="8 4" dot={false} name="benchmark" />
+                )}
+              </LineChart>
+            </ResponsiveContainer>
           </div>
         )}
       </SectionCard>
