@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { Link } from 'react-router';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts';
 import {
   PieChart as PieIcon, Gauge, List, ChevronDown, ChevronRight, Play, AlertCircle,
@@ -367,7 +368,7 @@ export default function OverviewPage() {
             icon={FileText}
             title="定投方案"
             desc={isReal ? '已生成执行计划，可进入"执行计划"页配置定投参数并回测。' : '先生成真实配置方案后，可制定定投计划。'}
-            action={isReal ? { label: '前往执行计划', href: '/allocation/result/execute' } : undefined}
+            action={isReal ? { label: '前往执行计划', to: '/allocation/result/execute' } : undefined}
           />
           <SuggestionCard
             icon={Scale}
@@ -378,7 +379,7 @@ export default function OverviewPage() {
             icon={Zap}
             title="保存方案"
             desc={isReal ? '将当前配置保存到方案管理，支持后续跟踪和再平衡提醒。' : '生成真实配置后可保存。'}
-            action={isReal ? { label: '保存方案', href: '/allocation/result/plans' } : undefined}
+            action={isReal ? { label: '保存方案', to: '/allocation/result/plans' } : undefined}
           />
         </div>
       </section>
@@ -545,7 +546,7 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
-function SuggestionCard({ icon: Icon, title, desc, action }: { icon: any; title: string; desc: string; action?: { label: string; href: string } }) {
+function SuggestionCard({ icon: Icon, title, desc, action }: { icon: any; title: string; desc: string; action?: { label: string; to: string } }) {
   return (
     <div className="surface p-4">
       <div className="flex items-center gap-2 mb-2">
@@ -554,12 +555,12 @@ function SuggestionCard({ icon: Icon, title, desc, action }: { icon: any; title:
       </div>
       <p className="text-xs text-white/45 leading-relaxed">{desc}</p>
       {action && (
-        <a
-          href={action.href}
+        <Link
+          to={action.to}
           className="mt-3 inline-flex items-center gap-1 rounded-md border border-[#3B6CFF]/30 bg-[#3B6CFF]/10 px-2.5 py-1 text-xs text-[#5AA9FF] hover:bg-[#3B6CFF]/20 transition-colors"
         >
           {action.label}
-        </a>
+        </Link>
       )}
     </div>
   );

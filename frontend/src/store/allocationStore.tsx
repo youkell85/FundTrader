@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useReducer } from "react";
+import React, { createContext, useContext, useReducer, useEffect } from "react";
 import type { ReactNode } from "react";
 import type { AllocationRequest, AllocationResponse, VariantsResponse } from "@/types/allocation";
 import type { ExecutionPlan, DcaConfig, DcaResult } from "@/lib/execution-plan";
@@ -72,6 +72,7 @@ function reducer(s: S, a: A): S {
     case "SET_BACKTEST_RESULT":
       return { ...s, backtestResult: a.result };
     case "RESET":
+      sessionStorage.removeItem(STORAGE_KEY);
       return { ...init, config: { ...defaults } };
     default:
       return s;
@@ -80,8 +81,40 @@ function reducer(s: S, a: A): S {
 
 const Ctx = createContext<{ state: S; dispatch: React.Dispatch<A> } | null>(null);
 
+const STORAGE_KEY = "fundtrader:allocation";
+
+function loadPersisted(): Partial<S> {
+  try {
+    const raw = sessionStorage.getItem(STORAGE_KEY);
+    if (!raw) return {};
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
+}
+
+function persistState(state: S) {
+  try {
+    const { output, executionPlan, dcaConfig, dcaResult, backtestResult, variants } = state;
+    sessionStorage.setItem(STORAGE_KEY, JSON.stringify({ output, executionPlan, dcaConfig, dcaResult, backtestResult, variants }));
+  } catch {
+    // sessionStorage may be full or unavailable
+  }
+}
+
 export function AllocationProvider({ children }: { children: ReactNode }) {
-  const [s, d] = useReducer(reducer, init);
+  const [s, d] = useReducer(reducer, init, (initial) => {
+    const persisted = loadPersisted();
+    if (persisted.output) {
+      return { ...initial, ...persisted };
+    }
+    return initial;
+  });
+
+  useEffect(() => {
+    persistState(s);
+  }, [s]);
+
   return React.createElement(Ctx.Provider, { value: { state: s, dispatch: d } }, children);
 }
 
