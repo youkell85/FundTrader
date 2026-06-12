@@ -36,7 +36,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: '执行计划', path: '/allocation/result/execute', icon: PlayCircle },
   { label: '运维工具', path: '/allocation/result/ops', icon: Wrench },
   { label: '方案管理', path: '/allocation/result/plans', icon: FolderOpen },
-  { label: '模拟器', path: '/allocation/result/simulator', icon: FlaskConical },
+  { label: '方案模拟', path: '/allocation/result/simulator', icon: FlaskConical },
   { label: '回测中心', path: '/allocation/result/backtest', icon: TrendingUp },
 ];
 
