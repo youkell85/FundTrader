@@ -13,7 +13,7 @@
 |--------|----------|----------|----------|----------|
 | iFinD MCP | `IFIND_TOKEN` | Bearer Token (JWE) | 同花顺iFinD MCP申请 | ✅ 已配置 |
 | Tushare Pro | `TUSHARE_TOKEN` | API Token | tushare.pro注册(6000积分) | ✅ 已配置 |
-| TickFlow | `TICKFLOW_API_KEY` | API Key | tickflow.io注册(Starter套餐) | ✅ 已配置 |
+| TickFlow | `TICKFLOW_API_KEY` | API Key | tickflow.org注册(月度99元付费权限) | ✅ 已配置 |
 | 腾讯财经 | 无需 | - | - | ✅ 无需认证 |
 | AkShare | 无需 | - | - | ✅ 无需认证 |
 | 东方财富 | 无需 | - | - | ✅ 无需认证 |
@@ -24,7 +24,7 @@
 **密钥使用注意事项**:
 - iFinD Token 是 JWE 格式（约849字符），通过 HTTP Header `Authorization: Bearer <token>` 传递
 - Tushare Token 通过 `ts.pro_api(token)` 初始化，或设置环境变量 `TUSHARE_TOKEN`
-- TickFlow API Key 通过环境变量 `TICKFLOW_API_KEY` 或构造函数传入，支持免费版（仅日K）和付费版（实时行情+分钟K）
+- TickFlow API Key 通过环境变量 `TICKFLOW_API_KEY` 或构造函数传入，支持免费版（仅日K）和付费版（月度99元权限：分钟K线、批量查询、日内分时、五档行情、除权因子）
 - dotenv 必须在 fusion.py 导入前加载（通过 `from ...config import` 触发）
 
 ---
@@ -99,7 +99,7 @@
 
 | 你需要什么 | 选哪个源 | 为什么 | 调用方式 |
 |-----------|---------|--------|---------|
-| ETF日K线 | TickFlow `get_fund_nav` | 最快(1-3秒)，最多500条 | Provider |
+| ETF日K线/分钟K线 | TickFlow `get_fund_nav`/`tf.klines.get` | 日K最快；付费权限支持A股/ETF 1m/5m/15m/30m/60m分钟K | Provider/SDK |
 | ETF基本信息 | Tushare `get_etf_basic` | 最全 | Provider |
 | ETF持仓明细 | westock-data `etf-holdings` | 唯一来源 | CLI |
 | ETF日线(备选) | Tushare `get_etf_daily` | 使用fund_daily接口 | Provider |
@@ -816,11 +816,21 @@ pro.cctv_news(date='20260529')                             # 新闻联播
 
 ### 3. TickFlow — 行情数据（优先级3）
 
-**定位**: 行情数据源，专注A股/ETF/美股/港股的实时行情和历史K线，速度最快。支持免费服务（仅日K）和付费服务（实时行情+分钟K+WebSocket）。
+**定位**: 行情数据源，专注A股/ETF/美股/港股的实时行情和历史K线，速度最快。支持免费服务（仅历史日K/标的信息/交易所/标的池）和付费服务（实时行情、A股/ETF分钟K、日内分时、五档行情、除权因子）。
 
-**认证**: API Key，`backend/.env` 的 `TICKFLOW_API_KEY`（Starter套餐，49元/月）
+**认证**: API Key，`backend/.env` 的 `TICKFLOW_API_KEY`（当前已开通月度99元付费权限）
 
-**调用方式**: `tickflow` Python SDK，`TickFlow(api_key=...)` 或 `TickFlow.free()`
+**调用方式**: `tickflow` Python SDK，`TickFlow(api_key=...)` / `TickFlow()`（自动读取 `TICKFLOW_API_KEY`）或 `TickFlow.free()`；HTTP API 使用 `x-api-key` 请求头。完整服务地址 `https://api.tickflow.org`，免费服务地址 `https://free-api.tickflow.org`。
+
+**当前99元月度权限**:
+
+| 能力 | 查询方式 | 频率/容量 | 说明 |
+|------|----------|-----------|------|
+| 分钟K线 | 批量查询 | 30/min，100标的/次 | 历史分钟K，周期 `1m/5m/15m/30m/60m` |
+| 分钟K线 | 按标的查询 | 60/min，1标的/次，最多5000条K线 | 最长365天历史，仅A股/ETF分钟级 |
+| 日内分时 | 按标的查询 | 30/min，1标的/次 | 当日分钟K，官方标注 intraday 接口为 Beta |
+| 市场深度（五档行情） | 按标的查询 | 60/min，1标的/次 | REST `/v1/depth` 单标的；WebSocket `depth` 频道需市场深度权限 |
+| 除权因子 | 按标的查询 | 60/min，100标的/次 | REST `/v1/klines/ex-factors`，支持批量 symbols |
 
 **代码格式**: `600000.SH`(上交所)、`000001.SZ`(深交所)、`AAPL.US`(美股)、`00700.HK`(港股)
 
@@ -856,10 +866,14 @@ pro.cctv_news(date='20260529')                             # 新闻联播
 |----------|------|----------|----------|
 | `tf.klines.get(symbol, period, count)` | K线数据 | "600000.SH", "1d", 10000 | A股/美股/港股 |
 | `tf.klines.batch(symbols, period, count)` | 批量K线 | ["600000.SH", "000001.SZ"] | A股/美股/港股 |
-| `tf.klines.intraday(symbol, period)` | 当日分钟K线 | "600000.SH", "1m" | 仅A股 |
-| `tf.klines.ex_factors(symbols)` | 除权因子 | ["600000.SH"] | A股 |
+| `tf.klines.get(symbol, period="1m", count=...)` | 历史分钟K线 | "600000.SH", "1m", 5000 | A股/ETF，最长365天 |
+| `tf.klines.batch(symbols, period="1m", count=...)` | 批量历史分钟K线 | 100标的/次 | A股/ETF，30/min |
+| `tf.klines.intraday(symbol, period="1m")` | 当日分钟K线/日内分时 | "600000.SH", "1m" | A股/ETF，Beta |
+| HTTP `/v1/klines/intraday/batch` | 批量当日分钟K线 | 逗号分隔 symbols | A股/ETF |
+| `tf.klines.ex_factors(symbols)` | 除权因子 | ["600000.SH", "000001.SZ"] | A股/美股/港股日线复权 |
 | `tf.quotes.get(symbols)` | 实时行情 | ["600000.SH", "AAPL.US"] | A股/美股/港股 |
-| `tf.quotes.get(universes=["CN_Equity_A"])` | 全市场行情 | universes | 需Starter+ |
+| `tf.quotes.get(universes=["CN_Equity_A"])` | 全市场行情 | universes | 需付费权限 |
+| HTTP `/v1/depth` / WebSocket `depth`频道 | 五档行情 | "600000.SH" | 单标的，60/min |
 | `tf.instruments.get(symbol)` | 标的信息 | "600000.SH" | A股/美股/港股 |
 | `tf.instruments.batch(symbols)` | 批量标的信息 | ["600000.SH", "AAPL.US"] | A股/美股/港股 |
 | `tf.exchanges.get_instruments("SH")` | 交易所全部标的 | "SH"/"SZ"/"US"/"HK" | 按交易所 |
@@ -877,7 +891,19 @@ pro.cctv_news(date='20260529')                             # 新闻联播
 |------|-----|----------|
 | 1d (日线) | ✅ | ✅ |
 | 1w/1M/1Q/1Y | ✅ | ✅ |
-| 1m/5m/15m/30m/60m | ✅ | ❌ |
+| 1m/5m/15m/30m/60m | ✅（当前付费权限已解锁） | ❌ |
+
+**HTTP API端点速查**:
+
+| 端点 | 方法 | 功能 | 关键参数 |
+|------|------|------|----------|
+| `/v1/klines` | GET | 单标的K线/历史分钟K | `symbol`, `period`, `count`, `start_time`, `end_time`, `adjust` |
+| `/v1/klines/batch` | GET | 批量K线/批量分钟K | `symbols`, `period`, `count`, `start_time`, `end_time`, `adjust` |
+| `/v1/klines/intraday` | GET | 单标的当日分钟K | `symbol`, `period`, `count` |
+| `/v1/klines/intraday/batch` | GET | 批量当日分钟K | `symbols`, `period`, `count` |
+| `/v1/klines/ex-factors` | GET | 除权因子 | `symbols`, `start_time`, `end_time` |
+| `/v1/depth` | GET | 市场深度/五档行情 | `symbol`（仅单标的） |
+| `/v1/quotes` | GET/POST | 实时行情 | `symbols` 或 `universes` |
 
 **复权方式**:
 
@@ -919,23 +945,23 @@ from tickflow import TickFlow
 tf_free = TickFlow.free()
 df = tf_free.klines.get("600000.SH", period="1d", count=100, as_dataframe=True)
 
-# 完整服务（需API Key，含实时行情+分钟K）
-tf = TickFlow(api_key="tk_4f0a8410c8d24b7a829a36150e3717f4")
+# 完整服务（自动读取 backend/.env 中的 TICKFLOW_API_KEY）
+tf = TickFlow()
 
 # 获取A股、美股、港股实时行情
 quotes = tf.quotes.get(symbols=["600000.SH", "AAPL.US", "00700.HK"], as_dataframe=True)
 
-# 一次性获取全部A股行情（需Starter+）
+# 一次性获取全部A股行情（需付费权限）
 a_quotes = tf.quotes.get(universes=["CN_Equity_A"], as_dataframe=True)
 
 # 获取日K线
 df = tf.klines.get("600000.SH", period="1d", count=10000, as_dataframe=True)
 
 # 获取分钟K线
-df = tf.klines.get("600000.SH", period="1m", count=100, as_dataframe=True)
+df = tf.klines.get("600000.SH", period="1m", count=5000, as_dataframe=True)
 
-# 批量获取K线
-dfs = tf.klines.batch(["600000.SH", "000001.SZ"], period="1d", count=100, as_dataframe=True)
+# 批量获取分钟K线（当前99元权限：30/min，100标的/次）
+dfs = tf.klines.batch(["600000.SH", "000001.SZ"], period="1m", count=5000, as_dataframe=True)
 
 # 获取当日分钟K线
 df = tf.klines.intraday("600000.SH", as_dataframe=True)
@@ -960,29 +986,45 @@ print(f"A股共 {len(universe['symbols'])} 只")
 curl "https://free-api.tickflow.org/v1/klines?symbol=600000.SH&period=1d"
 
 # 完整服务：获取实时行情
-curl -H "x-api-key: tk_4f0a8410c8d24b7a829a36150e3717f4" \
+curl -H "x-api-key: $TICKFLOW_API_KEY" \
   "https://api.tickflow.org/v1/quotes?symbols=600000.SH,AAPL.US,00700.HK"
 
 # 获取A股日K线
-curl -H "x-api-key: tk_4f0a8410c8d24b7a829a36150e3717f4" \
+curl -H "x-api-key: $TICKFLOW_API_KEY" \
   "https://api.tickflow.org/v1/klines?symbol=600000.SH&period=1d"
 
-# 一次性获取全部A股行情（需Starter+）
-curl -H "x-api-key: tk_4f0a8410c8d24b7a829a36150e3717f4" \
+# 获取A股/ETF历史分钟K线（当前99元权限：1m/5m/15m/30m/60m，最多5000条）
+curl -H "x-api-key: $TICKFLOW_API_KEY" \
+  "https://api.tickflow.org/v1/klines?symbol=600000.SH&period=1m&count=5000"
+
+# 批量获取历史分钟K线（当前99元权限：30/min，100标的/次）
+curl -H "x-api-key: $TICKFLOW_API_KEY" \
+  "https://api.tickflow.org/v1/klines/batch?symbols=600000.SH,000001.SZ&period=5m&count=5000"
+
+# 获取当日分钟K线/日内分时（Beta）
+curl -H "x-api-key: $TICKFLOW_API_KEY" \
+  "https://api.tickflow.org/v1/klines/intraday?symbol=600000.SH&period=1m"
+
+# 一次性获取全部A股行情（需付费权限）
+curl -H "x-api-key: $TICKFLOW_API_KEY" \
   "https://api.tickflow.org/v1/quotes?universes=CN_Equity_A"
 
 # 获取除权因子
-curl -H "x-api-key: tk_4f0a8410c8d24b7a829a36150e3717f4" \
-  "https://api.tickflow.org/v1/klines/ex_factors?symbols=600000.SH"
+curl -H "x-api-key: $TICKFLOW_API_KEY" \
+  "https://api.tickflow.org/v1/klines/ex-factors?symbols=600000.SH,000001.SZ"
+
+# 获取市场深度（五档行情）
+curl -H "x-api-key: $TICKFLOW_API_KEY" \
+  "https://api.tickflow.org/v1/depth?symbol=600000.SH"
 
 # 获取标的信息
-curl -H "x-api-key: tk_4f0a8410c8d24b7a829a36150e3717f4" \
+curl -H "x-api-key: $TICKFLOW_API_KEY" \
   "https://api.tickflow.org/v1/instruments?symbols=600000.SH"
 ```
 
 **WebSocket 实时推送**:
 
-TickFlow 提供 WebSocket 实时行情推送，需 Expert 套餐或单独开启权限。
+TickFlow 提供 WebSocket 实时行情推送，需包含 WebSocket 实时行情的套餐或单独开启；市场深度频道还需要「市场深度」权限。当前99元月度权限已包含 REST 五档行情，是否包含 WebSocket quotes/depth 以控制台权限为准。
 
 | 接口 | 地址 | 说明 |
 |------|------|------|
@@ -995,7 +1037,7 @@ import asyncio
 import json
 import websockets
 
-API_KEY = "tk_4f0a8410c8d24b7a829a36150e3717f4"
+API_KEY = "your-api-key"
 URL = f"wss://api.tickflow.org/v1/ws/stream?api_key={API_KEY}"
 
 async def main():
@@ -1031,7 +1073,7 @@ asyncio.run(main())
 ```python
 from tickflow import TickFlow
 
-tf = TickFlow(api_key="tk_4f0a8410c8d24b7a829a36150e3717f4")
+tf = TickFlow()
 stream = tf.stream
 
 @stream.on_quotes
@@ -1102,18 +1144,22 @@ stream.subscribe("quotes", ["AAPL.US"])  # 动态追加订阅
 }
 ```
 
-**独有数据**: 美股/港股实时行情、A股分钟K线、五档行情、除权因子、WebSocket实时推送
+**独有数据**: 美股/港股实时行情、A股/ETF历史分钟K线、日内分时、五档行情、除权因子、WebSocket实时推送
 
-**性能**: 1-3秒返回500条K线，实时行情<1秒，WebSocket推送延迟<100ms
+**性能/限制**: 历史分钟K单标的最多5000条、365天历史；批量分钟K 30/min、100标的/次；单标的分钟K 60/min；日内分时 30/min；五档行情 60/min；除权因子 60/min、100标的/次。实时行情通常<1秒，WebSocket适合低延迟连续推送。
 
 **踩坑记录**:
-- 免费版仅支持日K线，付费版(Starter/Pro/Expert)可获取分钟K线/逐笔数据/实时行情
-- 美股/港股仅支持日线级别（1d/1w/1M/1Q/1Y），暂不支持分钟K线
+- 免费版仅支持历史日K线、标的信息、交易所、标的池，不支持实时行情和分钟K线
+- 当前99元权限解锁分钟K线、日内分时、市场深度（五档行情）和除权因子；不要再按旧的 Starter 49元权限判断
+- 分钟K周期为 `1m/5m/15m/30m/60m`，其中 `5m/15m/30m/60m` 由1分钟数据聚合
+- 美股/港股支持实时行情、全量历史日K和复权/除权因子；分钟K线目前仅A股/ETF侧使用
+- HTTP API 认证头是 `x-api-key`，不是 `Authorization: Bearer`
+- HTTP 除权因子端点是 `/v1/klines/ex-factors`（连字符），不要写成 `ex_factors`
 - 批量接口自动分批并发，默认每批100个标的
 - SDK内置智能重试机制（指数退避），默认重试3次
-- 使用`with TickFlow(api_key=...) as tf:`确保资源正确释放
-- WebSocket 为付费功能，需 Expert 套餐或单独开启权限
-- WebSocket 市场深度频道额外需要「市场深度」权限
+- 生产环境推荐 `TICKFLOW_API_KEY` + `TICKFLOW_BASE_URL=https://api.tickflow.org`，SDK 可用 `TickFlow()` 自动读取环境变量
+- 使用 `with TickFlow() as tf:` 确保资源正确释放
+- WebSocket 为额外权限项；REST 五档行情可用不代表 WebSocket `depth` 频道一定可用
 - 连接断开后所有订阅自动清除，重连后需重新发送 subscribe
 - 服务端每30秒发送一次 Ping 帧，客户端需回复 Pong 帧（大多数库自动处理）
 
@@ -1552,7 +1598,7 @@ esg = p.get_esg_data("600519")
 ```python
 from tickflow import TickFlow
 
-tf = TickFlow(api_key="tk_4f0a8410c8d24b7a829a36150e3717f4")
+tf = TickFlow()
 
 # A股+美股+港股实时行情
 quotes = tf.quotes.get(
@@ -1560,14 +1606,14 @@ quotes = tf.quotes.get(
     as_dataframe=True
 )
 
-# 全市场A股行情（需Starter+）
+# 全市场A股行情（需付费权限）
 a_quotes = tf.quotes.get(universes=["CN_Equity_A"], as_dataframe=True)
 
-# 批量获取K线
+# 批量获取分钟K线（当前99元权限：30/min，100标的/次）
 dfs = tf.klines.batch(
     ["600000.SH", "000001.SZ", "600519.SH"],
-    period="1d",
-    count=100,
+    period="1m",
+    count=5000,
     as_dataframe=True,
     show_progress=True
 )
