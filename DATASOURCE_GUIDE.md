@@ -12,7 +12,7 @@
 | 数据源 | 环境变量 | 密钥类型 | 获取方式 | 当前状态 |
 |--------|----------|----------|----------|----------|
 | iFinD MCP | `IFIND_TOKEN` | Bearer Token (JWE) | 同花顺iFinD MCP申请 | ✅ 已配置 |
-| Tushare Pro | `TUSHARE_TOKEN` | API Token | tushare.pro注册(6000积分) | ✅ 已配置 |
+| Tushare Pro | `TUSHARE_TOKEN` | API Token | tushare.pro注册(当前6120积分) | ✅ 已配置 |
 | TickFlow | `TICKFLOW_API_KEY` | API Key | tickflow.org注册(月度99元付费权限) | ✅ 已配置 |
 | 腾讯财经 | 无需 | - | - | ✅ 无需认证 |
 | AkShare | 无需 | - | - | ✅ 无需认证 |
@@ -93,7 +93,7 @@
 | 基金评级 | Tushare（从detail中） | fund_rating接口 | Provider |
 | 风险指标 | iFinD `get_risk_indicators` | 唯一来源(volatility/sharpe/max_drawdown等) | Provider |
 | 定投回测 | efinance `calculate_dca_backtest` | 唯一来源，支持固定/均线偏离/对比策略 | Fetcher |
-| 复权因子 | Tushare `get_fund_adj` | 唯一来源(6000积分可能返回空) | Provider |
+| 复权因子 | Tushare `get_fund_adj` | 唯一来源；当前6120积分可调，覆盖完整性以接口返回为准 | Provider |
 
 ### ETF数据
 
@@ -219,14 +219,17 @@ esg = p.get_esg_data("600519")             # ESG评级(唯一来源)
 
 **频次限制**: 500次/分钟，代码内置0.15秒间隔
 
-**积分与权限对应表（当前6000积分）**:
+**积分与权限对应表（当前6120积分，处于5000+档，未达8000/10000/15000档）**:
 
 | 积分数 | 每分钟频次 | 每天总量上限 | 可访问接口 |
 |--------|----------|------------|-----------|
 | 120 | 50 | 8000次 | 股票非复权日线行情 |
-| 2000+ | 200 | 100000次/个API | 常规数据 |
-| 5000+ | 500 | 常规数据无上限 | 常规数据+特色数据 |
+| 2000+ | 200 | 100000次/个API | 常规数据（按各接口文档积分要求） |
+| 5000+ | 500 | 常规数据无上限 | 当前账号所在档；常规数据高频可用 |
 | 10000+ | 500 | 常规数据无上限，特色数据300次/分钟 | 特色数据（盈利预测、筹码分布等） |
+| 15000+ | 500 | 特色数据无总量限制 | 特色数据专属权限 |
+
+**当前账号积分构成**: 6000积分为2026-05-10购买获取，2027-05-10到期；另有完善个人信息20积分、新用户注册100积分，总计6120积分。当前可按5000+档调用常规接口，但10000+特色数据、15000+专属权限以及分钟/港美股/公告/新闻等独立权限仍需额外开通。
 
 **独立权限接口（需额外付费）**:
 
@@ -487,10 +490,10 @@ esg = p.get_esg_data("600519")             # ESG评级(唯一来源)
 | `get_fund_nav(code, start, end)` | `pro.fund_nav` | 基金净值历史 | 2000+ | "000001", start_date="20250101" |
 | `get_fund_holdings(code)` | `pro.fund_portfolio` | 基金持仓 | 2000+ | "000001" |
 | `get_fund_manager(code)` | `pro.fund_manager` | 基金经理 | 2000+ | "000001" |
-| `get_fund_dividend(code)` | `pro.fund_div` | 分红记录 | 2000+ | "000001" |
+| `get_fund_dividend(code)` | `pro.fund_div` | 分红记录 | 400+ | "000001" |
 | `get_fund_scale(code)` | `pro.fund_share`+`pro.fund_nav` | 基金规模 | 2000+ | "000001" |
 | `get_etf_basic(code)` | `pro.etf_basic` | ETF基本信息 | 2000+ | "510300" |
-| `get_fund_adj(code)` | `pro.fund_adj` | 复权因子 | 2000+ | "000001" |
+| `get_fund_adj(code)` | `pro.fund_adj` | 复权因子 | 600+（5000+更完整） | "000001" |
 | `get_fund_company(code)` | `pro.fund_company` | 基金公司 | 2000+ | "000001" |
 
 **fund_nav 基金净值历史字段**:
@@ -692,7 +695,7 @@ df = ts.pro_bar(ts_code='000001.SZ', start_date='20240101', end_date='20260519',
 {
     "mcpServers": {
         "tushareMcp": {
-            "url": "https://api.tushare.pro/mcp/?token=98e5e81569f4794e9e673cf812c725264bca0d23df542e7a227f4de3"
+            "url": "https://api.tushare.pro/mcp/?token=${TUSHARE_TOKEN}"
         }
     }
 }
@@ -731,8 +734,9 @@ df = ts.pro_bar(ts_code='000001.SZ', adj='qfq', start_date='20240101', end_date=
 **Tushare官方API调用示例**:
 
 ```python
+import os
 import tushare as ts
-ts.set_token('98e5e81569f4794e9e673cf812c725264bca0d23df542e7a227f4de3')
+ts.set_token(os.getenv("TUSHARE_TOKEN"))
 pro = ts.pro_api()
 
 # 基础数据
@@ -796,7 +800,7 @@ pro.cctv_news(date='20260529')                             # 新闻联播
 **踩坑记录**:
 - `fund_scale` 接口不存在，代码使用 `fund_share` 获取份额数据
 - `etf_daily` 接口不存在，代码使用 `fund_daily` 获取ETF日线
-- `fund_adj` 在6000积分下可能返回空数据
+- `fund_adj` 官方600+可调，当前6120积分已满足；若返回空，多半是标的/日期无数据或接口覆盖限制
 - 日增长率(day_growth)由本地计算（前后日净值比较），非API直接返回
 - `get_fund_detail` 内部串行调用多个接口（basic+nav+holdings+manager+share+rating+dividends+scale+adj+company），耗时较长
 - `pro_bar` 通用行情接口目前只支持日线复权，分钟数据需单独开权限
@@ -1637,7 +1641,7 @@ dfs = tf.klines.batch(
 | P2 | westock-data未集成到Provider层 | 无法通过融合层调用 | 新建westock_provider.py |
 | P2 | NeoData未集成到Provider层 | 无法通过融合层调用 | 新建neodata_provider.py |
 | P3 | 东方财富基金经理接口未解析 | 仅返回HTML长度 | 用BeautifulSoup解析 |
-| P3 | Tushare fund_adj可能返回空 | 复权因子缺失 | 6000积分限制，需升级或用其他源补充 |
+| P3 | Tushare fund_adj可能返回空 | 复权因子缺失 | 当前6120积分已满足官方基础权限；若为空优先检查标的后缀、日期范围和接口覆盖 |
 
 ---
 
