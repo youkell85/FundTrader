@@ -1,4 +1,4 @@
-"""基金排名筛选API"""
+﻿"""基金排名筛选API"""
 import asyncio
 import json
 import logging
@@ -281,6 +281,22 @@ async def fund_detail_completeness(code: str = Query(..., min_length=4, max_leng
             return False
 
     nav_date = snapshot.get("nav_date") if snapshot else None
+    if not snapshot or not snapshot.get("nav_data") or len(snapshot.get("nav_data") or []) < 2:
+        fallback_nav_rows, fallback_nav_source, fallback_nav_as_of = await run_in_threadpool(
+            _get_nav_history_for_detail,
+            code,
+        )
+        if len(fallback_nav_rows) >= 2:
+            if not snapshot:
+                snapshot = {}
+            snapshot = {
+                **snapshot,
+                "nav_data": fallback_nav_rows,
+                "source": fallback_nav_source or snapshot.get("source") if snapshot else fallback_nav_source,
+            }
+            if fallback_nav_as_of:
+                snapshot["nav_date"] = fallback_nav_as_of
+    nav_date = snapshot.get("nav_date") if snapshot else nav_date
     nav_stale = is_stale(nav_date, hours=NAV_STALE_HOURS)
 
     # ---- DB queries ----------------------------------------------------------
@@ -373,6 +389,7 @@ async def fund_detail_completeness(code: str = Query(..., min_length=4, max_leng
         or snapshot.get("volatility") is not None
     )
     risk_has_data = metrics_has_risk_data or nav_count >= 30
+    risk_partial = (not metrics_has_risk_data) and nav_count >= 30
 
     def qcount(name: str) -> int:
         try:
@@ -436,14 +453,14 @@ async def fund_detail_completeness(code: str = Query(..., min_length=4, max_leng
         if not isinstance(payload, dict):
             return None
         status = payload.get("dataStatus")
-        if status not in {"available", "partial", "stale"}:
+        if status not in {"available", "partial", "stale", "missing", "simulated"}:
             return None
         coverage = payload.get("coverage")
         if not isinstance(coverage, (int, float)):
-            coverage = 1.0 if status == "available" else 0.5 if status == "partial" else 0.25
+            coverage = 1.0 if status == "available" else 0.5 if status == "partial" else 0.25 if status == "stale" else 0.0
         return {
             "dataStatus": status,
-            "missingReason": payload.get("missingReason") if status in {"partial", "stale"} else None,
+            "missingReason": payload.get("missingReason") if status in {"partial", "stale", "missing"} else None,
             "source": payload.get("source"),
             "asOf": payload.get("asOf"),
             "coverage": float(coverage),
@@ -534,7 +551,7 @@ async def fund_detail_completeness(code: str = Query(..., min_length=4, max_leng
         "purchaseInfo": build(
             purchase_count > 0,
             stale=purchase_count > 0 and metrics_stale,
-            partial=purchase_count == 0 and nav_count > 0,
+            partial=purchase_count == 0,
             reason="缺真实销售文件，详情页用行业默认值",
             source="fund_metrics_snapshot",
             as_of=metrics_updated,
@@ -575,6 +592,7 @@ async def fund_detail_completeness(code: str = Query(..., min_length=4, max_leng
         # 16. riskSummary — metrics first, then nav fallback
         "riskSummary": build(
             risk_has_data,
+            partial=risk_partial,
             stale=risk_has_data and (metrics_stale if metrics_has_risk_data else nav_stale),
             reason="缺 max_drawdown / sharpe，规则引擎无法定级",
             source="fund_metrics_snapshot" if metrics_has_risk_data else ("fund_nav_history_rule_engine" if nav_count >= 30 else None),
@@ -593,22 +611,24 @@ async def fund_detail_completeness(code: str = Query(..., min_length=4, max_leng
     # If an endpoint fails or also reports missing, keep the lightweight snapshot
     # judgment above.
     detail_checks = []
-    if sections["holderStructure"]["dataStatus"] == "missing":
+    if sections["holderStructure"]["dataStatus"] in {"missing", "partial", "stale"}:
         detail_checks.append(("holderStructure", fund_holder_structure(code=code, periods=8)))
-    if sections["bondAllocation"]["dataStatus"] == "missing":
+    if sections["bondAllocation"]["dataStatus"] in {"missing", "partial", "stale"}:
         detail_checks.append(("bondAllocation", fund_bond_allocation(code=code)))
-    if sections["bondHoldings"]["dataStatus"] == "missing":
+    if sections["bondHoldings"]["dataStatus"] in {"missing", "partial", "stale"}:
         detail_checks.append(("bondHoldings", fund_bond_holdings(code=code)))
-    if sections["scaleHistory"]["dataStatus"] == "missing":
+    if sections["scaleHistory"]["dataStatus"] in {"missing", "partial", "stale"}:
         detail_checks.append(("scaleHistory", fund_scale_history(code=code, periods=8)))
-    if sections["turnoverHistory"]["dataStatus"] == "missing":
+    if sections["turnoverHistory"]["dataStatus"] in {"missing", "partial", "stale"}:
         detail_checks.append(("turnoverHistory", fund_turnover_history(code=code, periods=8)))
-    if sections["managerHistory"]["dataStatus"] == "missing":
+    if sections["managerHistory"]["dataStatus"] in {"missing", "partial", "stale"}:
         detail_checks.append(("managerHistory", fund_manager_history(code=code)))
-    if sections["purchaseInfo"]["dataStatus"] == "missing":
+    if sections["purchaseInfo"]["dataStatus"] in {"missing", "partial", "stale"}:
         detail_checks.append(("purchaseInfo", fund_purchase_info(code=code)))
-    if sections["rating"]["dataStatus"] == "missing":
+    if sections["rating"]["dataStatus"] in {"missing", "partial", "stale"} or rating_count > 0:
         detail_checks.append(("rating", fund_rating(code=code)))
+    if sections["riskSummary"]["dataStatus"] in {"missing", "partial", "stale"}:
+        detail_checks.append(("riskSummary", fund_risk_summary(code=code, window="1y")))
     if sections["managerReport"]["dataStatus"] == "missing":
         detail_checks.append(("managerReport", fund_manager_report(code=code)))
     if sections["peerPerformance"]["dataStatus"] in {"missing", "partial", "stale"}:
@@ -923,19 +943,23 @@ async def fund_rating(code: str = Query(..., min_length=4, max_length=10, descri
 
 @router.get("/purchase-info")
 async def fund_purchase_info(code: str = Query(..., min_length=4, max_length=10, description="基金代码")):
-    """购买信息：申购/赎回状态、起购金额、4 类费率、总费率。来自基金销售文件/天天基金。"""
+    """购买信息：申购/赎回状态、起购、4类费率、总费率。"""
     from ..services.fund_service import get_fund_purchase_info
 
     try:
         data = await run_in_threadpool(get_fund_purchase_info, code=code)
-        if data:
+        if data and isinstance(data, dict):
+            status = data.get("dataStatus", "partial")
+            if status not in {"available", "partial", "stale", "missing", "simulated", "error", "pending"}:
+                status = "partial"
             return {
+                "code": code,
                 **data,
-                "dataStatus": "partial",
-                "source": "fund_metrics_snapshot+industry-defaults",
-                "asOf": None,
-                "coverage": 0.5,
-                "missingReason": "申赎状态和起购金额含行业默认值，待接入真实销售文件。",
+                "dataStatus": status,
+                "source": data.get("source") or "industry-defaults",
+                "asOf": data.get("asOf"),
+                "coverage": data.get("coverage") if data.get("coverage") is not None else (1.0 if status == "available" else 0.5),
+                "missingReason": data.get("missingReason") if status in {"missing", "partial", "stale"} else None,
             }
         return {
             "code": code,
@@ -1259,3 +1283,4 @@ async def fund_risk_summary(
             "missingReason": "风险摘要读取失败",
             "error": str(e)[:120],
         }
+

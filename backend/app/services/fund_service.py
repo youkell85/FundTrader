@@ -1156,7 +1156,7 @@ def get_fund_purchase_info(code: str) -> dict | None:
     try:
         with get_db_context() as conn:
             row = conn.execute(
-                """SELECT fee_manage, fee_custody
+                """SELECT fee_manage, fee_custody, updated_at
                    FROM fund_metrics_snapshot
                    WHERE code = ? ORDER BY updated_at DESC LIMIT 1""",
                 (code,),
@@ -1178,6 +1178,7 @@ def get_fund_purchase_info(code: str) -> dict | None:
             min_amt = 1.00
             sub_fee = "0.30%~1.50%"
             red_fee = "0.00%~1.50%"
+        has_complete_metrics = row is not None and row["fee_manage"] is not None and row["fee_custody"] is not None
         # mgmt/cust 常见格式是 0.012（小数）或 1.2（百分比）
         mgmt_pct = _format_fee(mgmt)
         cust_pct = _format_fee(cust)
@@ -1191,6 +1192,7 @@ def get_fund_purchase_info(code: str) -> dict | None:
             total = mgmt_value + cust_value
         except Exception:
             total = 1.4
+        status = DETAIL_STATUS_AVAILABLE if has_complete_metrics else DETAIL_STATUS_PARTIAL
         return {
             "code": code,
             "purchaseStatus": "开放申购",
@@ -1202,6 +1204,15 @@ def get_fund_purchase_info(code: str) -> dict | None:
             "custodyFeeRate": cust_pct,
             "serviceFeeRate": f"{total:.2f}%",
             "totalFeeRate1y": f"{total:.2f}",
+            **_detail_meta(
+                status=status,
+                source="fund_metrics_snapshot" if row else "industry-defaults",
+                as_of=row["updated_at"] if row else None,
+                coverage=1.0 if status == DETAIL_STATUS_AVAILABLE else 0.5,
+                missing_reason=None
+                if status == DETAIL_STATUS_AVAILABLE
+                else "费率字段缺失，当前为行业默认值与默认口径估算。"
+            ),
         }
     except Exception:
         return None
