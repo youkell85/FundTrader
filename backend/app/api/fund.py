@@ -632,7 +632,7 @@ async def fund_detail_completeness(code: str = Query(..., min_length=4, max_leng
     if sections["managerReport"]["dataStatus"] == "missing":
         detail_checks.append(("managerReport", fund_manager_report(code=code)))
     if sections["peerPerformance"]["dataStatus"] in {"missing", "partial", "stale"}:
-        detail_checks.append(("peerPerformance", fund_peer_performance(code=code)))
+        detail_checks.append(("peerPerformance", fund_peer_performance(code=code, window_days=200, max_points=50)))
 
     if detail_checks:
         detail_payloads = await asyncio.gather(
