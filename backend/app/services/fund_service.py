@@ -1351,53 +1351,53 @@ def get_fund_bond_holdings(code: str) -> dict:
            LIMIT 1""",
         (code,),
     )
-        if snapshot_rows:
-            row = snapshot_rows[0]
-            out = []
-            for item in _parse_json_array(row["bond_holdings_json"]):
-                name = str(item.get("bondName") or item.get("bond_name") or item.get("bond_name_cn") or item.get("name") or "")
-                ratio = _safe_float(item.get("navRatio") or item.get("nav_ratio") or item.get("ratio") or item.get("weight") or item.get("nav_ratio_pct"))
-                issuer = (
-                    item.get("issuer")
-                    or item.get("issuer_name")
-                    or item.get("issuerName")
-                    or item.get("creditor")
-                    or item.get("issuerInfo", {}).get("name")
-                    or item.get("issuer_info", {}).get("issuer")
-                    or ""
-                )
-                issuer = str(issuer).strip() if issuer is not None else ""
-                bond_type = (
-                    item.get("bondType")
-                    or item.get("bond_type")
-                    or item.get("bond_kind")
-                    or item.get("bondKind")
-                    or item.get("type")
-                    or item.get("category")
-                    or ""
-                )
-                credit_rating = (
-                    item.get("creditRating")
-                    or item.get("credit_rating")
-                    or item.get("rating")
-                    or item.get("credit")
-                    or item.get("creditGrade")
-                    or item.get("credit_grade")
-                    or ""
-                )
-                issuer = issuer if issuer else None
-                bond_type = bond_type if bond_type else None
-                credit_rating = credit_rating if credit_rating else None
-                if name:
-                    out.append({
-                        "bondName": name,
-                        "marketValue": _safe_number(item.get("marketValue") or item.get("market_value") or item.get("market_value2")),
-                        "navRatio": ratio,
-                        "couponRate": _safe_number(item.get("couponRate") or item.get("coupon_rate") or item.get("coupon") or item.get("interestRate") or item.get("couponRatePct")),
-                        "issuer": issuer,
-                        "bondType": bond_type,
-                        "creditRating": credit_rating,
-                    })
+    if snapshot_rows:
+        row = snapshot_rows[0]
+        out = []
+        for item in _parse_json_array(row["bond_holdings_json"]):
+            name = str(item.get("bondName") or item.get("bond_name") or item.get("bond_name_cn") or item.get("name") or "")
+            ratio = _safe_float(item.get("navRatio") or item.get("nav_ratio") or item.get("ratio") or item.get("weight") or item.get("nav_ratio_pct"))
+            issuer = (
+                item.get("issuer")
+                or item.get("issuer_name")
+                or item.get("issuerName")
+                or item.get("creditor")
+                or item.get("issuerInfo", {}).get("name")
+                or item.get("issuer_info", {}).get("issuer")
+                or ""
+            )
+            issuer = str(issuer).strip() if issuer is not None else ""
+            bond_type = (
+                item.get("bondType")
+                or item.get("bond_type")
+                or item.get("bond_kind")
+                or item.get("bondKind")
+                or item.get("type")
+                or item.get("category")
+                or ""
+            )
+            credit_rating = (
+                item.get("creditRating")
+                or item.get("credit_rating")
+                or item.get("rating")
+                or item.get("credit")
+                or item.get("creditGrade")
+                or item.get("credit_grade")
+                or ""
+            )
+            issuer = issuer if issuer else None
+            bond_type = bond_type if bond_type else None
+            credit_rating = credit_rating if credit_rating else None
+            if name:
+                out.append({
+                    "bondName": name,
+                    "marketValue": _safe_number(item.get("marketValue") or item.get("market_value") or item.get("market_value2")),
+                    "navRatio": ratio,
+                    "couponRate": _safe_number(item.get("couponRate") or item.get("coupon_rate") or item.get("coupon") or item.get("interestRate") or item.get("couponRatePct")),
+                    "issuer": issuer,
+                    "bondType": bond_type,
+                    "creditRating": credit_rating,
+                })
         return _rows_response(
             code,
             out,
