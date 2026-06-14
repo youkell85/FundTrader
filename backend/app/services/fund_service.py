@@ -2860,7 +2860,7 @@ def _parse_stock_trading_activity_from_report_text(text: str, report_date: str |
         start = text.find(marker)
     if start < 0:
         return []
-    section = " ".join(text[start:start + 1200].split())
+    section = " ".join(text[start:start + 2600].split())
     def match_number(pattern: str) -> float | None:
         m = re.search(pattern, section)
         if not m:
@@ -2888,6 +2888,9 @@ def _parse_stock_trading_activity_from_report_text(text: str, report_date: str |
             r"股票持仓平均市值[^\d]{0,20}([\d,.\-]+(?:亿|万)?)",
             r"加权平均(?:资产|证券)市值[^\d]{0,20}([\d,.\-]+(?:亿|万)?)",
             r"股票(?:日均|平均)(?:市值|持仓)[^\s\d]{0,20}([\d,.\-]+(?:亿|万)?)",
+            r"持仓(?:股票)?(?:日均|平均)市值[^\d]{0,20}([\d,.\-]+(?:亿|万)?)",
+            r"加权平均(?:股票)?交易.*?市值[^\d]{0,30}([\d,.\-]+(?:亿|万)?)",
+            r"股票(?:日均|平均)交易[^\u8d44\u4ea7]{0,30}市值[^\d]{0,20}([\d,.\-]+(?:亿|万)?)",
         ]
         for pattern in patterns:
             m = re.search(pattern, section)
