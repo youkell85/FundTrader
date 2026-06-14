@@ -56,8 +56,8 @@ async function fetchJson<T>(path: string, options?: RequestInit): Promise<T> {
     if (e?.name === "AbortError") {
       throw new Error(
         isLongRequest
-          ? "璇锋眰瓒呮椂锛?鍒嗛挓锛夛紝鏁版嵁閲忚緝澶ц缂╁皬鑼冨洿鍚庨噸璇?
-          : "璇锋眰瓒呮椂锛?0绉掞級锛岃妫€鏌ョ綉缁滃悗閲嶈瘯",
+          ? "请求超时（3分钟），正在重试"
+          : "请求超时（60秒），请稍后再试",
       );
     }
     throw e;
