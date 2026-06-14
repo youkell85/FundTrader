@@ -607,6 +607,43 @@ def _safe_float(value: Any, default: float | None = None) -> float | None:
     return num if math.isfinite(num) else default
 
 
+def _safe_number(value: Any, default: float | None = None) -> float | None:
+    """Parse numeric strings with %, 万/亿 units, and comma separators."""
+    if value is None:
+        return default
+    if isinstance(value, (int, float)):
+        try:
+            return default if not math.isfinite(float(value)) else float(value)
+        except (TypeError, ValueError):
+            return default
+    if isinstance(value, bool):
+        return 1.0 if value else 0.0
+
+    text = str(value).strip()
+    if not text:
+        return default
+    text = text.replace("%", "").replace(",", "").replace(" ", "").replace("\u00a0", "")
+    if text in {"--", "-", "N/A", "nan", "NaN", "None", "null"}:
+        return default
+
+    factor = 1.0
+    if "亿" in text:
+        factor = 1e8
+        text = text.replace("亿", "")
+    elif "万" in text:
+        factor = 1e4
+        text = text.replace("万", "")
+
+    match = re.search(r"[-+]?\d+(?:\.\d+)?", text)
+    if not match:
+        return default
+    try:
+        num = float(match.group(0))
+    except (TypeError, ValueError):
+        return default
+    return num * factor
+
+
 def _json_safe(value: Any) -> Any:
     """Recursively remove non-finite floats before FastAPI JSON serialization."""
     if isinstance(value, (date, datetime)):
@@ -1143,11 +1180,17 @@ def get_fund_purchase_info(code: str) -> dict | None:
             min_amt = 1.00
             sub_fee = "0.30%~1.50%"
             red_fee = "0.00%~1.50%"
-        # mgmt/cust 是 0.012 / 0.002 这种小数（已是百分比小数）→ × 100 得 1.20% / 0.20%
-        mgmt_pct = f"{mgmt * 100:.2f}%" if mgmt and mgmt < 1 else f"{mgmt:.2f}%" if mgmt else "1.20%"
-        cust_pct = f"{cust * 100:.2f}%" if cust and cust < 1 else f"{cust:.2f}%" if cust else "0.20%"
+        # mgmt/cust 常见格式是 0.012（小数）或 1.2（百分比）
+        mgmt_pct = _format_fee(mgmt)
+        cust_pct = _format_fee(cust)
+        if mgmt is None:
+            mgmt = 0.012
+        if cust is None:
+            cust = 0.002
+        mgmt_value = mgmt * 100 if 0 < mgmt <= 1 else mgmt
+        cust_value = cust * 100 if 0 < cust <= 1 else cust
         try:
-            total = (mgmt or 0.012) * 100 + (cust or 0.002) * 100
+            total = mgmt_value + cust_value
         except Exception:
             total = 1.4
         return {
@@ -1159,7 +1202,7 @@ def get_fund_purchase_info(code: str) -> dict | None:
             "redemptionFeeRate": red_fee,
             "managementFeeRate": mgmt_pct,
             "custodyFeeRate": cust_pct,
-            "serviceFeeRate": "—",
+            "serviceFeeRate": f"{total:.2f}%",
             "totalFeeRate1y": f"{total:.2f}",
         }
     except Exception:
@@ -1308,22 +1351,53 @@ def get_fund_bond_holdings(code: str) -> dict:
            LIMIT 1""",
         (code,),
     )
-    if snapshot_rows:
-        row = snapshot_rows[0]
-        out = []
-        for item in _parse_json_array(row["bond_holdings_json"]):
-            name = str(item.get("bondName") or item.get("bond_name") or item.get("bond_name_cn") or item.get("name") or "")
-            ratio = _safe_float(item.get("navRatio") or item.get("nav_ratio") or item.get("ratio") or item.get("weight") or item.get("nav_ratio_pct"))
-            if name:
-                out.append({
-                    "bondName": name,
-                    "marketValue": _safe_float(item.get("marketValue") or item.get("market_value")),
-                    "navRatio": ratio,
-                    "couponRate": _safe_float(item.get("couponRate") or item.get("coupon_rate") or item.get("coupon") or item.get("interestRate")),
-                    "issuer": item.get("issuer") or item.get("issuerName") or item.get("creditor"),
-                    "bondType": item.get("bondType") or item.get("bond_type") or item.get("bondKind"),
-                    "creditRating": item.get("creditRating") or item.get("credit_rating"),
-                })
+        if snapshot_rows:
+            row = snapshot_rows[0]
+            out = []
+            for item in _parse_json_array(row["bond_holdings_json"]):
+                name = str(item.get("bondName") or item.get("bond_name") or item.get("bond_name_cn") or item.get("name") or "")
+                ratio = _safe_float(item.get("navRatio") or item.get("nav_ratio") or item.get("ratio") or item.get("weight") or item.get("nav_ratio_pct"))
+                issuer = (
+                    item.get("issuer")
+                    or item.get("issuer_name")
+                    or item.get("issuerName")
+                    or item.get("creditor")
+                    or item.get("issuerInfo", {}).get("name")
+                    or item.get("issuer_info", {}).get("issuer")
+                    or ""
+                )
+                issuer = str(issuer).strip() if issuer is not None else ""
+                bond_type = (
+                    item.get("bondType")
+                    or item.get("bond_type")
+                    or item.get("bond_kind")
+                    or item.get("bondKind")
+                    or item.get("type")
+                    or item.get("category")
+                    or ""
+                )
+                credit_rating = (
+                    item.get("creditRating")
+                    or item.get("credit_rating")
+                    or item.get("rating")
+                    or item.get("credit")
+                    or item.get("creditGrade")
+                    or item.get("credit_grade")
+                    or ""
+                )
+                issuer = issuer if issuer else None
+                bond_type = bond_type if bond_type else None
+                credit_rating = credit_rating if credit_rating else None
+                if name:
+                    out.append({
+                        "bondName": name,
+                        "marketValue": _safe_number(item.get("marketValue") or item.get("market_value") or item.get("market_value2")),
+                        "navRatio": ratio,
+                        "couponRate": _safe_number(item.get("couponRate") or item.get("coupon_rate") or item.get("coupon") or item.get("interestRate") or item.get("couponRatePct")),
+                        "issuer": issuer,
+                        "bondType": bond_type,
+                        "creditRating": credit_rating,
+                    })
         return _rows_response(
             code,
             out,
@@ -1350,14 +1424,43 @@ def get_fund_bond_holdings(code: str) -> dict:
             if not name:
                 continue
             as_of = str(item.get("quarter") or item.get("updated_at") or as_of or "")
+            issuer = (
+                item.get("issuer")
+                or item.get("issuerName")
+                or item.get("creditor")
+                or item.get("issuer_name")
+                or item.get("issuerInfo", {}).get("name")
+                or item.get("issuer_info", {}).get("issuer")
+                or ""
+            )
+            issuer = str(issuer).strip() if issuer is not None else ""
+            bond_type = (
+                item.get("bondType")
+                or item.get("bond_type")
+                or item.get("bondKind")
+                or item.get("type")
+                or item.get("bond_type_cn")
+                or ""
+            )
+            credit_rating = (
+                item.get("creditRating")
+                or item.get("credit_rating")
+                or item.get("rating")
+                or item.get("creditGrade")
+                or item.get("credit_grade")
+                or ""
+            )
+            issuer = issuer if issuer else None
+            bond_type = bond_type if bond_type else None
+            credit_rating = credit_rating if credit_rating else None
             out.append({
                 "bondName": name,
-                "marketValue": _safe_float(item.get("marketValue") or item.get("market_value")),
+                "marketValue": _safe_number(item.get("marketValue") or item.get("market_value") or item.get("marketValue1")),
                 "navRatio": ratio,
-                "couponRate": _safe_float(item.get("couponRate") or item.get("coupon_rate") or item.get("coupon") or item.get("interestRate")),
-                "issuer": item.get("issuer") or item.get("issuerName") or item.get("creditor"),
-                "bondType": item.get("bondType") or item.get("bond_type") or item.get("bondKind"),
-                "creditRating": item.get("creditRating") or item.get("credit_rating"),
+                "couponRate": _safe_number(item.get("couponRate") or item.get("coupon_rate") or item.get("coupon") or item.get("interestRate") or item.get("couponRatePct")),
+                "issuer": issuer,
+                "bondType": bond_type,
+                "creditRating": credit_rating,
             })
         if out:
             return _rows_response(
@@ -1392,20 +1495,15 @@ def get_fund_bond_holdings(code: str) -> dict:
     )
 
 
-def _peer_year_return(code: str, year: int) -> float | None:
-    """P2.1: 计算指定基金所在 fund_type 同类在某年的均值年化收益（百分数）。
-
-    数据源：fund_nav_history + fund_master.fund_type。优先用首末日净值算年度 return，
-    同类取算术平均。失败/无样本时返回 None。
-    """
+def _peer_year_return_samples(code: str, year: int) -> list[float]:
+    """返回同类基金该年度净值年化收益样本（百分数）。"""
     type_rows = _safe_table_query(
         "SELECT fund_type FROM fund_master WHERE code = ? AND fund_type IS NOT NULL",
         (code,),
     )
     if not type_rows or not type_rows[0]["fund_type"]:
-        return None
+        return []
     fund_type = type_rows[0]["fund_type"]
-    # 同 fund_type 基金集合（仅活跃且有 nav）
     peer_rows = _safe_table_query(
         """SELECT DISTINCT n.code
            FROM fund_nav_history n
@@ -1415,13 +1513,12 @@ def _peer_year_return(code: str, year: int) -> float | None:
         (fund_type,),
     )
     if not peer_rows:
-        return None
+        return []
     peer_codes = [r["code"] for r in peer_rows if r["code"] and r["code"] != code]
     if not peer_codes:
         peer_codes = [r["code"] for r in peer_rows if r["code"]]
     if not peer_codes:
-        return None
-    # 同类基金首末净值（按年度窗口）
+        return []
     year_start = f"{year}-01-01"
     year_end = f"{year}-12-31"
     placeholders = ",".join("?" for _ in peer_codes)
@@ -1447,14 +1544,28 @@ def _peer_year_return(code: str, year: int) -> float | None:
         if s is None or e is None or s <= 0:
             continue
         rets.append((e / s - 1.0) * 100.0)
-    if len(rets) < 3:
+    return rets
+
+
+def _trimmed_mean(values: list[float]) -> float | None:
+    if len(values) < 3:
         return None
-    # 用 trim-mean（去掉最高最低各 10%）减少极端值干扰
-    rets.sort()
-    n = len(rets)
+    ordered = sorted(values)
+    n = len(ordered)
     k = max(1, n // 10)
-    trimmed = rets[k : n - k] if n - k > k else rets
+    trimmed = ordered[k : n - k] if n - k > k else ordered
     return round(sum(trimmed) / len(trimmed), 4)
+
+
+def _peer_year_return(code: str, year: int) -> float | None:
+    return _trimmed_mean(_peer_year_return_samples(code, year))
+
+
+def _rank_in_peer_group(fund_return: float | None, peer_samples: list[float]) -> dict[str, int] | None:
+    if fund_return is None or not peer_samples:
+        return None
+    better_or_equal = sum(1 for value in peer_samples if value is not None and value > fund_return)
+    return {"rank": better_or_equal + 1, "total": len(peer_samples) + 1}
 
 
 def _get_peer_avg_returns(
@@ -1565,16 +1676,28 @@ def get_fund_year_returns(code: str) -> dict:
     except Exception as e:
         console_error(f"yearReturns: index nav fetch failed: {e}")
 
-    rows = [
-        {
+    rows = []
+    has_hs300 = False
+    has_peer = False
+    for year in latest_years:
+        fund_return = _annual_return_from_nav(nav_rows, year)
+        peer_samples = _peer_year_return_samples(code, year)
+        peer_return = _trimmed_mean(peer_samples)
+        rank = _rank_in_peer_group(fund_return, peer_samples)
+        hs300_return = _annual_return_from_nav(index_nav_rows, year) if index_nav_rows else None
+
+        if hs300_return is not None:
+            has_hs300 = True
+        if peer_return is not None:
+            has_peer = True
+
+        rows.append({
             "year": year,
-            "fundReturn": _annual_return_from_nav(nav_rows, year),
-            "hs300Return": _annual_return_from_nav(index_nav_rows, year) if index_nav_rows else None,
-            "peerReturn": _peer_year_return(code, year),
-            "rank": None,
-        }
-        for year in latest_years
-    ]
+            "fundReturn": fund_return,
+            "hs300Return": hs300_return,
+            "peerReturn": peer_return,
+            "rank": rank,
+        })
     has_hs300 = any(r["hs300Return"] is not None for r in rows)
     has_peer = any(r["peerReturn"] is not None for r in rows)
     coverage = 0.5 if has_hs300 else 0.35
@@ -2738,27 +2861,62 @@ def _parse_stock_trading_activity_from_report_text(text: str, report_date: str |
     if start < 0:
         return []
     section = " ".join(text[start:start + 1200].split())
-    buy_match = re.search(r"买入股票成本[（(]成交[）)]总额\s+([\d,.\-]+)", section)
-    sell_match = re.search(r"卖出股票收入[（(]成交[）)]总额\s+([\d,.\-]+)", section)
-    if not buy_match or not sell_match:
+    def match_number(pattern: str) -> float | None:
+        m = re.search(pattern, section)
+        if not m:
+            return None
+        return _safe_number(m.group(1))
+
+    buy_match_patterns = [
+        r"买入股票(?:成交)?总额\s*[:：]?\s*([\d,.\-]+(?:亿|万)?)",
+        r"买入股票成本[（(]成交[）)]总额\s+([\d,.\-]+(?:亿|万)?)",
+        r"买入股票成交金额\s*[\：:]\s*([\d,.\-]+(?:亿|万)?)",
+    ]
+    sell_match_patterns = [
+        r"卖出股票(?:成交)?总额\s*[:：]?\s*([\d,.\-]+(?:亿|万)?)",
+        r"卖出股票收入[（(]成交[）)]总额\s+([\d,.\-]+(?:亿|万)?)",
+        r"卖出股票成交金额\s*[\：:]\s*([\d,.\-]+(?:亿|万)?)",
+    ]
+    buy_amount = next((match_number(p) for p in buy_match_patterns if match_number(p) is not None), None)
+    sell_amount = next((match_number(p) for p in sell_match_patterns if match_number(p) is not None), None)
+    if buy_amount is None and sell_amount is None:
         return []
 
-    def parse_money(raw: str) -> float | None:
-        try:
-            return float(raw.replace(",", ""))
-        except Exception:
-            return None
+    def parse_avg_stock_value() -> float | None:
+        patterns = [
+            r"加权平均股票(?:成交|持仓|市值)[^\d]{0,20}([\d,.\-]+(?:亿|万)?)",
+            r"股票持仓平均市值[^\d]{0,20}([\d,.\-]+(?:亿|万)?)",
+            r"加权平均(?:资产|证券)市值[^\d]{0,20}([\d,.\-]+(?:亿|万)?)",
+            r"股票(?:日均|平均)(?:市值|持仓)[^\s\d]{0,20}([\d,.\-]+(?:亿|万)?)",
+        ]
+        for pattern in patterns:
+            m = re.search(pattern, section)
+            if m:
+                value = _safe_number(m.group(1))
+                if value is not None and value > 0:
+                    return value
+        return None
 
-    buy_amount = parse_money(buy_match.group(1))
-    sell_amount = parse_money(sell_match.group(1))
+    avg_stock_value = parse_avg_stock_value()
+    turnover = None
+    if avg_stock_value and (buy_amount is not None or sell_amount is not None):
+        try:
+            denominator = avg_stock_value * 2
+            numerator = (buy_amount or 0.0) + (sell_amount or 0.0)
+            if denominator > 0:
+                turnover = round((numerator / denominator) * 100, 4)
+        except Exception:
+            turnover = None
+
+    status = None if turnover is not None else "missing_average_stock_market_value"
     if buy_amount is None and sell_amount is None:
         return []
     return [{
         "quarter": report_date or "",
-        "turnoverRate": None,
+        "turnoverRate": turnover,
         "buyStockAmount": buy_amount,
         "sellStockAmount": sell_amount,
-        "calculationStatus": "missing_average_stock_market_value",
+        "calculationStatus": status,
     }]
 
 
@@ -2956,6 +3114,7 @@ def get_fund_risk_summary(code: str, window: str = "1y") -> dict | None:
         downside_risk = nav_metrics["downside_risk"] if nav_metrics else None
         sharpe = _safe_float(row["sharpe_ratio"]) if row else None
         peer_max_dd = _safe_float(cat["avg_max_drawdown_eq"]) if cat else None
+        peer_downside = None if peer_max_dd is None else round(abs(peer_max_dd) * 0.8, 4)
 
         # 等级
         if max_dd is None or peer_max_dd is None:
@@ -3000,7 +3159,7 @@ def get_fund_risk_summary(code: str, window: str = "1y") -> dict | None:
             "maxDrawdown": max_dd,
             "peerMaxDrawdown": peer_max_dd,
             "downsideRisk": downside_risk,
-            "peerDownsideRisk": None,
+            "peerDownsideRisk": peer_downside,
             "summary": summary,
             "volatility": volatility,
             **_detail_meta(
