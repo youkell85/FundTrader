@@ -2362,7 +2362,7 @@ def get_fund_turnover_history(code: str, periods: int = 40) -> dict:
                     )
                     fallback_scale = None
                     if scale_rows:
-                        fallback_scale = _safe_float(scale_rows[0].get("total_scale"))
+                        fallback_scale = _safe_float(scale_rows[0]["total_scale"])
                     if fallback_scale and fallback_scale > 0:
                         fallback_turnover = None
                         for row in activity:
