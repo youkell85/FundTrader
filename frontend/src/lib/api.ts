@@ -12,7 +12,11 @@ import type {
 
 const API_BASE = import.meta.env.VITE_API_BASE || "/fund/api";
 
-/** 闀胯€楁椂璺緞锛堥厤缃敓鎴?鍥炴祴/鍘嬪姏娴嬭瘯绛夛級浣跨敤120s锛屽叾浣?0s */
+/**
+ * 请求超时策略：
+ * 标准/回测/测试场景默认 30s；
+ * 涉及长耗时生成和回测场景使用 120s
+ */
 const LONG_TIMEOUT_PATHS = [
   "/allocation/generate", "/allocation/backtest", "/allocation/variants",
   "/dca/backtest", "/allocation/explain", "/allocation/what-if",
@@ -24,12 +28,12 @@ async function fetchJson<T>(path: string, options?: RequestInit): Promise<T> {
   const timeoutMs = isLongRequest ? 120_000 : 30_000;
 
   const controller = new AbortController();
-  const timeout = setTimeout(
-    () => controller.abort(new Error(`璇锋眰瓒呮椂(${timeoutMs / 1000}s)`)),
-    timeoutMs,
-  );
+  const timeout = setTimeout(() => {
+    controller.abort(new Error(`请求超时(${timeoutMs / 1000}s)`));
+  }, timeoutMs);
 
-  // 鍏煎鏂规鏇夸唬 AbortSignal.any()锛?024骞?鏈堟墠 Baseline锛?  if (options?.signal) {
+  // 兼容写法，避免直接依赖 AbortSignal.any（部分环境基线较旧）
+  if (options?.signal) {
     const external = options.signal;
     if (external.aborted) {
       controller.abort(external.reason);
