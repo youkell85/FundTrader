@@ -62,7 +62,7 @@ export default function PipelineHealthPanel() {
           <div className="flex items-center gap-6 flex-wrap text-sm">
             <span className="flex items-center gap-1.5">
               <span className={`w-2 h-2 rounded-full ${data.subsystems.regime.is_stable ? 'bg-green-400' : 'bg-yellow-400 animate-pulse'}`} />
-              <span className="text-white/50">Regime</span>
+              <span className="text-white/50">市场状态</span>
               <span className="text-white font-medium">{data.subsystems.regime.confirmed_label}</span>
               {!data.subsystems.regime.is_stable && (
                 <span className="text-yellow-300 text-xs">→ {data.subsystems.regime.pending_label} ({data.subsystems.regime.pending_count}/2)</span>

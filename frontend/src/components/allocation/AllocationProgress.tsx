@@ -3,10 +3,10 @@ import { CheckCircle2, Loader2, XCircle, AlertTriangle, X, Clock } from "lucide-
 /** Step labels for the 14-step pipeline */
 const STEP_LABELS: Record<string, string> = {
   risk_profiling: "风险画像",
-  cma_estimation: "CMA 资本市场假设",
-  saa_optimization: "SAA 战略配置优化",
+  cma_estimation: "资本市场假设",
+  saa_optimization: "战略配置优化",
   regime_detection: "市场体制检测",
-  taa_adjustment: "TAA 战术调整",
+  taa_adjustment: "战术调整",
   circuit_breaker: "熔断器评估",
   constraint_check: "约束检验",
   fund_mapping: "基金映射",

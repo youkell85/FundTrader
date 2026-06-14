@@ -136,7 +136,7 @@ export default function StrategyPage() {
               <StatusBadge status="real" text="真实配置" />
             )}
             {isDegraded && <StatusBadge status="degraded" text="已降级" />}
-            {meta.taa_skipped && <StatusBadge status="pending" text="TAA 跳过" />}
+            {meta.taa_skipped && <StatusBadge status="pending" text="战术调整已跳过" />}
             {meta.circuit_breaker_triggered && <StatusBadge status="degraded" text="断路器触发" />}
           </div>
         </div>
@@ -198,7 +198,7 @@ export default function StrategyPage() {
             />
           </div>
           <p className="mt-3 text-[11px] text-white/35 leading-relaxed">
-            当前引擎使用两层贝叶斯混合框架（Anchor先验 + Signal数据驱动）+ SLSQP 6级fallback优化，SAA 阶段求解战略配置，TAA 阶段在 ±10% 区间内做战术微调。
+            当前引擎使用两层贝叶斯混合框架（锚定先验 + 信号数据驱动）和顺序二次规划的六级降级优化，先求解战略配置，再在 ±10% 区间内做战术微调。
           </p>
         </section>
 
@@ -213,7 +213,7 @@ export default function StrategyPage() {
             <Kpi label="波动率" value={fmtPct(pm?.volatility)} />
             <Kpi label="最大回撤" value={fmtPct(pm?.max_drawdown)} tone="negative" />
             <Kpi label="夏普比率" value={fmt(pm?.sharpe, '', 2)} />
-            <Kpi label="Calmar" value={fmt(pm?.calmar, '', 2)} />
+            <Kpi label="卡玛比率" value={fmt(pm?.calmar, '', 2)} />
             <Kpi label="权益中枢" value={`${fmt(saa?.equity_center, '%', 1)}`} />
             <Kpi label="预期收益" value={fmtPct(saa?.expected_return)} tone="positive" />
             <Kpi label="预期波动" value={fmtPct(saa?.expected_volatility)} />
@@ -281,7 +281,7 @@ export default function StrategyPage() {
         <section className="surface p-4">
           <h3 className="text-xs text-white/40 uppercase tracking-wider mb-3 flex items-center gap-2">
             <Scale className="w-3.5 h-3.5 text-[#9D7BFF]" />
-            SAA 战略配置权重
+            战略配置权重
           </h3>
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
@@ -290,7 +290,7 @@ export default function StrategyPage() {
                   <th className="text-left py-1.5 px-2 font-normal">资产类别</th>
                   <th className="text-right py-1.5 px-2 font-normal">权重</th>
                   <th className="text-right py-1.5 px-2 font-normal">风险贡献</th>
-                  <th className="text-right py-1.5 px-2 font-normal">TAA 调整</th>
+                  <th className="text-right py-1.5 px-2 font-normal">战术调整</th>
                 </tr>
               </thead>
               <tbody>
@@ -323,7 +323,7 @@ export default function StrategyPage() {
             </table>
           </div>
           <div className="mt-2 text-[11px] text-white/30">
-            SAA: 战略配置 · TAA: 战术调整 · 风险贡献: 该资产对组合总风险的边际贡献
+            战略配置：长期目标权重 · 战术调整：短期偏移 · 风险贡献：该资产对组合总风险的边际贡献
           </div>
         </section>
       </div>
@@ -391,7 +391,7 @@ export default function StrategyPage() {
                     ⚠ 风险贡献来源：{rcSource || '近似计算'}。{rcMissingReason || '协方差矩阵降级，结果仅供参考。'}
                   </span>
                 ) : (
-                  <span>基于 SAA 协方差矩阵计算的边际风险贡献。总和 ≈ {totalRiskContrib.toFixed(1)}%。</span>
+                  <span>基于战略配置协方差矩阵计算的边际风险贡献。总和 ≈ {totalRiskContrib.toFixed(1)}%。</span>
                 )}
               </div>
             </>
@@ -592,7 +592,7 @@ export default function StrategyPage() {
           <StrategyQualitySummary quality={d.data_quality} />
           {meta.taa_skipped && (
             <div className="rounded border border-[#5AA9FF]/20 bg-[#5AA9FF]/[0.05] px-3 py-2 text-xs text-[#5AA9FF]">
-              TAA 调整已跳过（市场状态不明或信号不足），仅使用 SAA 战略配置。
+              战术调整已跳过（市场状态不明或信号不足），仅使用战略配置。
             </div>
           )}
           {meta.regime_pending && !meta.regime_is_confirmed && (
@@ -612,8 +612,8 @@ export default function StrategyPage() {
           )}
           <div className="text-[11px] text-white/30 leading-relaxed mt-2">
             <p className="font-medium text-white/40 mb-1">模型说明</p>
-            <p><strong className="text-white/45">SAA（战略配置）</strong>：两层贝叶斯混合框架（Anchor先验均衡 + Signal数据驱动更新）+ 生命周期下滑路径 + SLSQP 6级fallback优化。目标是在给定风险预算和约束下最大化风险调整后收益。</p>
-            <p className="mt-1"><strong className="text-white/45">TAA（战术调整）</strong>：综合宏观信号（PMI、CPI、FED 模型、信用利差等），在 SAA ±10% 区间内做动态微调。</p>
+            <p><strong className="text-white/45">战略配置</strong>：两层贝叶斯混合框架（锚定先验均衡 + 信号数据驱动更新）+ 生命周期下滑路径 + 顺序二次规划的六级降级优化。目标是在给定风险预算和约束下最大化风险调整后收益。</p>
+            <p className="mt-1"><strong className="text-white/45">战术调整</strong>：综合宏观信号（采购经理指数、居民消费价格指数、美联储模型、信用利差等），在战略配置 ±10% 区间内做动态微调。</p>
             <p className="mt-1"><strong className="text-white/45">压力测试</strong>：覆盖滞胀、衰退、利率冲击、权益暴跌等历史情景。</p>
             <p className="mt-1"><strong className="text-white/45">蒙特卡洛</strong>：1,000 次路径模拟，Cholesky 关联 + 体制感知跳跃扩散。</p>
             <p className="mt-1"><strong className="text-white/45">数据来源</strong>：基金净值（天天基金/akshare）、宏观指标（Tushare/IFind）、市场状态（自定义 regime detector）。</p>
@@ -683,7 +683,7 @@ function StrategyQualitySummary({ quality }: { quality?: AllocationDataQuality |
     <div className="rounded border border-[#FAC858]/20 bg-[#FAC858]/[0.05] px-3 py-2 text-xs text-[#FAC858]">
       数据质量: {statusText[quality.overall_status] || quality.overall_status}
       <span className="ml-2 text-white/40">
-        CMA {statusText[quality.cma?.status] || quality.cma?.status}
+        资本市场假设 {statusText[quality.cma?.status] || quality.cma?.status}
         {quality.cma?.coverage != null ? ` / 覆盖率 ${(quality.cma.coverage * 100).toFixed(0)}%` : ''}
         {invalidAssets.length > 0 ? ` / 无效资产 ${invalidAssets.length} 项` : ''}
       </span>

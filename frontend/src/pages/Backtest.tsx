@@ -392,7 +392,7 @@ export default function Backtest() {
       });
       setLlmReview(review?.review ?? review);
     } catch {
-      setLlmReview({ raw: "AI 评价服务暂时不可用，请稍后重试。" });
+      setLlmReview({ raw: "智能评价服务暂时不可用，请稍后重试。" });
     } finally {
       setLlmLoading(false);
     }
@@ -836,10 +836,10 @@ export default function Backtest() {
                   <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
                     <h2 className="flex items-center gap-2 text-base font-medium text-white">
                       <Sparkles className="h-5 w-5" style={{ color: ACCENT_INFO }} />
-                      AI 专业复核
+                      智能专业复核
                     </h2>
                     <button onClick={handleLLMReview} disabled={llmLoading} className="h-9 rounded-lg border px-4 text-xs font-medium disabled:opacity-40" style={{ background: `${ACCENT_INFO}1A`, color: ACCENT_INFO, borderColor: `${ACCENT_INFO}40` }}>
-                      {llmLoading ? "生成中..." : llmReview ? "重新生成" : "生成 AI 评价"}
+                      {llmLoading ? "生成中..." : llmReview ? "重新生成" : "生成智能评价"}
                     </button>
                   </div>
                   {llmLoading && <div className="flex items-center gap-2 py-6 text-sm text-white/40"><Loader2 className="h-4 w-4 animate-spin" />正在分析组合定投表现...</div>}
@@ -1000,7 +1000,7 @@ function RollingSharpeChart({ monthlyData }: { monthlyData: any[] }) {
         <XAxis dataKey="date" tick={{ fill: 'rgba(255,255,255,0.35)', fontSize: 10 }} tickFormatter={d => d.slice(0, 7)} interval="preserveStartEnd" />
         <YAxis tick={{ fill: 'rgba(255,255,255,0.35)', fontSize: 10 }} />
         <Tooltip contentStyle={{ background: 'rgba(5,8,26,0.98)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 12 }}
-          labelStyle={{ color: 'rgba(255,255,255,0.5)' }} formatter={(v: number) => [v.toFixed(3), '滚动Sharpe']} />
+          labelStyle={{ color: 'rgba(255,255,255,0.5)' }} formatter={(v: number) => [v.toFixed(3), '滚动夏普比率']} />
         <ReferenceLine y={0} stroke="rgba(255,255,255,0.2)" strokeDasharray="3 3" />
         <Line type="monotone" dataKey="sharpe" stroke="#5AA9FF" strokeWidth={1.5} dot={false} />
       </LineChart>

@@ -55,7 +55,7 @@ export default function WhatIfSimulatorPanel() {
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm text-white/70">
             <SlidersHorizontal className="w-4 h-4 inline mr-2" style={{ color: '#FAC858' }} />
-            What-If 情景模拟
+            情景模拟实验室
           </h3>
           <div className="flex gap-2">
             <button onClick={handleReset} className="px-3 py-1.5 text-xs rounded-md bg-white/[0.05] text-white/50 hover:bg-white/[0.1]">

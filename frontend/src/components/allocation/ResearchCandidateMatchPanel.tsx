@@ -151,7 +151,7 @@ export default function ResearchCandidateMatchPanel({ candidates, portfolioFunds
                       </div>
                       <div className="flex items-center gap-1">
                         <Shield className="w-3 h-3" />
-                        <span>Sharpe {sharpeFmt(perf.sharpeRatio)}</span>
+                        <span>夏普比率 {sharpeFmt(perf.sharpeRatio)}</span>
                       </div>
                       <div className="flex items-center gap-1">
                         <DollarSign className="w-3 h-3" />
@@ -227,7 +227,7 @@ export default function ResearchCandidateMatchPanel({ candidates, portfolioFunds
                   {drawdownPct(perf.maxDrawdown)}
                 </div>
                 <div>
-                  <span className="text-white/25">Sharpe:</span> {sharpeFmt(perf.sharpeRatio)}
+                  <span className="text-white/25">夏普比率：</span> {sharpeFmt(perf.sharpeRatio)}
                 </div>
                 <div>
                   <span className="text-white/25">费率:</span> {feePct(candidate.feeManage)}

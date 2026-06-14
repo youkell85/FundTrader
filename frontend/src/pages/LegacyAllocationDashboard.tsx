@@ -23,7 +23,7 @@ import FeeAnalysisPanel from '@/components/allocation/FeeAnalysisPanel';
 import PipelineHealthPanel from '@/components/allocation/PipelineHealthPanel';
 import DualEnginePanel from '@/components/allocation/DualEnginePanel';
 
-const TABS = ['总览', '市场', 'SAA', 'TAA', '压力', '蒙特', '基金', '选优', '再平衡', '回测', '管理', '三方案', '解释', '模拟', 'A/C', '相关性', '费率', '管线', '引擎'];
+const TABS = ['总览', '市场', '战略', '战术', '压力', '蒙特', '基金', '选优', '再平衡', '回测', '管理', '三方案', '解释', '模拟', '份额', '相关性', '费率', '管线', '引擎'];
 const GLABELS: any = { equity: '权益类', fixed_income: '固收类', alternative: '另类', cash_equiv: '现金类' };
 
 function MT({ label, value, color, suffix }: any) {
@@ -92,7 +92,7 @@ export default function AllocationDashboard() {
             <MT label='波动率' value={`${pm.volatility}%`} color='#FAC858' />
             <MT label='最大回撤' value={`${pm.max_drawdown}%`} color='#EE6666' />
             <MT label='夏普比率' value={pm.sharpe.toFixed(2)} color='#5470C6' />
-            <MT label='Calmar' value={pm.calmar.toFixed(2)} color='#91CC75' />
+            <MT label='卡玛比率' value={pm.calmar.toFixed(2)} color='#91CC75' />
           </div>
           <div className='grid grid-cols-1 md:grid-cols-2 gap-5'>
             <div className='liquid-glass p-4'>
@@ -108,7 +108,17 @@ export default function AllocationDashboard() {
           </div>
           <div className='liquid-glass p-4'>
             <button onClick={() => setExpandLog(!expandLog)} className='flex items-center justify-between w-full text-sm text-white/70'><span><List className='w-4 h-4 inline mr-2' style={{color:'#9D7BFF'}} />配置审计日志</span>{expandLog ? <ChevronDown className='w-4 h-4' /> : <ChevronRight className='w-4 h-4' />}</button>
-            {expandLog && <div className='mt-3 space-y-1 text-xs text-white/45'><div>PORTRAIT: 风险=平衡型, 有效=平衡型</div><div>REGIME: {d.meta.regime_label}{d.meta.regime_pending && !d.meta.regime_is_confirmed ? ` → 待确认: ${d.meta.regime_pending}(${d.meta.regime_pending_count}/2)` : ''} (composite={taa.composite_score.toFixed(2)})</div><div className='text-[#16C784]'>SAA: SLSQP两层求解, 权益中枢{saa.equity_center}%</div><div className='text-[#5AA9FF]'>TAA: 综合{taa.composite_score>0?'+':''}{taa.composite_score.toFixed(2)}, 超配{taa.equity_adjustment}%{taa.fed_value != null && <span className='ml-2 text-[#5AA9FF] font-medium'>FED={taa.fed_value}</span>}</div><div>FUNDS: {funds.length}只映射完成</div><div className='text-[#EE6666]'>STRESS: 最坏{stressData[0]?.scenario}({stressData[0]?.impact}%)</div><div>MC: 中位{mc?.median_return||'N/A'}%, 概率{mc?.prob_positive||'N/A'}%</div></div>}
+            {expandLog && (
+              <div className='mt-3 space-y-1 text-xs text-white/45'>
+                <div>画像：风险=平衡型，有效=平衡型</div>
+                <div>市场状态：{d.meta.regime_label}{d.meta.regime_pending && !d.meta.regime_is_confirmed ? ` → 待确认：${d.meta.regime_pending}(${d.meta.regime_pending_count}/2)` : ''}（综合评分={taa.composite_score.toFixed(2)}）</div>
+                <div className='text-[#16C784]'>战略配置：两层优化求解，权益中枢 {saa.equity_center}%</div>
+                <div className='text-[#5AA9FF]'>战术调整：综合评分 {taa.composite_score>0?'+':''}{taa.composite_score.toFixed(2)}，超配 {taa.equity_adjustment}%{taa.fed_value != null && <span className='ml-2 text-[#5AA9FF] font-medium'>美联储模型={taa.fed_value}</span>}</div>
+                <div>基金：{funds.length} 只映射完成</div>
+                <div className='text-[#EE6666]'>压力测试：最坏 {stressData[0]?.scenario}({stressData[0]?.impact}%)</div>
+                <div>蒙特卡洛：中位 {mc?.median_return || '暂无'}%，概率 {mc?.prob_positive || '暂无'}%</div>
+              </div>
+            )}
           </div>
           <div className='liquid-glass p-4 border border-[#FFB800]/10 bg-[#FFB800]/[0.03]'><p className='text-xs text-white/55 leading-relaxed'>{d.risk_disclaimer}</p></div>
         </div>}
@@ -137,15 +147,15 @@ export default function AllocationDashboard() {
           />
         </div>}
 
-        {/* TAB 2: SAA */}
+        {/* TAB 2: 战略配置 */}
         {tab === 2 && <div className='liquid-glass p-4 md:p-6'>
-          <h3 className='text-sm text-white/70 mb-4'><Target className='w-4 h-4 inline mr-2' style={{color:'#EE6666'}} />SAA 战略资产配置</h3>
+          <h3 className='text-sm text-white/70 mb-4'><Target className='w-4 h-4 inline mr-2' style={{color:'#EE6666'}} />战略资产配置</h3>
           <div className='overflow-x-auto'><table className='w-full text-xs'><thead><tr className='text-white/55 border-b border-white/[0.06]'>{['资产','权重','预期收益','波动率','风险贡献'].map(h => <th key={h} className='text-left py-2 px-2 font-normal'>{h}</th>)}</tr></thead>
             <tbody>{Object.entries(saa.allocations).filter(([,w]) => w > 0).sort((a,b) => b[1]-a[1]).map(([k,w]) => (<tr key={k} className='border-b border-white/[0.03] hover:bg-white/[0.02]'><td className='py-2 px-2 text-white/70'>{(ASSET_CLASS_LABELS as any)[k]||k}</td><td className='py-2 px-2 data-number text-white/80'>{w.toFixed(1)}%</td><td className='py-2 px-2 data-number text-white/45'>{(w*0.085).toFixed(1)}%</td><td className='py-2 px-2 data-number text-white/45'>{(({a_share_large:22,a_share_growth:30,a_share_value:20,a_share_small:28,hk_equity:24,us_equity:18,rate_bond:4,credit_bond:5,convertible:15,money_fund:0.3,gold:15,commodity:20,reits:12,cash:0.1}as any)[k]||10).toFixed(1)}%</td><td className='py-2 px-2 data-number text-[#FAC858]'>{(saa.risk_contributions[k]||0).toFixed(1)}%</td></tr>))}</tbody></table></div>
           <div className='mt-4 p-3 rounded-lg bg-white/[0.03] border border-white/[0.06] text-xs text-white/45'>分组: 权益{saa.group_allocations.equity?.toFixed(1)}% | 固收{saa.group_allocations.fixed_income?.toFixed(1)}% | 另类{saa.group_allocations.alternative?.toFixed(1)}% | 现金{saa.group_allocations.cash_equiv?.toFixed(1)}% {saa.glide_path_applied && '下滑曲线已应用'}</div>
         </div>}
 
-        {/* TAB 3: TAA */}
+        {/* TAB 3: 战术调整 */}
         {tab === 3 && <div className='space-y-5'>
           <div className='grid grid-cols-1 md:grid-cols-2 gap-5'>
             <div className='liquid-glass p-4'><h3 className='text-sm text-white/70 mb-3'><TrendingUp className='w-4 h-4 inline mr-2' style={{color:'#9D7BFF'}} />宏观因子雷达图</h3>
@@ -160,7 +170,7 @@ export default function AllocationDashboard() {
               <div className='mt-4 p-3 rounded-lg bg-[#3B6CFF]/[0.06] border border-[#3B6CFF]/15'><div className='text-xs text-white/55'>综合评分: <span className='text-[#5AA9FF] data-number text-sm'>{taa.composite_score.toFixed(2)}</span> → 权益调整 <span className='data-number text-sm' style={{color:taa.equity_adjustment>0?'#16C784':'#EE6666'}}>{taa.equity_adjustment>0?'+':''}{taa.equity_adjustment}%</span></div></div>
               {taa.fed_value != null && (
                 <div className='mt-3 p-3 rounded-lg bg-[#5AA9FF]/[0.06] border border-[#5AA9FF]/15'>
-                  <div className='flex items-center gap-2 mb-1'><span className='text-[#5AA9FF] text-xs font-medium'>FED 模型</span><span className='text-[10px] px-1.5 py-0.5 rounded bg-[#5AA9FF]/10 text-[#5AA9FF]'>连续模型</span></div>
+                  <div className='flex items-center gap-2 mb-1'><span className='text-[#5AA9FF] text-xs font-medium'>美联储模型</span><span className='text-[10px] px-1.5 py-0.5 rounded bg-[#5AA9FF]/10 text-[#5AA9FF]'>连续模型</span></div>
                   <div className='flex items-baseline gap-2'><span className='data-number text-xl font-semibold text-[#5AA9FF]'>{taa.fed_value}</span><span className='text-xs text-white/45'>{taa.fed_interpretation}</span></div>
                 </div>
               )}
@@ -169,7 +179,7 @@ export default function AllocationDashboard() {
           <div className='liquid-glass p-4'><h3 className='text-sm text-white/70 mb-2'><Shield className='w-4 h-4 inline mr-2' style={{color:'#16C784'}} />美林时钟</h3><div className='text-sm text-white/60'>当前阶段: <span className='text-[#16C784] font-medium'>{taa.business_cycle.phase_name}</span> → 风格: <span className='text-[#5AA9FF]'>{taa.business_cycle.preferred_style==='growth'?'成长':taa.business_cycle.preferred_style==='value'?'价值':'均衡'}</span> → 行业: {taa.business_cycle.preferred_industries.join(', ')} → 久期: {taa.business_cycle.bond_duration}</div></div>
         </div>}
 
-        {/* TAB 4: STRESS */}
+        {/* TAB 4: 压力测试 */}
         {tab === 4 && <div className='liquid-glass p-4 md:p-6'>
           <h3 className='text-sm text-white/70 mb-4'><AlertTriangle className='w-4 h-4 inline mr-2' style={{color:'#EE6666'}} />压力测试 (6历史情景)</h3>
           <ResponsiveContainer width='100%' height={320}>
@@ -178,24 +188,24 @@ export default function AllocationDashboard() {
           <div className='mt-3 p-3 rounded-lg bg-white/[0.03] border border-white/[0.06] text-xs text-white/45'>{(() => { const w = [...st].sort((a,b) => a.impact-b.impact)[0]; return '最坏情景: '+w.scenario+' ('+w.impact+'%, 预计损失 '+w.max_loss.toLocaleString()+'元)'; })()}</div>
         </div>}
 
-        {/* TAB 5: MC */}
+        {/* TAB 5: 蒙特卡洛 */}
         {tab === 5 && mc && <div className='liquid-glass p-4 md:p-6'>
           <h3 className='text-sm text-white/70 mb-4'><TrendingUp className='w-4 h-4 inline mr-2' style={{color:'#9D7BFF'}} />蒙特卡洛模拟 (1000次, 含跳跃扩散)</h3>
           <div className='grid grid-cols-2 md:grid-cols-4 gap-3 mb-4'>
             <MT label='中位收益' value={`${mc.median_return}%`} color='#16C784' />
             <MT label='P10-P90区间' value={`${mc.percentile_10}% ~ ${mc.percentile_90}%`} color='#FAC858' />
-            <MT label='VaR(95%)' value={`${mc.var_95}%`} color='#EE6666' />
+            <MT label='在险价值（95%）' value={`${mc.var_95}%`} color='#EE6666' />
             <MT label='正收益概率' value={`${mc.prob_positive}%`} color='#91CC75' />
           </div>
           <div className='grid grid-cols-2 md:grid-cols-4 gap-3'>
-            <MT label='P25' value={`${mc.percentile_25}%`} color='#5470C6' />
-            <MT label='P75' value={`${mc.percentile_75}%`} color='#5470C6' />
-            <MT label='CVaR(95%)' value={`${mc.cvar_95}%`} color='#EE6666' />
-            <MT label='最大回撤(P95)' value={`${mc.max_drawdown_95}%`} color='#FF6B35' />
+            <MT label='25%分位' value={`${mc.percentile_25}%`} color='#5470C6' />
+            <MT label='75%分位' value={`${mc.percentile_75}%`} color='#5470C6' />
+            <MT label='条件在险价值（95%）' value={`${mc.cvar_95}%`} color='#EE6666' />
+            <MT label='最大回撤（95%分位）' value={`${mc.max_drawdown_95}%`} color='#FF6B35' />
           </div>
         </div>}
 
-        {/* TAB 6: FUNDS */}
+        {/* TAB 6: 基金 */}
         {tab === 6 && <div className='liquid-glass p-4 md:p-6'>
           <h3 className='text-sm text-white/70 mb-4'><List className='w-4 h-4 inline mr-2' style={{color:'#16C784'}} />基金明细 ({funds.length}只)</h3>
           <div className='overflow-x-auto'><table className='w-full text-xs'><thead><tr className='text-white/55 border-b border-white/[0.06]'>{['代码','名称','类型','权重','金额','角色','入选理由','评分'].map(h => <th key={h} className='text-left py-2 px-2 font-normal'>{h}</th>)}</tr></thead>

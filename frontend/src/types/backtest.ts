@@ -95,7 +95,7 @@ export const FREQUENCY_LABELS: Record<RebalanceFrequency, string> = {
 };
 
 export const MODE_LABELS: Record<ComparisonMode, string> = {
-  saa_only: "纯SAA", saa_taa: "SAA+TAA", equal_weight: "等权", sixty_forty: "60/40",
+  saa_only: "纯战略配置", saa_taa: "战略配置+战术调整", equal_weight: "等权", sixty_forty: "60/40",
 };
 
 export const MODE_COLORS: Record<ComparisonMode, string> = {

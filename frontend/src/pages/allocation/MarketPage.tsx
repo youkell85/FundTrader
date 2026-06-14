@@ -81,7 +81,7 @@ export default function MarketPage() {
   return (
     <div className="space-y-5">
       <PageHeader
-        title="Market Data"
+        title="市场数据"
         regime={meta.regime}
         regimeLabel={meta.regime_label}
         generatedAt={meta.generated_at}
@@ -107,7 +107,7 @@ export default function MarketPage() {
       </div>
 
       <div className="text-xs text-white/50">
-        Data source stream: {streamOk ? 'connected' : 'disconnected, polling fallback'}
+        数据源推送：{streamOk ? '已连接' : '未连接，正在轮询兜底'}
       </div>
 
       <MacroSignalHeatmap

@@ -163,7 +163,7 @@ export default function AllocationWizard() {
       <div className="max-w-3xl mx-auto px-4 md:px-6">
         <div className="pt-7 pb-5">
           <h1 className="text-2xl md:text-3xl font-semibold text-white tracking-tight">专业资产配置</h1>
-          <p className="mt-2 text-white/45 text-sm">DeepSeek 3.0 — SAA+TAA+压力测试+蒙特卡洛</p>
+          <p className="mt-2 text-white/45 text-sm">智能配置引擎：战略配置、战术调整、压力测试与蒙特卡洛模拟</p>
         </div>
         <StepBar current={wizardStep} />
         <div className="sm:hidden text-center text-xs text-white/50 mb-2">

@@ -382,7 +382,7 @@ export default function FundDetail() {
           hasData,
           dataStatus: payload?.dataStatus ?? null,
         }),
-        reason: q.isError ? "tRPC 接口调用失败" : payload?.missingReason || reason,
+        reason: q.isError ? "接口调用失败" : payload?.missingReason || reason,
         asOf: payload?.asOf ?? null,
         source: payload?.source ?? null,
       };
@@ -400,8 +400,8 @@ export default function FundDetail() {
       bondAllocation: build("bondAllocation", bondAllocationQ, "国家债券 / 央行票据 / 金融债券 / 可转债 等"),
       bondHoldings: build("bondHoldings", bondHoldingsQ, "前 N 大债券持仓（简称 / 净值比 / 票面利率 / 主体 / 评级）"),
       detailCompleteness: build("detailCompleteness", detailCompletenessQ, "后端按字段粒度统计的覆盖度"),
-      managerReport: build("managerReport", managerReportQ, "基金定期报告全文（LLM 类，延后启动）"),
-      riskSummary: build("riskSummary", riskSummaryQ, "风险等级 + 自然语言摘要（LLM 类，延后启动）"),
+      managerReport: build("managerReport", managerReportQ, "基金定期报告全文（智能分析类，延后启动）"),
+      riskSummary: build("riskSummary", riskSummaryQ, "风险等级 + 自然语言摘要（智能分析类，延后启动）"),
     };
     return summarizeDetailCoverage(entries);
   }, [
@@ -932,9 +932,9 @@ function KpiStrip({
     },
     {
       icon: ShieldAlert,
-      label: "Sharpe",
+      label: "夏普比率",
       value: risk.sharpe != null ? numFmt(risk.sharpe, 2) : null,
-      reason: "净值历史不足，无法计算Sharpe",
+      reason: "净值历史不足，无法计算夏普比率",
     },
     {
       icon: Scale,
@@ -1119,7 +1119,7 @@ function MetaSection({
       ) : (
         <MissingPanel
           title="基金评级"
-          reason="依赖 fund.rating 接口（3 年 / 5 年评级，1~5 颗星），后端 tRPC 已就绪但需数据库有 tushare fund_rating 数据"
+          reason="依赖基金评级接口（3 年 / 5 年评级，1~5 颗星），后端接口已就绪但需数据库有基金评级数据"
           endpoint="trpc.fund.rating"
           height={120}
         />
@@ -1580,8 +1580,8 @@ function RiskSection({
     { label: "最大回撤率", values: [maxDD, null, null, null] },
     { label: "下行风险", values: [risk.downsideRisk, null, null, null] },
     { label: "最低单月回报", values: [risk.worstMonth, null, null, null] },
-    { label: "Alpha(年化)", values: [null, null, null, null] },
-    { label: "Beta", values: [null, null, null, null] },
+    { label: "阿尔法（年化）", values: [null, null, null, null] },
+    { label: "贝塔", values: [null, null, null, null] },
     { label: "回撤修复天数", values: [null, null, null, null] },
   ];
 
@@ -1609,7 +1609,7 @@ function RiskSection({
         <div className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-3">
           <Metric label="最大回撤" value={pct(maxDD)} />
           <Metric label="年化波动" value={pct(vol)} />
-          <Metric label="Sharpe" value={numFmt(risk.sharpe)} />
+          <Metric label="夏普比率" value={numFmt(risk.sharpe)} />
         </div>
       </Panel>
 

@@ -20,20 +20,20 @@ const METRIC_DEFS: MetricDef[] = [
   { key: 'annualized_volatility', label: '年化波动', fmt: v => v == null ? '—' : `${v.toFixed(2)}%`, highlight: 'lower', group: '基础收益风险' },
   { key: 'max_drawdown', label: '最大回撤', fmt: v => v == null ? '—' : `${v.toFixed(2)}%`, highlight: 'lower', group: '基础收益风险' },
   { key: 'max_drawdown_duration_days', label: '回撤天数', fmt: v => v == null ? '—' : `${v}天`, highlight: 'lower', group: '基础收益风险' },
-  { key: 'sharpe_ratio', label: 'Sharpe', fmt: v => v == null ? '—' : v.toFixed(3), highlight: 'higher', group: '基础收益风险' },
+  { key: 'sharpe_ratio', label: '夏普比率', fmt: v => v == null ? '—' : v.toFixed(3), highlight: 'higher', group: '基础收益风险' },
   // 风险调整收益
-  { key: 'sortino_ratio', label: 'Sortino', fmt: v => v == null ? '—' : v.toFixed(3), highlight: 'higher', group: '风险调整收益' },
-  { key: 'calmar_ratio', label: 'Calmar', fmt: v => v == null ? '—' : v.toFixed(3), highlight: 'higher', group: '风险调整收益' },
+  { key: 'sortino_ratio', label: '索提诺比率', fmt: v => v == null ? '—' : v.toFixed(3), highlight: 'higher', group: '风险调整收益' },
+  { key: 'calmar_ratio', label: '卡玛比率', fmt: v => v == null ? '—' : v.toFixed(3), highlight: 'higher', group: '风险调整收益' },
   // 基准对比
   { key: 'information_ratio', label: '信息比率', fmt: v => v == null ? '—' : v.toFixed(3), highlight: 'higher', group: '基准对比' },
-  { key: 'alpha', label: 'Alpha', fmt: v => v == null ? '—' : `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`, highlight: 'higher', group: '基准对比' },
-  { key: 'beta', label: 'Beta', fmt: v => v == null ? '—' : v.toFixed(3), group: '基准对比' },
+  { key: 'alpha', label: '阿尔法', fmt: v => v == null ? '—' : `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`, highlight: 'higher', group: '基准对比' },
+  { key: 'beta', label: '贝塔', fmt: v => v == null ? '—' : v.toFixed(3), group: '基准对比' },
   { key: 'tracking_error', label: '跟踪误差', fmt: v => v == null ? '—' : `${v.toFixed(2)}%`, highlight: 'lower', group: '基准对比' },
   // 执行/增强
   { key: 'monthly_win_rate', label: '月胜率', fmt: v => v == null ? '—' : `${v.toFixed(1)}%`, highlight: 'higher', group: '执行/增强' },
   { key: 'avg_turnover', label: '平均换手', fmt: v => v == null ? '—' : `${v.toFixed(1)}%`, group: '执行/增强' },
   { key: 'total_rebalances', label: '调仓次数', fmt: v => v == null ? '—' : `${v}`, group: '执行/增强' },
-  { key: 'taa_value_added', label: 'TAA增值', fmt: v => v == null ? '—' : `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`, highlight: 'higher', group: '执行/增强' },
+  { key: 'taa_value_added', label: '战术调整增值', fmt: v => v == null ? '—' : `${v >= 0 ? '+' : ''}${v.toFixed(2)}%`, highlight: 'higher', group: '执行/增强' },
 ];
 
 export default function BacktestMetricsTable({ metrics }: Props) {

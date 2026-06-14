@@ -269,7 +269,7 @@ export default function Home() {
       <section className="relative px-6 pt-16 pb-12 max-w-7xl mx-auto">
         <div className="mb-2">
           <h1 className="text-4xl md:text-5xl font-semibold text-white tracking-tight leading-tight">洞察趋势，甄选长跑冠军</h1>
-          <p className="mt-3 text-white/40 text-base max-w-2xl">基于鑫基荟优选池，AI驱动的产品筛选与智能配置平台</p>
+          <p className="mt-3 text-white/40 text-base max-w-2xl">基于鑫基荟优选池，智能驱动的产品筛选与配置平台</p>
         </div>
 
         <StatCards

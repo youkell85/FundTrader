@@ -197,7 +197,7 @@ export default function OverviewPage() {
         <KpiCard label="波动率" value={fmtPct(pm.volatility)} />
         <KpiCard label="最大回撤" value={fmtPct(pm.max_drawdown)} tone="negative" />
         <KpiCard label="夏普比率" value={fmt(pm.sharpe, '', 2)} />
-        <KpiCard label="Calmar" value={fmt(pm.calmar, '', 2)} />
+        <KpiCard label="卡玛比率" value={fmt(pm.calmar, '', 2)} />
         <KpiCard label="权益中枢" value={`${fmt(saa.equity_center, '%', 1)}`} />
       </div>
 
@@ -318,8 +318,8 @@ export default function OverviewPage() {
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <Metric label="中位收益" value={fmtPct(mc.median_return)} />
                 <Metric label="正收益概率" value={`${(mc.prob_positive * 100).toFixed(0)}%`} />
-                <Metric label="VaR 95%" value={fmtPct(mc.var_95)} />
-                <Metric label="CVaR 95%" value={fmtPct(mc.cvar_95)} />
+                <Metric label="在险价值（95%）" value={fmtPct(mc.var_95)} />
+                <Metric label="条件在险价值（95%）" value={fmtPct(mc.cvar_95)} />
                 <Metric label="10%分位" value={fmtPct(mc.percentile_10)} />
                 <Metric label="90%分位" value={fmtPct(mc.percentile_90)} />
               </div>
@@ -404,7 +404,7 @@ export default function OverviewPage() {
           ))}
           {meta.taa_skipped && (
             <div className="surface px-4 py-2 text-xs text-white/45">
-              TAA 调整已跳过（市场状态不明或信号不足），仅使用 SAA 战略配置。
+              战术调整已跳过（市场状态不明或信号不足），仅使用战略配置。
             </div>
           )}
           {meta.regime_pending && !meta.regime_is_confirmed && (
@@ -414,8 +414,8 @@ export default function OverviewPage() {
           )}
           <div className="surface px-4 py-3 text-xs text-white/45 leading-relaxed">
             <p className="font-medium text-white/55 mb-1">模型说明</p>
-            <p>SAA：基于两层贝叶斯混合框架（Anchor先验 + Signal数据驱动）+ 生命周期下滑路径，使用 SLSQP 6级fallback优化求解。</p>
-            <p>TAA：综合宏观信号（PMI、CPI、FED模型、信用利差等）对 SAA 做±10%区间调整。</p>
+            <p>战略配置：基于两层贝叶斯混合框架（锚定先验 + 信号数据驱动）和生命周期下滑路径，使用顺序二次规划的六级降级优化求解。</p>
+            <p>战术调整：综合宏观信号（采购经理指数、居民消费价格指数、美联储模型、信用利差等）对战略配置做 ±10% 区间调整。</p>
             <p>压力测试：覆盖滞胀、衰退、利率冲击、权益暴跌等情景。</p>
             <p>蒙特卡洛：1,000 次路径模拟，Cholesky 分解关联 + 体制感知跳跃扩散（非正态尾部）。</p>
           </div>
@@ -437,28 +437,28 @@ export default function OverviewPage() {
         </button>
         {expandLog && (
           <div className="mt-3 space-y-1 text-xs text-white/45">
-            <div>PORTRAIT: 风险={profile?.risk_label || '—'}, 有效={profile?.effective_risk ? RISK_LABELS[profile.effective_risk] : '—'}{profile?.behavior_adjusted ? ' (行为校准)' : ''}</div>
+            <div>画像：风险={profile?.risk_label || '—'}，有效={profile?.effective_risk ? RISK_LABELS[profile.effective_risk] : '—'}{profile?.behavior_adjusted ? '（行为校准）' : ''}</div>
             <div>
-              REGIME: {meta.regime_label}
+              市场状态：{meta.regime_label}
               {meta.regime_pending && !meta.regime_is_confirmed
                 ? ` → 待确认: ${meta.regime_pending}(${meta.regime_pending_count}/2)`
                 : ''}{' '}
-              (composite={taa.composite_score.toFixed(2)})
+              （综合评分={taa.composite_score.toFixed(2)}）
             </div>
-            <div className="text-[#16C784]">SAA: SLSQP两层求解, 权益中枢{saa.equity_center}%</div>
+            <div className="text-[#16C784]">战略配置：两层优化求解，权益中枢 {saa.equity_center}%</div>
             <div className="text-[#5AA9FF]">
-              TAA: 综合{taa.composite_score > 0 ? '+' : ''}
+              战术调整：综合评分 {taa.composite_score > 0 ? '+' : ''}
               {taa.composite_score.toFixed(2)}, 超配{taa.equity_adjustment}%
               {taa.fed_value != null && (
-                <span className="ml-2 text-[#5AA9FF] font-medium">FED={taa.fed_value}</span>
+                <span className="ml-2 text-[#5AA9FF] font-medium">美联储模型={taa.fed_value}</span>
               )}
             </div>
-            <div>FUNDS: {funds.length}只映射完成</div>
+            <div>基金：{funds.length} 只映射完成</div>
             <div className="text-[#EE6666]">
-              STRESS: 最坏{stressData[0]?.scenario}({stressData[0]?.impact}%)
+              压力测试：最坏 {stressData[0]?.scenario}({stressData[0]?.impact}%)
             </div>
             <div>
-              MC: 中位{mc?.median_return != null ? `${mc.median_return.toFixed(1)}%` : 'N/A'}, 概率{mc?.prob_positive != null ? `${(mc.prob_positive * 100).toFixed(0)}%` : 'N/A'}
+              蒙特卡洛：中位{mc?.median_return != null ? `${mc.median_return.toFixed(1)}%` : '暂无'}，概率{mc?.prob_positive != null ? `${(mc.prob_positive * 100).toFixed(0)}%` : '暂无'}
             </div>
           </div>
         )}
@@ -508,7 +508,7 @@ function AllocationQualitySummary({ quality }: { quality?: AllocationDataQuality
     <div className={`rounded-lg border px-4 py-3 text-xs ${tone}`}>
       <div className="flex flex-wrap items-center gap-3">
         <span className="font-medium">数据质量: {statusText[quality.overall_status] || quality.overall_status}</span>
-        <span>CMA: {statusText[quality.cma?.status] || quality.cma?.status}</span>
+        <span>资本市场假设：{statusText[quality.cma?.status] || quality.cma?.status}</span>
         {quality.cma?.coverage != null && <span>覆盖率: {(quality.cma.coverage * 100).toFixed(0)}%</span>}
         <span>基金映射: {statusText[quality.fund_mapping?.status] || quality.fund_mapping?.status}</span>
         <span>蒙特卡洛: {statusText[quality.monte_carlo?.status] || quality.monte_carlo?.status}</span>

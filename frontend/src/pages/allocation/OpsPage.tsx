@@ -76,7 +76,7 @@ export default function OpsPage() {
                 {healthData.health === 'healthy' ? '健康' : healthData.health === 'degraded' ? '降级' : healthData.health === 'critical' ? '异常' : '未知'}
               </span>
             </span>
-            <span className="text-white/50">Regime: <span className="text-white/80">{healthData.subsystems.regime.confirmed_label}</span></span>
+            <span className="text-white/50">市场状态：<span className="text-white/80">{healthData.subsystems.regime.confirmed_label}</span></span>
             <span className="text-white/50">断路器: <span className="text-white/80">{healthData.subsystems.circuit_breaker.confirmed_name}</span></span>
             {healthData.history_summary.total_runs > 0 && (
               <span className="text-white/40">运行 {healthData.history_summary.total_runs} 次 · 平均 {healthData.history_summary.avg_total_ms.toFixed(0)}ms</span>
@@ -105,7 +105,7 @@ export default function OpsPage() {
             <div className="flex gap-3 text-[10px] text-white/40">
               <span>变化资产: {dualData.comparison.changed_assets}/{dualData.comparison.total_assets}</span>
               <span>最大偏移: {dualData.comparison.max_allocation_delta.toFixed(2)}%</span>
-              <span>Regime: {dualData.comparison.regime_same ? '相同' : '不同'}</span>
+              <span>市场状态：{dualData.comparison.regime_same ? '相同' : '不同'}</span>
               <span>性能比: {dualData.comparison.performance_ratio.toFixed(2)}x</span>
             </div>
           </div>

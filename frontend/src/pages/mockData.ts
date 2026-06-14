@@ -75,7 +75,7 @@ export const MOCK_DATA: AllocationResponse = {
     "composite_score": 0.35,
     "equity_adjustment": 5.2,
     "fed_value": 2.8,
-    "fed_interpretation": "FED=2.8 权益相对低估",
+    "fed_interpretation": "美联储模型=2.8，权益相对低估",
     "signals": [
       { "factor_name": "PMI制造业", "category": "growth", "score": 0.65, "confidence": "high", "value": 50.8, "threshold_desc": "当前值: 50.80" },
       { "factor_name": "GDP同比", "category": "growth", "score": 0.40, "confidence": "high", "value": 5.1, "threshold_desc": "当前值: 5.10" },

@@ -4,10 +4,10 @@ interface Props {
 }
 
 const LEVELS = [
-  { label: 'Normal', max: 1.2, color: '#16C784', width: '40%' },
-  { label: 'Caution', max: 1.8, color: '#FAC858', width: '20%' },
-  { label: 'Warning', max: 2.5, color: '#F97316', width: '23%' },
-  { label: 'Emergency', max: Infinity, color: '#EE6666', width: '17%' },
+  { label: '正常', max: 1.2, color: '#16C784', width: '40%' },
+  { label: '谨慎', max: 1.8, color: '#FAC858', width: '20%' },
+  { label: '警戒', max: 2.5, color: '#F97316', width: '23%' },
+  { label: '紧急', max: Infinity, color: '#EE6666', width: '17%' },
 ];
 
 const EQUITY_REDUCTION: Record<number, number> = { 1: 10, 2: 30, 3: 50 };
@@ -42,7 +42,7 @@ export default function CircuitBreakerGauge({ triggered, volRatio }: Props) {
           </span>
         )}
         {!triggered && volRatio !== null && (
-          <span className="text-xs text-white/55">{LEVELS[level]?.label || 'Normal'}</span>
+          <span className="text-xs text-white/55">{LEVELS[level]?.label || '正常'}</span>
         )}
       </div>
 
@@ -94,7 +94,7 @@ export default function CircuitBreakerGauge({ triggered, volRatio }: Props) {
         <span style={{ position: 'absolute', left: '58%' }}>1.8</span>
         <span style={{ position: 'absolute', left: '81%' }}>2.5</span>
         {volRatio !== null && (
-          <span className="ml-auto text-white/45 data-number">vol_ratio = {volRatio.toFixed(2)}</span>
+          <span className="ml-auto text-white/45 data-number">波动率比值：{volRatio.toFixed(2)}</span>
         )}
       </div>
     </div>

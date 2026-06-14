@@ -68,12 +68,12 @@ export default function RiskPage() {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <MetricCard label="中位收益" value={`${mc?.median_return}%`} color="#16C784" />
         <MetricCard label="P10-P90区间" value={`${mc?.percentile_10}% ~ ${mc?.percentile_90}%`} color="#FAC858" />
-        <MetricCard label="VaR(95%)" value={`${mc?.var_95}%`} color="#EE6666" />
+        <MetricCard label="在险价值（95%）" value={`${mc?.var_95}%`} color="#EE6666" />
         <MetricCard label="正收益概率" value={`${mc?.prob_positive}%`} color="#91CC75" />
-        <MetricCard label="P25" value={`${mc?.percentile_25}%`} color="#5470C6" />
-        <MetricCard label="P75" value={`${mc?.percentile_75}%`} color="#5470C6" />
-        <MetricCard label="CVaR(95%)" value={`${mc?.cvar_95}%`} color="#EE6666" />
-        <MetricCard label="最大回撤(P95)" value={`${mc?.max_drawdown_95}%`} color="#FF6B35" />
+        <MetricCard label="25%分位" value={`${mc?.percentile_25}%`} color="#5470C6" />
+        <MetricCard label="75%分位" value={`${mc?.percentile_75}%`} color="#5470C6" />
+        <MetricCard label="条件在险价值（95%）" value={`${mc?.cvar_95}%`} color="#EE6666" />
+        <MetricCard label="最大回撤（95%分位）" value={`${mc?.max_drawdown_95}%`} color="#FF6B35" />
       </div>
 
       <SectionCard title="压力测试 (6历史情景)" icon={AlertTriangle} iconColor="#EE6666">

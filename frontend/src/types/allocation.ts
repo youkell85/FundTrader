@@ -577,8 +577,8 @@ export interface PipelineHealthResponse {
 }
 
 export const STEP_LABELS: Record<string, string> = {
-  risk_profiling: "风险画像", cma_estimation: "CMA估计", saa_optimization: "SAA优化",
-  regime_detection: "Regime检测", taa_adjustment: "TAA调整", circuit_breaker: "断路器",
+  risk_profiling: "风险画像", cma_estimation: "资本市场假设估计", saa_optimization: "战略配置优化",
+  regime_detection: "市场状态检测", taa_adjustment: "战术调整", circuit_breaker: "断路器",
   constraint_check: "约束检查", fund_mapping: "基金映射", monte_carlo: "蒙特卡洛",
   stress_test: "压力测试", factor_exposure: "因子暴露", scenario_analysis: "情景分析",
   portfolio_metrics: "组合指标", output_assembly: "输出组装",

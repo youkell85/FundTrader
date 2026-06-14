@@ -50,7 +50,7 @@ const fundTypes = [
 
 const optimizationGoals = [
   { value: "balanced", label: "平衡", desc: "兼顾收益、回撤和波动" },
-  { value: "risk", label: "控波动", desc: "优先压低回撤与CVaR" },
+  { value: "risk", label: "控波动", desc: "优先压低回撤与条件在险价值" },
   { value: "return", label: "收益弹性", desc: "提高长期进攻性" },
 ];
 
@@ -586,7 +586,7 @@ export default function Recommend() {
                     <MetricTile label="组合回撤" value={activePlan.expectedRisk} suffix="%" color={RISK_COLOR} />
                     <MetricTile label="估算波动" value={activePlan.volatility} suffix="%" color={ACCENT_INFO} />
                     <MetricTile label="夏普" value={activePlan.sharpe} color={POSITIVE_METRIC_COLOR} />
-                    <MetricTile label="CVaR95" value={activePlan.cvar95} suffix="%" color={ACCENT_HIGHLIGHT} />
+                    <MetricTile label="条件在险价值（95%）" value={activePlan.cvar95} suffix="%" color={ACCENT_HIGHLIGHT} />
                   </div>
 
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">

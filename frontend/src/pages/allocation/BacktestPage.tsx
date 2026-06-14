@@ -222,16 +222,16 @@ export default function BacktestPage() {
                   <Kpi label="年化波动" value={fmtPct(primaryMetrics.annualized_volatility)} />
                   <Kpi label="最大回撤" value={fmtPct(primaryMetrics.max_drawdown)} tone="negative" />
                   <Kpi label="回撤天数" value={fmt(primaryMetrics.max_drawdown_duration_days, '天', 0)} />
-                  <Kpi label="Sharpe" value={fmt(primaryMetrics.sharpe_ratio, '', 2)} />
-                  <Kpi label="Sortino" value={fmt(primaryMetrics.sortino_ratio, '', 2)} />
-                  <Kpi label="Calmar" value={fmt(primaryMetrics.calmar_ratio, '', 2)} />
+                  <Kpi label="夏普比率" value={fmt(primaryMetrics.sharpe_ratio, '', 2)} />
+                  <Kpi label="索提诺比率" value={fmt(primaryMetrics.sortino_ratio, '', 2)} />
+                  <Kpi label="卡玛比率" value={fmt(primaryMetrics.calmar_ratio, '', 2)} />
                   <Kpi label="信息比率" value={fmt(primaryMetrics.information_ratio, '', 2)} />
                   <Kpi label="月胜率" value={fmt(primaryMetrics.monthly_win_rate, '%', 1)} />
-                  <Kpi label="Alpha" value={primaryMetrics.alpha != null ? fmtPct(primaryMetrics.alpha) : '—'} />
-                  <Kpi label="Beta" value={fmt(primaryMetrics.beta, '', 2)} />
+                  <Kpi label="阿尔法" value={primaryMetrics.alpha != null ? fmtPct(primaryMetrics.alpha) : '—'} />
+                  <Kpi label="贝塔" value={fmt(primaryMetrics.beta, '', 2)} />
                   <Kpi label="跟踪误差" value={primaryMetrics.tracking_error != null ? fmtPct(primaryMetrics.tracking_error) : '—'} />
                   <Kpi label="平均换手" value={fmt(primaryMetrics.avg_turnover, '%', 1)} />
-                  <Kpi label="TAA增值" value={primaryMetrics.taa_value_added != null ? fmtPct(primaryMetrics.taa_value_added) : '—'} />
+                  <Kpi label="战术调整增值" value={primaryMetrics.taa_value_added != null ? fmtPct(primaryMetrics.taa_value_added) : '—'} />
                 </>
               )}
             </div>
@@ -365,7 +365,7 @@ export default function BacktestPage() {
               <Kpi label="总收益" value={fmtPct(dcaResult!.totalReturn)} tone={dcaResult!.totalReturn >= 0 ? 'positive' : 'negative'} />
               <Kpi label="年化收益" value={fmtPct(dcaResult!.annualizedReturn)} tone={dcaResult!.annualizedReturn >= 0 ? 'positive' : 'negative'} />
               <Kpi label="最大回撤" value={fmtPct(dcaResult!.maxDrawdown)} tone="negative" />
-              <Kpi label="Sharpe" value={fmt(dcaResult!.sharpeRatio, '', 2)} />
+              <Kpi label="夏普比率" value={fmt(dcaResult!.sharpeRatio, '', 2)} />
             </div>
 
             {/* DCA 现金流曲线 */}
@@ -448,7 +448,7 @@ export default function BacktestPage() {
           </h3>
           <div className="space-y-2 text-xs text-white/35 leading-relaxed">
             <p>本页支持两种回测模式：</p>
-            <p><strong className="text-white/50">1. 资产配置策略回测</strong>：基于 SAA/TAA 权重，模拟历史调仓再平衡表现。支持对比纯 SAA、SAA+TAA、等权、60/40 等多种策略。</p>
+            <p><strong className="text-white/50">1. 资产配置策略回测</strong>：基于战略配置和战术调整权重，模拟历史调仓再平衡表现。支持对比纯战略配置、战略配置叠加战术调整、等权、60/40 等多种策略。</p>
             <p><strong className="text-white/50">2. 定投回测</strong>：在"执行计划"页配置定投策略（固定金额/估值区间/均线偏离/下跌加倍），运行回测后结果将显示在本页。</p>
             <p className="mt-2 text-white/25">点击上方"运行快速回测"开始使用默认参数，或在下方配置面板自定义参数。</p>
           </div>

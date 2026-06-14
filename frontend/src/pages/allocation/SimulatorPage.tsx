@@ -54,7 +54,7 @@ export default function SimulatorPage() {
             <p>本页提供三种模拟工具：</p>
             <ul className="list-disc pl-4 space-y-1">
               <li><span className="text-[#5AA9FF]">快速模拟</span> — 一键预览"权益仓位+5%"后的收益、波动、夏普变化</li>
-              <li><span className="text-[#FAC858]">What-If 场景模拟</span> — 通过滑块调节投资金额、收益预期、波动率、权益/债券/另类仓位偏移，实时对比调整前后配置差异</li>
+              <li><span className="text-[#FAC858]">情景模拟</span> — 通过滑块调节投资金额、收益预期、波动率、权益/债券/另类仓位偏移，实时对比调整前后配置差异</li>
               <li><span className="text-[#FAC858]">A/C 份额选择</span> — 根据计划持有期限，智能推荐每只基金应购买 A 类还是 C 类份额，并计算费率节省</li>
             </ul>
             <p className="text-white/40">所有模拟基于当前已生成的真实配置方案。调整参数仅影响模拟结果，不会修改实际配置。</p>

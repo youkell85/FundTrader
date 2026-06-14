@@ -289,7 +289,7 @@ export default function ResearchWorkbench({ funds }: Props) {
                     return v === null ? "—" : <span className={v >= 0 ? "text-[#16C784]" : "text-[#EE6666]"}>{v >= 0 ? "+" : ""}{returnPct(f.performance?.return1y)}</span>;
                   }},
                   { label: "最大回撤", get: (f: any) => <span className="text-[#EE6666]">{drawdownPct(f.performance?.maxDrawdown)}</span> },
-                  { label: "Sharpe", get: (f: any) => sharpeFmt(f.performance?.sharpeRatio) },
+                  { label: "夏普比率", get: (f: any) => sharpeFmt(f.performance?.sharpeRatio) },
                   { label: "波动率", get: (f: any) => returnPct(f.performance?.annualizedVolatility) },
                   { label: "规模", get: (f: any) => fmtNum(f.totalScale, 1, "亿") },
                   { label: "管理费率", get: (f: any) => feePct(f.feeManage) },
@@ -376,7 +376,7 @@ export default function ResearchWorkbench({ funds }: Props) {
         <div className="flex flex-wrap gap-2 items-center">
           <span className="text-[10px] text-white/30">排序:</span>
           {sortBtn("return1y", "近1年收益")}
-          {sortBtn("sharpe", "Sharpe")}
+          {sortBtn("sharpe", "夏普比率")}
           {sortBtn("maxDrawdown", "回撤")}
           {sortBtn("nav", "净值")}
           {sortBtn("scale", "规模")}
@@ -400,7 +400,7 @@ export default function ResearchWorkbench({ funds }: Props) {
               type="number"
               value={minSharpe}
               onChange={(e) => setMinSharpe(e.target.value)}
-              placeholder="最小Sharpe"
+              placeholder="最小夏普比率"
               className="w-20 px-2 py-1 rounded bg-white/[0.03] border border-white/[0.06] text-white text-[10px] placeholder:text-white/20 focus:outline-none"
             />
           </div>
@@ -415,7 +415,7 @@ export default function ResearchWorkbench({ funds }: Props) {
           <div className="text-right">净值</div>
           <div className="text-right">近1年</div>
           <div className="text-right">回撤</div>
-          <div className="text-right">Sharpe</div>
+          <div className="text-right">夏普比率</div>
           <div className="text-right">规模</div>
           <div className="text-right">费率</div>
           <div>研究摘要</div>
@@ -573,7 +573,7 @@ export default function ResearchWorkbench({ funds }: Props) {
                       <div className="text-xs data-number text-[#EE6666]">{drawdownPct(perf.maxDrawdown, 1)}</div>
                     </div>
                     <div className="text-center">
-                      <div className="text-[9px] text-white/30">Sharpe</div>
+                      <div className="text-[9px] text-white/30">夏普比率</div>
                       <div className="text-xs data-number" style={{ color: POSITIVE_METRIC_COLOR }}>{sharpeFmt(perf.sharpeRatio)}</div>
                     </div>
                   </div>

@@ -148,7 +148,7 @@ describe("analyzeCandidateMatch", () => {
       totalScale: "20",
     };
     const result = analyzeCandidateMatch(candidate, portfolio);
-    expect(result.advantages).toContain("Sharpe优秀");
+    expect(result.advantages).toContain("夏普比率优秀");
   });
 
   test("unrecognized asset class suggestion", () => {
@@ -484,10 +484,10 @@ describe("generateResearchReportMarkdown", () => {
     expect(md).toContain("+12.50%");
     expect(md).toContain("最大回撤");
     expect(md).toContain("-15.30%");
-    expect(md).toContain("Sharpe");
+    expect(md).toContain("夏普比率");
     expect(md).toContain("1.35");
-    expect(md).toContain("Sortino");
-    expect(md).toContain("Calmar");
+    expect(md).toContain("索提诺比率");
+    expect(md).toContain("卡玛比率");
     expect(md).toContain("月度胜率");
     expect(md).toContain("58.3%");
   });
@@ -529,9 +529,9 @@ describe("generateResearchReportMarkdown", () => {
     } as any;
 
     const md = generateResearchReportMarkdown({ portfolioFunds: portfolio, candidates: [], constraintDrafts: [], backtestResult });
-    expect(md).toContain("| Sharpe | 1.00 |");
-    expect(md).toContain("| Sortino | 1.20 |");
-    expect(md).toContain("| Calmar | 0.50 |");
+    expect(md).toContain("| 夏普比率 | 1.00 |");
+    expect(md).toContain("| 索提诺比率 | 1.20 |");
+    expect(md).toContain("| 卡玛比率 | 0.50 |");
   });
 
   test("percentages are not multiplied by 100 again", () => {
@@ -560,9 +560,9 @@ describe("generateResearchReportMarkdown", () => {
 
     const md = generateResearchReportMarkdown({ portfolioFunds: portfolio, candidates: [], constraintDrafts: [], backtestResult });
     expect(md).toContain("| 年化收益 | — |");
-    expect(md).toContain("| Sharpe | — |");
+    expect(md).toContain("| 夏普比率 | — |");
     expect(md).not.toContain("| 年化收益 | 0.00% |");
-    expect(md).not.toContain("| Sharpe | 0.00 |");
+    expect(md).not.toContain("| 夏普比率 | 0.00 |");
   });
 
   test("report sections are in correct order", () => {
@@ -667,7 +667,7 @@ describe("generateResearchReportMarkdown", () => {
         { fundCode: "000003", fundName: "C基金", fundType: "equity", performance: { return1y: "10", maxDrawdown: "-5", sharpeRatio: "1.2" }, feeManage: "0.015", totalScale: "20" },
       ],
       matches: [
-        { candidate: { fundCode: "000003", fundName: "C基金", fundType: "equity", performance: { return1y: "10", maxDrawdown: "-5", sharpeRatio: "1.2" } }, match: { inPortfolio: false, peerFunds: [], inferredAsset: "equity", dataCompleteness: 0.75, advantages: ["Sharpe优秀"], suggestion: "可作为风格补充研究", dataStatus: "ok" as const } },
+        { candidate: { fundCode: "000003", fundName: "C基金", fundType: "equity", performance: { return1y: "10", maxDrawdown: "-5", sharpeRatio: "1.2" } }, match: { inPortfolio: false, peerFunds: [], inferredAsset: "equity", dataCompleteness: 0.75, advantages: ["夏普比率优秀"], suggestion: "可作为风格补充研究", dataStatus: "ok" as const } },
       ],
       constraintDrafts: [
         { fundCode: "000003", fundName: "C基金", assetClass: "equity", assetClassLabel: "权益类", action: "candidate_for_style_supplement" as const, priority: "high" as const, reason: "组合缺少权益配置", constraints: ["补充权益敞口"], dataStatus: "ok" as const },
@@ -780,11 +780,11 @@ describe("generateResearchReportMarkdown", () => {
 
     const md = generateResearchReportMarkdown({ portfolioFunds: portfolio, candidates: [], constraintDrafts: [], backtestResult });
     expect(md).toContain("信息比率");
-    expect(md).toContain("Alpha");
-    expect(md).toContain("Beta");
+    expect(md).toContain("阿尔法");
+    expect(md).toContain("贝塔");
     expect(md).toContain("跟踪误差");
     expect(md).toContain("平均换手");
-    expect(md).toContain("TAA贡献");
+    expect(md).toContain("战术调整贡献");
   });
 
   test("alpha displays as percentage without multiplying by 100", () => {
@@ -843,9 +843,9 @@ describe("generateResearchReportMarkdown", () => {
     } as any;
 
     const md = generateResearchReportMarkdown({ portfolioFunds: portfolio, candidates: [], constraintDrafts: [], backtestResult });
-    expect(md).toContain("| Beta | 0.92 |");
-    expect(md).toContain("| Sortino | 1.62 |");
-    expect(md).toContain("| Calmar | 0.47 |");
+    expect(md).toContain("| 贝塔 | 0.92 |");
+    expect(md).toContain("| 索提诺比率 | 1.62 |");
+    expect(md).toContain("| 卡玛比率 | 0.47 |");
     expect(md).toContain("| 信息比率 | 0.85 |");
   });
 
@@ -876,10 +876,10 @@ describe("generateResearchReportMarkdown", () => {
 
     const md = generateResearchReportMarkdown({ portfolioFunds: portfolio, candidates: [], constraintDrafts: [], backtestResult });
     expect(md).toContain("| 信息比率 | — |");
-    expect(md).toContain("| Alpha | — |");
-    expect(md).toContain("| Beta | — |");
+    expect(md).toContain("| 阿尔法 | — |");
+    expect(md).toContain("| 贝塔 | — |");
     expect(md).toContain("| 跟踪误差 | — |");
-    expect(md).toContain("| TAA贡献 | — |");
+    expect(md).toContain("| 战术调整贡献 | — |");
   });
 
   test("monthly_win_rate is not multiplied by 100", () => {

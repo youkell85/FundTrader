@@ -159,8 +159,8 @@ export function analyzeCandidateMatch(
     if (pctVal < 0.5) advantages.push("费率优势显著");
   }
   if (scale !== null && scale > 10) advantages.push("规模充足");
-  if (sharpe !== null && sharpe > 1) advantages.push("Sharpe优秀");
-  if (sharpe !== null && sharpe > 0.5 && sharpe <= 1) advantages.push("Sharpe尚可");
+  if (sharpe !== null && sharpe > 1) advantages.push("夏普比率优秀");
+  if (sharpe !== null && sharpe > 0.5 && sharpe <= 1) advantages.push("夏普比率尚可");
   if (mdd !== null && mdd > -20) advantages.push("回撤控制较好");
   if (r1y !== null && r1y > 20) advantages.push("近1年收益突出");
 
@@ -183,7 +183,7 @@ export function analyzeCandidateMatch(
     const hasBetterSharpe = sharpe !== null && sharpe > 0.5;
     const hasLowerFee = feeM !== null && (Math.abs(feeM) > 1 ? feeM : feeM * 100) < 1.0;
     if (hasBetterSharpe && hasLowerFee) {
-      suggestion = "同类中Sharpe较好且费率有优势，可作为替代研究对象";
+      suggestion = "同类中夏普比率较好且费率有优势，可作为替代研究对象";
     } else if (hasBetterSharpe) {
       suggestion = "可作为同类替代研究对象";
     } else if (hasLowerFee) {
@@ -271,7 +271,7 @@ function buildConstraints(action: ConstraintAction, match: CandidateMatchResult,
     case "candidate_for_style_supplement": {
       constraints.push(`补充${ASSET_CLASS_LABELS[match.inferredAsset]}敞口`);
       const sharpe = num(perf.sharpeRatio);
-      if (sharpe !== null) constraints.push(`Sharpe ${sharpe.toFixed(2)}，纳入优化池前需复核波动率假设`);
+      if (sharpe !== null) constraints.push(`夏普比率 ${sharpe.toFixed(2)}，纳入优化池前需复核波动率假设`);
       const fee = num(candidate.feeManage);
       if (fee !== null) constraints.push(`费率${fee < 1 ? (fee * 100).toFixed(2) : fee.toFixed(2)}%`);
       break;
@@ -279,7 +279,7 @@ function buildConstraints(action: ConstraintAction, match: CandidateMatchResult,
     case "candidate_for_peer_comparison": {
       constraints.push("同类替代观察");
       const sharpe = num(perf.sharpeRatio);
-      if (sharpe !== null && sharpe > 0.8) constraints.push(`Sharpe ${sharpe.toFixed(2)}优于同类基准参考`);
+      if (sharpe !== null && sharpe > 0.8) constraints.push(`夏普比率 ${sharpe.toFixed(2)}优于同类基准参考`);
       const fee = num(candidate.feeManage);
       if (fee !== null && (Math.abs(fee) > 1 ? fee : fee * 100) < 1.0) constraints.push("费率较低，适合费用敏感约束");
       const mdd = num(perf.maxDrawdown);
@@ -290,7 +290,7 @@ function buildConstraints(action: ConstraintAction, match: CandidateMatchResult,
       constraints.push("关键指标缺失，暂不满足纳入条件");
       if (num(perf.return1y) === null) constraints.push("缺近1年收益");
       if (num(perf.maxDrawdown) === null) constraints.push("缺最大回撤");
-      if (num(perf.sharpeRatio) === null) constraints.push("缺Sharpe");
+      if (num(perf.sharpeRatio) === null) constraints.push("缺夏普比率");
       break;
     case "watch_only":
       constraints.push("持续观察，等待数据或行情变化");
@@ -416,7 +416,7 @@ export function generateResearchReportMarkdown(input: ResearchReportInput): stri
   if (candidates.length === 0) {
     lines.push("暂无研究候选。");
   } else {
-    lines.push("| 基金 | 推断资产大类 | 近1年 | 回撤 | Sharpe | 费率 | 规模 |");
+    lines.push("| 基金 | 推断资产大类 | 近1年 | 回撤 | 夏普比率 | 费率 | 规模 |");
     lines.push("|---|---|---|---|---|---|---|");
     for (const c of candidates) {
       const perf = c.performance || {};
@@ -485,16 +485,16 @@ export function generateResearchReportMarkdown(input: ResearchReportInput): stri
     lines.push(`| 年化收益 | ${mdEsc(fmtPctNum(primaryMetrics.annualized_return))} |`);
     lines.push(`| 年化波动 | ${mdEsc(fmtPctNum(primaryMetrics.annualized_volatility))} |`);
     lines.push(`| 最大回撤 | ${mdEsc(fmtPctNum(primaryMetrics.max_drawdown))} |`);
-    lines.push(`| Sharpe | ${mdEsc(fmtNum(primaryMetrics.sharpe_ratio, 2))} |`);
-    lines.push(`| Sortino | ${mdEsc(fmtNum(primaryMetrics.sortino_ratio, 2))} |`);
-    lines.push(`| Calmar | ${mdEsc(fmtNum(primaryMetrics.calmar_ratio, 2))} |`);
+    lines.push(`| 夏普比率 | ${mdEsc(fmtNum(primaryMetrics.sharpe_ratio, 2))} |`);
+    lines.push(`| 索提诺比率 | ${mdEsc(fmtNum(primaryMetrics.sortino_ratio, 2))} |`);
+    lines.push(`| 卡玛比率 | ${mdEsc(fmtNum(primaryMetrics.calmar_ratio, 2))} |`);
     lines.push(`| 信息比率 | ${mdEsc(fmtNum(primaryMetrics.information_ratio, 2))} |`);
-    lines.push(`| Alpha | ${mdEsc(primaryMetrics.alpha != null ? fmtPctNum(primaryMetrics.alpha) : '—')} |`);
-    lines.push(`| Beta | ${mdEsc(fmtNum(primaryMetrics.beta, 2))} |`);
+    lines.push(`| 阿尔法 | ${mdEsc(primaryMetrics.alpha != null ? fmtPctNum(primaryMetrics.alpha) : '—')} |`);
+    lines.push(`| 贝塔 | ${mdEsc(fmtNum(primaryMetrics.beta, 2))} |`);
     lines.push(`| 跟踪误差 | ${mdEsc(primaryMetrics.tracking_error != null ? fmtPctNum(primaryMetrics.tracking_error) : '—')} |`);
     lines.push(`| 月度胜率 | ${mdEsc(fmtNum(primaryMetrics.monthly_win_rate, 1, '%'))} |`);
     lines.push(`| 平均换手 | ${mdEsc(fmtNum(primaryMetrics.avg_turnover, 1, '%'))} |`);
-    lines.push(`| TAA贡献 | ${mdEsc(primaryMetrics.taa_value_added != null ? fmtPctNum(primaryMetrics.taa_value_added) : '—')} |`);
+    lines.push(`| 战术调整贡献 | ${mdEsc(primaryMetrics.taa_value_added != null ? fmtPctNum(primaryMetrics.taa_value_added) : '—')} |`);
   }
   lines.push("");
 
@@ -549,7 +549,7 @@ export function generateResearchReportMarkdown(input: ResearchReportInput): stri
     const equalWeightAvailable = backtestResult?.metrics?.['equal_weight'] != null;
     const sixtyFortyAvailable = backtestResult?.metrics?.['sixty_forty'] != null;
     lines.push(`| 等权基准 | ${mdEsc(equalWeightAvailable ? "可用" : "暂无基准数据")} |`);
-    lines.push(`| 60/40 基准 | ${mdEsc(sixtyFortyAvailable ? "可用" : "暂无基准数据")} |`);
+    lines.push(`| 六四股债基准 | ${mdEsc(sixtyFortyAvailable ? "可用" : "暂无基准数据")} |`);
     lines.push("");
 
     // 数据降级说明
@@ -585,7 +585,7 @@ export function generateResearchReportMarkdown(input: ResearchReportInput): stri
       const gaps: string[] = [];
       if (num(perf.return1y) === null) gaps.push("近1年收益");
       if (num(perf.maxDrawdown) === null) gaps.push("最大回撤");
-      if (num(perf.sharpeRatio) === null) gaps.push("Sharpe");
+      if (num(perf.sharpeRatio) === null) gaps.push("夏普比率");
       lines.push(`- ${mdEsc(c.fundCode || c.code || "")} ${mdEsc(c.fundAbbr || c.fundName || c.name || "")}：${gaps.join("、")}缺失`);
     }
   }

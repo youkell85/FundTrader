@@ -53,7 +53,7 @@ async function fetchJson<T>(path: string, options?: RequestInit): Promise<T> {
     });
     if (!res.ok) {
       const text = await res.text().catch(() => "");
-      throw new Error(`API ${path} error: ${res.status} ${text.slice(0, 200)}`);
+      throw new Error(`接口 ${path} 请求失败：${res.status} ${text.slice(0, 200)}`);
     }
     return res.json();
   } catch (e: any) {
@@ -255,10 +255,10 @@ export function generateAllocationStream(
         signal: controller.signal,
       });
 
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) throw new Error(`请求失败：${res.status}`);
 
       const reader = res.body?.getReader();
-      if (!reader) throw new Error("Stream not supported");
+      if (!reader) throw new Error("当前浏览器不支持流式响应");
 
       const decoder = new TextDecoder();
       let buffer = "";

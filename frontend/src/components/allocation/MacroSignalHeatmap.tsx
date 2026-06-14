@@ -90,7 +90,7 @@ export default function MacroSignalHeatmap({ signals, categorySummary }: Props) 
                       opacity: confidenceOpacity(sig.confidence),
                       border: `1px solid rgba(255,255,255,${sig.confidence === 'high' ? 0.08 : 0.04})`,
                     }}
-                    title={`${sig.factor_name}: 值=${sig.value ?? 'N/A'}, 评分=${sig.score > 0 ? '+' : ''}${sig.score.toFixed(2)}, 置信度=${sig.confidence}`}
+                    title={`${sig.factor_name}: 值=${sig.value ?? '暂无'}, 评分=${sig.score > 0 ? '+' : ''}${sig.score.toFixed(2)}, 置信度=${sig.confidence}`}
                   >
                     <div className="text-[11px] text-white/60 truncate">{sig.factor_name}</div>
                     <div className="data-number text-xs font-medium mt-0.5" style={{ color: sig.score > 0.3 ? '#16C784' : sig.score < -0.3 ? '#EE6666' : 'rgba(255,255,255,0.6)' }}>

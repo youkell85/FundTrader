@@ -60,9 +60,9 @@ export default function DualEnginePanel() {
             <div className="flex gap-3 mt-2 text-xs text-white/50">
               <span>变化资产: {data.comparison.changed_assets}/{data.comparison.total_assets}</span>
               <span>最大偏移: {data.comparison.max_allocation_delta.toFixed(2)}%</span>
-              <span>Regime: {data.comparison.regime_same ? '相同' : '不同'}</span>
+              <span>市场状态：{data.comparison.regime_same ? '相同' : '不同'}</span>
               <span>断路器: {data.comparison.breaker_same ? '相同' : '不同'}</span>
-              {data.comparison.v4_has_fed_model && <span className="text-blue-300">FED模型已启用</span>}
+              {data.comparison.v4_has_fed_model && <span className="text-blue-300">美联储模型已启用</span>}
             </div>
           </div>
 
@@ -71,7 +71,7 @@ export default function DualEnginePanel() {
             {Object.entries(data.comparison.metrics_diff).map(([key, val]) => (
               <div key={key} className="p-3 rounded-xl bg-white/5 border border-white/10">
                 <div className="text-xs text-white/50 mb-1">
-                  {key === 'expected_return' ? '预期收益' : key === 'expected_volatility' ? '预期波动' : 'Sharpe'}
+                  {key === 'expected_return' ? '预期收益' : key === 'expected_volatility' ? '预期波动' : '夏普比率'}
                 </div>
                 <div className="flex items-center gap-2 text-sm">
                   <span className="text-white/50">{val.v3.toFixed(2)}</span>

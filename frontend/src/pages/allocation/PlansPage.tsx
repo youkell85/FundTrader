@@ -150,7 +150,7 @@ function PlanItem({ plan, restoring, onRestore, onDelete, onToggleFavorite, onEx
             <Kpi label="预期年化" value={summary.metrics.expectedReturn} tone="positive" />
             <Kpi label="波动率" value={summary.metrics.volatility} />
             <Kpi label="最大回撤" value={summary.metrics.maxDrawdown} tone="negative" />
-            <Kpi label="Sharpe" value={summary.metrics.sharpe} />
+            <Kpi label="夏普比率" value={summary.metrics.sharpe} />
             <Kpi label="基金数" value={`${summary.metrics.fundCount}只`} />
             <Kpi label="方案数" value={`${summary.metrics.variantCount}`} />
           </div>
@@ -274,7 +274,7 @@ function PlanItem({ plan, restoring, onRestore, onDelete, onToggleFavorite, onEx
                   <Kpi label="年化收益" value={summary.backtestMetrics.annualizedReturn} tone="positive" />
                   <Kpi label="年化波动" value={summary.backtestMetrics.annualizedVolatility} />
                   <Kpi label="最大回撤" value={summary.backtestMetrics.maxDrawdown} tone="negative" />
-                  <Kpi label="Sharpe" value={summary.backtestMetrics.sharpe} />
+                  <Kpi label="夏普比率" value={summary.backtestMetrics.sharpe} />
                 </div>
               ) : (
                 <span className="text-[10px] text-white/25">暂无策略回测结果</span>

@@ -170,7 +170,7 @@ export default function FundsPage() {
         </div>
       )}
       {isReal && rankingData && (
-        <SectionCard title={`API 基金排名 (${Object.keys(rankingData.rankings).length} 类)`} icon={TrendingUp} iconColor="#5AA9FF">
+        <SectionCard title={`接口基金排名 (${Object.keys(rankingData.rankings).length} 类)`} icon={TrendingUp} iconColor="#5AA9FF">
           <div className="flex flex-wrap gap-2">
             {Object.entries(rankingData.rankings).map(([cls, items]) => (
               <div key={cls} className="px-3 py-1.5 rounded-lg bg-white/[0.03] border border-white/[0.06] text-xs">
@@ -201,7 +201,7 @@ export default function FundsPage() {
               <table className="w-full text-xs">
                 <thead>
                   <tr className="text-white/55 border-b border-white/[0.06]">
-                    {['代码', '名称', '类型', '近1年', '回撤', 'Sharpe', '规模', '费率', '研究摘要', '操作'].map((h) => (
+                    {['代码', '名称', '类型', '近1年', '回撤', '夏普比率', '规模', '费率', '研究摘要', '操作'].map((h) => (
                       <th key={h} className="text-left py-2 px-2 font-normal">{h}</th>
                     ))}
                   </tr>
