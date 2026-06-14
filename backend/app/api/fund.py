@@ -84,10 +84,21 @@ def _rating_score_fallback(code: str) -> dict | None:
     score = row["score"]
     if score is None:
         return None
+    try:
+        score_value = float(score)
+    except Exception:
+        score_value = None
+    if score_value is None:
+        return None
+    if score_value <= 5:
+        star = int(round(score_value))
+    else:
+        # score fallback：1~5 星；默认按 0~100 分位映射（保守可视化兜底）
+        star = max(1, min(5, int(round(score_value / 20))))
     return {
         "code": code,
-        "rating3y": None,
-        "rating5y": None,
+        "rating3y": star,
+        "rating5y": star,
         "score": score,
         "source": "fund_metrics_snapshot",
         "dataStatus": "partial",
@@ -627,6 +638,8 @@ async def fund_detail_completeness(code: str = Query(..., min_length=4, max_leng
         detail_checks.append(("purchaseInfo", fund_purchase_info(code=code)))
     if sections["rating"]["dataStatus"] in {"missing", "partial", "stale"} or rating_count > 0:
         detail_checks.append(("rating", fund_rating(code=code)))
+    if sections["yearReturns"]["dataStatus"] in {"missing", "partial", "stale"}:
+        detail_checks.append(("yearReturns", fund_year_returns(code=code)))
     if sections["riskSummary"]["dataStatus"] in {"missing", "partial", "stale"}:
         detail_checks.append(("riskSummary", fund_risk_summary(code=code, window="1y")))
     if sections["managerReport"]["dataStatus"] == "missing":
