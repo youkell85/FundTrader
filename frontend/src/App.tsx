@@ -1,7 +1,6 @@
 import { lazy, Suspense, useEffect } from 'react'
 import { AllocationProvider } from './store/allocationStore'
-import { Routes, Route, useLocation, Navigate, Outlet } from 'react-router'
-import { useAuth } from './hooks/useAuth'
+import { Routes, Route, useLocation, Outlet } from 'react-router'
 import Home from './pages/Home'
 import Login from './pages/Login'
 import NotFound from './pages/NotFound'
@@ -55,11 +54,7 @@ function ScrollToTop() {
 }
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
-  const { user, isLoading } = useAuth();
-  const location = useLocation();
-
-  if (isLoading) return <PageLoader />;
-  if (!user) return <Navigate to="/login" state={{ from: location.pathname }} replace />;
+  // Temporary: allow protected pages to run before re-enabling login restrictions.
   return <>{children}</>;
 }
 
