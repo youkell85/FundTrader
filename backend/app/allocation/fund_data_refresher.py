@@ -194,10 +194,11 @@ def _try_tickflow_series(code: str) -> Optional[tuple]:
     try:
         from tickflow import TickFlow
         import os
-        api_key = os.environ.get("TICKFLOW_API_KEY")
-        if not api_key:
-            return None
-        tf = TickFlow(api_key=api_key)
+        tf = (
+            TickFlow(api_key=os.environ.get("TICKFLOW_API_KEY"))
+            if os.environ.get("TICKFLOW_API_KEY")
+            else TickFlow.free()
+        )
         suffix = ".SH" if code.startswith(("5", "6")) else ".SZ"
         symbol = code + suffix
         df = tf.klines.get(symbol, period="1d", count=500, as_dataframe=True)

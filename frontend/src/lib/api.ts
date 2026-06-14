@@ -1,12 +1,18 @@
-/**
+﻿/**
  * FundTrader 2.0 API Client
- * 封装 FundTrader FastAPI 后端 REST API 调用
- * 将后端数据格式映射为前端期望的格式
- */
+ * 灏佽 FundTrader FastAPI 鍚庣 REST API 璋冪敤
+ * 灏嗗悗绔暟鎹牸寮忔槧灏勪负鍓嶇鏈熸湜鐨勬牸寮? */
+
+import type {
+  DataSourceHealthSnapshot,
+  MarketDataSourcesStatus,
+  MarketDataStatus,
+  MarketDataStreamPayload,
+} from "@/types/allocation";
 
 const API_BASE = import.meta.env.VITE_API_BASE || "/fund/api";
 
-/** 长耗时路径（配置生成/回测/压力测试等）使用120s，其余30s */
+/** 闀胯€楁椂璺緞锛堥厤缃敓鎴?鍥炴祴/鍘嬪姏娴嬭瘯绛夛級浣跨敤120s锛屽叾浣?0s */
 const LONG_TIMEOUT_PATHS = [
   "/allocation/generate", "/allocation/backtest", "/allocation/variants",
   "/dca/backtest", "/allocation/explain", "/allocation/what-if",
@@ -19,12 +25,11 @@ async function fetchJson<T>(path: string, options?: RequestInit): Promise<T> {
 
   const controller = new AbortController();
   const timeout = setTimeout(
-    () => controller.abort(new Error(`请求超时(${timeoutMs / 1000}s)`)),
+    () => controller.abort(new Error(`璇锋眰瓒呮椂(${timeoutMs / 1000}s)`)),
     timeoutMs,
   );
 
-  // 兼容方案替代 AbortSignal.any()（2024年3月才 Baseline）
-  if (options?.signal) {
+  // 鍏煎鏂规鏇夸唬 AbortSignal.any()锛?024骞?鏈堟墠 Baseline锛?  if (options?.signal) {
     const external = options.signal;
     if (external.aborted) {
       controller.abort(external.reason);
@@ -51,8 +56,8 @@ async function fetchJson<T>(path: string, options?: RequestInit): Promise<T> {
     if (e?.name === "AbortError") {
       throw new Error(
         isLongRequest
-          ? "请求超时（2分钟），数据量较大请缩小范围后重试"
-          : "请求超时（30秒），请检查网络后重试",
+          ? "璇锋眰瓒呮椂锛?鍒嗛挓锛夛紝鏁版嵁閲忚緝澶ц缂╁皬鑼冨洿鍚庨噸璇?
+          : "璇锋眰瓒呮椂锛?0绉掞級锛岃妫€鏌ョ綉缁滃悗閲嶈瘯",
       );
     }
     throw e;
@@ -61,7 +66,7 @@ async function fetchJson<T>(path: string, options?: RequestInit): Promise<T> {
   }
 }
 
-// ==================== 基金列表 ====================
+// ==================== 鍩洪噾鍒楄〃 ====================
 export async function getFundList(params: {
   category?: string;
   tag?: string;
@@ -86,7 +91,7 @@ export async function getCategories() {
   return fetchJson<{ categories: string[]; types: string[] }>("/fund/categories");
 }
 
-// ==================== 基金详情 ====================
+// ==================== 鍩洪噾璇︽儏 ====================
 export async function getFundAnalysis(code: string) {
   return fetchJson<any>(`/analysis/${code}`);
 }
@@ -95,7 +100,7 @@ export async function getManagerStyle(code: string) {
   return fetchJson<{ code: string; style_analysis?: string; error?: string }>(`/analysis/${code}/style`);
 }
 
-// ==================== 定投回测 ====================
+// ==================== 瀹氭姇鍥炴祴 ====================
 export async function runBacktest(params: {
   codes: string[];
   amount: number;
@@ -114,7 +119,7 @@ export async function getDcaSuggestion(code: string) {
   return fetchJson<any>(`/dca/suggestion/${code}`);
 }
 
-// ==================== 智能推荐 ====================
+// ==================== 鏅鸿兘鎺ㄨ崘 ====================
 export async function getRecommendations(params: {
   risk_level?: string;
   investment_horizon?: string;
@@ -131,7 +136,7 @@ export async function getMarketOverview() {
   return fetchJson<any>("/recommend/market");
 }
 
-// ==================== 专业分析 ====================
+// ==================== 涓撲笟鍒嗘瀽 ====================
 export async function getProfessionalAnalysis(code: string) {
   return fetchJson<any>(`/professional/${code}`);
 }
@@ -143,7 +148,7 @@ export async function getCorrelationMatrix(codes: string[]) {
   });
 }
 
-// ==================== 自选股 ====================
+// ==================== 鑷€夎偂 ====================
 export async function getWatchlist() {
   return fetchJson<any>("/settings/watchlist");
 }
@@ -159,12 +164,50 @@ export async function removeFromWatchlist(code: string) {
   return fetchJson<any>(`/settings/watchlist/${code}`, { method: "DELETE" });
 }
 
-// ==================== 市场数据状态 ====================
+// ==================== 甯傚満鏁版嵁鐘舵€?====================
 export async function getMarketDataStatus() {
-  return fetchJson<import("@/types/allocation").MarketDataStatus>("/market-data/status");
+  return fetchJson<MarketDataStatus>("/market-data/status");
 }
 
-// ==================== 配置回测 ====================
+export async function getMarketDataSourcesStatus() {
+  return fetchJson<MarketDataSourcesStatus>("/market-data/data-sources");
+}
+
+export async function getMarketDataSourceHealth() {
+  return fetchJson<DataSourceHealthSnapshot>("/market-data/source-status");
+}
+
+export function subscribeMarketDataStream(options: {
+  interval?: number;
+  onMessage: (payload: MarketDataStreamPayload) => void;
+  onOpen?: () => void;
+  onClose?: () => void;
+  onError?: (err: Error | Event) => void;
+}) {
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  const base = API_BASE.startsWith("http")
+    ? new URL(API_BASE, window.location.origin).toString()
+    : `${window.location.origin}${API_BASE.startsWith("/") ? "" : "/"}${API_BASE}`;
+  const wsBase = base.replace(/^http:/, protocol).replace(/^https:/, protocol);
+  const ws = new WebSocket(`${wsBase}/market-data/stream?interval=${options.interval || 5}`);
+  ws.addEventListener("open", () => options.onOpen?.());
+
+  ws.addEventListener("message", (ev) => {
+    try {
+      options.onMessage(JSON.parse(ev.data));
+    } catch {
+      options.onError?.(new Error("market-data stream parse error"));
+    }
+  });
+  ws.addEventListener("close", () => options.onClose?.());
+  ws.addEventListener("error", (ev) => options.onError?.(ev));
+
+  return {
+    close: () => ws.close(),
+    socket: ws,
+  };
+}
+// ==================== 閰嶇疆鍥炴祴 ====================
 export async function runAllocationBacktest(params: import("@/types/backtest").BacktestRequest) {
   return fetchJson<import("@/types/backtest").BacktestResponse>("/allocation/backtest", {
     method: "POST",
@@ -172,7 +215,7 @@ export async function runAllocationBacktest(params: import("@/types/backtest").B
   });
 }
 
-// ==================== 基金选优排名 ====================
+// ==================== 鍩洪噾閫変紭鎺掑悕 ====================
 export async function getFundRanking(preferred_tags: string[] = [], signal?: AbortSignal) {
   return fetchJson<import("@/types/allocation").FundRankingResponse>("/allocation/fund-ranking", {
     method: "POST",
@@ -181,7 +224,7 @@ export async function getFundRanking(preferred_tags: string[] = [], signal?: Abo
   });
 }
 
-// ==================== 资产配置生成 ====================
+// ==================== 璧勪骇閰嶇疆鐢熸垚 ====================
 export async function generateAllocation(params: import("@/types/allocation").AllocationRequest) {
   return fetchJson<import("@/types/allocation").AllocationResponse>("/allocation/generate", {
     method: "POST",
@@ -189,7 +232,7 @@ export async function generateAllocation(params: import("@/types/allocation").Al
   });
 }
 
-/** SSE 流式生成配置 — 返回 { cancel } 用于取消 */
+/** SSE 娴佸紡鐢熸垚閰嶇疆 鈥?杩斿洖 { cancel } 鐢ㄤ簬鍙栨秷 */
 export function generateAllocationStream(
   params: import("@/types/allocation").AllocationRequest,
   onProgress?: (step: number, total: number, name: string, status: string, detail: string) => void,
@@ -250,7 +293,7 @@ export function generateAllocationStream(
       if (e?.name === "AbortError") {
         onCancelled?.();
       } else {
-        onError?.(e?.message || "流式请求失败");
+        onError?.(e?.message || "娴佸紡璇锋眰澶辫触");
       }
     }
   })();
@@ -258,7 +301,7 @@ export function generateAllocationStream(
   return { cancel: () => controller.abort() };
 }
 
-// ==================== 三方案输出 ====================
+// ==================== 涓夋柟妗堣緭鍑?====================
 export async function generateVariants(params: import("@/types/allocation").AllocationRequest) {
   return fetchJson<import("@/types/allocation").VariantsResponse>("/allocation/variants", {
     method: "POST",
@@ -266,7 +309,7 @@ export async function generateVariants(params: import("@/types/allocation").Allo
   });
 }
 
-// ==================== 可解释性报告 ====================
+// ==================== 鍙В閲婃€ф姤鍛?====================
 export async function getExplainReport(params: import("@/types/allocation").AllocationRequest) {
   return fetchJson<import("@/types/allocation").ExplainReportModel>("/allocation/explain", {
     method: "POST",
@@ -274,7 +317,7 @@ export async function getExplainReport(params: import("@/types/allocation").Allo
   });
 }
 
-// ==================== What-If模拟器 ====================
+// ==================== What-If妯℃嫙鍣?====================
 export async function runWhatIfSimulation(params: import("@/types/allocation").WhatIfRequest) {
   return fetchJson<import("@/types/allocation").WhatIfResponse>("/allocation/what-if", {
     method: "POST",
@@ -282,7 +325,7 @@ export async function runWhatIfSimulation(params: import("@/types/allocation").W
   });
 }
 
-// ==================== A/C份额选择 ====================
+// ==================== A/C浠介閫夋嫨 ====================
 export async function selectShareClass(params: import("@/types/allocation").ShareSelectorRequest) {
   return fetchJson<import("@/types/allocation").ShareSelectorResponse>("/allocation/share-selector", {
     method: "POST",
@@ -290,7 +333,7 @@ export async function selectShareClass(params: import("@/types/allocation").Shar
   });
 }
 
-// ==================== 相关性约束检查 ====================
+// ==================== 鐩稿叧鎬х害鏉熸鏌?====================
 export async function checkCorrelation(params: import("@/types/allocation").CorrelationCheckRequest) {
   return fetchJson<import("@/types/allocation").CorrelationCheckResponse>("/allocation/correlation-check", {
     method: "POST",
@@ -298,7 +341,7 @@ export async function checkCorrelation(params: import("@/types/allocation").Corr
   });
 }
 
-// ==================== 费率评分分析 ====================
+// ==================== 璐圭巼璇勫垎鍒嗘瀽 ====================
 export async function analyzeFees(params: import("@/types/allocation").FeeAnalysisRequest) {
   return fetchJson<import("@/types/allocation").FeeAnalysisResponse>("/allocation/fee-analysis", {
     method: "POST",
@@ -306,7 +349,7 @@ export async function analyzeFees(params: import("@/types/allocation").FeeAnalys
   });
 }
 
-// ==================== 再平衡检查 ====================
+// ==================== 鍐嶅钩琛℃鏌?====================
 export async function checkRebalance(params: import("@/types/allocation").RebalanceCheckRequest) {
   return fetchJson<import("@/types/allocation").RebalanceCheckResponse>("/allocation/rebalance-check", {
     method: "POST",
@@ -318,7 +361,7 @@ export async function getRebalanceHistory() {
   return fetchJson<import("@/types/allocation").RebalanceHistoryResponse>("/allocation/rebalance-history");
 }
 
-// ==================== 数据存储 ====================
+// ==================== 鏁版嵁瀛樺偍 ====================
 export async function savePlan(params: import("@/types/allocation").SavePlanRequest) {
   return fetchJson<import("@/types/allocation").SavedPlanItem>("/storage/plans", {
     method: "POST",
@@ -369,7 +412,7 @@ export async function getRebalanceStats() {
   return fetchJson<import("@/types/allocation").RebalanceStatsResponse>("/storage/rebalance/stats");
 }
 
-// ==================== 预警通知 ====================
+// ==================== 棰勮閫氱煡 ====================
 export interface AlertItem {
   id: string;
   type: "deviation" | "drawdown" | "vol_spike" | "rebalance_due";
@@ -441,17 +484,17 @@ export async function getAlertThresholds() {
   return fetchJson<{ thresholds: Record<string, number> }>("/storage/alerts/thresholds");
 }
 
-// ==================== 健康检查 ====================
+// ==================== 鍋ュ悍妫€鏌?====================
 export async function healthCheck() {
   return fetchJson<{ status: string }>("/health");
 }
 
-// ==================== 管线健康报告 ====================
+// ==================== 绠＄嚎鍋ュ悍鎶ュ憡 ====================
 export async function getPipelineHealth(signal?: AbortSignal) {
   return fetchJson<import("@/types/allocation").PipelineHealthResponse>("/allocation/pipeline-health", { signal });
 }
 
-// ==================== 双引擎对比 ====================
+// ==================== 鍙屽紩鎿庡姣?====================
 export async function runDualEngine(params: import("@/types/allocation").AllocationRequest) {
   return fetchJson<import("@/types/allocation").DualEngineResponse>("/allocation/dual-engine", {
     method: "POST",

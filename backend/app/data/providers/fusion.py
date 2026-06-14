@@ -1,5 +1,8 @@
-"""多数据源融合层 - 按优先级聚合多个数据源的数据"""
+﻿"""Data federation adapter for fund/detail providers."""
+
+from datetime import datetime
 from typing import Optional, List, Dict, Any
+
 from .base import DataProvider, FundDetail, FundNav, FundHolding, FundPerformance, FundRisk
 from .tushare_provider import TushareProvider
 from .tickflow_provider import TickflowProvider
@@ -9,19 +12,30 @@ from ...utils import console_error
 
 
 class DataFusion:
-    """数据融合器 - 管理多个数据源，按优先级聚合结果"""
+    """Data fusion layer: orchestrates multiple provider backends and merges results."""
 
     def __init__(self):
         self.providers: List[DataProvider] = [
-            TushareProvider(),    # 优先级5 - 付费高频，第一数据源
-            iFinDProvider(),      # 优先级4 - 专业数据（额度限制，降级）
-            TickflowProvider(),   # 优先级3 - 行情数据
-            TencentProvider(),    # 优先级2 - 实时行情
+            TushareProvider(),    # primary: Tushare
+            iFinDProvider(),      # secondary: iFinD MCP
+            TickflowProvider(),   # tertiary: TickFlow
+            TencentProvider(),    # fallback: Tencent quotes
         ]
         self._available_providers = None
+        self._provider_status: Dict[str, Dict[str, Any]] = {}
+        for provider in self.providers:
+            self._provider_status[provider.name] = {
+                "name": provider.name,
+                "priority": provider.priority,
+                "available": False,
+                "last_check": None,
+                "last_error": None,
+                "used": False,
+                "fallback_reason": None,
+                "source_hint": None,
+            }
 
     def _get_available(self) -> List[DataProvider]:
-        """获取可用的数据源列表（已排序）"""
         if self._available_providers is None:
             self._available_providers = [
                 p for p in self.providers if p.is_available()
@@ -31,33 +45,95 @@ class DataFusion:
         return self._available_providers
 
     def refresh_providers(self):
-        """刷新数据源可用性状态"""
         self._available_providers = None
         self._get_available()
 
+    def _reset_runtime_flags(self) -> None:
+        for state in self._provider_status.values():
+            state["used"] = False
+            state["fallback_reason"] = None
+            state["source_hint"] = None
+            state["last_error"] = None
+
+    def _mark_provider_status(
+        self,
+        provider: DataProvider,
+        *,
+        success: bool,
+        used: bool = False,
+        error: str = "",
+        fallback_reason: str = "",
+        source_hint: str = "",
+    ) -> None:
+        state = self._provider_status.setdefault(
+            provider.name,
+            {
+                "name": provider.name,
+                "priority": provider.priority,
+                "available": False,
+                "last_check": None,
+                "last_error": None,
+                "used": False,
+                "fallback_reason": None,
+                "source_hint": None,
+            },
+        )
+        try:
+            state["available"] = provider.is_available()
+        except Exception:
+            state["available"] = False
+        state["last_check"] = datetime.now().isoformat()
+        state["used"] = bool(used or state.get("used"))
+        state["last_error"] = None if success else (error or "provider call failed")
+        if fallback_reason:
+            state["fallback_reason"] = fallback_reason
+        if source_hint:
+            state["source_hint"] = source_hint
+
     def get_fund_detail(self, code: str) -> Optional[FundDetail]:
-        """融合多个数据源的基金详情
-        策略：按优先级逐个获取，合并非空字段
-        """
+        self._reset_runtime_flags()
         available = self._get_available()
         if not available:
             return None
 
-        # 主数据源：取优先级最高的完整数据
         primary = None
-        for provider in available:
+        primary_provider = None
+        primary_idx = None
+        for idx, provider in enumerate(available):
             try:
                 detail = provider.get_fund_detail(code)
                 if detail:
                     primary = detail
+                    primary_provider = provider
+                    primary_idx = idx
+                    self._mark_provider_status(provider, success=True, used=True, source_hint="primary")
                     break
             except Exception as e:
                 console_error(f"Provider {provider.name} detail error: {e}")
+                self._mark_provider_status(provider, success=False, used=False, error=str(e), source_hint="primary")
 
         if primary is None:
+            for provider in available:
+                if self._provider_status.get(provider.name, {}).get("last_error") is None:
+                    self._mark_provider_status(
+                        provider,
+                        success=False,
+                        used=False,
+                        error="No usable detail data",
+                        source_hint="primary",
+                    )
             return None
 
-        # 补充数据源：合并其他数据源的非空字段
+        if primary_provider is not None and primary_idx is not None and primary_idx > 0:
+            self._mark_provider_status(
+                primary_provider,
+                success=True,
+                used=True,
+                fallback_reason=f"fallback_to_{primary_provider.name}",
+                source_hint="primary_fallback",
+            )
+
+        # Merge supplemental fields from non-primary providers for best-effort enrichment.
         for provider in available:
             if provider.name == primary.source:
                 continue
@@ -65,7 +141,6 @@ class DataFusion:
                 detail = provider.get_fund_detail(code)
                 if not detail:
                     continue
-                # 合并字段：其他数据源的非空字段覆盖主数据源的空字段
                 if not primary.nav and detail.nav:
                     primary.nav = detail.nav
                 if not primary.nav_date and detail.nav_date:
@@ -76,17 +151,13 @@ class DataFusion:
                     primary.name = detail.name
                 if primary.rating is None and detail.rating is not None:
                     primary.rating = detail.rating
-                # 补充净值历史
                 if not primary.nav_history and detail.nav_history:
                     primary.nav_history = detail.nav_history
-                # 补充基金经理信息
                 if not primary.manager_info and detail.manager_info:
                     primary.manager_info = detail.manager_info
-                # 补充basic信息（如份额规模）
                 if primary.basic and detail.basic:
                     if not primary.basic.fund_share and detail.basic.fund_share:
                         primary.basic.fund_share = detail.basic.fund_share
-                # Tushare 增强字段：从其他数据源补充（优先已由 Tushare 提供）
                 if not primary.dividends and detail.dividends:
                     primary.dividends = detail.dividends
                 if not primary.scale and detail.scale:
@@ -95,17 +166,15 @@ class DataFusion:
                     primary.adj_factors = detail.adj_factors
                 if not primary.company and detail.company:
                     primary.company = detail.company
+                self._mark_provider_status(provider, success=True, used=True, source_hint="enrich")
             except Exception as e:
                 console_error(f"Provider {provider.name} merge error: {e}")
+                self._mark_provider_status(provider, success=False, used=False, error=str(e), source_hint="enrich")
 
-        # 获取持仓（所有数据源中最好的）
         primary.holdings = self._merge_holdings(code, available)
-
-        # 获取净值历史（所有数据源合并）
         if not primary.nav_history:
             primary.nav_history = self._merge_nav_history(code, available)
 
-        # 补充最新净值信息
         if primary.nav_history and not primary.nav:
             latest = primary.nav_history[-1]
             primary.nav = latest.nav
@@ -114,83 +183,99 @@ class DataFusion:
         return primary
 
     def _merge_holdings(self, code: str, providers: List[DataProvider]) -> List[FundHolding]:
-        """合并多个数据源的持仓数据"""
         best_holdings = []
         for provider in providers:
             try:
                 holdings = provider.get_fund_holdings(code)
+                if holdings:
+                    self._mark_provider_status(provider, success=True, used=True, source_hint="holdings")
                 if len(holdings) > len(best_holdings):
                     best_holdings = holdings
             except Exception as e:
                 console_error(f"Provider {provider.name} holdings error: {e}")
+                self._mark_provider_status(provider, success=False, used=False, error=str(e), source_hint="holdings")
         return best_holdings
 
     def _merge_nav_history(self, code: str, providers: List[DataProvider]) -> List[FundNav]:
-        """合并多个数据源的净值历史"""
         all_navs = {}
         for provider in providers:
             try:
                 navs = provider.get_fund_nav(code)
+                if navs:
+                    self._mark_provider_status(provider, success=True, used=True, source_hint="nav_history")
                 for nav in navs:
-                    if nav.date and nav.nav:
-                        # 去重：保留最新数据源的数据
+                    if nav.date and nav.nav is not None:
                         all_navs[nav.date] = nav
             except Exception as e:
                 console_error(f"Provider {provider.name} nav error: {e}")
+                self._mark_provider_status(provider, success=False, used=False, error=str(e), source_hint="nav_history")
 
-        # 按日期排序
         sorted_dates = sorted(all_navs.keys())
         return [all_navs[d] for d in sorted_dates]
 
     def get_fund_nav(self, code: str, start_date: str = "", end_date: str = "") -> List[FundNav]:
-        """获取融合后的净值历史"""
+        self._reset_runtime_flags()
         available = self._get_available()
         return self._merge_nav_history(code, available)
 
     def get_fund_holdings(self, code: str) -> List[FundHolding]:
-        """获取融合后的持仓数据"""
+        self._reset_runtime_flags()
         available = self._get_available()
         return self._merge_holdings(code, available)
 
     def get_fund_performance(self, code: str) -> Optional[FundPerformance]:
-        """获取融合后的阶段收益数据，优先使用Tushare本地计算"""
+        self._reset_runtime_flags()
         available = self._get_available()
         for provider in available:
-            # 优先使用Tushare的本地计算能力
             if provider.name == "tushare" and hasattr(provider, "get_fund_performance"):
                 try:
                     perf = provider.get_fund_performance(code)
                     if perf:
+                        self._mark_provider_status(provider, success=True, used=True, source_hint="performance")
                         return perf
                 except Exception as e:
                     console_error(f"Tushare performance calc error: {e}")
-            # 其他数据源的performance字段
+                    self._mark_provider_status(provider, success=False, used=False, error=str(e), source_hint="performance")
             try:
                 detail = provider.get_fund_detail(code)
                 if detail and detail.performance:
+                    self._mark_provider_status(provider, success=True, used=True, source_hint="performance_fallback")
                     return detail.performance
-            except Exception:
+            except Exception as e:
+                console_error(f"Provider {provider.name} detail fallback for performance failed: {e}")
+                self._mark_provider_status(provider, success=False, used=False, error=str(e), source_hint="performance_fallback")
                 continue
         return None
 
     def get_providers_status(self) -> List[Dict[str, Any]]:
-        """获取所有数据源的状态"""
         return [
             {
                 "name": p.name,
                 "priority": p.priority,
                 "available": p.is_available(),
+                "used": bool(self._provider_status.get(p.name, {}).get("used", False)),
+                "last_check": self._provider_status.get(p.name, {}).get("last_check"),
+                "last_error": self._provider_status.get(p.name, {}).get("last_error"),
+                "fallback_reason": self._provider_status.get(p.name, {}).get("fallback_reason"),
+                "source_hint": self._provider_status.get(p.name, {}).get("source_hint"),
             }
             for p in self.providers
         ]
 
+    def get_provider_health_snapshot(self) -> Dict[str, Any]:
+        provider_status = self.get_providers_status()
+        return {
+            "updated_at": datetime.now().isoformat(),
+            "providers": provider_status,
+            "available_count": sum(1 for p in provider_status if p.get("available")),
+            "total_count": len(provider_status),
+        }
 
-# 全局融合器实例
+
 _fusion = None
 
 
 def get_fusion() -> DataFusion:
-    """获取全局数据融合器"""
     global _fusion
     if _fusion is None:
         _fusion = DataFusion()

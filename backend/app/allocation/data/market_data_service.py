@@ -9,8 +9,11 @@ from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
 from .models import MacroSnapshot, VolatilitySnapshot
+from ...data.cache_manager import cache
+from ...data.providers.fusion import get_fusion
 
 logger = logging.getLogger(__name__)
+_MARKET_DATA_REFRESH_CACHE_KEY = "market-data:refresh:snapshot"
 
 
 class MarketDataService:
@@ -110,6 +113,18 @@ class MarketDataService:
 
         # Save stats snapshots to SQLite for cross-restart persistence
         self._save_stats_to_db()
+        try:
+            cache.set(
+                _MARKET_DATA_REFRESH_CACHE_KEY,
+                {
+                    "last_refresh": self._last_refresh,
+                    "macro_available": self._macro_snapshot is not None,
+                    "rolling_stats_available": self._rolling_stats is not None,
+                    "vol_ratio": self._vol_snapshot.vol_ratio if self._vol_snapshot else None,
+                },
+            )
+        except Exception:
+            pass
 
     # ─── Public Read Methods (instant, from cache) ─────────────────────────────
 
@@ -358,6 +373,31 @@ class MarketDataService:
                 "health": health,
                 **rolling_quality,
             }
+
+    def get_market_data_health_snapshot(self) -> dict:
+        """Extended status payload for frontend and websocket consumers."""
+        status = self.get_status()
+        cache_entry = cache.get_with_ttl(_MARKET_DATA_REFRESH_CACHE_KEY, ttl=3600)
+        provider_health = []
+        stale_assets = [k for k, v in (status.get("invalid_assets", {}) or {}).items() if v]
+        try:
+            provider_health = get_fusion().get_provider_health_snapshot().get("providers", [])
+        except Exception:
+            provider_health = []
+
+        return {
+            "timestamp": datetime.now().isoformat(),
+            "service": status,
+            "providers": provider_health,
+            "cache": {
+                "snapshot_cache_key": _MARKET_DATA_REFRESH_CACHE_KEY,
+                "has_snapshot": cache_entry is not None,
+                "age_seconds": cache_entry["age_seconds"] if cache_entry else None,
+                "ttl_seconds": cache_entry["ttl_seconds"] if cache_entry else None,
+            },
+            "stale_assets": stale_assets,
+            "stream_supported": True,
+        }
 
     def _summarize_rolling_quality_locked(self) -> dict:
         quality = {}

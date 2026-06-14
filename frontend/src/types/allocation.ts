@@ -136,6 +136,50 @@ export const HORIZON_LABELS: Record<string,string> = { short:"短期(<1年)",med
 export const GROUP_COLORS: Record<string,string> = { equity:"#EE6666",fixed_income:"#5470C6",alternative:"#FAC858",cash_equiv:"#16C784" };
 export const SIGNAL_COLORS: Record<string,string> = { growth:"#EE6666",inflation:"#FAC858",interest:"#5470C6",credit_money:"#91CC75",liquidity:"#73C0DE",policy:"#9D7BFF",overseas:"#F59E0B" };
 
+export interface DataSourceProviderStatus {
+  name: string;
+  available: boolean;
+  priority: number;
+  last_check: string | null;
+  last_error: string | null;
+  used: boolean;
+  fallback_reason?: string;
+  source_hint?: string;
+}
+
+export interface DataSourceHealthSnapshot {
+  timestamp: string;
+  service: MarketDataStatus | null;
+  providers: DataSourceProviderStatus[];
+  cache: {
+    snapshot_cache_key: string;
+    has_snapshot: boolean;
+    age_seconds: number | null;
+    ttl_seconds: number | null;
+  };
+  stale_assets: string[];
+  stream_supported: boolean;
+}
+
+export interface MarketDataSourcesStatus {
+  source: string;
+  market_data_service: MarketDataStatus;
+  providers: DataSourceProviderStatus[];
+  quotas: {
+    tickflow_paid: Record<string, unknown>;
+    tickflow_free: Record<string, unknown>;
+    quota_notes?: string[];
+    supported_periods?: string[];
+    [key: string]: unknown;
+  };
+}
+
+export interface MarketDataStreamPayload {
+  type: "market_data_health";
+  timestamp: string;
+  data: DataSourceHealthSnapshot;
+}
+
 export interface MarketDataStatus {
   last_refresh: string | null;
   macro_available: boolean;
@@ -147,6 +191,14 @@ export interface MarketDataStatus {
   valid_assets?: string[];
   invalid_assets?: Record<string, string>;
   assumptions_used?: string[];
+  providers?: DataSourceProviderStatus[];
+  cache?: {
+    snapshot_cache_key?: string;
+    has_snapshot?: boolean;
+    age_seconds?: number | null;
+    ttl_seconds?: number | null;
+  };
+  stream_supported?: boolean;
 }
 
 export const REGIME_COLORS: Record<string, string> = {
