@@ -40,6 +40,36 @@ def _normalize_legacy_holdings(portfolio: Optional[Dict]) -> List[Dict]:
     return portfolio.get("stock_holdings", []) if portfolio else []
 
 
+def _pick_first_non_empty_text(*values: Any) -> Optional[str]:
+    for value in values:
+        if value is None:
+            continue
+        if not isinstance(value, str):
+            value = str(value)
+        value = value.strip()
+        if not value or value in {"--", "None"}:
+            continue
+        return value
+    return None
+
+
+def _get_fund_info_field(info: Optional[Dict[str, Any]], keys: List[str]) -> Optional[str]:
+    if not isinstance(info, dict):
+        return None
+    for key in keys:
+        value = _pick_first_non_empty_text(info.get(key))
+        if value is not None:
+            return value
+    return None
+
+
+def _to_int_or_none(value: Any) -> Optional[int]:
+    try:
+        if value is None:
+            return None
+        return int(float(value))
+    except (TypeError, ValueError):
+        return None
 
 
 def _is_bond_type(fund_type: str) -> bool:
@@ -577,6 +607,35 @@ def analyze_fund(code: str) -> Dict[str, Any]:
 
         # 用 akshare 补充基金经理详细信息（学历、任职回报、年化回报等）
         manager = _enrich_manager_from_akshare(code, manager)
+        need_fund_info = (
+            not detail.name
+            or not detail.type
+            or not (detail.basic and detail.basic.management)
+            or not (detail.basic and detail.basic.benchmark)
+            or not (detail.basic and detail.basic.found_date)
+        )
+        fund_info = get_fund_info(code) if need_fund_info else None
+        merged_name = _pick_first_non_empty_text(
+            detail.name,
+            _get_fund_info_field(fund_info, ["基金名称", "fund_name", "name", "short_name"]),
+            code,
+        )
+        merged_type = _pick_first_non_empty_text(
+            detail.type,
+            _get_fund_info_field(fund_info, ["基金类型", "投资类型", "type"]),
+        )
+        merged_management = _pick_first_non_empty_text(
+            detail.basic.management if detail.basic else None,
+            _get_fund_info_field(fund_info, ["基金管理人", "management", "基金公司", "经理公司"]),
+        )
+        merged_benchmark = _pick_first_non_empty_text(
+            detail.basic.benchmark if detail.basic else None,
+            _get_fund_info_field(fund_info, ["业绩比较基准", "benchmark", "基准"]),
+        )
+        merged_found_date = _pick_first_non_empty_text(
+            detail.basic.found_date if detail.basic else None,
+            _get_fund_info_field(fund_info, ["成立日期", "成立日", "found_date", "成立时间"]),
+        )
 
         # 计算策略信号
         score, signal, confidence, reasons = _calc_strategy_signal_fusion(detail)
@@ -679,10 +738,10 @@ def analyze_fund(code: str) -> Dict[str, Any]:
 
         return {
             "code": code,
-            "name": detail.name or code,
-            "type": detail.type,
-            "company": detail.basic.management if detail.basic and detail.basic.management else None,
-            "management": detail.basic.management if detail.basic and detail.basic.management else None,
+            "name": merged_name,
+            "type": merged_type,
+            "company": merged_management,
+            "management": merged_management,
             "nav": detail.nav,
             "nav_date": detail.nav_date,
             "day_growth": detail.day_growth,
@@ -718,17 +777,21 @@ def analyze_fund(code: str) -> Dict[str, Any]:
             "feeCustody": fee_custody,
             "sharpe_ratio": sharpe_ratio,
             "max_drawdown": max_drawdown,
-            "establishDate": detail.basic.found_date if detail.basic and detail.basic.found_date else None,
+            "establishDate": merged_found_date,
             "stars": detail.rating if detail.rating else None,
-            "benchmark": detail.basic.benchmark if detail.basic and detail.basic.benchmark else None,
+            "benchmark": merged_benchmark,
             "accum_nav": next((p.get("accum_nav") for p in reversed(nav_data or []) if p.get("accum_nav") and p["accum_nav"] > 0), None),
             "industry_history": _fetch_industry_history(code),
             "company_info": {
-                "name": detail.company.name if detail.company else None,
-                "fund_count": detail.company.fund_count if detail.company else None,
-                "manager_count": detail.company.manager_count if detail.company else None,
+                "name": detail.company.name if detail.company else merged_management,
+                "fund_count": detail.company.fund_count if detail.company else _to_int_or_none(
+                    _get_fund_info_field(fund_info, ["fund_count", "基金数量", "基金只数"])
+                ),
+                "manager_count": detail.company.manager_count if detail.company else _to_int_or_none(
+                    _get_fund_info_field(fund_info, ["manager_count", "管理人数量", "经理人数"])
+                ),
                 "total_scale": detail.company.total_scale if detail.company else None,
-            } if detail.company else None,
+            } if detail.company or fund_info else None,
         }
 
     # 融合层失败，回退到旧的数据源

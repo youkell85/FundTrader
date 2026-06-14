@@ -55,6 +55,10 @@ class DataFusion:
             state["source_hint"] = None
             state["last_error"] = None
 
+    @staticmethod
+    def _is_blank_text(value: Any) -> bool:
+        return value is None or (isinstance(value, str) and not value.strip())
+
     def _mark_provider_status(
         self,
         provider: DataProvider,
@@ -155,8 +159,32 @@ class DataFusion:
                     primary.nav_history = detail.nav_history
                 if not primary.manager_info and detail.manager_info:
                     primary.manager_info = detail.manager_info
+                elif detail.manager_info:
+                    for key, value in detail.manager_info.items():
+                        if key not in primary.manager_info or self._is_blank_text(primary.manager_info.get(key)):
+                            primary.manager_info[key] = value
+                if not primary.type and detail.type:
+                    primary.type = detail.type
+                if not primary.name and detail.name:
+                    primary.name = detail.name
+                if not primary.basic and detail.basic:
+                    primary.basic = detail.basic
                 if primary.basic and detail.basic:
-                    if not primary.basic.fund_share and detail.basic.fund_share:
+                    if not primary.basic.name and detail.basic.name:
+                        primary.basic.name = detail.basic.name
+                    if not primary.basic.management and detail.basic.management:
+                        primary.basic.management = detail.basic.management
+                    if not primary.basic.custodian and detail.basic.custodian:
+                        primary.basic.custodian = detail.basic.custodian
+                    if not primary.basic.manager and detail.basic.manager:
+                        primary.basic.manager = detail.basic.manager
+                    if not primary.basic.found_date and detail.basic.found_date:
+                        primary.basic.found_date = detail.basic.found_date
+                    if not primary.basic.benchmark and detail.basic.benchmark:
+                        primary.basic.benchmark = detail.basic.benchmark
+                    if not primary.basic.status and detail.basic.status:
+                        primary.basic.status = detail.basic.status
+                    if primary.basic.fund_share is None and detail.basic.fund_share is not None:
                         primary.basic.fund_share = detail.basic.fund_share
                 if not primary.dividends and detail.dividends:
                     primary.dividends = detail.dividends
