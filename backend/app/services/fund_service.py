@@ -1165,8 +1165,6 @@ def get_fund_purchase_info(code: str) -> dict | None:
                 "SELECT fund_type FROM fund_master WHERE code = ?",
                 (code,),
             ).fetchone()
-        if not row and not master:
-            return None
         # 费率：基金行业数据库里 0.012 / 0.002 这样的数值（已经是 1.2% / 0.2% 的小数）
         mgmt = _safe_float(row["fee_manage"]) if row else None
         cust = _safe_float(row["fee_custody"]) if row else None
