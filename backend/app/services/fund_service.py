@@ -2351,16 +2351,29 @@ def get_fund_turnover_history(code: str, periods: int = 40) -> dict:
         if report:
             activity = _parse_stock_trading_activity_from_report_text(report.get("text") or "", report.get("report_date"))
             if activity:
+                if any(row.get("turnoverRate") is not None for row in activity):
+                    for row in activity:
+                        turnover_rate = _safe_float(row.get("turnoverRate"))
+                        report_quarter = row.get("quarter") or report.get("report_date")
+                        if turnover_rate is not None and report_quarter:
+                            _persist_turnover_snapshot(
+                                code,
+                                str(report_quarter),
+                                turnover_rate=turnover_rate,
+                                source=report.get("source") or "eastmoney:periodic_report_pdf",
+                            )
+                            break
                 return _rows_response(
                     code,
                     activity,
                     status=DETAIL_STATUS_PARTIAL,
                     source=report.get("source") or "eastmoney:periodic_report_pdf",
                     as_of=report.get("report_date"),
-                    coverage=0.35,
+                    coverage=0.65,
                     missing_reason=(
-                        "定期报告披露了股票买入/卖出成交额，但缺少有股票持仓交易日日均股票市值，"
-                        "无法按信息披露口径计算股票换手率。"
+                        "定期报告披露了买入/卖出成交额，已尽量按披露口径计算换手率。"
+                        if any(row.get("turnoverRate") is not None for row in activity)
+                        else "定期报告披露了股票买入/卖出成交额，但缺少股票持仓口径市值，无法按披露口径计算。"
                     ),
                 )
     return _rows_response(
@@ -2867,6 +2880,15 @@ def _parse_stock_trading_activity_from_report_text(text: str, report_date: str |
             return None
         return _safe_number(m.group(1))
 
+    def parse_any(patterns: list[str]) -> float | None:
+        for pattern in patterns:
+            m = re.search(pattern, section)
+            if m:
+                value = _safe_number(m.group(1))
+                if value is not None and value > 0:
+                    return value
+        return None
+
     buy_match_patterns = [
         r"买入股票(?:成交)?总额\s*[:：]?\s*([\d,.\-]+(?:亿|万)?)",
         r"买入股票成本[（(]成交[）)]总额\s+([\d,.\-]+(?:亿|万)?)",
@@ -2882,25 +2904,30 @@ def _parse_stock_trading_activity_from_report_text(text: str, report_date: str |
     if buy_amount is None and sell_amount is None:
         return []
 
-    def parse_avg_stock_value() -> float | None:
-        patterns = [
-            r"加权平均股票(?:成交|持仓|市值)[^\d]{0,20}([\d,.\-]+(?:亿|万)?)",
-            r"股票持仓平均市值[^\d]{0,20}([\d,.\-]+(?:亿|万)?)",
-            r"加权平均(?:资产|证券)市值[^\d]{0,20}([\d,.\-]+(?:亿|万)?)",
-            r"股票(?:日均|平均)(?:市值|持仓)[^\s\d]{0,20}([\d,.\-]+(?:亿|万)?)",
-            r"持仓(?:股票)?(?:日均|平均)市值[^\d]{0,20}([\d,.\-]+(?:亿|万)?)",
-            r"加权平均(?:股票)?交易.*?市值[^\d]{0,30}([\d,.\-]+(?:亿|万)?)",
-            r"股票(?:日均|平均)交易[^\u8d44\u4ea7]{0,30}市值[^\d]{0,20}([\d,.\-]+(?:亿|万)?)",
-        ]
-        for pattern in patterns:
-            m = re.search(pattern, section)
-            if m:
-                value = _safe_number(m.group(1))
-                if value is not None and value > 0:
-                    return value
-        return None
+    avg_stock_value_patterns = [
+        r"加权平均股票(?:成交|持仓|市值)[^\u6570\u5b57]{0,30}([\d,.\-]+(?:亿|万)?)",
+        r"股票持仓平均市值[^\u6570\u5b57]{0,30}([\d,.\-]+(?:亿|万)?)",
+        r"加权平均(?:资产|证券|股票)(?:交易)?市值[^\u6570\u5b57]{0,30}([\d,.\-]+(?:亿|万)?)",
+        r"股票(?:日均|平均)(?:市值|持仓)[^\u6570\u5b57]{0,30}([\d,.\-]+(?:亿|万)?)",
+        r"持仓(?:股票)?(?:日均|平均)市值[^\u6570\u5b57]{0,30}([\d,.\-]+(?:亿|万)?)",
+        r"股票持仓[均总]值[^\u6570\u5b57]{0,30}([\d,.\-]+(?:亿|万)?)",
+    ]
 
-    avg_stock_value = parse_avg_stock_value()
+    end_stock_value_patterns = [
+        r"期末(?:股票|股基)持仓市值[^\u6570\u5b57]{0,30}([\d,.\-]+(?:亿|万)?)",
+        r"期末股票持仓(?:金额|价值|市值)[^\u6570\u5b57]{0,30}([\d,.\-]+(?:亿|万)?)",
+        r"期末(?:全部|股票)资产[^\u6570\u5b57]{0,30}([\d,.\-]+(?:亿|万)?)",
+    ]
+    turnover_total_patterns = [
+        r"(?:总规模|总资产|资产总额)[^\u6570\u5b57]{0,30}([\d,.\-]+(?:亿|万)?)",
+        r"(?:股票资产|股票相关|权益投资)净额[^\u6570\u5b57]{0,30}([\d,.\-]+(?:亿|万)?)",
+    ]
+
+    avg_stock_value = parse_any(avg_stock_value_patterns)
+    if avg_stock_value is None:
+        avg_stock_value = parse_any(end_stock_value_patterns)
+    if avg_stock_value is None:
+        avg_stock_value = parse_any(turnover_total_patterns)
     turnover = None
     if avg_stock_value and (buy_amount is not None or sell_amount is not None):
         try:
@@ -2966,6 +2993,33 @@ def _persist_quarterly_snapshot_field(
                 )
     except Exception as e:
         console_error(f"quarterly report field persist failed for {code}: {e}")
+
+
+def _persist_turnover_snapshot(
+    code: str,
+    report_date: str,
+    *,
+    turnover_rate: float,
+    source: str = "eastmoney:periodic_report_pdf",
+) -> None:
+    if not code or not report_date or turnover_rate is None:
+        return
+    now = datetime.now().isoformat()
+    try:
+        with get_db_context() as conn:
+            conn.execute(
+                """INSERT INTO fund_detail_quarterly_snapshot
+                   (code, report_date, turnover_rate, source, data_quality, updated_at)
+                   VALUES (?, ?, ?, ?, 'report_pdf', ?)
+                   ON CONFLICT(code, report_date) DO UPDATE SET
+                     turnover_rate = excluded.turnover_rate,
+                     source = excluded.source,
+                     data_quality = excluded.data_quality,
+                     updated_at = excluded.updated_at""",
+                (code, report_date, turnover_rate, source, now),
+            )
+    except Exception as e:
+        console_error(f"turnover snapshot persist failed for {code}: {e}")
 
 
 def _persist_fund_manager_report(code: str, report: dict[str, Any]) -> None:
