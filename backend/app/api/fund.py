@@ -272,8 +272,10 @@ async def fund_detail_completeness(code: str = Query(..., min_length=4, max_leng
             snapshot = asset_snapshot
 
     # ---- stale helpers -------------------------------------------------------
-    NAV_STALE_HOURS = 48
-    QUOTE_STALE_HOURS = 48
+    # 交易日场景下净值/净值快照通常有周末或节假日间断，避免将近期无更新误判为脏数据。
+    # 使用较宽松窗口减少误报 stale，优先保障页面“可展示”能力。
+    NAV_STALE_HOURS = 168
+    QUOTE_STALE_HOURS = 168
     METRICS_STALE_DAYS = 180
     QUARTERLY_STALE_DAYS = 180
 
@@ -293,6 +295,7 @@ async def fund_detail_completeness(code: str = Query(..., min_length=4, max_leng
 
     nav_date = snapshot.get("nav_date") if snapshot else None
     if not snapshot or not snapshot.get("nav_data") or len(snapshot.get("nav_data") or []) < 2:
+        from ..services.fund_service import _get_nav_history_for_detail
         fallback_nav_rows, fallback_nav_source, fallback_nav_as_of = await run_in_threadpool(
             _get_nav_history_for_detail,
             code,
