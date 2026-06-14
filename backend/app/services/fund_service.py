@@ -2351,18 +2351,41 @@ def get_fund_turnover_history(code: str, periods: int = 40) -> dict:
         if report:
             activity = _parse_stock_trading_activity_from_report_text(report.get("text") or "", report.get("report_date"))
             if activity:
-                if any(row.get("turnoverRate") is not None for row in activity):
-                    for row in activity:
-                        turnover_rate = _safe_float(row.get("turnoverRate"))
-                        report_quarter = row.get("quarter") or report.get("report_date")
-                        if turnover_rate is not None and report_quarter:
-                            _persist_turnover_snapshot(
-                                code,
-                                str(report_quarter),
-                                turnover_rate=turnover_rate,
-                                source=report.get("source") or "eastmoney:periodic_report_pdf",
-                            )
+                if not any(row.get("turnoverRate") is not None for row in activity):
+                    scale_rows = _safe_table_query(
+                        """SELECT total_scale, report_date
+                           FROM fund_detail_quarterly_snapshot
+                           WHERE code = ? AND total_scale IS NOT NULL
+                           ORDER BY report_date DESC
+                           LIMIT 1""",
+                        (code,),
+                    )
+                    fallback_scale = None
+                    if scale_rows:
+                        fallback_scale = _safe_float(scale_rows[0].get("total_scale"))
+                    if fallback_scale and fallback_scale > 0:
+                        fallback_turnover = None
+                        for row in activity:
+                            buy_amount = _safe_float(row.get("buyStockAmount"))
+                            sell_amount = _safe_float(row.get("sellStockAmount"))
+                            if buy_amount is None and sell_amount is None:
+                                continue
+                            numerator = (buy_amount or 0.0) + (sell_amount or 0.0)
+                            if numerator <= 0:
+                                continue
+                            row["turnoverRate"] = round((numerator / (fallback_scale * 2 * 100000000.0)) * 100, 4)
+                            row["calculationStatus"] = "estimated_from_total_scale"
+                            fallback_turnover = row["turnoverRate"]
                             break
+                        if fallback_turnover is not None:
+                            report_quarter = activity[0].get("quarter") or report.get("report_date")
+                            if report_quarter:
+                                _persist_turnover_snapshot(
+                                    code,
+                                    str(report_quarter),
+                                    turnover_rate=fallback_turnover,
+                                    source=report.get("source") or "eastmoney:periodic_report_pdf",
+                                )
                 return _rows_response(
                     code,
                     activity,
@@ -2911,16 +2934,20 @@ def _parse_stock_trading_activity_from_report_text(text: str, report_date: str |
         r"股票(?:日均|平均)(?:市值|持仓)[^\u6570\u5b57]{0,30}([\d,.\-]+(?:亿|万)?)",
         r"持仓(?:股票)?(?:日均|平均)市值[^\u6570\u5b57]{0,30}([\d,.\-]+(?:亿|万)?)",
         r"股票持仓[均总]值[^\u6570\u5b57]{0,30}([\d,.\-]+(?:亿|万)?)",
+        r"股票(?:日均|平均)持仓市值[^\u6570\u5b57]{0,30}([\d,.\-]+(?:亿|万)?)",
+        r"持仓市值(?:平均|日均)[^\u6570\u5b57]{0,30}([\d,.\-]+(?:亿|万)?)",
     ]
 
     end_stock_value_patterns = [
         r"期末(?:股票|股基)持仓市值[^\u6570\u5b57]{0,30}([\d,.\-]+(?:亿|万)?)",
         r"期末股票持仓(?:金额|价值|市值)[^\u6570\u5b57]{0,30}([\d,.\-]+(?:亿|万)?)",
         r"期末(?:全部|股票)资产[^\u6570\u5b57]{0,30}([\d,.\-]+(?:亿|万)?)",
+        r"期末持仓市值[^\u6570\u5b57]{0,30}([\d,.\-]+(?:亿|万)?)",
     ]
     turnover_total_patterns = [
         r"(?:总规模|总资产|资产总额)[^\u6570\u5b57]{0,30}([\d,.\-]+(?:亿|万)?)",
         r"(?:股票资产|股票相关|权益投资)净额[^\u6570\u5b57]{0,30}([\d,.\-]+(?:亿|万)?)",
+        r"(?:基金净资产|基金总资产|规模)[^\u6570\u5b57]{0,30}([\d,.\-]+(?:亿|万)?)",
     ]
 
     avg_stock_value = parse_any(avg_stock_value_patterns)
