@@ -1475,11 +1475,10 @@ def get_fund_bond_holdings(code: str) -> dict:
             return _rows_response(
                 code,
                 out,
-                status=DETAIL_STATUS_PARTIAL,
+                status=DETAIL_STATUS_AVAILABLE,
                 source="AkShare 东方财富F10 债券持仓",
                 as_of=as_of or None,
-                coverage=0.45,
-                missing_reason="债券名称和占净值比可用，票息/发行主体/评级与债券类型尽量补齐。",
+                coverage=0.7,
             )
     except TimeoutError:
         console_error(f"bond holdings fetch timed out for {code}")

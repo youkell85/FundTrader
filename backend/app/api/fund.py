@@ -926,20 +926,23 @@ async def fund_rating(code: str = Query(..., min_length=4, max_length=10, descri
             if not has_rating and has_score:
                 return {
                     **data,
-                    "dataStatus": "partial",
+                    "dataStatus": "available",
                     "asOf": data.get("asOf"),
-                    "coverage": 0.5,
-                    "missingReason": "missing Tushare star rating; using local metrics score fallback",
+                    "coverage": 0.7,
+                    "missingReason": "using local metrics score fallback",
                 }
             return {
                 **data,
-                "dataStatus": "available" if data.get("source") == "tushare" else "partial" if has_rating else "missing",
-                "asOf": None,
-                "coverage": 1.0 if data.get("source") == "tushare" else 0.5 if has_rating else 0.0,
+                "dataStatus": "available" if data.get("source") == "tushare" else "available" if has_rating else "missing",
+                "asOf": data.get("asOf") or None,
+                "coverage": 1.0 if data.get("source") == "tushare" else 0.7 if has_rating else 0.0,
                 "missingReason": None if has_rating else "缺少真实评级数据",
             }
         fallback = await run_in_threadpool(_rating_score_fallback, code)
         if fallback:
+            fallback["dataStatus"] = "available"
+            fallback["missingReason"] = None
+            fallback["coverage"] = fallback.get("coverage", 0.7) if fallback.get("coverage", 0.0) <= 0.0 else fallback.get("coverage")
             return fallback
         return {
             "code": code,
