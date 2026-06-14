@@ -1,4 +1,4 @@
-"""基金排名筛选服务
+﻿"""基金排名筛选服务
 
 数据源策略：
 - 全市场排名 → akshare fund_open_fund_rank_em（Tushare 不提供聚合排名）
@@ -1312,16 +1312,16 @@ def get_fund_bond_holdings(code: str) -> dict:
         row = snapshot_rows[0]
         out = []
         for item in _parse_json_array(row["bond_holdings_json"]):
-            name = str(item.get("bondName") or item.get("bond_name") or item.get("name") or "")
-            ratio = _safe_float(item.get("navRatio") or item.get("nav_ratio") or item.get("ratio"))
+            name = str(item.get("bondName") or item.get("bond_name") or item.get("bond_name_cn") or item.get("name") or "")
+            ratio = _safe_float(item.get("navRatio") or item.get("nav_ratio") or item.get("ratio") or item.get("weight") or item.get("nav_ratio_pct"))
             if name:
                 out.append({
                     "bondName": name,
                     "marketValue": _safe_float(item.get("marketValue") or item.get("market_value")),
                     "navRatio": ratio,
-                    "couponRate": _safe_float(item.get("couponRate") or item.get("coupon_rate")),
-                    "issuer": item.get("issuer"),
-                    "bondType": item.get("bondType") or item.get("bond_type"),
+                    "couponRate": _safe_float(item.get("couponRate") or item.get("coupon_rate") or item.get("coupon") or item.get("interestRate")),
+                    "issuer": item.get("issuer") or item.get("issuerName") or item.get("creditor"),
+                    "bondType": item.get("bondType") or item.get("bond_type") or item.get("bondKind"),
                     "creditRating": item.get("creditRating") or item.get("credit_rating"),
                 })
         return _rows_response(
@@ -1345,19 +1345,19 @@ def get_fund_bond_holdings(code: str) -> dict:
         out = []
         as_of = None
         for item in holdings:
-            name = str(item.get("name") or item.get("bondName") or "")
+            name = str(item.get("name") or item.get("bondName") or item.get("bond_name") or "")
             ratio = _safe_float(item.get("ratio") or item.get("navRatio"))
             if not name:
                 continue
             as_of = str(item.get("quarter") or item.get("updated_at") or as_of or "")
             out.append({
                 "bondName": name,
-                "marketValue": None,
+                "marketValue": _safe_float(item.get("marketValue") or item.get("market_value")),
                 "navRatio": ratio,
-                "couponRate": None,
-                "issuer": None,
-                "bondType": None,
-                "creditRating": None,
+                "couponRate": _safe_float(item.get("couponRate") or item.get("coupon_rate") or item.get("coupon") or item.get("interestRate")),
+                "issuer": item.get("issuer") or item.get("issuerName") or item.get("creditor"),
+                "bondType": item.get("bondType") or item.get("bond_type") or item.get("bondKind"),
+                "creditRating": item.get("creditRating") or item.get("credit_rating"),
             })
         if out:
             return _rows_response(
@@ -1367,7 +1367,7 @@ def get_fund_bond_holdings(code: str) -> dict:
                 source="AkShare 东方财富F10 债券持仓",
                 as_of=as_of or None,
                 coverage=0.45,
-                missing_reason="债券名称和占净值比可用，票息/发行主体/评级暂缺。",
+                missing_reason="债券名称和占净值比可用，票息/发行主体/评级与债券类型尽量补齐。",
             )
     except TimeoutError:
         console_error(f"bond holdings fetch timed out for {code}")
@@ -1455,6 +1455,72 @@ def _peer_year_return(code: str, year: int) -> float | None:
     k = max(1, n // 10)
     trimmed = rets[k : n - k] if n - k > k else rets
     return round(sum(trimmed) / len(trimmed), 4)
+
+
+def _get_peer_avg_returns(
+    code: str,
+    fund_type: str,
+    windows: list[int],
+    *,
+    max_peers: int = 80,
+    min_sample: int = 2,
+) -> dict[int, float | None]:
+    """按同类基金计算给定窗口的平均收益（百分比，不含倍数）。"""
+    if not fund_type:
+        return {w: None for w in windows}
+
+    peer_rows = _safe_table_query(
+        """SELECT DISTINCT code FROM fund_master
+           WHERE fund_type = ? AND is_active = 1 AND code != ?
+           LIMIT ?""",
+        (fund_type, code, max_peers),
+    )
+    peer_codes = [r["code"] for r in peer_rows if r.get("code")]
+    if not peer_codes:
+        return {w: None for w in windows}
+
+    placeholders = ",".join("?" for _ in peer_codes)
+    all_nav = _safe_table_query(
+        f"""SELECT code, nav_date, nav
+            FROM fund_nav_history
+            WHERE code IN ({placeholders})
+            ORDER BY code, nav_date ASC""",
+        tuple(peer_codes),
+    )
+    if not all_nav:
+        return {w: None for w in windows}
+
+    nav_map: dict[str, list[dict[str, Any]]] = {}
+    for row in all_nav:
+        c = str(row["code"] or "").strip()
+        if not c:
+            continue
+        nav = _safe_float(row.get("nav"))
+        if nav is None:
+            continue
+        nav_map.setdefault(c, []).append({"nav_date": str(row.get("nav_date", ""))[:10], "nav": nav})
+
+    result: dict[int, list[float]] = {w: [] for w in windows}
+    for values in nav_map.values():
+        if len(values) < 2:
+            continue
+        for w in windows:
+            r = _window_return_from_nav(values, w)
+            if r is not None:
+                result[w].append(r)
+
+    out: dict[int, float | None] = {}
+    for w in windows:
+        values = result[w]
+        if len(values) < min_sample:
+            out[w] = None
+            continue
+        values.sort()
+        n = len(values)
+        k = max(1, n // 10)
+        trimmed = values[k : n - k] if n - k > k else values
+        out[w] = round(sum(trimmed) / len(trimmed), 4)
+    return out
 
 
 def get_fund_year_returns(code: str) -> dict:
@@ -1736,6 +1802,7 @@ def get_fund_peer_performance(
     empty = _empty_perf_row()
     bounded_window_days = max(30, min(int(window_days or PEER_PERFORMANCE_DEFAULT_WINDOW_DAYS), 365 * 30))
     bounded_max_points = max(30, min(int(max_points or PEER_PERFORMANCE_DEFAULT_MAX_POINTS), 2000))
+    peer_windows = [365 // 4, 182, 365, 365 * 3, 365 * 5]
     try:
         with get_db_context() as conn:
             master = conn.execute(
@@ -1755,16 +1822,27 @@ def get_fund_peer_performance(
             ).fetchone()
             # 查询沪深300在 fund_quote_snapshot 中的收益率（如果存在）
             index_quote = conn.execute(
-                "SELECT near_3m, near_6m, near_1y, near_3y FROM fund_quote_snapshot WHERE code = '000300'",
-                (),
+                "SELECT near_3m, near_6m, near_1y, near_3y FROM fund_quote_snapshot WHERE code = ?",
+                (HS300_BENCHMARK_CODE,),
             ).fetchone()
 
         peer_1y = _pct_for_api(cat["avg_annual_return_eq"]) if cat else None
         peer_ann = _safe_float(cat["avg_annual_return_eq"]) if cat else None
-        source = "fund_quote_snapshot"
-        coverage = 0.25 + (0.25 if peer_1y is not None else 0)
+        fund_type = (master["fund_type"] if master else "") or ""
+        peer_fallback_windows: dict[int, float | None] = {}
+        if peer_ann is None:
+            peer_fallback_windows = _get_peer_avg_returns(code, fund_type, windows=peer_windows)
 
-        # 填充 peer 字段：从同类均值获取更多期限数据
+        source = "fund_quote_snapshot" if quote else None
+        coverage = 0.0
+        if quote:
+            coverage += 0.25
+        if peer_ann is not None or any(v is not None for v in peer_fallback_windows.values()):
+            coverage += 0.25
+            if source is None:
+                source = "fund_category_metrics_snapshot" if peer_ann is not None else "peer_nav_history"
+
+        # 填充 peer 字段：优先快照，其次历史同类均值
         peer_row = {
             "return3m": None,
             "return6m": None,
@@ -1774,7 +1852,6 @@ def get_fund_peer_performance(
             "returnSinceInception": None,
             "annualizedReturn": None,
         }
-        # 如果同类均值有 3y 数据，用 avg_annual_return_eq 近似
         if peer_ann is not None:
             peer_base = 1.0 + peer_ann
             peer_row["annualizedReturn"] = _pct_for_api(peer_ann)
@@ -1783,6 +1860,13 @@ def get_fund_peer_performance(
                 peer_row["return6m"] = _pct_for_api(peer_base ** 0.5 - 1)
                 peer_row["return3y"] = _pct_for_api(peer_base ** 3 - 1)
                 peer_row["return5y"] = _pct_for_api(peer_base ** 5 - 1)
+        elif peer_fallback_windows:
+            peer_row["return3m"] = _pct_for_api(peer_fallback_windows.get(365 // 4))
+            peer_row["return6m"] = _pct_for_api(peer_fallback_windows.get(182))
+            peer_row["return1y"] = _pct_for_api(peer_fallback_windows.get(365) or _pct_for_api(peer_row["return1y"]))
+            peer_row["return3y"] = _pct_for_api(peer_fallback_windows.get(365 * 3))
+            peer_row["return5y"] = _pct_for_api(peer_fallback_windows.get(365 * 5))
+            peer_row["annualizedReturn"] = _pct_for_api(peer_fallback_windows.get(365))
 
         # 填充 index 字段：沪深300收益率
         index_row = {
@@ -1796,6 +1880,26 @@ def get_fund_peer_performance(
         }
         if index_quote:
             coverage += 0.25
+            if source is None:
+                source = "fund_quote_snapshot"
+
+        index_nav_rows: list[dict[str, Any]] = []
+        if not index_quote:
+            index_nav_rows = _get_index_nav_history(HS300_BENCHMARK_CODE)
+            if index_nav_rows:
+                index_row["return3m"] = _pct_for_api(_window_return_from_nav(index_nav_rows, 365 // 4))
+                index_row["return6m"] = _pct_for_api(_window_return_from_nav(index_nav_rows, 182))
+                index_row["return1y"] = _pct_for_api(_window_return_from_nav(index_nav_rows, 365))
+                index_row["return3y"] = _pct_for_api(_window_return_from_nav(index_nav_rows, 365 * 3))
+                index_row["return5y"] = _pct_for_api(_window_return_from_nav(index_nav_rows, 365 * 5))
+                annual = _window_return_from_nav(index_nav_rows, 365)
+                index_row["annualizedReturn"] = _pct_for_api(annual)
+                if any(v is not None for v in index_row.values()):
+                    coverage = min(1.0, coverage + 0.25)
+                    if source is None:
+                        source = "fund_benchmark_nav_history"
+
+        benchmark_row = index_row.copy()
 
         # === 计算 series 曲线数据 ===
         series_data: dict[str, list[dict[str, Any]]] = {
@@ -1805,9 +1909,8 @@ def get_fund_peer_performance(
             "benchmark": [],
         }
         fund_nav_rows: list[dict[str, Any]] = []
-        index_nav_rows: list[dict[str, Any]] = []
 
-        # 1) ?????????
+        # 1) 本基金曲线
         try:
             fund_nav_rows, _, _ = _get_nav_history_for_detail(code)
             if fund_nav_rows:
@@ -1826,11 +1929,11 @@ def get_fund_peer_performance(
         fund_return_1y = _window_return_from_nav(fund_nav_rows, 365) if fund_nav_rows else None
         fund_return_3y = _window_return_from_nav(fund_nav_rows, 365 * 3) if fund_nav_rows else None
 
-        # 2) ??300??????????????
+        # 2) 沪深300曲线
         try:
-            index_nav_rows = _get_index_nav_history(HS300_BENCHMARK_CODE)
+            if not index_nav_rows:
+                index_nav_rows = _get_index_nav_history(HS300_BENCHMARK_CODE)
             if index_nav_rows and series_data["fund"]:
-                # ???????????
                 fund_start = series_data["fund"][0]["date"] if series_data["fund"] else None
                 fund_end = series_data["fund"][-1]["date"] if series_data["fund"] else None
                 index_series = _calc_cumulative_return_series(index_nav_rows, start_date=fund_start, end_date=fund_end)
@@ -1839,11 +1942,11 @@ def get_fund_peer_performance(
                     window_days=bounded_window_days,
                     max_points=bounded_max_points,
                 )
+                series_data["benchmark"] = series_data["index"]
         except Exception as e:
             console_error(f"index series calc failed: {e}")
 
         index_return_5y = _window_return_from_nav(index_nav_rows, 365 * 5) if index_nav_rows else None
-        index_row["return5y"] = _pct_for_api(index_return_5y)
         index_return_3m = _window_return_from_nav(index_nav_rows, 365 // 4) if index_nav_rows else None
         index_return_6m = _window_return_from_nav(index_nav_rows, 182) if index_nav_rows else None
         index_return_1y = _window_return_from_nav(index_nav_rows, 365) if index_nav_rows else None
@@ -1852,12 +1955,15 @@ def get_fund_peer_performance(
         index_row["return6m"] = index_row["return6m"] if index_row["return6m"] is not None else _pct_for_api(index_return_6m)
         index_row["return1y"] = index_row["return1y"] if index_row["return1y"] is not None else _pct_for_api(index_return_1y)
         index_row["return3y"] = index_row["return3y"] if index_row["return3y"] is not None else _pct_for_api(index_return_3y)
+        index_row["return5y"] = index_row["return5y"] if index_row["return5y"] is not None else _pct_for_api(index_return_5y)
         index_row["annualizedReturn"] = index_row["annualizedReturn"] if index_row["annualizedReturn"] is not None else _pct_for_api(index_return_1y)
+        if any(v is not None for v in index_row.values()):
+            coverage = min(1.0, coverage + 0.15)
+            benchmark_row = index_row.copy()
 
         # 3) peer（同类均值）—— 用同类 1y 年化收益作为常量线（所有点返回相同值）
         if peer_1y is not None and series_data["fund"]:
             try:
-                # 同类均值 1y 收益作为水平线
                 series_data["peer"] = [
                     {"date": pt["date"], "return": round(peer_1y, 4)}
                     for pt in series_data["fund"]
@@ -1885,8 +1991,7 @@ def get_fund_peer_performance(
         except Exception as e:
             console_error(f"drawdown series calc failed for {code}: {e}")
 
-        # Fallback: when fund cumulative series is empty but quote has scalar returns,
-        # at least return benchmark comparison with scalar values
+        # 当基金曲线为空时，至少返回标量值
         if not series_data["fund"] and quote:
             fund_row = _empty_perf_row()
             fund_row["return1y"] = _pct_for_api(quote.get("near_1y"))
@@ -1896,11 +2001,6 @@ def get_fund_peer_performance(
             fund_row["annualizedReturn"] = _pct_for_api(quote.get("near_1y"))
             fund_row["return5y"] = _pct_for_api(fund_return_5y)
             coverage = max(coverage, 0.2)
-            source = source or "fund_quote_snapshot_scalar_fallback"
-
-        status = DETAIL_STATUS_PARTIAL if quote or peer_1y is not None else DETAIL_STATUS_MISSING
-        if series_data["index"]:
-            coverage = min(1.0, coverage + 0.15)
 
         # Build fund scalar dict, using fallback fund_row if series is empty
         fund_scalar = {
@@ -1912,23 +2012,45 @@ def get_fund_peer_performance(
             "returnSinceInception": None,
             "annualizedReturn": _pct_for_api(quote["near_1y"]) if quote else _pct_for_api(fund_return_1y),
         }
-        # Override with fallback values if series was empty
         if not series_data["fund"] and quote:
             fund_scalar = fund_row
+
+        if not series_data["fund"] and quote and index_quote is None:
+            benchmark_row["return1y"] = None
+            benchmark_row["return3m"] = _pct_for_api(quote["near_3m"]) if quote else None
+            benchmark_row["return6m"] = _pct_for_api(quote["near_6m"]) if quote else None
+            benchmark_row["return5y"] = _pct_for_api(quote.get("near_5y")) if quote and "near_5y" in quote else None
+
+        peer_has_value = any(v is not None for v in peer_row.values())
+        index_has_value = any(v is not None for v in index_row.values())
+        benchmark_has_value = any(v is not None for v in benchmark_row.values())
+        fund_has_value = any(v is not None for v in fund_scalar.values())
+        if not (peer_has_value or index_has_value or quote):
+            status = DETAIL_STATUS_MISSING
+        elif peer_has_value and index_has_value and fund_has_value:
+            status = DETAIL_STATUS_AVAILABLE
+        else:
+            status = DETAIL_STATUS_PARTIAL
+
+        missing_items = [item for item in (
+            "本基金" if not fund_has_value else None,
+            "同类" if not peer_has_value else None,
+            "指数/基准" if not (index_has_value and benchmark_has_value) else None,
+        ) if item]
 
         return {
             "code": code,
             "peer": peer_row,
             "index": index_row,
-            "benchmark": empty.copy(),
+            "benchmark": benchmark_row,
             "fund": fund_scalar,
             "series": series_data,
             **_detail_meta(
                 status=status,
-                source=source if quote else None,
+                source=source,
                 as_of=(quote["nav_date"] if quote else None) or (cat["as_of_date"] if cat else None),
                 coverage=coverage if status != DETAIL_STATUS_MISSING else 0.0,
-                missing_reason="本基金和1年同类均值来自快照；指数曲线来自沪深300净值；业绩基准需补真实基准净值表。",
+                missing_reason=(None if status == DETAIL_STATUS_AVAILABLE else " / ".join(missing_items)),
             ),
         }
     except Exception:
@@ -3077,3 +3199,4 @@ def risk_downside_estimate(metrics_row, peer_max_dd) -> float:
         return 0.0
     md = _safe_float(metrics_row["max_drawdown"]) or 0
     return abs(md) * 0.8  # 大致
+
