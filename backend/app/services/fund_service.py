@@ -598,7 +598,7 @@ def compute_category_metrics_1y(
     return FundDataStore.get_latest_category_metrics(window_days=window_days)
 
 
-def _safe_float(value: Any, default: float = 0.0) -> float:
+def _safe_float(value: Any, default: float | None = None) -> float | None:
     """Return a JSON-safe finite float."""
     try:
         num = float(value)
@@ -1760,6 +1760,7 @@ def get_fund_peer_performance(
             ).fetchone()
 
         peer_1y = _pct_for_api(cat["avg_annual_return_eq"]) if cat else None
+        peer_ann = _safe_float(cat["avg_annual_return_eq"]) if cat else None
         source = "fund_quote_snapshot"
         coverage = 0.25 + (0.25 if peer_1y is not None else 0)
 
@@ -1774,8 +1775,14 @@ def get_fund_peer_performance(
             "annualizedReturn": None,
         }
         # 如果同类均值有 3y 数据，用 avg_annual_return_eq 近似
-        if cat and cat["avg_annual_return_eq"] is not None:
-            peer_row["annualizedReturn"] = _pct_for_api(cat["avg_annual_return_eq"])
+        if peer_ann is not None:
+            peer_base = 1.0 + peer_ann
+            peer_row["annualizedReturn"] = _pct_for_api(peer_ann)
+            if peer_base > 0:
+                peer_row["return3m"] = _pct_for_api(peer_base ** 0.25 - 1)
+                peer_row["return6m"] = _pct_for_api(peer_base ** 0.5 - 1)
+                peer_row["return3y"] = _pct_for_api(peer_base ** 3 - 1)
+                peer_row["return5y"] = _pct_for_api(peer_base ** 5 - 1)
 
         # 填充 index 字段：沪深300收益率
         index_row = {
@@ -1797,8 +1804,10 @@ def get_fund_peer_performance(
             "index": [],
             "benchmark": [],
         }
+        fund_nav_rows: list[dict[str, Any]] = []
+        index_nav_rows: list[dict[str, Any]] = []
 
-        # 1) 本基金累计收益序列
+        # 1) ?????????
         try:
             fund_nav_rows, _, _ = _get_nav_history_for_detail(code)
             if fund_nav_rows:
@@ -1811,11 +1820,17 @@ def get_fund_peer_performance(
         except Exception as e:
             console_error(f"fund series calc failed for {code}: {e}")
 
-        # 2) 沪深300累计收益序列（与本基金同期）
+        fund_return_5y = _window_return_from_nav(fund_nav_rows, 365 * 5) if fund_nav_rows else None
+        fund_return_3m = _window_return_from_nav(fund_nav_rows, 365 // 4) if fund_nav_rows else None
+        fund_return_6m = _window_return_from_nav(fund_nav_rows, 182) if fund_nav_rows else None
+        fund_return_1y = _window_return_from_nav(fund_nav_rows, 365) if fund_nav_rows else None
+        fund_return_3y = _window_return_from_nav(fund_nav_rows, 365 * 3) if fund_nav_rows else None
+
+        # 2) ??300??????????????
         try:
             index_nav_rows = _get_index_nav_history(HS300_BENCHMARK_CODE)
             if index_nav_rows and series_data["fund"]:
-                # 截取与本基金同期的区间
+                # ???????????
                 fund_start = series_data["fund"][0]["date"] if series_data["fund"] else None
                 fund_end = series_data["fund"][-1]["date"] if series_data["fund"] else None
                 index_series = _calc_cumulative_return_series(index_nav_rows, start_date=fund_start, end_date=fund_end)
@@ -1826,6 +1841,18 @@ def get_fund_peer_performance(
                 )
         except Exception as e:
             console_error(f"index series calc failed: {e}")
+
+        index_return_5y = _window_return_from_nav(index_nav_rows, 365 * 5) if index_nav_rows else None
+        index_row["return5y"] = _pct_for_api(index_return_5y)
+        index_return_3m = _window_return_from_nav(index_nav_rows, 365 // 4) if index_nav_rows else None
+        index_return_6m = _window_return_from_nav(index_nav_rows, 182) if index_nav_rows else None
+        index_return_1y = _window_return_from_nav(index_nav_rows, 365) if index_nav_rows else None
+        index_return_3y = _window_return_from_nav(index_nav_rows, 365 * 3) if index_nav_rows else None
+        index_row["return3m"] = index_row["return3m"] if index_row["return3m"] is not None else _pct_for_api(index_return_3m)
+        index_row["return6m"] = index_row["return6m"] if index_row["return6m"] is not None else _pct_for_api(index_return_6m)
+        index_row["return1y"] = index_row["return1y"] if index_row["return1y"] is not None else _pct_for_api(index_return_1y)
+        index_row["return3y"] = index_row["return3y"] if index_row["return3y"] is not None else _pct_for_api(index_return_3y)
+        index_row["annualizedReturn"] = index_row["annualizedReturn"] if index_row["annualizedReturn"] is not None else _pct_for_api(index_return_1y)
 
         # 3) peer（同类均值）—— 用同类 1y 年化收益作为常量线（所有点返回相同值）
         if peer_1y is not None and series_data["fund"]:
@@ -1865,6 +1892,9 @@ def get_fund_peer_performance(
             fund_row["return1y"] = _pct_for_api(quote.get("near_1y"))
             fund_row["return3m"] = _pct_for_api(quote.get("near_3m"))
             fund_row["return6m"] = _pct_for_api(quote.get("near_6m"))
+            fund_row["return3y"] = _pct_for_api(quote.get("near_3y"))
+            fund_row["annualizedReturn"] = _pct_for_api(quote.get("near_1y"))
+            fund_row["return5y"] = _pct_for_api(fund_return_5y)
             coverage = max(coverage, 0.2)
             source = source or "fund_quote_snapshot_scalar_fallback"
 
@@ -1874,13 +1904,13 @@ def get_fund_peer_performance(
 
         # Build fund scalar dict, using fallback fund_row if series is empty
         fund_scalar = {
-            "return3m": _pct_for_api(quote["near_3m"]) if quote else None,
-            "return6m": _pct_for_api(quote["near_6m"]) if quote else None,
-            "return1y": _pct_for_api(quote["near_1y"]) if quote else None,
-            "return3y": _pct_for_api(quote["near_3y"]) if quote else None,
-            "return5y": None,
+            "return3m": _pct_for_api(quote["near_3m"]) if quote else _pct_for_api(fund_return_3m),
+            "return6m": _pct_for_api(quote["near_6m"]) if quote else _pct_for_api(fund_return_6m),
+            "return1y": _pct_for_api(quote["near_1y"]) if quote else _pct_for_api(fund_return_1y),
+            "return3y": _pct_for_api(quote["near_3y"]) if quote else _pct_for_api(fund_return_3y),
+            "return5y": _pct_for_api(fund_return_5y),
             "returnSinceInception": None,
-            "annualizedReturn": None,
+            "annualizedReturn": _pct_for_api(quote["near_1y"]) if quote else _pct_for_api(fund_return_1y),
         }
         # Override with fallback values if series was empty
         if not series_data["fund"] and quote:
@@ -2739,15 +2769,6 @@ def _to_ts_code(code: str) -> str:
 def _safe_int(v) -> int | None:
     try:
         return int(v) if v not in (None, "") else None
-    except Exception:
-        return None
-
-
-def _safe_float(v) -> float | None:
-    try:
-        if v in (None, "", "—", "--"):
-            return None
-        return float(v)
     except Exception:
         return None
 
