@@ -1,4 +1,4 @@
-# FundTrader 金融数据源与密钥指南
+﻿# FundTrader 金融数据源与密钥指南
 
 > 面向智能体（Agent）的权威参考。当你在构建、修改、扩展金融项目时，依据本文档选取合适的数据源。
 > 更新日期: 2026-05-30 | 数据源可用: 9/9
@@ -12,7 +12,7 @@
 | 数据源 | 环境变量 | 密钥类型 | 获取方式 | 当前状态 |
 |--------|----------|----------|----------|----------|
 | iFinD MCP | `IFIND_TOKEN` | Bearer Token (JWE) | 同花顺iFinD MCP申请 | ✅ 已配置 |
-| Tushare Pro | `TUSHARE_TOKEN` | API Token | tushare.pro注册(当前6120积分) | ✅ 已配置 |
+| Tushare Pro | `TUSHARE_TOKEN` | API Token | tushare.pro注册(当前6000积分) | ✅ 已配置 |
 | TickFlow | `TICKFLOW_API_KEY` | API Key | tickflow.org注册(月度99元付费权限) | ✅ 已配置 |
 | 腾讯财经 | 无需 | - | - | ✅ 无需认证 |
 | AkShare | 无需 | - | - | ✅ 无需认证 |
@@ -93,7 +93,7 @@
 | 基金评级 | Tushare（从detail中） | fund_rating接口 | Provider |
 | 风险指标 | iFinD `get_risk_indicators` | 唯一来源(volatility/sharpe/max_drawdown等) | Provider |
 | 定投回测 | efinance `calculate_dca_backtest` | 唯一来源，支持固定/均线偏离/对比策略 | Fetcher |
-| 复权因子 | Tushare `get_fund_adj` | 唯一来源；当前6120积分可调，覆盖完整性以接口返回为准 | Provider |
+| 复权因子 | Tushare `get_fund_adj` | 唯一来源；当前6000积分可调，覆盖完整性以接口返回为准 | Provider |
 
 ### ETF数据
 
@@ -205,618 +205,283 @@ esg = p.get_esg_data("600519")             # ESG评级(唯一来源)
 
 ---
 
+
 ### 2. Tushare Pro — 结构化金融数据（优先级4）
-
-**定位**: 结构化付费数据源，接口丰富（50+个），是交易日历/指数日线/复权因子/基金份额/财务数据的唯一来源。
-
-**认证**: API Token，`backend/.env` 的 `TUSHARE_TOKEN`，备选 `~/.tushare_token`
-
-**调用方式**: `tushare` Python SDK，`ts.pro_api(token)` 初始化
-
-**代码格式**: `600519.SH`(上交所)、`000001.SZ`(深交所)、`920001.BJ`(北交所)、`000001.OF`(场外基金)、`510300.SH`(ETF)
-
-**日期格式**: YYYYMMDD（如 `20260519`）
-
-**频次限制**: 500次/分钟，代码内置0.15秒间隔
-
-**积分与权限对应表（当前6120积分，处于5000+档，未达8000/10000/15000档）**:
-
-| 积分数 | 每分钟频次 | 每天总量上限 | 可访问接口 |
-|--------|----------|------------|-----------|
-| 120 | 50 | 8000次 | 股票非复权日线行情 |
-| 2000+ | 200 | 100000次/个API | 常规数据（按各接口文档积分要求） |
-| 5000+ | 500 | 常规数据无上限 | 当前账号所在档；常规数据高频可用 |
-| 10000+ | 500 | 常规数据无上限，特色数据300次/分钟 | 特色数据（盈利预测、筹码分布等） |
-| 15000+ | 500 | 特色数据无总量限制 | 特色数据专属权限 |
-
-**当前账号积分构成**: 6000积分为2026-05-10购买获取，2027-05-10到期；另有完善个人信息20积分、新用户注册100积分，总计6120积分。当前可按5000+档调用常规接口，但10000+特色数据、15000+专属权限以及分钟/港美股/公告/新闻等独立权限仍需额外开通。
-
-**独立权限接口（需额外付费）**:
-
-| 类型 | 包含数据 | 历史起始 | 捐助（元/年） |
-|------|---------|---------|-------------|
-| 股票历史分钟 | 1/5/15/30/60分钟 | 2009年 | 2000 |
-| 股票实时分钟 | 1/5/15/30/60分钟 | 实时 | 1000/月 |
-| 股票实时日线 | 当日实时日线成交 | 每天9:30开始 | 200/月 |
-| 港股日线 | 日线+复权行情 | 全历史 | 1000 |
-| 美股日线 | 日线+复权+估值指标 | 全历史 | 2000 |
-| 新闻资讯 | 快讯/长篇新闻/新闻联播 | 3年以上 | 1000 |
-| 公告信息 | 股票/基金/固收公告 | 10年以上 | 1000 |
-
-**核心接口分类**:
-
-#### A. 基础数据接口
-
-| 接口方法 | Tushare API | 功能 | 积分要求 | 参数示例 |
-|----------|-------------|------|----------|----------|
-| `get_fund_list(market)` | `pro.fund_basic` | 基金列表 | 2000+ | market="O"(场外)/"E"(场内) |
-| `get_stock_basic()` | `pro.stock_basic` | 股票基础信息 | 2000+ | exchange='SSE', list_status='L' |
-| `get_stock_company()` | `pro.stock_company` | 上市公司基本信息 | 120+ | exchange='SZSE' |
-| `get_trade_cal(exchange, start, end)` | `pro.trade_cal` | 交易日历 | 2000+ | exchange="SSE" |
-| `get_namechange(ts_code)` | `pro.namechange` | 股票曾用名 | 120+ | ts_code='600848.SH' |
-| `get_new_share(start, end)` | `pro.new_share` | IPO新股列表 | 120+ | start_date='20240101' |
-
-**fund_basic 详细字段**:
-- `ts_code`: 基金代码(如512850.SH)
-- `name`: 简称
-- `management`: 管理人(如"中信建投基金")
-- `custodian`: 托管人(如"招商银行")
-- `fund_type`: 投资类型(股票型/混合型/债券型/货币型/指数型/QDII等)
-- `found_date`: 成立日期
-- `due_date`: 到期日期
-- `list_date`: 上市时间
-- `issue_amount`: 发行份额(亿)
-- `m_fee`: 管理费
-- `c_fee`: 托管费
-- `duration_year`: 存续期
-- `purc_startdate`: 日常申购起始日
-- `redm_startdate`: 日常赎回起始日
-- `status`: 存续状态(D摘牌/I发行/L上市中)
-- `market`: E场内 O场外
-
-**stock_basic 详细字段**:
-- `ts_code`: TS代码(格式:000001.SZ)
-- `symbol`: 股票代码(6位数字)
-- `name`: 股票名称
-- `area`: 地域
-- `industry`: 所属行业
-- `market`: 市场类型(主板/创业板/科创板/CDR/北交所)
-- `list_date`: 上市日期
-- `delist_date`: 退市日期
-- `is_hs`: 是否沪深港通标的(N否/H沪股通/S深股通)
-- `act_name`: 实控人名称
-- `act_ent_type`: 实控人企业性质
-
-**trade_cal 交易所代码**:
-- SSE: 上海证券交易所
-- SZSE: 深圳证券交易所
-- CFFEX: 中金所
-- SHFE: 上期所
-- CZCE: 郑商所
-- DCE: 大商所
-- INE: 上能源
-
-**namechange 输出字段**:
-- `ts_code`: TS代码
-- `name`: 历史名称
-- `start_date`: 开始日期
-- `end_date`: 结束日期
-- `change_reason`: 变更原因(如"改名"/"撤销ST"/"ST")
-
-**new_share 输出字段**:
-- `ts_code`: TS股票代码
-- `sub_code`: 申购代码
-- `name`: 名称
-- `ipo_date`: 上网发行日期
-- `issue_date`: 上市日期
-- `amount`: 发行总量(万股)
-- `price`: 发行价格
-- `pe`: 市盈率
-- `limit_amount`: 个人申购上限(万股)
-- `ballot`: 中签率
-
-#### B. 行情数据接口
-
-| 接口方法 | Tushare API | 功能 | 积分要求 | 参数示例 |
-|----------|-------------|------|----------|----------|
-| `get_daily(ts_code, start, end)` | `pro.daily` | A股日线行情 | 5000+ | ts_code='000001.SZ' |
-| `get_daily_basic(ts_code, trade_date)` | `pro.daily_basic` | 股票每日指标(PE/PB/市值) | 2000+ | trade_date='20260519' |
-| `get_adj_factor(ts_code, trade_date)` | `pro.adj_factor` | 复权因子 | 2000+ | ts_code='000001.SZ' |
-| `get_moneyflow(ts_code, start, end)` | `pro.moneyflow` | 个股资金流向 | 2000+ | ts_code='002149.SZ' |
-| `get_index_daily(ts_code, start, end)` | `pro.index_daily` | 指数日线 | 2000+ | ts_code='000300.SH' |
-| `get_index_basic(market)` | `pro.index_basic` | 指数基础信息 | 120+ | market='SW' |
-| `get_sw_daily(ts_code, trade_date)` | `pro.sw_daily` | 申万行业指数日行情 | 5000+ | ts_code='801010.SI' |
-| `get_etf_daily(ts_code, start, end)` | `pro.fund_daily` | ETF日线行情 | 5000+ | ts_code='510330.SH' |
-| `get_pro_bar(ts_code, asset, adj, freq)` | `ts.pro_bar()` | 通用行情接口(复权/分钟) | 见说明 | asset='E', adj='qfq' |
-| `get_fut_daily(ts_code, exchange)` | `pro.fut_daily` | 期货日线行情 | 2000+ | ts_code='CU2507.SHF' |
-| `get_opt_daily(ts_code, trade_date)` | `pro.opt_daily` | 期权日线行情 | 2000+ | ts_code='10001313.SH' |
-
-**sw_daily 申万行业指数日行情字段**:
-- `ts_code`: 指数代码(如801010.SI农林牧渔)
-- `name`: 指数名称
-- `open/high/low/close`: 开盘/最高/最低/收盘点位
-- `change/pct_change`: 涨跌点/涨跌幅
-- `vol/amount`: 成交量(万股)/成交额(万元)
-- `pe/pb`: 市盈率/市净率
-- `float_mv/total_mv`: 流通市值/总市值(万元)
-- 默认返回申万2021版行业分类
-
-**fut_daily 期货日线行情字段**:
-- `pre_close/pre_settle`: 昨收盘/昨结算价
-- `open/high/low/close/settle`: 开/高/低/收/结算价
-- `change1`: 收盘价-昨结算价(涨跌1)
-- `change2`: 结算价-昨结算价(涨跌2)
-- `vol/amount/oi/oi_chg`: 成交量/成交额/持仓量/持仓量变化
-- `delv_settle`: 交割结算价
-
-**opt_daily 期权日线行情字段**:
-- `pre_settle/pre_close`: 昨结算/前收盘价
-- `open/high/low/close/settle`: 开/高/低/收/结算价
-- `vol/amount/oi`: 成交量/成交额/持仓量
-
-**daily 日线行情字段**:
-- `ts_code`: 股票代码
-- `trade_date`: 交易日期(YYYYMMDD)
-- `open`: 开盘价
-- `high`: 最高价
-- `low`: 最低价
-- `close`: 收盘价
-- `pre_close`: 昨收价【除权价】
-- `change`: 涨跌额
-- `pct_chg`: 涨跌幅(%)(基于除权后的昨收计算)
-- `vol`: 成交量(手)
-- `amount`: 成交额(千元)
-
-**daily_basic 每日指标字段**:
-- `turnover_rate`: 换手率(%)
-- `turnover_rate_f`: 换手率(自由流通股)
-- `volume_ratio`: 量比
-- `pe`: 市盈率(总市值/净利润)
-- `pe_ttm`: 市盈率(TTM)
-- `pb`: 市净率(总市值/净资产)
-- `ps`: 市销率
-- `ps_ttm`: 市销率(TTM)
-- `dv_ratio`: 股息率(%)
-- `dv_ttm`: 股息率(TTM)(%)
-- `total_share`: 总股本(万股)
-- `float_share`: 流通股本(万股)
-- `free_share`: 自由流通股本(万)
-- `total_mv`: 总市值(万元)
-- `circ_mv`: 流通市值(万元)
-
-**adj_factor 复权因子**:
-- 盘前9:15~20分完成当日复权因子入库
-- 复权因子用于计算复权价格: 前复权价格 = 当前价格 × 复权因子
-
-**moneyflow 个股资金流向字段**:
-- `buy_sm_vol/buy_sm_amount`: 小单买入量/金额(5万以下)
-- `buy_md_vol/buy_md_amount`: 中单买入量/金额(5万～20万)
-- `buy_lg_vol/buy_lg_amount`: 大单买入量/金额(20万～100万)
-- `buy_elg_vol/buy_elg_amount`: 特大单买入量/金额(100万以上)
-- `net_mf_vol/net_mf_amount`: 净流入量/额(万元)
-
-**index_basic 指数基础信息**:
-- 市场分类: SSE(上交所指数)/SZSE(深交所指数)/CSI(中证指数)/SW(申万指数)/CICC(中金指数)
-- 指数类别: 主题指数/规模指数/策略指数/风格指数/综合指数/成长指数/价值指数/行业指数/债券指数/商品指数等
-
-**index_daily 指数日线字段**:
-- 与daily类似，含close/open/high/low/pre_close/change/pct_chg/vol/amount
-
-**fund_daily ETF日线字段**:
-- 与日线行情一致，含open/high/low/close/pre_close/change/pct_chg/vol/amount
-
-#### C. 财务数据接口
-
-| 接口方法 | Tushare API | 功能 | 积分要求 | 参数示例 |
-|----------|-------------|------|----------|----------|
-| `get_income(ts_code, start, end)` | `pro.income` | 利润表 | 2000+ | ts_code='600000.SH' |
-| `get_balancesheet(ts_code, start, end)` | `pro.balancesheet` | 资产负债表 | 2000+ | ts_code='600000.SH' |
-| `get_cashflow(ts_code, start, end)` | `pro.cashflow` | 现金流量表 | 2000+ | ts_code='600000.SH' |
-| `get_fina_indicator(ts_code)` | `pro.fina_indicator` | 财务指标数据 | 2000+ | ts_code='600000.SH' |
-| `get_fina_audit(ts_code, start, end)` | `pro.fina_audit` | 财务审计意见 | 2000+ | ts_code='600000.SH' |
-| `get_fina_mainbz(ts_code, type)` | `pro.fina_mainbz` | 主营业务构成 | 2000+ | type='P'(按产品)/'D'(按地区) |
-| `get_dividend(ts_code)` | `pro.dividend` | 分红送股 | 2000+ | ts_code='600848.SH' |
-| `get_forecast(ts_code)` | `pro.forecast` | 业绩预告 | 2000+ | ts_code='600000.SH' |
-| `get_express(ts_code)` | `pro.express` | 业绩快报 | 2000+ | ts_code='600000.SH' |
-
-**income 利润表主要字段**:
-- `basic_eps/diluted_eps`: 基本/稀释每股收益
-- `total_revenue/revenue`: 营业总收入/营业收入
-- `operate_profit`: 营业利润
-- `total_profit`: 利润总额
-- `n_income`: 净利润(含少数股东损益)
-- `n_income_attr_p`: 净利润(不含少数股东损益)
-- `int_income`: 利息收入
-- `comm_income`: 手续费及佣金收入
-- `invest_income`: 投资净收益
-- `total_cogs`: 营业总成本
-- `oper_cost`: 营业成本
-- `sell_exp/admin_exp/fin_exp`: 销售/管理/财务费用
-- `rd_exp`: 研发费用
-- `ebit/ebitda`: 息税前利润/息税折旧摊销前利润
-
-**balancesheet 资产负债表主要字段**:
-- 资产类: `cash_cap`(货币资金)/`trad_asset`(交易性金融资产)/`accounts_receiv`(应收账款)/`inventories`(存货)/`fix_assets`(固定资产)/`intan_assets`(无形资产)/`goodwill`(商誉)
-- 负债类: `st_borr`(短期借款)/`lt_borr`(长期借款)/`bond_payable`(应付债券)/`accounts_payable`(应付账款)
-- 权益类: `cap_rese`(资本公积金)/`surplus_rese`(盈余公积金)/`undistr_porfit`(未分配利润)
-
-**cashflow 现金流量表主要字段**:
-- `net_profit`: 净利润
-- `n_cashflow_act`: 经营活动产生的现金流量净额
-- `n_cashflow_inv_act`: 投资活动产生的现金流量净额
-- `n_cash_flows_fnc_act`: 筹资活动产生的现金流量净额
-- `free_cashflow`: 企业自由现金流量
-
-**fina_indicator 财务指标(150+字段)**:
-- 每股指标: `eps`/`bps`(每股净资产)/`ocfps`(每股经营活动现金流)/`cfps`(每股现金流)
-- 盈利能力: `roe`(净资产收益率)/`roa`(总资产报酬率)/`grossprofit_margin`(毛利率)/`netprofit_margin`(净利率)
-- 偿债能力: `current_ratio`(流动比率)/`quick_ratio`(速动比率)/`debt_to_assets`(资产负债率)
-- 运营能力: `inv_turn`(存货周转率)/`ar_turn`(应收账款周转率)/`assets_turn`(总资产周转率)
-- 成长能力: `netprofit_yoy`(净利润同比)/`eps_yoy`(每股收益同比)/`roe_yoy`(净资产收益率同比)
-
-**dividend 分红送股字段**:
-- `stk_div`: 每股送转
-- `stk_bo_rate`: 每股送股比例
-- `stk_co_rate`: 每股转增比例
-- `cash_div`: 每股分红税后
-- `cash_div_tax`: 每股分红税前
-- `record_date`: 股权登记日
-- `ex_date`: 除权除息日
-- `pay_date`: 派息日
-- `div_proc`: 实施进度(预案/实施)
-
-**forecast 业绩预告字段**:
-- `type`: 预告类型(预增/预减/扭亏/首亏/续亏/续盈/略增/略减)
-- `p_change_min/max`: 预告净利润变动幅度下限/上限(%)
-- `net_profit_min/max`: 预告净利润下限/上限(万元)
-- `change_reason`: 业绩变动原因
-
-**fina_audit 财务审计意见字段**:
-- `audit_result`: 审计结果(标准无保留意见/保留意见/无法表示意见/否定意见)
-- `audit_fees`: 审计总费用(元)
-- `audit_agency`: 会计事务所
-- `audit_sign`: 签字会计师
-
-**fina_mainbz 主营业务构成**:
-- type='P': 按产品分类(bz_item为产品名称)
-- type='D': 按地区分类(bz_item为地区名称)
-- type='I': 按行业分类
-- 字段: bz_sales(主营收入)/bz_profit(主营利润)/bz_cost(主营成本)
-
-#### D. 基金数据接口
-
-| 接口方法 | Tushare API | 功能 | 积分要求 | 参数示例 |
-|----------|-------------|------|----------|----------|
-| `get_fund_nav(code, start, end)` | `pro.fund_nav` | 基金净值历史 | 2000+ | "000001", start_date="20250101" |
-| `get_fund_holdings(code)` | `pro.fund_portfolio` | 基金持仓 | 2000+ | "000001" |
-| `get_fund_manager(code)` | `pro.fund_manager` | 基金经理 | 2000+ | "000001" |
-| `get_fund_dividend(code)` | `pro.fund_div` | 分红记录 | 400+ | "000001" |
-| `get_fund_scale(code)` | `pro.fund_share`+`pro.fund_nav` | 基金规模 | 2000+ | "000001" |
-| `get_etf_basic(code)` | `pro.etf_basic` | ETF基本信息 | 2000+ | "510300" |
-| `get_fund_adj(code)` | `pro.fund_adj` | 复权因子 | 600+（5000+更完整） | "000001" |
-| `get_fund_company(code)` | `pro.fund_company` | 基金公司 | 2000+ | "000001" |
-
-**fund_nav 基金净值历史字段**:
-- `ts_code`: 基金代码
-- `nav_date`: 净值日期
-- `unit_nav`: 单位净值
-- `accum_nav`: 累计净值
-- `div_dt`: 分红日期(如有)
-- `div_unit`: 每份分红金额
-
-**fund_portfolio 基金持仓字段**:
-- `ts_code`: 基金代码
-- `ann_date`: 公告日期
-- `end_date`: 报告期
-- `stock_code`: 股票代码
-- `stock_name`: 股票名称
-- `hold_vol`: 持仓股数(万股)
-- `hold_ratio`: 持仓占比(%)
-- `mkt_cap`: 市值(万元)
-
-**fund_manager 基金经理字段**:
-- `ts_code`: 基金代码
-- `name`: 基金经理姓名
-- `gender`: 性别(M/F)
-- `birth_year`: 出生年份
-- `edu`: 学历
-- `start_date`: 任职日期
-- `end_date`: 离任日期(如无则空)
-- `reward`: 任职回报(%)
-
-**fund_div 分红记录字段**:
-- `ts_code`: 基金代码
-- `div_date`: 分红日期
-- `record_date`: 权益登记日
-- `pay_date`: 派息日
-- `div_yield`: 每份分红(元)
-- `process`: 分红进度(分红除息/红利再投)
-
-**etf_basic ETF基本信息字段**:
-- `ts_code`: 基金代码
-- `name`: ETF名称
-- `management`: 基金管理人
-- `custodian`: 基金托管人
-- `found_date`: 成立日期
-- `list_date`: 上市日期
-- `issue_date`: 发行日期
-- `track_index`: 跟踪指数
-- `fund_type`: ETF类型(股票型/债券型/货币型/商品型)
-- `fee`: 管理费率(%)
-- `track_nm`: 跟踪指数名称
-- `underlying`: 标的资产类型
-- `market`: 上市市场(SSE/SZSE)
-
-#### E. 特色数据接口（10000+积分）
-
-| 接口方法 | Tushare API | 功能 | 积分要求 | 参数示例 |
-|----------|-------------|------|----------|----------|
-| `get_stk_forecast(ts_code)` | `pro.stk_forecast` | 券商盈利预测 | 10000+ | ts_code='600000.SH' |
-| `get_stk_chip(ts_code)` | `pro.stk_chip` | 每日筹码成本和胜率 | 10000+ | ts_code='600000.SH' |
-| `get_stk_chip_dist(ts_code)` | `pro.stk_chip_dist` | 每日筹码分布 | 10000+ | ts_code='600000.SH' |
-| `get_broker_gold_stock()` | `pro.broker_gold_stock` | 券商金股数据 | 2000+ | - |
-
-**report_rc 卖方盈利预测字段**:
-- `ts_code/name`: 股票代码/名称
-- `report_date/title/type/classify`: 研报日期/标题/类型/分类
-- `org_name/author_name`: 机构名称/作者
-- `quarter`: 预测报告期(如2024Q4)
-- `op_rt/op_pr/tp/np`: 预测营业收入/营业利润/利润总额/净利润
-- `eps/pe/rd/roe`: 预测每股收益/市盈率/股息率/净资产收益率
-- `rating`: 卖方评级
-- `max_price/min_price`: 预测最高/最低目标价
-
-**cyq_perf 每日筹码成本和胜率字段**:
-- `his_low/his_high`: 历史最低/最高价
-- `cost_5pct/cost_15pct/cost_50pct/cost_85pct/cost_95pct`: 各分位成本
-- `weight_avg`: 加权平均成本
-- `winner_rate`: 胜率(持有1天后获利的概率)
-
-**cyq_chips 每日筹码分布字段**:
-- `price`: 成本价格
-- `percent`: 价格占比(%)
-
-**broker_recommend 券商金股字段**:
-- `month`: 月度(YYYYMM格式)
-- `broker`: 券商名称
-- `ts_code/name`: 股票代码/名称
-
-#### F. 港股/美股数据接口（需单独开权限）
-
-| 接口方法 | Tushare API | 功能 | 权限要求 | 参数示例 |
-|----------|-------------|------|----------|----------|
-| `get_hk_daily(ts_code, start, end)` | `pro.hk_daily` | 港股日线 | 单独权限 | ts_code='00001.HK' |
-| `get_hk_daily_adj(ts_code, start, end)` | `pro.hk_daily_adj` | 港股复权行情 | 单独权限 | ts_code='00001.HK' |
-| `get_hk_mins(ts_code, freq)` | `pro.hk_mins` | 港股分钟行情 | 单独权限 | freq='1min' |
-| `get_hk_income(ts_code, period)` | `pro.hk_income` | 港股利润表 | 单独权限 | period='20241231' |
-| `get_us_daily(ts_code, start, end)` | `pro.us_daily` | 美股日线 | 单独权限 | ts_code='AAPL' |
-| `get_us_daily_adj(ts_code, start, end)` | `pro.us_daily_adj` | 美股复权行情 | 单独权限 | ts_code='AAPL' |
-| `get_us_income(ts_code, period)` | `pro.us_income` | 美股利润表 | 15000积分/单独权限 | period='20241231' |
-
-**hk_daily 港股日线字段**:
-- 与A股日线类似，含open/high/low/close/pre_close/change/pct_chg/vol/amount
-- 每日18点左右更新当日数据
-
-**hk_daily_adj 港股复权行情额外字段**:
-- `adj_factor`: 复权因子
-- `turnover_ratio`: 换手率(基于总股本)
-- `free_share/total_share`: 流通/总股本
-- `free_mv/total_mv`: 流通/总市值
-
-**hk_mins 港股分钟行情字段**:
-- `trade_time`: 交易时间(格式: YYYY-MM-DD HH:MM:SS)
-- `open/close/high/low`: 开盘/收盘/最高/最低价
-- `vol/amount`: 成交量/成交金额
-- 支持频度: 1min/5min/15min/30min/60min
-
-**hk_income 港股利润表**:
-- `ind_name`: 财务科目名称(营业额/毛利/经营溢利/净利润等)
-- `ind_value`: 财务科目值
-
-**us_daily 美股日线字段**:
-- `vwap`: 平均价
-- `turnover_ratio`: 换手率
-- `total_mv/pe/pb`: 总市值/PE/PB
-
-**us_daily_adj 美股复权行情额外字段**:
-- 与港股类似，含adj_factor/turnover_ratio/free_share/total_share/free_mv/total_mv
-
-**us_income 美股利润表**:
-- `ind_type`: 报告期类型(Q1一季报/Q2半年报/Q3三季报/Q4年报)
-- `ind_name`: 财务科目名称(营业收入/毛利/营业成本/研发费用等)
-- `report_type`: 报告类型(单季报/累计报)
-
-#### G. 新闻资讯接口（需单独开权限）
-
-| 接口方法 | Tushare API | 功能 | 权限要求 | 参数示例 |
-|----------|-------------|------|----------|----------|
-| `get_news(src, start, end)` | `pro.news` | 新闻快讯 | 单独权限 | src='sina' |
-| `get_major_news(src, start, end)` | `pro.major_news` | 长篇新闻通讯 | 单独权限 | src='新浪财经' |
-| `get_cctv_news(date)` | `pro.cctv_news` | 新闻联播文字稿 | 单独权限 | date='20250101' |
-
-**news 新闻快讯字段**:
-- `datetime`: 新闻时间(格式: YYYY-MM-DD HH:MM:SS)
-- `content`: 内容
-- `title`: 标题
-- `channels`: 分类
-
-**支持的新闻来源**:
-- sina: 新浪财经
-- wallstreetcn: 华尔街见闻
-- 10jqka: 同花顺
-- eastmoney: 东方财富
-- yuncaijing: 云财经
-- fenghuang: 凤凰新闻
-- jinrongjie: 金融界
-- cls: 财联社
-- yicai: 第一财经
-
-**major_news 长篇新闻字段**:
-- `pub_time`: 发布时间
-- `content`: 内容(需在fields中指定)
-
-**cctv_news 新闻联播字段**:
-- `date`: 日期(YYYYMMDD格式)
-- `title`: 标题
-- `content`: 内容(已分段，每段含小标题)
-
-**通用行情接口 pro_bar 详解**:
-
-`ts.pro_bar()` 是Tushare的集成行情接口，支持股票/指数/基金/期货/期权/数字货币：
-
-| 参数 | 说明 | 示例 |
-|------|------|------|
-| `ts_code` | 证券代码 | '000001.SZ' |
-| `asset` | 资产类别: E股票 I指数 C数字货币 FT期货 FD基金 O期权 CB可转债 | 'E' |
-| `adj` | 复权类型: None/qfq前复权/hfq后复权 | 'qfq' |
-| `freq` | 频度: 1min/5min/15min/30min/60min/D/W/M | 'D' |
-| `ma` | 均线列表 | [5, 20, 50] |
-| `factors` | 股票因子: ['tor', 'vr'] | ['tor'] |
-| `start_date`/`end_date` | 日期范围 | '20240101' |
-
+**更新日期**: 2026-06-14（基于公开文档）
+
+**定位**: 用于基金/市场的结构化接口，覆盖基金基础、基金净值与分红、组合/管理人、财务与指数日线等，当前用于 Tushare 融合支路。
+
+**鉴权与安装**
+- 安装：`pip install tushare`
+- 推荐在 `backend/.env` 配置 `TUSHARE_TOKEN`
+- 初始化方式（SDK）：
+  - `ts.set_token(os.getenv('TUSHARE_TOKEN', ''))` -> `ts.pro_api()`
+  - `ts.pro_api('your-token')`
+  - 若未传 token，`pro_api()` 会按持久化方式读取 `~/.tushare_token`
+- 当前已知 `tushare` PyPI 版本：`1.4.29`（2026-03-25）
+
+**调用流程（按本仓库现状）**
+1. 先取 `pro = ts.pro_api()`
+2. 通过 `pro.<api_name>(...)` 拉取字段
+3. 对关键查询加 `fields` 精简返回列
+4. 时间范围统一使用 `YYYYMMDD` 字符串
+
+**关键接口对照**
+- `pro.fund_basic(market='O'|'E', status='L', fields=...)`（分页：`limit + offset`）
+- `pro.fund_nav(ts_code='000001.OF', start_date='20250101', end_date='20260614', fields='trade_date,unit_nav,accum_nav,adj_nav')`
+- `pro.fund_share(ts_code='000001.OF', fields='trade_date,fd_share')`
+- `pro.fund_adj(ts_code='000001.OF', fields='trade_date,adj_factor')`
+- `pro.fund_div(ts_code='000001.OF', fields='ex_date,div_cash,pay_date,record_date,ann_date,imp_anndate,base_date')`
+- `pro.fund_portfolio(ts_code='000001.OF')`
+- `pro.fund_manager(ts_code='000001.OF')`
+- `pro.fund_rating(ts_code='000001.OF')`
+- `pro.trade_cal(exchange='SSE', start_date='20260601', end_date='20260614', fields='exchange,cal_date,is_open,pretrade_date')`
+- `pro.index_daily(ts_code='000001.SH', ...)`
+- `pro.fund_daily(ts_code='000001.OF', ...)`
+- `ts.pro_bar(ts_code='600519.SH', asset='E', adj='qfq', freq='D', factors=['tor','vr'])`
+
+**pro_bar 使用边界（当前代码可对齐）**
+- `asset` 常用值：`E`（股票ETF）, `I`（指数）, `FD`（基金）, `O`（期权）, `FT`（期货）, `C`（数字货币）
+- `freq` 常见：`1/5/15/30/60`、`W/M/Q/Y`
+- `adj` 常见：`None`、`qfq`、`hfq`
+- `retry_count` 建议保留默认（3）
+
+**错误处理建议**
+- 先校验 token 有效性和参数 `ts_code/date/freq`；
+- `pro_bar`/`fund_*` 返回空表要进行回退而不是中断主链路；
+- 分页建议 `limit` 结合接口容量分批（本项目 `get_fund_list` 实现以 `limit=15000` 调用，建议保守不再提升）。
+
+**示例**
 ```python
-# 前复权日线
-df = ts.pro_bar(ts_code='000001.SZ', adj='qfq', start_date='20240101', end_date='20260519')
+import os
+import tushare as ts
 
-# 上证指数
-df = ts.pro_bar(ts_code='000001.SH', asset='I', start_date='20240101', end_date='20260519')
+os.environ.setdefault('TUSHARE_TOKEN', os.getenv('TUSHARE_TOKEN', ''))
+ts.set_token(os.getenv('TUSHARE_TOKEN', ''))
+pro = ts.pro_api()
 
-# 带均线
-df = ts.pro_bar(ts_code='000001.SZ', start_date='20240101', end_date='20260519', ma=[5, 20, 50])
+fund_basic_df = pro.fund_basic(
+    market='O',
+    status='L',
+    fields='ts_code,name,fund_type,management,status,found_date,benchmark',
+    limit=2000,
+)
 
-# 换手率+量比
-df = ts.pro_bar(ts_code='000001.SZ', start_date='20240101', end_date='20260519', factors=['tor', 'vr'])
+nav_df = pro.fund_nav(
+    ts_code='000001.OF',
+    start_date='20250101',
+    end_date='20260614',
+    fields='trade_date,unit_nav,accum_nav,adj_nav',
+)
+
+bar_df = ts.pro_bar(
+    ts_code='000001.OF',
+    start_date='20250101',
+    end_date='20260614',
+    asset='FD',
+    adj='qfq',
+    freq='D',
+)
+
+cal_df = pro.trade_cal(
+    exchange='SSE',
+    start_date='20260601',
+    end_date='20260614',
+    fields='exchange,cal_date,is_open,pretrade_date',
+)
 ```
+#### 2.4 实践建议（避免踩坑）
 
-**Tushare MCP Server（新增）**:
+1. 统一 `ts_code` 归一化：基金优先 `.OF`，再按场内场外兜底。
+2. 列字段拉取：优先显式 `fields`，避免空拉全量字段。
+3. 分页拉取：`limit` + `offset` 取全量，减少单次包体和限流冲击。
+4. 接口报错时，优先打印 `code/msg` 与请求参数后续排查。
+5. 融合层遵循“单接口降级不中断”：Tushare 子项失败不应导致整条详情链路失败。
 
-通过SSE/StreamableHTTP连接服务：
-```json
-{
-    "mcpServers": {
-        "tushareMcp": {
-            "url": "https://api.tushare.pro/mcp/?token=${TUSHARE_TOKEN}"
-        }
-    }
-}
-```
-
-**Python调用**:
-```python
-from backend.app.data.providers.tushare_provider import TushareProvider
-p = TushareProvider()
-
-# 基础数据
-funds = p.get_fund_list(market="O")                                    # 全市场基金
-stocks = p.get_stock_basic(exchange='SSE', list_status='L')            # 上交所股票列表
-cal = p.get_trade_cal(exchange="SSE", start_date="20260101")           # 交易日历(唯一)
-
-# 行情数据
-idx = p.get_index_daily("000300.SH", start_date="20250101")            # 指数日线(唯一)
-daily = p.get_daily("000001.SZ", start_date="20250101")                # A股日线
-basic = p.get_daily_basic("600519.SH", trade_date="20260519")          # 每日指标(PE/PB)
-adj = p.get_adj_factor("000001.SZ")                                    # 复权因子
-
-# 财务数据
-income = p.get_income("600000.SH", start_date="20240101")              # 利润表
-bs = p.get_balancesheet("600000.SH", start_date="20240101")          # 资产负债表
-cf = p.get_cashflow("600000.SH", start_date="20240101")              # 现金流量表
-fina = p.get_fina_indicator("600000.SH")                               # 财务指标
-
-# 通用行情接口（支持复权/分钟）
-df = ts.pro_bar(ts_code='000001.SZ', adj='qfq', start_date='20240101', end_date='20260519')
-```
-
-**独有数据**: 交易日历、指数日线、复权因子、基金份额(fund_share)、财务三表、财务指标、本地阶段收益计算
-
-**性能**: 单次0.5-2秒，有0.15秒频控间隔
-
-**Tushare官方API调用示例**:
+#### 2.5 快速验证模板（官方语义 + 项目字段）
 
 ```python
 import os
 import tushare as ts
-ts.set_token(os.getenv("TUSHARE_TOKEN"))
+
+os.environ.setdefault('TUSHARE_TOKEN', os.getenv('TUSHARE_TOKEN', ''))
+ts.set_token(os.getenv('TUSHARE_TOKEN', ''))
 pro = ts.pro_api()
 
-# 基础数据
-pro.fund_basic(market='E')                                    # 公募基金列表
-pro.stock_basic(exchange='', list_status='L')                 # 股票基础信息
-pro.stock_company(exchange='SZSE')                             # 上市公司信息
-pro.trade_cal(exchange='SSE', start_date='20260101', end_date='20261231')  # 交易日历
-pro.namechange(ts_code='600848.SH')                           # 股票曾用名
-pro.new_share(start_date='20250101', end_date='20250630')      # IPO新股列表
+fund_basic_df = pro.fund_basic(
+    market='O',
+    status='L',
+    fields='ts_code,name,fund_type,management,status,found_date,benchmark',
+    limit=2000,
+)
 
-# 行情数据
-pro.daily(ts_code='000001.SZ', start_date='20250101', end_date='20250630')  # 日线行情
-pro.daily_basic(ts_code='', trade_date='20260519')             # 每日指标
-pro.adj_factor(ts_code='000001.SZ', trade_date='20260519')    # 复权因子
-pro.moneyflow(trade_date='20260519')                           # 个股资金流向
-pro.index_daily(ts_code='000300.SH')                          # 指数日线
-pro.index_basic(market='SW')                                   # 指数基本信息
-pro.fund_daily(ts_code='510330.SH', start_date='20250101')   # ETF日线
-ts.pro_bar(ts_code='000001.SZ', adj='qfq', freq='D')         # 通用行情(复权)
-ts.pro_bar(ts_code='000001.SZ', freq='60')                    # 分钟行情
+nav_df = pro.fund_nav(
+    ts_code='000001.OF',
+    start_date='20250101',
+    end_date='20260614',
+    fields='trade_date,unit_nav,accum_nav,adj_nav',
+)
 
-# 财务数据
-pro.income(ts_code='600000.SH', period='20241231')            # 利润表
-pro.balancesheet(ts_code='600000.SH', period='20241231')     # 资产负债表
-pro.cashflow(ts_code='600000.SH', period='20241231')         # 现金流量表
-pro.fina_indicator(ts_code='600000.SH', period='20241231')   # 财务指标
-pro.fina_audit(ts_code='600000.SH')                          # 财务审计意见
-pro.fina_mainbz(ts_code='600000.SH', type='P')               # 主营业务(按产品)
-pro.dividend(ts_code='600000.SH')                            # 分红送股
-pro.forecast(ts_code='600000.SH')                            # 业绩预告
-pro.express(ts_code='600000.SH')                             # 业绩快报
+cal_df = pro.trade_cal(
+    exchange='SSE',
+    start_date='20260601',
+    end_date='20260614',
+    fields='exchange,cal_date,is_open,pretrade_date',
+)
 
-# 基金数据
-pro.fund_nav(ts_code='000001.OF')                           # 基金净值
-pro.fund_portfolio(ts_code='000001.OF')                     # 基金持仓
-pro.fund_manager(ts_code='000001.OF')                       # 基金经理
-pro.fund_div(ts_code='000001.OF')                           # 分红记录
-pro.etf_basic()                                             # ETF基本信息
-
-# 特色数据
-pro.report_rc(trade_date='20260519')                        # 券商盈利预测
-pro.cyq_perf(ts_code='600000.SH')                           # 每日筹码成本
-pro.cyq_chips(ts_code='600000.SH')                         # 每日筹码分布
-pro.broker_recommend(month='202605')                       # 券商金股
-
-# 港股/美股
-pro.hk_daily(ts_code='00700.HK', start_date='20250101')     # 港股日线
-pro.hk_daily_adj(ts_code='00700.HK')                       # 港股复权行情
-pro.hk_mins(ts_code='00700.HK', freq='5min')               # 港股分钟
-pro.hk_income(ts_code='00700.HK', period='20241231')       # 港股利润表
-pro.us_daily(ts_code='AAPL', start_date='20250101')         # 美股日线
-pro.us_daily_adj(ts_code='AAPL')                           # 美股复权行情
-pro.us_income(ts_code='NVDA', period='20241231')           # 美股利润表
-
-# 新闻资讯
-pro.news(src='sina', start_date='2026-05-30 09:00:00', end_date='2026-05-30 10:00:00')  # 快讯
-pro.major_news(src='新浪财经')                             # 长篇新闻
-pro.cctv_news(date='20260529')                             # 新闻联播
+assert cal_df is not None and cal_df.shape[0] >= 0
 ```
 
-**踩坑记录**:
-- `fund_scale` 接口不存在，代码使用 `fund_share` 获取份额数据
-- `etf_daily` 接口不存在，代码使用 `fund_daily` 获取ETF日线
-- `fund_adj` 官方600+可调，当前6120积分已满足；若返回空，多半是标的/日期无数据或接口覆盖限制
-- 日增长率(day_growth)由本地计算（前后日净值比较），非API直接返回
-- `get_fund_detail` 内部串行调用多个接口（basic+nav+holdings+manager+share+rating+dividends+scale+adj+company），耗时较长
-- `pro_bar` 通用行情接口目前只支持日线复权，分钟数据需单独开权限
-- 财务数据接口(income/balancesheet/cashflow)每次最多返回100条记录，需循环获取
-- 港股/美股/新闻资讯等接口需单独开权限，与积分无关
-- `moneyflow` 按小单(5万以下)/中单(5-20万)/大单(20-100万)/特大单(100万以上)分类统计净流入
-- `fina_indicator` 含150+字段，每股指标/盈利能力/偿债能力/运营能力/成长能力全覆盖
-- `dividend` 字段有 `div_proc`(实施进度)区分预案和实施
-- `forecast` 业绩预告的 `type` 包含:预增/预减/扭亏/首亏/续亏/续盈/略增/略减
-- `sw_daily` 申万行业指数日行情是独立接口，不含在index_daily中
-- 复权因子在盘前9:15~20分入库，复权价格计算: 前复权价格 = 当前价格 × 复权因子
-- `fina_mainbz` 支持按产品(P)/按地区(D)/按行业(I)三种分类方式
-- 港股/美股利润表(hk_income/us_income)返回格式是科目-值形式(ind_name/ind_value)
-- 美股利润表区分报告期类型(Q1/Q2/Q3/Q4)和报告类型(单季报/累计报)
+#### 2.6 参考链接（官方）
+
+- 接口总览与参数示例：`https://www.tushare.pro/document/2?doc_id=109`
+- 基金净值/份额/持仓/复权/分红：`https://www.tushare.pro/document/2?doc_id=119`、`.../document/2?doc_id=121`、`.../document/2?doc_id=207`
+- 交易日历与返回字段：`https://www.tushare.pro/document/2?doc_id=40`、`https://www.tushare.pro/document/2?doc_id=27`
+
+#### 2.7 排障与验收规范（建议照抄）
+
+- 错误优先级：接口失败先看 `code` 再看 `msg`，避免先读空字段。
+  - `code=0`: 成功
+  - 非 0: 常见 `msg` 包含 `token is invalid`（Token 无效）或 `no sufficient`（积分/权限不足）或参数错误。
+- 日期统一口径：`trade_date`、`ann_date`、`record_date`、`end_date`、`pretrade_date` 统一按 `YYYYMMDD` 存储和比较。
+- 分页防护：所有列表类接口（如 `fund_basic`）优先 `limit+offset`，每次取数后 `assert 返回条数 <= limit`。
+- 字段兼容：下游模型消费前先 `rename`/`assign` 缺省字段（如 `ts_code`、`trade_date`、`name`、`is_open`），并记录 `fallbacks`。
+
+#### 2.8 简化自检脚本（建议本地快速跑）
+
+```python
+import os
+import tushare as ts
+import pandas as pd
+
+
+def _need_series_df(resp, label, required_cols):
+    if resp is None:
+        raise RuntimeError(f"{label}: response is None")
+    if isinstance(resp, (list, tuple)):
+        raise RuntimeError(f"{label}: expect DataFrame-like, got list/tuple")
+    if isinstance(resp, pd.DataFrame):
+        df = resp
+    else:
+        # 兼容部分返回结构（极少数情况下）
+        if not isinstance(resp, dict):
+            raise RuntimeError(f"{label}: unsupported response type {type(resp)}")
+        if int(resp.get("code", 0)) != 0:
+            raise RuntimeError(f"{label}: tushare api failed - {resp.get('code')} {resp.get('msg')}")
+        data = resp.get("data") or {}
+        fields = data.get("fields") or []
+        items = data.get("items") or []
+        df = pd.DataFrame(items, columns=fields)
+    missing = [c for c in required_cols if c not in df.columns]
+    if missing:
+        raise RuntimeError(f"{label}: missing fields {missing}")
+    if df.empty:
+        raise RuntimeError(f"{label}: empty data")
+    return df
+
+
+def run_tushare_smoke():
+    token = os.getenv("TUSHARE_TOKEN") or os.getenv("TUSHARE_TOKEN_FILE") or ""
+    if not token:
+        raise RuntimeError("missing TUSHARE_TOKEN")
+    ts.set_token(token)
+    pro = ts.pro_api()
+
+    basic = _need_series_df(
+        pro.fund_basic(
+            market="O",
+            status="L",
+            fields="ts_code,name,fund_type,management,status,found_date,benchmark",
+            limit=10,
+        ),
+        "fund_basic",
+        required_cols=["ts_code", "name"],
+    )
+
+    nav = _need_series_df(
+        pro.fund_nav(
+            ts_code="000001.OF",
+            start_date="20260101",
+            end_date="20260614",
+            fields="trade_date,unit_nav,accum_nav,adj_nav",
+        ),
+        "fund_nav",
+        required_cols=["trade_date", "unit_nav", "accum_nav"],
+    )
+    cal = _need_series_df(
+        pro.trade_cal(
+            exchange="SSE",
+            start_date="20260601",
+            end_date="20260614",
+            fields="exchange,cal_date,is_open,pretrade_date",
+        ),
+        "trade_cal",
+        required_cols=["cal_date", "is_open"],
+    )
+
+    for df, name in ((basic, "fund_basic"), (nav, "fund_nav"), (cal, "trade_cal")):
+        print(name, "rows", len(df), "first", df.iloc[0].to_dict())
+
+
+if __name__ == "__main__":
+    run_tushare_smoke()
+```
 
 ---
+
+## TickFlow（99元/月）最新接入说明（按你当前权限）
+
+- 当前 `tickflow` 已核对官方中文文档（`https://docs.tickflow.org/zh-Hans`）后，建议按以下方式接入：
+- **免费服务**：可走 `https://free-api.tickflow.org`，仅支持 `1d/1w/1M/1Q/1Y` 日线、标的信息、标的池；不含实时行情与分钟线。
+- **99元/月正式版**（推荐）：持有 `TICKFLOW_API_KEY` 后走正式服务，可用实时行情、分钟线（`1m/5m/15m/30m/60m`）、标的池、财务数据等。
+- **额度速率（已对齐你给的套餐条目）**：
+  - 实时行情：120/min，100标的/次
+  - 标的池：60/min
+  - 日线K线：按标的 120/min（1标的/次）、按标的池 60/min（100标的/次）
+  - 分钟K线：按标的 60/min（1标的/次）、批量 30/min（100标的/次）
+  - 日内分时：30/min（1标的/次）
+  - 市场深度：60/min（1标的/次）
+  - 除权因子：60/min（100标的/次）
+  - TickFlow 单次分钟K线建议不超过 `5000` 根；日内可按 `365` 天做窗口。
+
+### TickFlow 官方接入（SDK）
+
+- 安装：`pip install "tickflow[all]" --upgrade`
+- `x-api-key` 认证 / 无 key 体验：
+```python
+from tickflow import TickFlow
+import os
+
+# 99元套餐
+tf = TickFlow(api_key=os.getenv("TICKFLOW_API_KEY"))
+
+# 仅临时调试
+tf = TickFlow.free()
+```
+- 标的格式：`代码.市场后缀`（如 `600000.SH`、`000001.SZ`、`AAPL.US`、`00700.HK`）
+- 统一 API 版本前缀：`https://api.tickflow.org/v1`
+
+### Tushare 最新调用指引
+
+- 安装：`pip install tushare`
+- 初始化：
+```python
+import tushare as ts
+ts.set_token("your-token")
+pro = ts.pro_api()
+```
+- 或直接 `pro = ts.pro_api("your-token")`
+- 常用 `pro.xxx`：
+  - `fund_basic`、`fund_nav`、`fund_share`、`fund_adj`
+  - `fund_portfolio`、`fund_manager`、`fund_div`
+  - `trade_cal(exchange=..., start_date=YYYYMMDD, end_date=YYYYMMDD)`
+- 常见配置：优先使用 `TUSHARE_TOKEN`，无 token 回退到 `~/.tushare_token`。
+
+### 项目落地建议（与现有代码结合）
+
+- 统一配置：`.env` 中设置 `TICKFLOW_API_KEY` + `TICKFLOW_API_LEVEL=paid`，`TUSHARE_TOKEN`。
+- 本项目优先链路建议：`TushareProvider(priority=4)`、`iFinDProvider`、`TickflowProvider(priority=3)`，TickFlow 用于 ETF/实时行情与分钟线场景，Tushare 做基金治理与补充。
+- 当需要大量补历史时，优先用带分页/批量参数的接口，命中失败时做重试 + 延时降级，避免 429。
 
 ### 3. TickFlow — 行情数据（优先级3）
 
@@ -871,7 +536,7 @@ pro.cctv_news(date='20260529')                             # 新闻联播
 | `tf.klines.get(symbol, period, count)` | K线数据 | "600000.SH", "1d", 10000 | A股/美股/港股 |
 | `tf.klines.batch(symbols, period, count)` | 批量K线 | ["600000.SH", "000001.SZ"] | A股/美股/港股 |
 | `tf.klines.get(symbol, period="1m", count=...)` | 历史分钟K线 | "600000.SH", "1m", 5000 | A股/ETF，最长365天 |
-| `tf.klines.batch(symbols, period="1m", count=...)` | 批量历史分钟K线 | 100标的/次 | A股/ETF，30/min |
+| `tf.klines.batch(symbols, period="1m", count=...)` | 批量分钟K线 | `batch_size`（默认100） + `symbols` | A股/ETF | 100标的/次，30/min |
 | `tf.klines.intraday(symbol, period="1m")` | 当日分钟K线/日内分时 | "600000.SH", "1m" | A股/ETF，Beta |
 | HTTP `/v1/klines/intraday/batch` | 批量当日分钟K线 | 逗号分隔 symbols | A股/ETF |
 | `tf.klines.ex_factors(symbols)` | 除权因子 | ["600000.SH", "000001.SZ"] | A股/美股/港股日线复权 |
@@ -1641,7 +1306,7 @@ dfs = tf.klines.batch(
 | P2 | westock-data未集成到Provider层 | 无法通过融合层调用 | 新建westock_provider.py |
 | P2 | NeoData未集成到Provider层 | 无法通过融合层调用 | 新建neodata_provider.py |
 | P3 | 东方财富基金经理接口未解析 | 仅返回HTML长度 | 用BeautifulSoup解析 |
-| P3 | Tushare fund_adj可能返回空 | 复权因子缺失 | 当前6120积分已满足官方基础权限；若为空优先检查标的后缀、日期范围和接口覆盖 |
+| P3 | Tushare fund_adj可能返回空 | 复权因子缺失 | 当前6000积分已满足官方基础权限；若为空优先检查标的后缀、日期范围和接口覆盖 |
 
 ---
 
@@ -1664,3 +1329,166 @@ ETF行情 ─── TickFlow(日K最快) + westock-data(详情/持仓) + Tushare
 ---
 
 *本文档基于代码审查和实际测试编写，供所有智能体在构建和修改金融项目时参考选源。*
+
+## 真实调用链最终索引（指数 / 股票持仓 / 融资融券 / 港股财务 / 美股 / 财经日历 / 公告）
+
+> 说明：下表仅覆盖「当前代码仓真实可达调用链」；文档/技能中可能出现的能力，如未在下游链路落到 FastAPI/BFF 路由中，用 `缺口` 标注。
+
+| 场景 | 前端入口 | BFF 调用 | 后端真实路由 | 下游链路（供应商/服务） | 状态 |
+|---|---|---|---|---|---|
+| 指数 | `getMarketOverview`（`frontend/src/lib/api.ts`） | `GET /fund/api/recommend/market` | `GET /recommend/market`（`backend/app/api/recommend.py`） | `akshare_fetcher.get_market_index` / `get_fund_industry_board` | 已接入（已在线） |
+| 股票持仓 | `getFundAnalysis(code)`（`frontend/src/lib/api.ts`） | `GET /fund/api/analysis/{code}` | `GET /{code}`（`backend/app/api/analysis.py`） | `analysis_service.analyze_fund` → `fund_detail` 与 `TushareProvider.get_fund_holdings` / `ensure_exchange_fund_holdings_snapshot` | 已接入（基金持仓） |
+| 融资融券 | 无独立前端查询页面或接口入口 | `无`（未见 /fund/api 跨层代理） | `无` | `westock-data` 仅在文档能力层出现，当前未挂接到现网路由 | 缺口（未接入） |
+| 港股财务 | 无独立前端查询页面或接口入口 | `无`（未见 /fund/api 代理） | `无` | 文档提及数据源能力与备选实现，但当前未挂接到现网路由 | 缺口（未接入） |
+| 美股 | 无独立前端查询页面或接口入口 | `无`（未见 /fund/api 代理） | `无` | 文档提及数据源能力与备选实现，但无现网调用链 | 缺口（未接入） |
+| 财经日历 | 无独立前端查询页面或接口入口 | `无`（未见 /fund/api 代理） | `无` | 文档提及能力说明但无真实 REST/tRPC 挂载 | 缺口（未接入） |
+| 公告 | `managerReport`（`frontend/api/fund-router.ts` tRPC） | `POST /fund/api/fund/manager-report`（via Hono proxy） | `GET /manager-report`（`backend/app/api/fund.py`） | `fund_service.get_manager_report` → `eastmoney.fund_announcement_report_em` / `akshare` | 已接入（基金公告聚合为主） |
+
+*链条文档中更多细节请参考前面章节中的 provider/route/table 说明。*
+
+## Fundtrader 项目级接入清单（可直接粘贴）
+
+### 1) 服务层（backend）
+- backend/app/allocation/data/market_data_service.py
+  - class MarketDataService
+    - def get_status(self) -> MarketDataStatus
+    - def get_market_data_health_snapshot(self) -> dict
+    - def get_market_data(self, code: str) -> dict
+- backend/app/data/providers/fusion.py
+  - class DataFusion
+    - def get_provider_health_snapshot(self) -> dict
+    - def get_providers_status(self) -> list[dict]
+    - def _mark_provider_status(self, ...)
+- backend/app/data/providers/tickflow_provider.py
+  - class TickflowProvider
+    - async def get_realtime_quotes(self, symbols: list[str])
+    - async def get_kline_bars(self, ...)
+    - async def get_minute_bars(self, ...)
+    - async def get_market_depth(self, ...)
+    - async def get_adjustment_factors(self, ...)
+  - class TickflowQuotaPolicy
+    - @staticmethod def normalize_period(period: str) -> str
+    - @staticmethod def validate_batch_size(size: int, period: str) -> bool
+    - @staticmethod def normalize_request_window(period: str, count: int) -> int
+- backend/app/data/cache_manager.py
+  - class DataCacheManager
+    - def has(self, key: str) -> bool
+    - def get(self, key: str)
+    - def set(self, key: str, value, ttl: int | None = None)
+    - def get_with_ttl(self, key: str, ttl: int | None = None)
+    - def get_ttl_remaining_seconds(self, key: str) -> int | None
+    - def clear_expired(self) -> int
+
+### 2) 路由层（backend）
+- backend/app/main.py
+  - @app.get("/market-data/status")
+    - 返回 get_market_data_service().get_status()
+  - @app.get("/market-data/data-sources")
+    - 返回 TickflowQuotaPolicy + DataFusion 的 provider 清单与配额说明
+  - @app.get("/market-data/source-status")
+    - 返回 get_market_data_service().get_market_data_health_snapshot()
+  - @app.websocket("/market-data/stream")
+    - 订阅类型: { type: "market_data_health", data: MarketDataHealthSnapshot }
+
+### 3) 缓存层（backend）
+- backend/app/data/cache_manager.py
+  - DataCacheManager.set/get/get_with_ttl
+- 示例:
+  - cache.set("market-data:refresh:snapshot", payload, ttl=3600)
+  - cache.get_with_ttl("market-data:refresh:snapshot", ttl=3600)
+
+### 4) WebSocket 订阅层（前后端）
+- 后端推送:
+  - backend/app/main.py -> market_data_stream
+    - 每 interval 秒推送:
+      - market_data_service.get_market_data_health_snapshot()
+      - payload: {"type": "market_data_health", "timestamp": "...", "data": {...}}
+- BFF/前端封装:
+  - frontend/src/lib/api.ts
+    - export function subscribeMarketDataStream(options: {
+        interval?: number;
+        onMessage: (payload: MarketDataStreamPayload) => void;
+        onOpen?: () => void;
+        onClose?: () => void;
+        onError?: (err: Error | Event) => void;
+      })
+  - frontend/src/pages/allocation/MarketPage.tsx
+    - useEffect 内使用 subscribeMarketDataStream
+    - onOpen => setStreamOk(true)
+    - onClose/onError => setStreamOk(false)
+    - 与轮询 fetchHealth/fetchSourceStatus/getMarketDataStatus 做 fallback
+  - frontend/src/components/allocation/MarketDataDiagnosticsPanel.tsx
+    - props: { health: DataSourceHealthSnapshot | null; dataSourceStatus: MarketDataSourcesStatus | null }
+
+### 5) 公开类型清单（前端）
+- frontend/src/types/allocation.ts
+  - interface DataSourceProviderStatus
+  - interface MarketDataHealthSnapshot
+  - interface MarketDataSourcesStatus
+  - interface MarketDataStreamPayload
+
+### 6) 可直接复制的调用链（最低侵入）
+- 前端页面进入：MarketPage.tsx
+  - 先调用 getMarketDataStatus / getMarketDataSourceHealth / getMarketDataSourcesStatus
+  - 建立 subscribeMarketDataStream 连接并监听 market_data_health
+- 统一诊断信息展示：MarketDataDiagnosticsPanel.tsx
+- 异常降级：WebSocket 未连接时，以轮询 REST 维持可用（60s）
+
+### Fundtrader integration checklist (copy-paste)
+
+### Service layer
+- backend/app/allocation/data/market_data_service.py
+  - class MarketDataService
+    - get_status
+    - get_market_data_health_snapshot
+    - get_market_data
+- backend/app/data/providers/fusion.py
+  - class DataFusion
+    - get_provider_health_snapshot
+    - get_providers_status
+    - get_fund_detail / _merge_holdings / _merge_nav_history
+- backend/app/data/providers/tickflow_provider.py
+  - class TickflowQuotaPolicy
+    - normalize_period
+    - validate_batch_size
+    - normalize_request_window
+  - class TickflowProvider
+    - get_realtime_quotes
+    - get_kline_bars
+    - get_minute_bars
+    - get_market_depth
+    - get_adjustment_factors
+- backend/app/data/cache_manager.py
+  - class DataCacheManager
+    - has
+    - get
+    - set
+    - get_with_ttl
+    - get_ttl_remaining_seconds
+    - clear_expired
+
+### Router layer
+- backend/app/main.py
+  - market_data_data_sources (GET /market-data/data-sources)
+  - market_data_source_status (GET /market-data/source-status)
+  - market_data_stream (WS /market-data/stream)
+  - market_data_status (GET /market-data/status)
+
+### Frontend layer
+- frontend/src/lib/api.ts
+  - getMarketDataSourcesStatus
+  - getMarketDataSourceHealth
+  - subscribeMarketDataStream
+- frontend/src/pages/allocation/MarketPage.tsx
+  - useEffect bootstrap
+    - getMarketDataStatus()
+    - getMarketDataSourcesStatus()
+    - getMarketDataSourceHealth()
+    - subscribeMarketDataStream({...})
+- frontend/src/types/allocation.ts
+  - DataSourceProviderStatus
+  - DataSourceHealthSnapshot
+  - MarketDataSourcesStatus
+  - MarketDataStreamPayload
+- frontend/src/components/allocation/MarketDataDiagnosticsPanel.tsx
+  - props: { health, dataSourceStatus }
