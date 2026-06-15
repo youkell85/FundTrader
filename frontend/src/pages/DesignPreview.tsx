@@ -1,13 +1,10 @@
-import { useMemo, useState } from 'react'
+import { type ReactNode, useMemo, useState } from 'react'
 import {
   Activity,
-  BarChart3,
   Bell,
   BriefcaseBusiness,
   CandlestickChart,
-  CheckCircle2,
   ChevronRight,
-  CircleDollarSign,
   Gauge,
   Layers3,
   LineChart,
@@ -15,85 +12,75 @@ import {
   Radar,
   Search,
   ShieldCheck,
-  SlidersHorizontal,
-  Sparkles,
   Target,
   TrendingUp,
+  UserCircle,
 } from 'lucide-react'
 
 type PreviewMode = 'terminal' | 'cockpit'
 
-type FundRow = {
-  code: string
-  name: string
-  tag: string
-  score: number
-  drawdown: string
-  returnRate: string
-}
-
-const funds: FundRow[] = [
-  { code: '161129', name: '原油主题精选', tag: 'QDII海外', score: 91, drawdown: '18.4%', returnRate: '+12.8%' },
-  { code: '513180', name: '恒生科技ETF', tag: '港股通', score: 88, drawdown: '22.1%', returnRate: '+9.6%' },
-  { code: '518880', name: '黄金ETF', tag: '黄金ETF', score: 86, drawdown: '10.7%', returnRate: '+7.2%' },
-  { code: '110011', name: '稳健均衡混合', tag: '平衡型', score: 82, drawdown: '13.5%', returnRate: '+6.1%' },
+const fundRows = [
+  { code: '161725', name: '招商中证白酒指数A', manager: '侯昊', asset: '股票', weight: '9.32%', nav: '1.0345', day: '-0.82%', year: '-5.12%', drawdown: '-18.45%' },
+  { code: '110011', name: '易方达中小盘混合', manager: '张坤', asset: '股票', weight: '8.74%', nav: '6.7210', day: '-1.35%', year: '+12.35%', drawdown: '-12.32%' },
+  { code: '007119', name: '睿远成长价值混合A', manager: '傅鹏博', asset: '股票', weight: '8.21%', nav: '2.3410', day: '-0.65%', year: '+15.37%', drawdown: '-10.18%' },
+  { code: '001102', name: '前海开源国家比较优势', manager: '曲扬', asset: '股票', weight: '7.85%', nav: '2.8920', day: '-0.58%', year: '+8.21%', drawdown: '-13.24%' },
+  { code: '005827', name: '易方达蓝筹精选混合', manager: '张坤', asset: '股票', weight: '7.12%', nav: '2.3580', day: '-1.10%', year: '+9.87%', drawdown: '-11.45%' },
+  { code: '003095', name: '中欧医疗健康混合A', manager: '葛兰', asset: '股票', weight: '6.78%', nav: '2.3406', day: '-1.22%', year: '-2.31%', drawdown: '-14.12%' },
 ]
 
-const allocation = [
-  { label: 'QDII海外', value: 32, color: '#58d68d' },
-  { label: '港股通', value: 26, color: '#d7a84f' },
-  { label: '黄金ETF', value: 18, color: '#f2d06b' },
-  { label: '固收增强', value: 24, color: '#73a7ff' },
+const assetMix = [
+  { label: '股票', value: 68.2, color: '#59c993' },
+  { label: '债券', value: 18.5, color: '#d4a15e' },
+  { label: '现金', value: 8.6, color: '#7ca4d8' },
+  { label: '商品', value: 2.1, color: '#a28b68' },
+  { label: '其他', value: 2.6, color: '#7a746b' },
 ]
 
-const signals = [
-  ['风险预算', '24%', '已锁定最大回撤'],
-  ['投资期限', '1-5年', '中期配置节奏'],
-  ['目标画像', '35岁', '财富增值优先'],
+const styleBars: Array<[string, number]> = [
+  ['大盘成长', 28.4],
+  ['大盘价值', 22.1],
+  ['中盘成长', 17.6],
+  ['中盘价值', 13.2],
+  ['小盘成长', 9.3],
+  ['小盘价值', 9.4],
+]
+
+const fundCards = [
+  { name: '易方达蓝筹精选混合', manager: '张坤', returnRate: '+9.87%', nav: '2.3580', badge: '混合型', tag: '大盘成长', warm: false },
+  { name: '睿远成长价值混合A', manager: '傅鹏博', returnRate: '+15.37%', nav: '2.3410', badge: '均衡成长', tag: '长期持有', warm: true },
+  { name: '中欧医疗健康混合A', manager: '葛兰', returnRate: '-2.31%', nav: '2.3406', badge: '医药赛道', tag: '精选个股', warm: false },
+  { name: '华夏中证新能源ETF', manager: '指数型', returnRate: '+5.42%', nav: '1.2340', badge: '新能源', tag: '景气修复', warm: true },
 ]
 
 function classNames(...values: Array<string | false | undefined>) {
   return values.filter(Boolean).join(' ')
 }
 
-function MiniTrend({ warm = false }: { warm?: boolean }) {
-  const bars = warm ? [42, 50, 44, 63, 58, 76, 71, 86] : [64, 54, 68, 72, 61, 78, 84, 91]
+function Sparkline({ warm = false }: { warm?: boolean }) {
+  const stroke = warm ? '#c86f44' : '#59c993'
   return (
-    <div className="flex h-20 items-end gap-2">
-      {bars.map((height, index) => (
-        <div
-          key={`${height}-${index}`}
-          className={classNames(
-            'w-full rounded-t-[3px] transition-all duration-300',
-            warm ? 'bg-[#d9a44f]/80' : 'bg-[#58d68d]/75'
-          )}
-          style={{ height: `${height}%` }}
-        />
-      ))}
-    </div>
+    <svg viewBox="0 0 120 42" className="h-12 w-full overflow-visible">
+      <path d="M2 30 L12 23 L22 26 L32 16 L43 21 L54 12 L66 18 L78 9 L90 13 L102 7 L118 11" fill="none" stroke={stroke} strokeWidth="2" />
+      <path d="M2 33 L12 26 L22 29 L32 19 L43 24 L54 15 L66 21 L78 12 L90 16 L102 10 L118 14" fill="none" stroke={stroke} strokeOpacity=".22" strokeWidth="5" />
+    </svg>
   )
 }
 
-function AllocationStrip() {
+function Panel({ title, children, action, className }: { title: string; children: ReactNode; action?: ReactNode; className?: string }) {
   return (
-    <div className="space-y-3">
-      {allocation.map((item) => (
-        <div key={item.label} className="grid grid-cols-[74px_1fr_44px] items-center gap-3 text-xs">
-          <span className="text-white/64">{item.label}</span>
-          <div className="h-2 overflow-hidden rounded-full bg-white/8">
-            <div className="h-full rounded-full" style={{ width: `${item.value}%`, background: item.color }} />
-          </div>
-          <span className="data-number text-right text-white/82">{item.value}%</span>
-        </div>
-      ))}
-    </div>
+    <section className={classNames('rounded-sm border border-[#2a2f2b] bg-[#0c0f0d]/90 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]', className)}>
+      <div className="mb-4 flex items-center justify-between border-b border-white/[0.07] pb-3">
+        <h3 className="text-sm font-semibold text-[#fff8ea]">{title}</h3>
+        {action}
+      </div>
+      {children}
+    </section>
   )
 }
 
 function TerminalPreview() {
   return (
     <section className="relative overflow-hidden rounded-md border border-[#2b312f] bg-[#080a09] text-[#f4f1e8] shadow-2xl shadow-black/40">
-      <div className="absolute inset-0 opacity-[0.08] [background-image:linear-gradient(rgba(255,255,255,.18)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.18)_1px,transparent_1px)] [background-size:28px_28px]" />
       <div className="relative grid min-h-[660px] grid-cols-1 lg:grid-cols-[188px_1fr_320px]">
         <aside className="border-b border-[#2b312f] bg-[#0d100e]/92 p-4 lg:border-b-0 lg:border-r">
           <div className="flex items-center gap-3">
@@ -113,137 +100,73 @@ function TerminalPreview() {
               ['风险控制', ShieldCheck],
               ['执行计划', Target],
             ].map(([label, Icon], index) => (
-              <button
-                key={String(label)}
-                className={classNames(
-                  'flex h-10 w-full items-center gap-2 rounded px-3 text-left transition',
-                  index === 1 ? 'bg-[#d7a84f]/14 text-[#f1d28b]' : 'text-[#98a29b] hover:bg-white/5 hover:text-white'
-                )}
-              >
+              <button key={String(label)} className={classNames('flex h-10 w-full items-center gap-2 rounded px-3 text-left transition', index === 1 ? 'bg-[#d7a84f]/14 text-[#f1d28b]' : 'text-[#98a29b] hover:bg-white/5 hover:text-white')}>
                 <Icon size={15} />
                 <span>{String(label)}</span>
               </button>
             ))}
           </div>
-          <div className="mt-8 border-t border-[#2b312f] pt-5">
-            <div className="text-[11px] text-[#7d887f]">策略状态</div>
-            <div className="mt-3 flex items-center gap-2 text-sm text-[#58d68d]">
-              <span className="h-2 w-2 rounded-full bg-[#58d68d]" />
-              模型已同步
-            </div>
-          </div>
         </aside>
 
-        <main className="p-4 sm:p-5">
-          <div className="flex flex-col gap-4 border-b border-[#2b312f] pb-4 md:flex-row md:items-center md:justify-between">
-            <div>
-              <h2 className="text-2xl font-semibold tracking-tight text-[#fffaf0]">平衡型组合工作台</h2>
-              <p className="mt-1 text-sm text-[#9aa49a]">500,000元 / 中期 1-5年 / 最大回撤 24%</p>
-            </div>
-            <div className="flex items-center gap-2">
-              <button className="grid h-9 w-9 place-items-center rounded border border-[#2b312f] text-[#9aa49a] hover:text-white" title="筛选">
-                <SlidersHorizontal size={16} />
-              </button>
-              <button className="grid h-9 w-9 place-items-center rounded border border-[#2b312f] text-[#9aa49a] hover:text-white" title="提醒">
-                <Bell size={16} />
-              </button>
-              <button className="h-9 rounded bg-[#d7a84f] px-4 text-sm font-semibold text-[#080a09]">生成配置</button>
-            </div>
-          </div>
-
-          <div className="mt-5 grid gap-4 md:grid-cols-3">
-            {signals.map(([label, value, desc]) => (
-              <div key={label} className="rounded border border-[#2b312f] bg-[#101410]/82 p-4">
-                <div className="text-[11px] uppercase tracking-[0.18em] text-[#858f86]">{label}</div>
-                <div className="mt-3 data-number text-2xl font-semibold text-[#f4f1e8]">{value}</div>
-                <div className="mt-1 text-xs text-[#8e978e]">{desc}</div>
-              </div>
-            ))}
-          </div>
-
-          <div className="mt-4 grid gap-4 xl:grid-cols-[1.15fr_.85fr]">
-            <div className="rounded border border-[#2b312f] bg-[#101410]/82 p-4">
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-sm font-semibold text-[#fffaf0]">市场热度矩阵</h3>
-                  <p className="text-xs text-[#89938a]">按偏好资产做实时排序</p>
-                </div>
-                <LineChart size={17} className="text-[#58d68d]" />
-              </div>
-              <div className="mt-5">
-                <MiniTrend />
-              </div>
-              <div className="mt-4 grid grid-cols-4 gap-2 text-center text-[11px] text-[#8d978f]">
-                {['QDII', '港股', '黄金', '固收'].map((item) => (
-                  <div key={item} className="border-t border-[#2b312f] pt-2">{item}</div>
-                ))}
-              </div>
-            </div>
-
-            <div className="rounded border border-[#2b312f] bg-[#101410]/82 p-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-[#fffaf0]">资产权重</h3>
-                <span className="text-xs text-[#f1d28b]">建议版</span>
-              </div>
-              <div className="mt-6">
-                <AllocationStrip />
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-4 overflow-hidden rounded border border-[#2b312f] bg-[#101410]/82">
-            <div className="grid grid-cols-[72px_1fr_88px_64px_76px] gap-3 border-b border-[#2b312f] px-4 py-3 text-xs text-[#8b958c]">
-              <span>代码</span>
-              <span>基金名称</span>
-              <span>资产标签</span>
-              <span>评分</span>
-              <span>年化</span>
-            </div>
-            {funds.map((fund) => (
-              <div key={fund.code} className="grid grid-cols-[72px_1fr_88px_64px_76px] gap-3 border-b border-[#2b312f]/70 px-4 py-3 text-sm last:border-b-0">
-                <span className="data-number text-[#d7a84f]">{fund.code}</span>
-                <span className="min-w-0 truncate text-[#f5f1e8]">{fund.name}</span>
-                <span className="text-[#9aa49a]">{fund.tag}</span>
-                <span className="data-number text-[#58d68d]">{fund.score}</span>
-                <span className="data-number text-[#58d68d]">{fund.returnRate}</span>
-              </div>
-            ))}
-          </div>
-        </main>
-
-        <aside className="border-t border-[#2b312f] bg-[#0d100e]/92 p-4 lg:border-l lg:border-t-0">
-          <div className="rounded border border-[#2b312f] bg-[#101410] p-4">
-            <div className="flex items-center gap-2 text-[#f1d28b]">
-              <Gauge size={17} />
-              <h3 className="text-sm font-semibold">风险闸门</h3>
-            </div>
-            <div className="mt-5 grid place-items-center">
-              <div className="relative grid h-36 w-36 place-items-center rounded-full border border-[#d7a84f]/30 bg-[#d7a84f]/8">
-                <div className="absolute inset-3 rounded-full border border-[#58d68d]/30" />
-                <div className="text-center">
-                  <div className="data-number text-3xl font-semibold text-[#f4f1e8]">24%</div>
-                  <div className="text-xs text-[#8d978f]">回撤上限</div>
-                </div>
-              </div>
-            </div>
-            <div className="mt-5 space-y-3 text-xs text-[#a6afa7]">
-              <div className="flex justify-between"><span>压力测试</span><span className="text-[#58d68d]">通过</span></div>
-              <div className="flex justify-between"><span>集中度</span><span className="text-[#f1d28b]">适中</span></div>
-              <div className="flex justify-between"><span>再平衡</span><span>月度</span></div>
-            </div>
-          </div>
-
-          <div className="mt-4 rounded border border-[#2b312f] bg-[#101410] p-4">
-            <h3 className="text-sm font-semibold text-[#fffaf0]">执行提示</h3>
-            <div className="mt-4 space-y-3 text-sm">
-              {['黄金ETF作为波动缓冲', '港股通分批建仓', 'QDII仓位保留5%机动'].map((item) => (
-                <div key={item} className="flex items-start gap-2 text-[#a6afa7]">
-                  <CheckCircle2 size={15} className="mt-0.5 shrink-0 text-[#58d68d]" />
-                  <span>{item}</span>
+        <main className="space-y-3 p-4">
+          <Panel title="市场总览" action={<span className="text-xs text-[#9ca49a]">2025-05-23 15:00</span>}>
+            <div className="grid gap-3 md:grid-cols-3">
+              {['上证指数', '深证成指', '创业板指'].map((name, index) => (
+                <div key={name} className="border-r border-white/[0.07] pr-3 last:border-r-0">
+                  <div className="text-xs text-[#9ca49a]">{name}</div>
+                  <div className="mt-2 flex items-end gap-2">
+                    <span className="text-lg font-semibold text-[#59c993]">{index === 0 ? '3,348.37' : index === 1 ? '10,134.46' : '2,027.45'}</span>
+                    <span className="text-xs text-[#59c993]">-0.{index + 2}8%</span>
+                  </div>
+                  <Sparkline />
                 </div>
               ))}
             </div>
-          </div>
+          </Panel>
+
+          <Panel title="持仓明细（前10）">
+            <div className="overflow-hidden text-xs">
+              <div className="grid grid-cols-[42px_82px_1.8fr_80px_70px_70px_70px_70px] border-b border-white/[0.07] pb-2 text-[#9aa49a]">
+                <span>#</span><span>代码</span><span>基金名称</span><span>经理</span><span>持仓占比</span><span>净值</span><span>日涨跌</span><span>最大回撤</span>
+              </div>
+              {fundRows.map((row, index) => (
+                <div key={row.code} className="grid grid-cols-[42px_82px_1.8fr_80px_70px_70px_70px_70px] border-b border-white/[0.045] py-2 text-[#d7d2c6]">
+                  <span>{index + 1}</span>
+                  <span>{row.code}</span>
+                  <span>{row.name}</span>
+                  <span>{row.manager}</span>
+                  <span>{row.weight}</span>
+                  <span>{row.nav}</span>
+                  <span className="text-[#59c993]">{row.day}</span>
+                  <span className="text-[#59c993]">{row.drawdown}</span>
+                </div>
+              ))}
+            </div>
+          </Panel>
+        </main>
+
+        <aside className="space-y-3 border-t border-[#2b312f] p-4 lg:border-l lg:border-t-0">
+          <Panel title="资金流向（亿元）">
+            <div className="space-y-4 text-sm">
+              {['沪深两市', '主力净流入', '北向净流入', '融资净买入'].map((label, index) => (
+                <div key={label} className="grid grid-cols-[88px_1fr_70px] items-center gap-3">
+                  <span className="text-[#b9b1a4]">{label}</span>
+                  <div className="h-2 overflow-hidden rounded-full bg-white/10"><div className={classNames('h-full', index === 1 ? 'bg-[#ef7567]' : 'bg-[#59c993]')} style={{ width: `${index === 1 ? 36 : 66}%` }} /></div>
+                  <span className={index === 1 ? 'text-[#ef7567]' : 'text-[#59c993]'}>{index === 0 ? '-124.32' : index === 1 ? '-82.45' : index === 2 ? '+32.17' : '-74.03'}</span>
+                </div>
+              ))}
+            </div>
+          </Panel>
+          <Panel title="组合风险评级">
+            <div className="mx-auto grid h-32 w-32 place-items-center rounded-full bg-[conic-gradient(from_215deg,#d7a84f_0_62%,rgba(255,255,255,.08)_62%_100%)] p-3">
+              <div className="grid h-full w-full place-items-center rounded-full bg-[#0c0f0d] text-center">
+                <div>
+                  <div className="text-xl font-bold text-[#f0c46f]">中等</div>
+                  <div className="text-xs text-[#b9b1a4]">风险得分 58</div>
+                </div>
+              </div>
+            </div>
+          </Panel>
         </aside>
       </div>
     </section>
@@ -252,161 +175,218 @@ function TerminalPreview() {
 
 function CockpitPreview() {
   return (
-    <section className="relative overflow-hidden rounded-md border border-[#2b3834] bg-[#050706] text-[#fff7e9] shadow-2xl shadow-black/40">
-      <div className="absolute inset-x-0 top-0 h-64 bg-[radial-gradient(circle_at_25%_0%,rgba(69,176,132,.28),transparent_42%),radial-gradient(circle_at_78%_10%,rgba(185,113,61,.22),transparent_36%)]" />
-      <div className="relative min-h-[660px] p-4 sm:p-6">
-        <header className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div className="flex items-center gap-3">
-            <div className="grid h-10 w-10 place-items-center rounded-sm bg-[#45b084] text-[#03100b]">
-              <Layers3 size={19} />
-            </div>
-            <div>
-              <div className="text-lg font-semibold">FundTrader 资产驾驶舱</div>
-              <div className="text-xs text-[#b9b0a3]">面向客户沟通与投顾决策</div>
-            </div>
+    <section className="relative overflow-hidden rounded-md border border-[#2a2f2b] bg-[#050706] p-3 text-[#f4efe3] shadow-2xl shadow-black/50">
+      <div className="absolute inset-0 opacity-[0.08] [background-image:linear-gradient(rgba(255,255,255,.16)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.16)_1px,transparent_1px)] [background-size:32px_32px]" />
+      <div className="relative min-h-[820px]">
+        <header className="mb-3 flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.08] pb-3">
+          <div className="flex items-baseline gap-3">
+            <h2 className="text-2xl font-bold tracking-tight text-[#58c792]">方案B</h2>
+            <div className="text-2xl font-semibold text-white">资产驾驶舱</div>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="flex h-10 min-w-0 items-center gap-2 rounded-sm border border-white/10 bg-white/[0.04] px-3 text-sm text-[#cfc5b7]">
-              <Search size={15} />
-              <span className="hidden sm:inline">搜索基金 / 策略 / 标签</span>
+          <div className="flex flex-wrap items-center gap-3 text-xs text-[#bcb5aa]">
+            <div className="flex h-8 min-w-[260px] items-center gap-2 rounded-full border border-white/15 bg-white/[0.04] px-3">
+              <Search size={14} />
+              <span>搜索基金 / 代码 / 经理 / 公司</span>
             </div>
-            <button className="h-10 rounded-sm bg-[#45b084] px-4 text-sm font-semibold text-[#03100b]">新建方案</button>
+            <Bell size={16} />
+            <span>消息</span>
+            <span>预警</span>
+            <UserCircle size={18} />
+            <span>张经理</span>
           </div>
         </header>
 
-        <div className="mt-8 grid gap-5 xl:grid-cols-[1fr_360px]">
-          <div>
-            <div className="grid gap-5 md:grid-cols-[1.2fr_.8fr]">
-              <div className="rounded-sm border border-white/10 bg-[#101411]/82 p-5">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <h2 className="text-3xl font-semibold leading-tight text-[#fff7e9]">财富增值组合</h2>
-                    <p className="mt-2 max-w-xl text-sm leading-6 text-[#b9b0a3]">
-                      平衡型风险画像，优先覆盖 QDII海外、港股通、黄金ETF，并控制组合最大回撤。
-                    </p>
-                  </div>
-                  <div className="rounded-sm border border-[#45b084]/30 bg-[#45b084]/10 px-3 py-2 text-right">
-                    <div className="text-[11px] text-[#9ed7bd]">组合评分</div>
-                    <div className="data-number text-2xl font-semibold text-[#45b084]">89</div>
-                  </div>
+        <Panel title="市场全景" action={<span className="text-xs text-[#c8bba9]">2025-05-23 15:00</span>}>
+          <div className="grid gap-4 xl:grid-cols-[1fr_1fr_1fr_170px_150px]">
+            {[
+              ['上证指数', '3,348.37', '-0.28%'],
+              ['深证成指', '10,134.46', '-0.44%'],
+              ['创业板指', '2,027.45', '-0.76%'],
+            ].map(([name, value, change], index) => (
+              <div key={name} className="min-h-[120px] border-r border-white/[0.08] pr-4">
+                <div className="flex items-baseline gap-3">
+                  <span className="font-semibold text-[#f2eadc]">{name}</span>
+                  <span className="text-sm font-semibold text-[#58c792]">{value}</span>
+                  <span className="text-xs text-[#58c792]">{change}</span>
                 </div>
-                <div className="mt-8 grid gap-3 sm:grid-cols-3">
-                  {[
-                    ['投资金额', '500,000元', CircleDollarSign],
-                    ['期限', '中期', Target],
-                    ['风险偏好', '平衡型', Radar],
-                  ].map(([label, value, Icon]) => (
-                    <div key={String(label)} className="border-l border-[#45b084]/40 pl-3">
-                      <div className="flex items-center gap-2 text-xs text-[#a9b1aa]">
-                        <Icon size={14} />
-                        {String(label)}
-                      </div>
-                      <div className="mt-2 text-lg font-semibold text-[#fff7e9]">{String(value)}</div>
-                    </div>
-                  ))}
+                <Sparkline warm={index === 2} />
+                <div className="flex justify-between text-[10px] text-[#9f988f]"><span>09:30</span><span>11:30/13:00</span><span>15:00</span></div>
+              </div>
+            ))}
+            <div className="space-y-3 border-r border-white/[0.08] pr-4 text-xs">
+              <div className="font-semibold text-[#f2eadc]">市场状态</div>
+              {[
+                ['上涨家数', '1,152', '#58c792'],
+                ['下跌家数', '3,254', '#d9815d'],
+                ['成交额', '9,247 亿元', '#81b1d9'],
+                ['北向净买', '+32.17 亿元', '#d7d2c6'],
+              ].map(([label, value, color]) => (
+                <div key={label} className="flex items-center justify-between gap-3">
+                  <span className="flex items-center gap-2 text-[#bbb4a9]"><i className="h-2 w-2 rounded-full" style={{ backgroundColor: color }} />{label}</span>
+                  <span className="text-[#f4efe3]">{value}</span>
+                </div>
+              ))}
+            </div>
+            <div>
+              <div className="mb-3 text-xs font-semibold text-[#f2eadc]">市场情绪</div>
+              <div className="mx-auto grid h-24 w-24 place-items-center rounded-full bg-[conic-gradient(from_210deg,#58c792_0_42%,#b68a5f_42%_68%,rgba(255,255,255,.08)_68%_100%)] p-2">
+                <div className="grid h-full w-full place-items-center rounded-full bg-[#0c0f0d] text-center">
+                  <div>
+                    <div className="text-2xl font-bold text-[#e8c184]">42</div>
+                    <div className="text-[10px] text-[#d6c9b7]">中性偏谨慎</div>
+                  </div>
                 </div>
               </div>
+              <div className="mt-2 flex justify-between text-[10px] text-[#9f988f]"><span>0</span><span>100</span></div>
+            </div>
+          </div>
+        </Panel>
 
-              <div className="rounded-sm border border-white/10 bg-[#101411]/82 p-5">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold">市场状态</h3>
-                  <TrendingUp size={17} className="text-[#45b084]" />
+        <Panel title="我的组合" action={<div className="flex gap-2"><button className="rounded-full border border-white/15 px-3 py-1 text-xs">组合诊断</button><button className="rounded-full border border-white/15 px-3 py-1 text-xs">组合对比</button></div>} className="mt-3">
+          <div className="grid grid-cols-2 gap-3 border-b border-white/[0.08] pb-4 md:grid-cols-6">
+            {[
+              ['组合净值', '1.2567', 'text-white'],
+              ['日涨跌', '-0.35%', 'text-[#58c792]'],
+              ['今年以来', '+8.72%', 'text-[#e37757]'],
+              ['最大回撤', '-6.32%', 'text-[#58c792]'],
+              ['年化收益', '12.45%', 'text-[#e8c184]'],
+              ['夏普比率', '0.96', 'text-white'],
+            ].map(([label, value, color]) => (
+              <div key={label} className="border-r border-white/[0.08] last:border-r-0">
+                <div className="text-xs text-[#a8a097]">{label}</div>
+                <div className={classNames('mt-1 text-2xl font-semibold', color)}>{value}</div>
+              </div>
+            ))}
+          </div>
+
+          <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_1fr_1.5fr]">
+            <div>
+              <div className="mb-3 text-sm font-semibold">资产配置</div>
+              <div className="grid grid-cols-[132px_1fr] items-center gap-4">
+                <div className="grid h-28 w-28 place-items-center rounded-full bg-[conic-gradient(#59c993_0_68%,#d4a15e_68%_86%,#7ca4d8_86%_94%,#a28b68_94%_97%,#7a746b_97%_100%)] p-5">
+                  <div className="h-full w-full rounded-full bg-[#0c0f0d]" />
                 </div>
-                <div className="mt-6">
-                  <MiniTrend warm />
-                </div>
-                <div className="mt-5 grid grid-cols-2 gap-3 text-sm">
-                  <div className="rounded-sm bg-white/[0.04] p-3">
-                    <div className="text-xs text-[#b9b0a3]">海外资产</div>
-                    <div className="data-number mt-1 text-[#45b084]">+1.42%</div>
-                  </div>
-                  <div className="rounded-sm bg-white/[0.04] p-3">
-                    <div className="text-xs text-[#b9b0a3]">黄金避险</div>
-                    <div className="data-number mt-1 text-[#d69d63]">+0.68%</div>
-                  </div>
+                <div className="space-y-2 text-xs">
+                  {assetMix.map((item) => (
+                    <div key={item.label} className="grid grid-cols-[52px_1fr_48px] items-center gap-2">
+                      <span className="flex items-center gap-2"><i className="h-2 w-2 rounded-sm" style={{ backgroundColor: item.color }} />{item.label}</span>
+                      <div className="h-1.5 rounded-full bg-white/10"><div className="h-full rounded-full" style={{ width: `${item.value}%`, backgroundColor: item.color }} /></div>
+                      <span>{item.value.toFixed(2)}%</span>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
 
-            <div className="mt-5 grid gap-5 lg:grid-cols-[.9fr_1.1fr]">
-              <div className="rounded-sm border border-white/10 bg-[#101411]/82 p-5">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold">建议资产结构</h3>
-                  <PieChart size={17} className="text-[#d69d63]" />
-                </div>
-                <div className="mt-6">
-                  <AllocationStrip />
-                </div>
-                <button className="mt-6 flex h-10 w-full items-center justify-center gap-2 rounded-sm border border-[#45b084]/35 text-sm text-[#9ed7bd] hover:bg-[#45b084]/10">
-                  查看调仓路径
-                  <ChevronRight size={15} />
-                </button>
-              </div>
-
-              <div className="rounded-sm border border-white/10 bg-[#101411]/82 p-5">
-                <div className="mb-4 flex items-center justify-between">
-                  <h3 className="text-sm font-semibold">优选基金清单</h3>
-                  <BarChart3 size={17} className="text-[#45b084]" />
-                </div>
-                <div className="space-y-3">
-                  {funds.slice(0, 3).map((fund, index) => (
-                    <div key={fund.code} className="grid grid-cols-[32px_1fr_70px] items-center gap-3 rounded-sm bg-white/[0.04] p-3">
-                      <div className="grid h-8 w-8 place-items-center rounded-sm bg-[#45b084]/12 data-number text-sm text-[#9ed7bd]">{index + 1}</div>
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-medium">{fund.name}</div>
-                        <div className="mt-1 text-xs text-[#aaa196]">{fund.code} / {fund.tag} / 回撤 {fund.drawdown}</div>
-                      </div>
-                      <div className="data-number text-right text-[#45b084]">{fund.returnRate}</div>
+            <div>
+              <div className="mb-3 text-sm font-semibold">风格分布（股票部分）</div>
+              <div className="space-y-2 text-xs">
+                {styleBars.map(([label, value], index) => (
+                  <div key={label} className="grid grid-cols-[70px_1fr_44px] items-center gap-2">
+                    <span className="text-[#cfc7bb]">{label}</span>
+                    <div className="h-2 rounded-full bg-white/10">
+                      <div className={classNames('h-full rounded-full', index < 2 ? 'bg-[#58c792]' : index < 4 ? 'bg-[#d8b36e]' : 'bg-[#9d8062]')} style={{ width: `${value * 3}%` }} />
                     </div>
-                  ))}
-                </div>
+                    <span>{value.toFixed(2)}%</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <div className="mb-3 text-sm font-semibold">行业分布（股票部分）</div>
+              <div className="grid h-[150px] grid-cols-5 grid-rows-2 overflow-hidden rounded-sm border border-white/[0.06] text-xs">
+                {[
+                  ['电子', '15.23%', 'bg-[#5ba47b]'],
+                  ['医药生物', '12.42%', 'bg-[#7d4e31]'],
+                  ['食品饮料', '10.18%', 'bg-[#6c421f]'],
+                  ['电力设备', '9.15%', 'bg-[#70451d]'],
+                  ['银行', '7.82%', 'bg-[#5b3b22]'],
+                  ['计算机', '6.75%', 'bg-[#345e50]'],
+                  ['有色金属', '5.23%', 'bg-[#4f715f]'],
+                  ['非银金融', '4.92%', 'bg-[#3c5148]'],
+                  ['化工', '4.35%', 'bg-[#4f6452]'],
+                  ['其他', '4.95%', 'bg-[#67604d]'],
+                ].map(([name, value, color]) => (
+                  <div key={name} className={classNames('flex flex-col justify-center border border-black/20 p-2', color)}>
+                    <span>{name}</span>
+                    <span className="mt-1 text-[#fff4df]">{value}</span>
+                  </div>
+                ))}
               </div>
             </div>
           </div>
+        </Panel>
 
-          <aside className="space-y-5">
-            <div className="rounded-sm border border-[#d69d63]/25 bg-[#15110c]/88 p-5">
-              <div className="flex items-center gap-2 text-[#d69d63]">
-                <Sparkles size={17} />
-                <h3 className="text-sm font-semibold">投顾叙事</h3>
-              </div>
-              <p className="mt-4 text-sm leading-7 text-[#d8cec0]">
-                当前方案用黄金ETF降低尾部风险，用港股通提升中期弹性，用QDII海外分散单一市场波动。
-              </p>
-              <div className="mt-5 space-y-3 text-sm text-[#c9beb1]">
-                {['先建核心仓位 70%', '第2个月完成弹性仓', '触及18%回撤开始降风险'].map((item) => (
-                  <div key={item} className="flex items-center justify-between border-b border-white/8 pb-3 last:border-b-0 last:pb-0">
-                    <span>{item}</span>
-                    <CheckCircle2 size={15} className="text-[#45b084]" />
+        <Panel title="优选基金" action={<div className="flex flex-wrap gap-4 text-xs text-white/62"><span className="rounded bg-white/10 px-2 py-1 text-white">全部</span><span>股票型</span><span>混合型</span><span>债券型</span><span>指数型</span><span>QDII</span><span>FOF</span><span>更多</span></div>} className="mt-3">
+          <div className="grid gap-3 lg:grid-cols-4">
+            {fundCards.map((fund) => (
+              <div key={fund.name} className="rounded-sm border border-white/[0.08] bg-white/[0.035] p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="font-semibold text-[#f7f1e7]">{fund.name}</div>
+                    <div className="mt-1 text-xs text-[#a9a197]">{fund.manager}</div>
                   </div>
-                ))}
+                  <span className="rounded border border-[#d1a66c]/45 px-2 py-0.5 text-[10px] text-[#e1b879]">{fund.badge}</span>
+                </div>
+                <div className="mt-3 grid grid-cols-[1fr_90px] items-end gap-3">
+                  <div>
+                    <div className={classNames('text-2xl font-bold', fund.returnRate.startsWith('-') ? 'text-[#58c792]' : 'text-[#e37757]')}>{fund.returnRate}</div>
+                    <div className="text-xs text-[#aaa198]">今年以来</div>
+                  </div>
+                  <Sparkline warm={fund.warm} />
+                </div>
+                <div className="mt-3 flex items-center justify-between text-xs">
+                  <span className="rounded bg-[#d2a66a]/12 px-2 py-1 text-[#ddb878]">{fund.tag}</span>
+                  <span className="text-[#f1eadf]">{fund.nav}<span className="ml-1 text-[#9f988f]">最新净值</span></span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Panel>
+
+        <div className="mt-3 grid gap-3 xl:grid-cols-[1.2fr_.8fr_1fr]">
+          <Panel title="市场热点">
+            <div className="grid grid-cols-[70px_1fr_70px_80px] gap-2 text-xs text-[#d8cec0]">
+              <span className="text-[#58c792]">行业热点</span><span>主题热点</span><span>资金流向</span><span>涨幅榜</span>
+              {['创新药', '固态电池', '半导体'].map((name, index) => (
+                <div key={name} className="contents">
+                  <span className="rounded bg-[#b38950]/28 px-2 py-1 text-center">{index + 1}</span>
+                  <span className="py-1">{name}</span>
+                  <span className="py-1 text-[#e37757]">+{(2.31 - index * 0.38).toFixed(2)}%</span>
+                  <span className="py-1">{(25.41 - index * 6.9).toFixed(2)}亿</span>
+                </div>
+              ))}
+            </div>
+          </Panel>
+          <Panel title="组合风险" action={<Gauge size={15} className="text-[#d5a765]" />}>
+            <div className="grid grid-cols-[1fr_110px] items-center gap-3 text-xs">
+              <div className="space-y-3">
+                <div className="flex justify-between"><span>风险评级</span><span>中等</span></div>
+                <div className="flex justify-between"><span>风险得分</span><span>58</span></div>
+                <div className="flex justify-between"><span>VaR(95%)</span><span>2.31%</span></div>
+                <div className="flex justify-between"><span>最大回撤</span><span className="text-[#58c792]">-6.32%</span></div>
+              </div>
+              <div className="grid h-24 w-24 place-items-center rounded-full bg-[conic-gradient(from_210deg,#d4a15e_0_58%,#58c792_58%_78%,rgba(255,255,255,.08)_78%_100%)] p-3">
+                <div className="h-full w-full rounded-full bg-[#0c0f0d]" />
               </div>
             </div>
-
-            <div className="rounded-sm border border-white/10 bg-[#101411]/82 p-5">
-              <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold">风险可解释</h3>
-                <ShieldCheck size={17} className="text-[#45b084]" />
-              </div>
-              <div className="mt-5 space-y-4">
-                {[
-                  ['预估波动', '12.6%'],
-                  ['最大回撤', '24.0%'],
-                  ['再平衡阈值', '5.0%'],
-                ].map(([label, value]) => (
-                  <div key={label}>
-                    <div className="mb-2 flex justify-between text-xs text-[#b9b0a3]">
-                      <span>{label}</span>
-                      <span className="data-number text-[#fff7e9]">{value}</span>
-                    </div>
-                    <div className="h-2 rounded-full bg-white/8">
-                      <div className="h-full rounded-full bg-[#45b084]" style={{ width: label === '最大回撤' ? '78%' : '56%' }} />
-                    </div>
-                  </div>
-                ))}
-              </div>
+          </Panel>
+          <Panel title="近期调仓建议">
+            <div className="space-y-3 text-sm text-[#d8cec0]">
+              {[
+                '增加科技成长类资产配置，关注AI算力产业链机会',
+                '适度降低高波动板块仓位，控制组合回撤风险',
+                '关注利率债配置价值，优化组合久期结构',
+              ].map((text) => (
+                <div key={text} className="flex gap-2">
+                  <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-[#d4a15e]" />
+                  <span>{text}</span>
+                </div>
+              ))}
+              <button className="mt-2 flex items-center gap-1 text-xs font-semibold text-[#58c792]">查看全部建议 <ChevronRight size={14} /></button>
             </div>
-          </aside>
+          </Panel>
         </div>
       </div>
     </section>
@@ -414,53 +394,55 @@ function CockpitPreview() {
 }
 
 export default function DesignPreview() {
-  const [mode, setMode] = useState<PreviewMode>('terminal')
-  const meta = useMemo(
-    () => ({
-      terminal: {
+  const [mode, setMode] = useState<PreviewMode>('cockpit')
+
+  const current = useMemo(() => {
+    return mode === 'terminal'
+      ? {
+        label: '方案A',
         title: '方案A：投研终端',
-        desc: '偏数据密度、稳定感和专业工作流，适合基金筛选、回测、配置结果等高频页面统一改造。',
-      },
-      cockpit: {
+        desc: '偏专业投研工作台，强调持仓明细、资金流、风险因子和执行监控。',
+      }
+      : {
+        label: '方案B',
         title: '方案B：资产驾驶舱',
-        desc: '偏客户沟通和决策展示，强调方案解释、风险叙事和组合状态，适合配置向导与结果页升级。',
-      },
-    }),
-    []
-  )
+        desc: '按照你选中的驾驶舱概念：市场全景、组合诊断、资产分布、基金卡片、风险与调仓建议同屏呈现。',
+      }
+  }, [mode])
 
   return (
-    <div className="min-h-screen px-3 pb-10 pt-20 sm:px-5 lg:px-8">
-      <div className="mx-auto max-w-[1480px]">
-        <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+    <div className="min-h-screen bg-[#030504] px-4 py-6 text-[#f4efe3] sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-[1540px]">
+        <div className="mb-5 flex flex-wrap items-end justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-semibold text-white sm:text-3xl">FundTrader 整体UI预览</h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-white/62">
-              两个方向均按中文金融投顾场景设计，先用于视觉评审；确认后再拆到首页、配置、回测、推荐等业务页面。
-            </p>
+            <div className="text-xs font-semibold uppercase tracking-[0.22em] text-[#58c792]">FundTrader UI Preview</div>
+            <h1 className="mt-2 text-3xl font-semibold tracking-tight text-white">{current.title}</h1>
+            <p className="mt-2 max-w-3xl text-sm text-[#aaa39a]">{current.desc}</p>
           </div>
-          <div className="grid grid-cols-2 gap-2 rounded-md border border-white/10 bg-white/[0.03] p-1">
+          <div className="flex rounded-full border border-white/10 bg-white/[0.04] p-1">
             {(['terminal', 'cockpit'] as PreviewMode[]).map((item) => (
               <button
                 key={item}
                 onClick={() => setMode(item)}
                 className={classNames(
-                  'h-10 rounded px-4 text-sm transition',
-                  mode === item ? 'bg-white text-[#070806]' : 'text-white/64 hover:bg-white/8 hover:text-white'
+                  'flex h-9 items-center gap-2 rounded-full px-4 text-sm transition',
+                  mode === item ? 'bg-[#58c792] text-[#04120b] shadow-lg shadow-[#58c792]/20' : 'text-[#b9b1a7] hover:bg-white/[0.06] hover:text-white',
                 )}
               >
+                {item === 'terminal' ? <LineChart size={15} /> : <Layers3 size={15} />}
                 {item === 'terminal' ? '方案A' : '方案B'}
               </button>
             ))}
           </div>
         </div>
 
-        <div className="mb-4 rounded-md border border-white/10 bg-white/[0.03] p-4">
-          <div className="text-lg font-semibold text-white">{meta[mode].title}</div>
-          <div className="mt-1 text-sm leading-6 text-white/62">{meta[mode].desc}</div>
-        </div>
-
         {mode === 'terminal' ? <TerminalPreview /> : <CockpitPreview />}
+
+        <div className="mt-4 grid gap-3 text-xs text-[#9d958a] md:grid-cols-3">
+          <div className="rounded-sm border border-white/[0.08] bg-white/[0.035] p-3"><TrendingUp className="mb-2 text-[#58c792]" size={16} />真实业务入口保留，预览页只用于比较信息架构与视觉方向。</div>
+          <div className="rounded-sm border border-white/[0.08] bg-white/[0.035] p-3"><Radar className="mb-2 text-[#d4a15e]" size={16} />方案B以组合持有人和客户沟通为核心，首屏展示可解释的资产状态。</div>
+          <div className="rounded-sm border border-white/[0.08] bg-white/[0.035] p-3"><Gauge className="mb-2 text-[#7ca4d8]" size={16} />风险、收益、调仓建议放在同一决策链路，减少跨页面跳转。</div>
+        </div>
       </div>
     </div>
   )
