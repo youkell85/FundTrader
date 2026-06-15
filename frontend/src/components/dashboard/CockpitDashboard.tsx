@@ -133,10 +133,10 @@ function typeLabel(fund: FundLike) {
   return TYPE_LABELS[key] || String(fund.category || fund.fundType || '其他')
 }
 
-function Sparkline({ warm = false }: { warm?: boolean }) {
+function Sparkline({ warm = false, className = 'h-12 w-full' }: { warm?: boolean; className?: string }) {
   const stroke = warm ? '#c86f44' : '#59c993'
   return (
-    <svg viewBox="0 0 120 42" className="h-12 w-full overflow-visible">
+    <svg viewBox="0 0 120 42" className={classNames(className, 'overflow-visible')}>
       <path d="M2 30 L12 23 L22 26 L32 16 L43 21 L54 12 L66 18 L78 9 L90 13 L102 7 L118 11" fill="none" stroke={stroke} strokeWidth="2" />
       <path d="M2 33 L12 26 L22 29 L32 19 L43 24 L54 15 L66 21 L78 12 L90 16 L102 10 L118 14" fill="none" stroke={stroke} strokeOpacity=".22" strokeWidth="5" />
     </svg>
@@ -144,17 +144,17 @@ function Sparkline({ warm = false }: { warm?: boolean }) {
 }
 
 function MarketMoveBar({ value }: { value: number | null }) {
-  const magnitude = value === null ? 0 : clamp(Math.abs(value) * 22, 4, 100)
+  const magnitude = value === null ? 0 : clamp(Math.abs(value) * 24, 5, 100)
   const isUp = (value || 0) >= 0
   return (
-    <div className="mt-8">
-      <div className="h-2 rounded-full bg-white/10">
+    <div className="mt-4">
+      <div className="h-1.5 rounded-full bg-white/10">
         <div
           className={classNames('h-full rounded-full', isUp ? 'bg-[#c86f44]' : 'bg-[#58c792]')}
           style={{ width: `${magnitude}%` }}
         />
       </div>
-      <div className="mt-3 flex justify-between text-[10px] text-[#9f988f]">
+      <div className="mt-2 flex justify-between text-[10px] text-[#9f988f]">
         <span>日涨跌幅</span>
         <span className={isUp ? 'text-[#e37757]' : 'text-[#58c792]'}>{signedPct(value)}</span>
       </div>
@@ -164,8 +164,8 @@ function MarketMoveBar({ value }: { value: number | null }) {
 
 function Panel({ title, children, action, className }: { title: string; children: React.ReactNode; action?: React.ReactNode; className?: string }) {
   return (
-    <section className={classNames('rounded-sm border border-[#2a2f2b] bg-[#0c0f0d]/90 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]', className)}>
-      <div className="mb-4 flex items-center justify-between border-b border-white/[0.07] pb-3">
+    <section className={classNames('rounded-sm border border-[#2a2f2b] bg-[#0c0f0d]/90 p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]', className)}>
+      <div className="mb-2 flex items-center justify-between border-b border-white/[0.07] pb-2">
         <h3 className="text-sm font-semibold text-[#fff8ea]">{title}</h3>
         {action}
       </div>
@@ -286,6 +286,7 @@ export function CockpitDashboard({
   marketError?: string | null
 }) {
   const [query, setQuery] = useState('')
+  const [fundFilter, setFundFilter] = useState('all')
   const weighted = buildEqualWeights(funds)
   const assetMix = distributionByType(weighted)
   const avgDay = average(funds.map((fund) => parseMetric(fund.dailyChange)))
@@ -313,10 +314,23 @@ export function CockpitDashboard({
     : mode === 'userEmptyFallback'
       ? '用户暂无自选，暂展示最优夏普组合'
       : '未登录：最优夏普组合'
+  const fundTypeTabs = useMemo(() => {
+    const typeOrder = ['all', 'equity', 'hybrid', 'bond', 'index', 'etf', 'qdii', 'fof']
+    const available = new Set(weighted.map(({ fund }) => typeKey(fund)))
+    return typeOrder
+      .filter((key) => key === 'all' || available.has(key))
+      .map((key) => ({ key, label: key === 'all' ? '全部' : TYPE_LABELS[key] || key.toUpperCase() }))
+  }, [weighted])
+  const marketHotspots = useMemo(() => {
+    return [...marketIndices]
+      .sort((a, b) => (b.change || 0) - (a.change || 0))
+      .slice(0, 3)
+  }, [marketIndices])
   const filteredWeighted = useMemo(() => {
     const keyword = query.trim().toLowerCase()
-    if (!keyword) return weighted
     return weighted.filter(({ fund }) => {
+      if (fundFilter !== 'all' && typeKey(fund) !== fundFilter) return false
+      if (!keyword) return true
       const haystack = [
         fund.fundCode,
         fundName(fund),
@@ -326,15 +340,14 @@ export function CockpitDashboard({
       ].filter(Boolean).join(' ').toLowerCase()
       return haystack.includes(keyword)
     })
-  }, [query, weighted])
+  }, [fundFilter, query, weighted])
   const visibleCards = filteredWeighted.slice(0, 4)
-  const visibleRows = filteredWeighted.slice(0, 8)
 
   return (
-    <section className="relative overflow-hidden rounded-md border border-[#2a2f2b] bg-[#050706] p-3 text-[#f4efe3] shadow-2xl shadow-black/50">
+    <section className="relative overflow-hidden rounded-md border border-[#2a2f2b] bg-[#050706] p-2 text-[#f4efe3] shadow-2xl shadow-black/50">
       <div className="absolute inset-0 opacity-[0.08] [background-image:linear-gradient(rgba(255,255,255,.16)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.16)_1px,transparent_1px)] [background-size:32px_32px]" />
-      <div className="relative min-h-[780px]">
-        <header className="mb-3 flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.08] pb-3">
+      <div className="relative">
+        <header className="mb-2 flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.08] px-1 pb-2">
           <div className="flex flex-wrap items-baseline gap-3">
             <h2 className="text-2xl font-bold tracking-tight text-[#58c792]">资产驾驶舱</h2>
             <div className="rounded-full border border-[#58c792]/25 bg-[#58c792]/10 px-3 py-1 text-xs text-[#8de0b5]">{sourceLabel}</div>
@@ -376,9 +389,9 @@ export function CockpitDashboard({
                   : '真实行情暂不可用，未使用组合指标替代。'}
             </div>
           )}
-          <div className="grid gap-4 xl:grid-cols-[1fr_1fr_1fr_170px_150px]">
+          <div className="grid gap-3 xl:grid-cols-[1fr_1fr_1fr_160px_130px]">
             {marketIndices.length > 0 ? marketIndices.slice(0, 3).map((item) => (
-              <div key={item.code || item.name} className="min-h-[120px] border-r border-white/[0.08] pr-4">
+              <div key={item.code || item.name} className="min-h-[82px] border-r border-white/[0.08] pr-3">
                 <div className="flex items-baseline gap-3">
                   <span className="font-semibold text-[#f2eadc]">{item.name}</span>
                   <span className="text-sm font-semibold text-[#f4efe3]">{formatIndexValue(item.close)}</span>
@@ -390,12 +403,12 @@ export function CockpitDashboard({
                 <div className="flex justify-between text-[10px] text-[#9f988f]"><span>{item.code}</span><span>{item.source}</span><span>实时</span></div>
               </div>
             )) : (
-              <div className="min-h-[120px] border-r border-white/[0.08] pr-4 xl:col-span-3">
+              <div className="min-h-[82px] border-r border-white/[0.08] pr-4 xl:col-span-3">
                 <div className="font-semibold text-[#f2eadc]">真实行情暂不可用</div>
-                <div className="mt-4 text-sm leading-6 text-[#b9b1a4]">市场全景等待 `/fund/api/recommend/market` 返回指数数据后展示，不用基金组合数据兜底。</div>
+                <div className="mt-3 text-sm leading-6 text-[#b9b1a4]">市场全景等待 `/fund/api/recommend/market` 返回指数数据后展示，不用基金组合数据兜底。</div>
               </div>
             )}
-            <div className="space-y-3 border-r border-white/[0.08] pr-4 text-xs">
+            <div className="space-y-2 border-r border-white/[0.08] pr-3 text-xs">
               <div className="font-semibold text-[#f2eadc]">市场状态</div>
               {[
                 ['上涨指数', `${risingCount}/${marketIndices.length}`, '#e37757'],
@@ -414,22 +427,22 @@ export function CockpitDashboard({
               </div>
             </div>
             <div>
-              <div className="mb-3 text-xs font-semibold text-[#f2eadc]">市场情绪</div>
-              <div className="mx-auto grid h-24 w-24 place-items-center rounded-full bg-[conic-gradient(from_210deg,#58c792_0_var(--score),#b68a5f_var(--score)_78%,rgba(255,255,255,.08)_78%_100%)] p-2" style={{ ['--score' as string]: `${marketScore}%` }}>
+              <div className="mb-2 text-xs font-semibold text-[#f2eadc]">市场情绪</div>
+              <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-[conic-gradient(from_210deg,#58c792_0_var(--score),#b68a5f_var(--score)_78%,rgba(255,255,255,.08)_78%_100%)] p-1.5" style={{ ['--score' as string]: `${marketScore}%` }}>
                 <div className="grid h-full w-full place-items-center rounded-full bg-[#0c0f0d] text-center">
                   <div>
-                    <div className="text-2xl font-bold text-[#e8c184]">{marketScore}</div>
+                    <div className="text-lg font-bold text-[#e8c184]">{marketScore}</div>
                     <div className="text-[10px] text-[#d6c9b7]">{marketScore >= 65 ? '偏强' : marketScore >= 40 ? '中性' : '偏弱'}</div>
                   </div>
                 </div>
               </div>
-              <div className="mt-2 flex justify-between text-[10px] text-[#9f988f]"><span>0</span><span>100</span></div>
+              <div className="mt-1 flex justify-between text-[10px] text-[#9f988f]"><span>0</span><span>100</span></div>
             </div>
           </div>
         </Panel>
 
-        <Panel title="我的组合" action={<div className="flex gap-2"><Link to="/analysis" className="rounded-full border border-white/15 px-3 py-1 text-xs hover:bg-white/8">组合诊断</Link><Link to="/recommend" className="rounded-full border border-white/15 px-3 py-1 text-xs hover:bg-white/8">组合对比</Link></div>} className="mt-3">
-          <div className="grid grid-cols-2 gap-3 border-b border-white/[0.08] pb-4 md:grid-cols-6">
+        <Panel title="我的组合" action={<div className="flex gap-2"><Link to="/analysis" className="rounded-full border border-white/15 px-3 py-1 text-xs hover:bg-white/8">组合诊断</Link><Link to="/recommend" className="rounded-full border border-white/15 px-3 py-1 text-xs hover:bg-white/8">组合对比</Link></div>} className="mt-2">
+          <div className="grid grid-cols-2 gap-2 border-b border-white/[0.08] pb-2 md:grid-cols-6">
             {[
               ['组合净值', netValue, 'text-white'],
               ['日涨跌', signedPct(avgDay), (avgDay || 0) >= 0 ? 'text-[#e37757]' : 'text-[#58c792]'],
@@ -440,16 +453,16 @@ export function CockpitDashboard({
             ].map(([label, value, color]) => (
               <div key={label} className="border-r border-white/[0.08] last:border-r-0">
                 <div className="text-xs text-[#a8a097]">{label}</div>
-                <div className={classNames('mt-1 text-2xl font-semibold', color)}>{value}</div>
+                <div className={classNames('mt-0.5 text-lg font-semibold', color)}>{value}</div>
               </div>
             ))}
           </div>
 
-          <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_1fr_1.5fr]">
+          <div className="mt-2 grid gap-3 lg:grid-cols-[1fr_1fr_1.45fr]">
             <div>
-              <div className="mb-3 text-sm font-semibold">资产配置</div>
-              <div className="grid grid-cols-[132px_1fr] items-center gap-4">
-                <div className="grid h-28 w-28 place-items-center rounded-full p-5" style={{ background: `conic-gradient(${assetMix.map((item, index) => `${item.color} ${assetMix.slice(0, index).reduce((sum, x) => sum + x.value, 0)}% ${assetMix.slice(0, index + 1).reduce((sum, x) => sum + x.value, 0)}%`).join(',') || '#716c65 0 100%'})` }}>
+              <div className="mb-2 text-sm font-semibold">资产配置</div>
+              <div className="grid grid-cols-[112px_1fr] items-center gap-3">
+                <div className="grid h-20 w-20 place-items-center rounded-full p-4" style={{ background: `conic-gradient(${assetMix.map((item, index) => `${item.color} ${assetMix.slice(0, index).reduce((sum, x) => sum + x.value, 0)}% ${assetMix.slice(0, index + 1).reduce((sum, x) => sum + x.value, 0)}%`).join(',') || '#716c65 0 100%'})` }}>
                   <div className="h-full w-full rounded-full bg-[#0c0f0d]" />
                 </div>
                 <div className="space-y-2 text-xs">
@@ -465,7 +478,7 @@ export function CockpitDashboard({
             </div>
 
             <div>
-              <div className="mb-3 text-sm font-semibold">风格分布（按基金类型）</div>
+              <div className="mb-2 text-sm font-semibold">风格分布（按基金类型）</div>
               <div className="space-y-2 text-xs">
                 {assetMix.slice(0, 6).map((item, index) => (
                   <div key={item.key} className="grid grid-cols-[70px_1fr_44px] items-center gap-2">
@@ -480,8 +493,8 @@ export function CockpitDashboard({
             </div>
 
             <div>
-              <div className="mb-3 text-sm font-semibold">基金类型热力分布</div>
-              <div className="grid h-[150px] grid-cols-4 grid-rows-2 overflow-hidden rounded-sm border border-white/[0.06] text-xs">
+              <div className="mb-2 text-sm font-semibold">基金类型热力分布</div>
+              <div className="grid h-[96px] grid-cols-4 grid-rows-2 overflow-hidden rounded-sm border border-white/[0.06] text-xs">
                 {assetMix.slice(0, 8).map((item) => (
                   <div key={item.key} className="flex flex-col justify-center border border-black/20 p-2" style={{ backgroundColor: item.color }}>
                     <span>{item.label}</span>
@@ -493,28 +506,50 @@ export function CockpitDashboard({
           </div>
         </Panel>
 
-        <Panel title={mode === 'user' ? '用户组合持仓' : '优选基金'} action={<div className="flex flex-wrap gap-4 text-xs text-white/62"><span className="rounded bg-white/10 px-2 py-1 text-white">按夏普</span><span>真实指标</span><span>最新净值</span><span>更多</span></div>} className="mt-3">
+        <Panel
+          title={mode === 'user' ? '用户组合持仓' : '优选基金'}
+          action={<Link to="/funds" className="flex items-center gap-1 text-xs text-[#d8cec0] hover:text-white">更多 <ChevronRight size={14} /></Link>}
+          className="mt-2"
+        >
+          <div className="-mt-1 mb-2 flex flex-wrap items-center gap-2 text-xs">
+            {fundTypeTabs.map((tabItem) => (
+              <button
+                key={tabItem.key}
+                type="button"
+                onClick={() => setFundFilter(tabItem.key)}
+                className={classNames(
+                  'rounded-sm px-3 py-1 transition',
+                  fundFilter === tabItem.key ? 'bg-white/12 text-white' : 'text-[#a9a197] hover:bg-white/[0.06] hover:text-white',
+                )}
+              >
+                {tabItem.label}
+              </button>
+            ))}
+            <span className="ml-auto rounded bg-white/[0.06] px-2 py-1 text-[#f4efe3]">按夏普</span>
+            <span className="rounded px-2 py-1 text-[#d8cec0]">真实指标</span>
+            <span className="rounded px-2 py-1 text-[#d8cec0]">最新净值</span>
+          </div>
           <div className="grid gap-3 lg:grid-cols-4">
             {visibleCards.map(({ fund, weight }) => {
               const returnRate = parseMetric(fund.performance?.return1y ?? fund.performance?.annualizedReturn)
               const detailPath = fund.fundCode ? `/${fund.fundCode}` : '/analysis'
               return (
-                <Link key={fund.fundCode || fundName(fund)} to={detailPath} className="block rounded-sm border border-white/[0.08] bg-white/[0.035] p-3 transition hover:border-[#58c792]/55 hover:bg-white/[0.055]">
+                <Link key={fund.fundCode || fundName(fund)} to={detailPath} className="block h-[122px] overflow-hidden rounded-sm border border-white/[0.08] bg-white/[0.035] p-2 transition hover:border-[#58c792]/55 hover:bg-white/[0.055]">
                   <div className="flex items-center justify-between gap-3">
-                    <div>
-                      <div className="font-semibold text-[#f7f1e7]">{fundName(fund)}</div>
+                    <div className="min-w-0">
+                      <div className="truncate font-semibold leading-5 text-[#f7f1e7]">{fundName(fund)}</div>
                       <div className="mt-1 text-xs text-[#a9a197]">{managerName(fund)}</div>
                     </div>
-                    <span className="rounded border border-[#d1a66c]/45 px-2 py-0.5 text-[10px] text-[#e1b879]">{typeLabel(fund)}</span>
+                    <span className="shrink-0 rounded border border-[#d1a66c]/45 px-2 py-0.5 text-[10px] text-[#e1b879]">{typeLabel(fund)}</span>
                   </div>
-                  <div className="mt-3 grid grid-cols-[1fr_90px] items-end gap-3">
+                  <div className="mt-1 grid grid-cols-[1fr_82px] items-end gap-3">
                     <div>
-                      <div className={classNames('text-2xl font-bold', (returnRate || 0) >= 0 ? 'text-[#e37757]' : 'text-[#58c792]')}>{signedPct(returnRate)}</div>
+                      <div className={classNames('text-lg font-bold', (returnRate || 0) >= 0 ? 'text-[#e37757]' : 'text-[#58c792]')}>{signedPct(returnRate)}</div>
                       <div className="text-xs text-[#aaa198]">近一年/年化</div>
                     </div>
-                    <Sparkline warm={(returnRate || 0) >= 0} />
+                    <Sparkline warm={(returnRate || 0) >= 0} className="h-8 w-full" />
                   </div>
-                  <div className="mt-3 flex items-center justify-between text-xs">
+                  <div className="mt-0.5 flex items-center justify-between text-xs">
                     <span className="rounded bg-[#d2a66a]/12 px-2 py-1 text-[#ddb878]">权重 {weight.toFixed(2)}%</span>
                     <span className="text-[#f1eadf]">{metricText(fund.nav, 4)}<span className="ml-1 text-[#9f988f]">最新净值</span></span>
                   </div>
@@ -529,21 +564,25 @@ export function CockpitDashboard({
           </div>
         </Panel>
 
-        <div className="mt-3 grid gap-3 xl:grid-cols-[1.2fr_.8fr_1fr]">
-          <Panel title="持仓明细">
-            <div className="grid grid-cols-[58px_1fr_70px_72px_70px] gap-2 text-xs text-[#d8cec0]">
-              <span className="text-[#58c792]">代码</span><span>基金名称</span><span>权重</span><span>夏普</span><span>回撤</span>
-              {visibleRows.map(({ fund, weight }) => (
-                <div key={fund.fundCode || fundName(fund)} className="contents">
-                  <Link to={fund.fundCode ? `/${fund.fundCode}` : '/analysis'} className="py-1 text-[#8de0b5] hover:text-white">{fund.fundCode || '—'}</Link>
-                  <Link to={fund.fundCode ? `/${fund.fundCode}` : '/analysis'} className="truncate py-1 hover:text-white">{fundName(fund)}</Link>
-                  <span className="py-1 text-[#e8c184]">{weight.toFixed(2)}%</span>
-                  <span className="py-1">{metricText(fund.performance?.sharpeRatio)}</span>
-                  <span className="py-1 text-[#58c792]">{plainPct(parseMetric(fund.performance?.maxDrawdown))}</span>
+        <div className="mt-2 grid gap-3 xl:grid-cols-[1.2fr_.8fr_1fr]">
+          <Panel title="市场热点">
+            <div className="mb-3 flex flex-wrap gap-4 text-xs">
+              <span className="font-semibold text-[#58c792]">指数涨跌</span>
+              <span className="text-[#a9a197]">市场状态</span>
+              <span className="text-[#a9a197]">资金流向</span>
+              <span className="text-[#a9a197]">波动监控</span>
+            </div>
+            <div className="space-y-2 text-xs">
+              {marketHotspots.map((item, index) => (
+                <div key={item.code || item.name} className="grid grid-cols-[28px_1fr_76px_96px] items-center gap-3">
+                  <span className="grid h-5 w-5 place-items-center rounded-sm bg-[#d4a15e]/28 text-[#e8c184]">{index + 1}</span>
+                  <span className="truncate text-[#f4efe3]">{item.name}</span>
+                  <span className={classNames('text-right font-semibold', (item.change || 0) >= 0 ? 'text-[#e37757]' : 'text-[#58c792]')}>{signedPct(item.change)}</span>
+                  <span className="text-right text-[#d8cec0]">{formatIndexValue(item.close)}</span>
                 </div>
               ))}
-              {visibleRows.length === 0 && (
-                <div className="col-span-5 py-4 text-sm text-[#bcb5aa]">没有匹配的持仓。</div>
+              {marketHotspots.length === 0 && (
+                <div className="py-4 text-sm text-[#bcb5aa]">市场热点等待真实指数数据返回。</div>
               )}
             </div>
           </Panel>
@@ -555,7 +594,7 @@ export function CockpitDashboard({
                 <div className="flex justify-between"><span>VaR(估算)</span><span>{plainPct(avgDrawdown === null ? null : Math.abs(avgDrawdown) / 2)}</span></div>
                 <div className="flex justify-between"><span>最大回撤</span><span className="text-[#58c792]">{plainPct(avgDrawdown)}</span></div>
               </div>
-              <div className="grid h-24 w-24 place-items-center rounded-full bg-[conic-gradient(from_210deg,#d4a15e_0_58%,#58c792_58%_78%,rgba(255,255,255,.08)_78%_100%)] p-3">
+              <div className="grid h-20 w-20 place-items-center rounded-full bg-[conic-gradient(from_210deg,#d4a15e_0_58%,#58c792_58%_78%,rgba(255,255,255,.08)_78%_100%)] p-3">
                 <div className="h-full w-full rounded-full bg-[#0c0f0d]" />
               </div>
             </div>
