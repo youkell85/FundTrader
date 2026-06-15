@@ -2,6 +2,7 @@
 import akshare as ak
 import pandas as pd
 import efinance as ef
+from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 from ..utils import console_error
 
@@ -311,11 +312,25 @@ def get_fund_industry_board() -> List[Dict[str, Any]]:
 
 
 def get_market_index() -> List[Dict[str, Any]]:
-    """获取主要市场指数（优先 Tushare index_daily，回退 AkShare 最新2日数据）"""
+    """Get major market indices with latest quote and 30-day OHLC series."""
+    def _float_or_none(value: Any) -> Optional[float]:
+        try:
+            if value is None or value == "":
+                return None
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    def _change_pct(latest_close: Optional[float], prev_close: Optional[float]) -> float:
+        if latest_close is None or prev_close is None or prev_close <= 0:
+            return 0.0
+        return (latest_close - prev_close) / prev_close * 100
+
     try:
         from .providers.tushare_provider import TushareProvider
         tp = TushareProvider()
         if tp.is_available():
+            start_date = (datetime.now() - timedelta(days=90)).strftime("%Y%m%d")
             index_map = {
                 "000001.SH": "上证指数",
                 "399001.SZ": "深证成指",
@@ -323,32 +338,61 @@ def get_market_index() -> List[Dict[str, Any]]:
             }
             result = []
             for ts_code, name in index_map.items():
-                daily = tp.get_index_daily(ts_code=ts_code)
+                daily = tp.get_index_daily(ts_code=ts_code, start_date=start_date)
                 if daily and len(daily) >= 2:
                     latest = daily[-1]
                     prev = daily[-2]
-                    if latest.close and prev.close and prev.close > 0:
-                        change = (latest.close - prev.close) / prev.close * 100
+                    if latest.close:
+                        change = latest.pct_chg if latest.pct_chg is not None else _change_pct(latest.close, prev.close)
+                        series = [
+                            {
+                                "date": row.date,
+                                "open": row.open,
+                                "high": row.high,
+                                "low": row.low,
+                                "close": row.close,
+                                "volume": row.vol,
+                            }
+                            for row in daily[-30:]
+                            if row.date and row.open is not None and row.high is not None and row.low is not None and row.close is not None
+                        ]
                         result.append({
                             "code": ts_code, "name": name,
                             "close": float(latest.close),
-                            "change": round(float(change), 2),
+                            "change": round(float(change or 0), 2),
+                            "date": latest.date,
+                            "source": "Tushare index_daily",
+                            "series": series,
                         })
             if result:
                 return result
-    except Exception:
-        pass
+    except Exception as e:
+        console_error(f"Tushare market index error: {e}")
 
-    # 回退：akshare 指数日线
     try:
         indices = {"sh000001": "上证指数", "sz399001": "深证成指", "sz399006": "创业板指"}
         result = []
         for code, name in indices.items():
             try:
-                # 限制获取最近30个交易日数据，减少网络开销
                 df = ak.stock_zh_index_daily(symbol=code)
                 if df is not None and not df.empty:
-                    # 取最新两行计算涨跌幅
+                    df_tail_30 = df.tail(30)
+                    series = []
+                    for _, row in df_tail_30.iterrows():
+                        open_value = _float_or_none(row.get("open"))
+                        high_value = _float_or_none(row.get("high"))
+                        low_value = _float_or_none(row.get("low"))
+                        close_value = _float_or_none(row.get("close"))
+                        if open_value is None or high_value is None or low_value is None or close_value is None:
+                            continue
+                        series.append({
+                            "date": str(row.get("date") or row.get("日期") or ""),
+                            "open": open_value,
+                            "high": high_value,
+                            "low": low_value,
+                            "close": close_value,
+                            "volume": _float_or_none(row.get("volume") or row.get("成交量")),
+                        })
                     df_tail = df.tail(2)
                     if len(df_tail) >= 2:
                         latest = df_tail.iloc[-1]
@@ -365,6 +409,9 @@ def get_market_index() -> List[Dict[str, Any]]:
                         "code": code, "name": name,
                         "close": float(latest["close"]),
                         "change": round(float(change), 2),
+                        "date": str(latest.get("date") or latest.get("日期") or ""),
+                        "source": "AkShare stock_zh_index_daily",
+                        "series": series,
                     })
             except Exception as e:
                 console_error(f"AkShare market index error for {code}: {e}")

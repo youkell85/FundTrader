@@ -38,7 +38,17 @@ type MarketIndexItem = {
   change_pct?: number | string | null
   date?: string | null
   source?: string | null
+  series?: MarketKlinePoint[] | null
   [key: string]: unknown
+}
+
+type MarketKlinePoint = {
+  date?: string | null
+  open?: number | string | null
+  high?: number | string | null
+  low?: number | string | null
+  close?: number | string | null
+  volume?: number | string | null
 }
 
 type MarketIndustryItem = {
@@ -143,6 +153,75 @@ function Sparkline({ warm = false, className = 'h-12 w-full' }: { warm?: boolean
   )
 }
 
+function normalizeKlineSeries(value: unknown) {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((point) => {
+      const record = point as Record<string, unknown>
+      const open = parseMetric(record.open)
+      const high = parseMetric(record.high)
+      const low = parseMetric(record.low)
+      const close = parseMetric(record.close)
+      if (open === null || high === null || low === null || close === null) return null
+      return {
+        date: String(record.date || ''),
+        open,
+        high,
+        low,
+        close,
+      }
+    })
+    .filter((point): point is { date: string; open: number; high: number; low: number; close: number } => point !== null)
+}
+
+function MiniIndexKline({ series, change }: { series: ReturnType<typeof normalizeKlineSeries>; change: number | null }) {
+  if (series.length < 2) return <MarketMoveBar value={change} />
+
+  const width = 142
+  const height = 46
+  const paddingX = 4
+  const paddingY = 4
+  const values = series.flatMap((point) => [point.open, point.high, point.low, point.close])
+  const min = Math.min(...values)
+  const max = Math.max(...values)
+  const span = max - min || 1
+  const innerHeight = height - paddingY * 2
+  const step = (width - paddingX * 2) / Math.max(series.length - 1, 1)
+  const candleWidth = clamp(step * 0.52, 2.2, 4.8)
+  const y = (value: number) => paddingY + ((max - value) / span) * innerHeight
+  const closeLine = series
+    .map((point, index) => `${index === 0 ? 'M' : 'L'}${(paddingX + index * step).toFixed(2)},${y(point.close).toFixed(2)}`)
+    .join(' ')
+
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} className="mt-2 h-[46px] w-full overflow-visible" role="img" aria-label="指数30日K线">
+      <path d={closeLine} fill="none" stroke="#74aef5" strokeOpacity="0.28" strokeWidth="1.6" />
+      {series.map((point, index) => {
+        const x = paddingX + index * step
+        const isUp = point.close >= point.open
+        const stroke = isUp ? '#e37757' : '#58c792'
+        const bodyTop = Math.min(y(point.open), y(point.close))
+        const bodyHeight = Math.max(Math.abs(y(point.open) - y(point.close)), 1.6)
+        return (
+          <g key={`${point.date}-${index}`}>
+            <line x1={x} x2={x} y1={y(point.high)} y2={y(point.low)} stroke={stroke} strokeWidth="1" strokeOpacity="0.92" />
+            <rect
+              x={x - candleWidth / 2}
+              y={bodyTop}
+              width={candleWidth}
+              height={bodyHeight}
+              rx="0.8"
+              fill={isUp ? 'rgba(227,119,87,0.22)' : 'rgba(88,199,146,0.22)'}
+              stroke={stroke}
+              strokeWidth="0.9"
+            />
+          </g>
+        )
+      })}
+    </svg>
+  )
+}
+
 function MarketMoveBar({ value }: { value: number | null }) {
   const magnitude = value === null ? 0 : clamp(Math.abs(value) * 24, 5, 100)
   const isUp = (value || 0) >= 0
@@ -216,6 +295,7 @@ function normalizeMarketIndices(payload?: MarketOverviewPayload | null) {
         change: pickNumber(record, ['change', 'pct_change', 'change_pct', '涨跌幅', 'pctChg']),
         date: String(item.date || record.trade_date || record.as_of || ''),
         source: String(item.source || record.source || '真实行情接口'),
+        series: normalizeKlineSeries(record.series || record.kline || record.bars),
       }
     })
     .filter((item) => item.close !== null || item.change !== null)
@@ -391,7 +471,7 @@ export function CockpitDashboard({
           )}
           <div className="grid gap-3 xl:grid-cols-[1fr_1fr_1fr_160px_130px]">
             {marketIndices.length > 0 ? marketIndices.slice(0, 3).map((item) => (
-              <div key={item.code || item.name} className="min-h-[82px] border-r border-white/[0.08] pr-3">
+              <div key={item.code || item.name} className="min-h-[118px] border-r border-white/[0.08] pr-3">
                 <div className="flex items-baseline gap-3">
                   <span className="font-semibold text-[#f2eadc]">{item.name}</span>
                   <span className="text-sm font-semibold text-[#f4efe3]">{formatIndexValue(item.close)}</span>
@@ -399,8 +479,8 @@ export function CockpitDashboard({
                     {signedPct(item.change)}
                   </span>
                 </div>
-                <MarketMoveBar value={item.change} />
-                <div className="flex justify-between text-[10px] text-[#9f988f]"><span>{item.code}</span><span>{item.source}</span><span>实时</span></div>
+                <MiniIndexKline series={item.series || []} change={item.change} />
+                <div className="flex justify-between text-[10px] text-[#9f988f]"><span>{item.code}</span><span>30日K线</span><span>{item.source}</span></div>
               </div>
             )) : (
               <div className="min-h-[82px] border-r border-white/[0.08] pr-4 xl:col-span-3">
