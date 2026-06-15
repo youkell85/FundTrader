@@ -1,4 +1,6 @@
 import { useState, useMemo, useCallback } from "react";
+import { Link } from "react-router";
+import { ArrowRight, BarChart3, ShieldCheck, Sparkles, Target, TrendingUp } from "lucide-react";
 import { trpc } from "@/providers/trpc";
 import StatCards from "@/components/home/StatCards";
 import FilterBar from "@/components/home/FilterBar";
@@ -266,56 +268,148 @@ export default function Home() {
 
   return (
     <div className="min-h-screen pt-14 pb-12">
-      <section className="relative px-4 sm:px-6 pt-10 pb-8 max-w-7xl mx-auto">
-        <div className="mb-2 rounded-md border border-white/[0.08] bg-[#101411]/70 p-5 md:p-6">
-          <h1 className="text-3xl md:text-4xl font-semibold text-white tracking-tight leading-tight">洞察趋势，甄选长跑冠军</h1>
-          <p className="mt-3 text-[#cfc5b7]/70 text-sm md:text-base max-w-2xl">基于鑫基荟优选池，智能驱动的产品筛选与配置平台</p>
+      <section className="relative px-4 sm:px-6 pt-8 pb-6 max-w-7xl mx-auto">
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+          <div className="space-y-4">
+            <div className="relative overflow-hidden rounded-md border border-white/[0.08] bg-[#101411]/78 p-5 md:p-6">
+              <div className="absolute inset-y-0 right-0 w-1/3 bg-[radial-gradient(circle_at_70%_30%,rgba(69,176,132,.22),transparent_42%),radial-gradient(circle_at_90%_70%,rgba(214,157,99,.18),transparent_34%)]" />
+              <div className="relative max-w-3xl">
+                <div className="mb-5 flex flex-wrap items-center gap-2 text-xs text-[#8FD9BA]">
+                  <span className="rounded-sm border border-[#45B084]/28 bg-[#45B084]/10 px-2.5 py-1">市场全景</span>
+                  <span className="rounded-sm border border-white/[0.08] bg-white/[0.035] px-2.5 py-1 text-white/55">基金池 {currentOverview.total} 只</span>
+                </div>
+                <h1 className="text-3xl md:text-5xl font-semibold text-white tracking-tight leading-tight">洞察趋势，甄选长跑冠军</h1>
+                <p className="mt-3 text-[#cfc5b7]/72 text-sm md:text-base max-w-2xl">基于鑫基荟优选池，智能驱动的产品筛选与配置平台</p>
+                <div className="mt-6 flex flex-wrap gap-3">
+                  <Link to="/allocation" className="inline-flex h-10 items-center gap-2 rounded-sm bg-[#45B084] px-4 text-sm font-semibold text-[#03100b] hover:bg-[#5ac394] transition-colors">
+                    进入资产配置
+                    <ArrowRight className="h-4 w-4" />
+                  </Link>
+                  <Link to="/recommend" className="inline-flex h-10 items-center gap-2 rounded-sm border border-white/[0.12] bg-white/[0.035] px-4 text-sm text-white/78 hover:bg-white/[0.07] transition-colors">
+                    生成组合建议
+                  </Link>
+                </div>
+              </div>
+            </div>
+
+            <StatCards
+              currentOverview={currentOverview}
+              categoryStats={categoryStats}
+              category={fundType}
+              onCategoryClick={handleCategoryClick}
+            />
+          </div>
+
+          <aside className="grid gap-4 md:grid-cols-3 xl:grid-cols-1">
+            <div className="rounded-md border border-[#D69D63]/24 bg-[#15110c]/82 p-4">
+              <div className="flex items-center gap-2 text-[#D69D63]">
+                <Sparkles className="h-4 w-4" />
+                <h2 className="text-sm font-semibold text-white">投顾叙事</h2>
+              </div>
+              <p className="mt-3 text-sm leading-6 text-[#d8cec0]/78">
+                从基金池先筛出可解释资产，再根据风险预算进入配置、推荐和回测流程。
+              </p>
+              <div className="mt-4 space-y-2 text-xs text-white/62">
+                <div className="flex items-center justify-between border-b border-white/[0.08] pb-2"><span>产品初筛</span><span className="text-[#8FD9BA]">已同步</span></div>
+                <div className="flex items-center justify-between border-b border-white/[0.08] pb-2"><span>风险预算</span><span>待配置</span></div>
+                <div className="flex items-center justify-between"><span>执行路径</span><span>配置优先</span></div>
+              </div>
+            </div>
+
+            <div className="rounded-md border border-white/[0.08] bg-[#101411]/78 p-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <BarChart3 className="h-4 w-4 text-[#8FD9BA]" />
+                  <h2 className="text-sm font-semibold text-white">产品池结构</h2>
+                </div>
+                <span className="data-number text-xs text-white/45">{categoryStats.length} 类</span>
+              </div>
+              <div className="mt-4 space-y-3">
+                {categoryStats.slice(0, 4).map((item) => (
+                  <button
+                    key={item.key ?? item.label}
+                    onClick={() => handleCategoryClick(item.key ?? item.label)}
+                    className="grid w-full grid-cols-[72px_1fr_52px] items-center gap-3 text-left text-xs"
+                  >
+                    <span className="truncate text-white/70">{item.label}</span>
+                    <span className="h-2 overflow-hidden rounded-full bg-white/[0.08]">
+                      <span
+                        className="block h-full rounded-full bg-[#45B084]"
+                        style={{ width: `${Math.min(100, Math.max(6, Number(item.count || 0) / Math.max(1, currentOverview.total) * 100))}%` }}
+                      />
+                    </span>
+                    <span className="data-number text-right text-white/58">{item.count}只</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-md border border-white/[0.08] bg-[#101411]/78 p-4">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="h-4 w-4 text-[#8FD9BA]" />
+                <h2 className="text-sm font-semibold text-white">风险可解释</h2>
+              </div>
+              <div className="mt-4 grid grid-cols-2 gap-3 text-xs">
+                <div className="rounded-sm bg-white/[0.04] p-3">
+                  <div className="text-white/45">平均夏普</div>
+                  <div className="data-number mt-1 text-lg font-semibold text-[#8FD9BA]">{currentOverview.avgSharpe}</div>
+                </div>
+                <div className="rounded-sm bg-white/[0.04] p-3">
+                  <div className="text-white/45">平均年化</div>
+                  <div className="data-number mt-1 text-lg font-semibold text-[#D69D63]">{currentOverview.avgReturn}%</div>
+                </div>
+              </div>
+              <Link to="/backtest" className="mt-4 inline-flex h-9 w-full items-center justify-center gap-2 rounded-sm border border-[#45B084]/30 text-sm text-[#8FD9BA] hover:bg-[#45B084]/10 transition-colors">
+                <Target className="h-4 w-4" />
+                去做回测验证
+              </Link>
+            </div>
+          </aside>
         </div>
 
-        <StatCards
-          currentOverview={currentOverview}
-          categoryStats={categoryStats}
-          category={fundType}
-          onCategoryClick={handleCategoryClick}
-        />
-
-        <FilterBar
-          search={search}
-          searchError={searchError}
-          fundType={fundType}
-          category={category}
-          company={company}
-          riskLevel={riskLevel}
-          showXinjihui={showXinjihuiOnly}
-          showWatchlist={showWatchlistOnly}
-          sortBy={sortBy}
-          sortOrder={sortOrder}
-          filterOpts={filterOpts}
-          addFundByCodePending={addFundByCode.isPending}
-          onSearchChange={(value) => { setSearch(value); setSearchError(null); setPage(1); }}
-          onSearchSubmit={handleSearchSubmit}
-          onFundTypeChange={(v) => { setFundType(v); setPage(1); }}
-          onCategoryChange={(v) => { setCategory(v); setPage(1); }}
-          onCompanyChange={(v) => { setCompany(v); setPage(1); }}
-          onRiskLevelChange={(v) => { setRiskLevel(v); setPage(1); }}
-          onToggleXinjihui={() => {
-            setShowXinjihuiOnly((prev) => {
-              const next = !prev;
-              if (next) setShowWatchlistOnly(false);
-              return next;
-            });
-            setPage(1);
-          }}
-          onToggleWatchlist={() => {
-            setShowWatchlistOnly((prev) => {
-              const next = !prev;
-              if (next) setShowXinjihuiOnly(false);
-              return next;
-            });
-            setPage(1);
-          }}
-          onSortChange={handleSortChange}
-        />
+        <div className="mt-5 rounded-md border border-white/[0.08] bg-[#101411]/66 p-4">
+          <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-white">
+            <TrendingUp className="h-4 w-4 text-[#8FD9BA]" />
+            基金筛选指挥台
+          </div>
+          <FilterBar
+            search={search}
+            searchError={searchError}
+            fundType={fundType}
+            category={category}
+            company={company}
+            riskLevel={riskLevel}
+            showXinjihui={showXinjihuiOnly}
+            showWatchlist={showWatchlistOnly}
+            sortBy={sortBy}
+            sortOrder={sortOrder}
+            filterOpts={filterOpts}
+            addFundByCodePending={addFundByCode.isPending}
+            onSearchChange={(value) => { setSearch(value); setSearchError(null); setPage(1); }}
+            onSearchSubmit={handleSearchSubmit}
+            onFundTypeChange={(v) => { setFundType(v); setPage(1); }}
+            onCategoryChange={(v) => { setCategory(v); setPage(1); }}
+            onCompanyChange={(v) => { setCompany(v); setPage(1); }}
+            onRiskLevelChange={(v) => { setRiskLevel(v); setPage(1); }}
+            onToggleXinjihui={() => {
+              setShowXinjihuiOnly((prev) => {
+                const next = !prev;
+                if (next) setShowWatchlistOnly(false);
+                return next;
+              });
+              setPage(1);
+            }}
+            onToggleWatchlist={() => {
+              setShowWatchlistOnly((prev) => {
+                const next = !prev;
+                if (next) setShowXinjihuiOnly(false);
+                return next;
+              });
+              setPage(1);
+            }}
+            onSortChange={handleSortChange}
+          />
+        </div>
       </section>
 
       <FundTable
