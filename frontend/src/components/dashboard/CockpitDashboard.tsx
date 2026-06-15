@@ -143,6 +143,25 @@ function Sparkline({ warm = false }: { warm?: boolean }) {
   )
 }
 
+function MarketMoveBar({ value }: { value: number | null }) {
+  const magnitude = value === null ? 0 : clamp(Math.abs(value) * 22, 4, 100)
+  const isUp = (value || 0) >= 0
+  return (
+    <div className="mt-8">
+      <div className="h-2 rounded-full bg-white/10">
+        <div
+          className={classNames('h-full rounded-full', isUp ? 'bg-[#c86f44]' : 'bg-[#58c792]')}
+          style={{ width: `${magnitude}%` }}
+        />
+      </div>
+      <div className="mt-3 flex justify-between text-[10px] text-[#9f988f]">
+        <span>日涨跌幅</span>
+        <span className={isUp ? 'text-[#e37757]' : 'text-[#58c792]'}>{signedPct(value)}</span>
+      </div>
+    </div>
+  )
+}
+
 function Panel({ title, children, action, className }: { title: string; children: React.ReactNode; action?: React.ReactNode; className?: string }) {
   return (
     <section className={classNames('rounded-sm border border-[#2a2f2b] bg-[#0c0f0d]/90 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]', className)}>
@@ -367,7 +386,7 @@ export function CockpitDashboard({
                     {signedPct(item.change)}
                   </span>
                 </div>
-                <Sparkline warm={(item.change || 0) >= 0} />
+                <MarketMoveBar value={item.change} />
                 <div className="flex justify-between text-[10px] text-[#9f988f]"><span>{item.code}</span><span>{item.source}</span><span>实时</span></div>
               </div>
             )) : (
