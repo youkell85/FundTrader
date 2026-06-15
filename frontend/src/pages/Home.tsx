@@ -18,6 +18,13 @@ function isUserFund(fund: FundLike) {
   return fund.source === 'watchlist' || fund.isXinjihui === false
 }
 
+const MARKET_LOAD_MAX_ATTEMPTS = 4
+const MARKET_LOAD_RETRY_DELAY_MS = 4_000
+
+function wait(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms))
+}
+
 export default function Home() {
   const [marketOverview, setMarketOverview] = useState<MarketOverviewPayload | null>(null)
   const [marketStatus, setMarketStatus] = useState<MarketDataStatus | null>(null)
@@ -36,28 +43,47 @@ export default function Home() {
 
   useEffect(() => {
     let active = true
-    setMarketLoading(true)
-    setMarketError(null)
 
-    Promise.allSettled([getMarketOverview(), getMarketDataStatus()])
-      .then(([overviewResult, statusResult]) => {
+    async function loadMarketData() {
+      setMarketLoading(true)
+      setMarketError(null)
+
+      let lastError = '市场全景数据加载失败'
+      for (let attempt = 1; attempt <= MARKET_LOAD_MAX_ATTEMPTS; attempt += 1) {
+        const [overviewResult, statusResult] = await Promise.allSettled([getMarketOverview(), getMarketDataStatus()])
         if (!active) return
-        if (overviewResult.status === 'fulfilled') {
-          setMarketOverview(overviewResult.value)
-        } else {
-          setMarketError(overviewResult.reason?.message || '市场全景数据加载失败')
-        }
 
         if (statusResult.status === 'fulfilled') {
           setMarketStatus(statusResult.value)
         } else {
           setMarketStatus(null)
-          setMarketError((prev) => prev || statusResult.reason?.message || '市场状态数据加载失败')
+          lastError = statusResult.reason?.message || lastError
         }
-      })
-      .finally(() => {
-        if (active) setMarketLoading(false)
-      })
+
+        if (overviewResult.status === 'fulfilled' && (overviewResult.value?.market?.length || 0) > 0) {
+          setMarketOverview(overviewResult.value)
+          setMarketError(null)
+          setMarketLoading(false)
+          return
+        }
+
+        if (overviewResult.status === 'fulfilled') {
+          lastError = '市场全景接口暂未返回指数数据'
+        } else {
+          lastError = overviewResult.reason?.message || lastError
+        }
+
+        if (attempt < MARKET_LOAD_MAX_ATTEMPTS) {
+          await wait(MARKET_LOAD_RETRY_DELAY_MS)
+        }
+      }
+
+      if (!active) return
+      setMarketError(lastError)
+      setMarketLoading(false)
+    }
+
+    loadMarketData()
 
     return () => {
       active = false
