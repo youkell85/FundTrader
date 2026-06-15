@@ -1,8 +1,9 @@
 """Backtest data models — Pydantic v2 request/response schemas."""
 
+from datetime import date
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class BacktestRequest(BaseModel):
@@ -16,6 +17,22 @@ class BacktestRequest(BaseModel):
         default=["saa_only", "saa_taa", "sixty_forty"]
     )
     initial_amount: float = Field(default=1_000_000, gt=0)
+
+    @field_validator("start_date", "end_date")
+    @classmethod
+    def validate_iso_date(cls, value: str) -> str:
+        date.fromisoformat(value)
+        return value
+
+    @model_validator(mode="after")
+    def validate_date_range(self) -> "BacktestRequest":
+        start = date.fromisoformat(self.start_date)
+        end = date.fromisoformat(self.end_date)
+        if end <= start:
+            raise ValueError("end_date must be after start_date")
+        if (end - start).days > 3650:
+            raise ValueError("backtest range must not exceed 10 years")
+        return self
 
 
 class BacktestCurvePoint(BaseModel):

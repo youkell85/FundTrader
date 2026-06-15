@@ -5,6 +5,7 @@ import logging
 import math
 import queue
 import threading
+import uuid
 from typing import Any, AsyncGenerator
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -40,6 +41,7 @@ from ..allocation.fund_mapper import get_all_rankings
 from ..allocation.rebalancer import run_rebalance_check, get_mock_history
 
 router = APIRouter(prefix="/allocation", tags=["资产配置"])
+GENERIC_ALLOCATION_ERROR = "配置生成失败，请稍后重试或联系管理员。"
 
 
 def assert_json_finite(obj: Any, path: str = "$") -> None:
@@ -70,17 +72,24 @@ async def generate_allocation(request: AllocationRequest, user: dict | None = De
         result = await run_in_threadpool(run_allocation, request)
         assert_json_finite(_response_payload(result))
         return result
-    except Exception as e:
+    except Exception:
+        error_id = uuid.uuid4().hex
         logger.exception("Allocation pipeline crashed")
         health = get_pipeline_health()
+        logger.error(
+            "Allocation error id=%s health=%s failed_steps=%s degraded_steps=%s",
+            error_id,
+            health.get("health", "unknown"),
+            health.get("failed_steps", []),
+            health.get("degraded_steps", []),
+        )
         raise HTTPException(
             status_code=500,
             detail={
                 "error": "配置生成失败",
-                "message": str(e)[:200],
+                "message": GENERIC_ALLOCATION_ERROR,
+                "error_id": error_id,
                 "pipeline_health": health.get("health", "unknown"),
-                "failed_steps": health.get("failed_steps", []),
-                "degraded_steps": health.get("degraded_steps", []),
             },
         )
 
@@ -131,9 +140,14 @@ async def generate_allocation_stream(request: AllocationRequest, user: dict | No
             progress_queue.put({"type": "result", "data": payload})
         except TaskCancelledError:
             progress_queue.put({"type": "cancelled", "message": "任务已取消"})
-        except Exception as e:
+        except Exception:
+            error_id = uuid.uuid4().hex
             logger.exception("Stream allocation failed")
-            progress_queue.put({"type": "error", "message": str(e)[:300]})
+            progress_queue.put({
+                "type": "error",
+                "message": GENERIC_ALLOCATION_ERROR,
+                "error_id": error_id,
+            })
 
     thread = threading.Thread(target=_run_pipeline, daemon=True)
     thread.start()

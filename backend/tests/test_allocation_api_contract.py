@@ -41,7 +41,9 @@ class AllocationApiContractTest(unittest.IsolatedAsyncioTestCase):
                     await allocation_api.generate_allocation(request, user={"id": "test"})
 
         self.assertEqual(caught.exception.status_code, 500)
-        self.assertIn("non_finite_response_value", caught.exception.detail["message"])
+        self.assertNotIn("non_finite_response_value", caught.exception.detail["message"])
+        self.assertIn("error_id", caught.exception.detail)
+        self.assertNotIn("failed_steps", caught.exception.detail)
 
 
 if __name__ == "__main__":

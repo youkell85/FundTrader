@@ -123,6 +123,7 @@ def compute_metrics(
         sortino_ratio=round(sortino, 3) if sortino is not None else None,
         monthly_win_rate=round(win_rate, 1),
         avg_turnover=round(avg_turnover, 2),
+        total_rebalances=len(rebalance_turnovers),
         taa_value_added=taa_value_added,
         tracking_error=round(tracking_error * 100, 2) if tracking_error is not None else None,
         information_ratio=round(information_ratio, 3) if information_ratio is not None else None,
@@ -268,7 +269,9 @@ def _compute_max_drawdown(values: np.ndarray) -> Tuple[float, int]:
     Returns: (max_drawdown_fraction, duration_days)
     """
     running_max = np.maximum.accumulate(values)
-    drawdowns = (values - running_max) / running_max
+    safe_running_max = np.where(running_max > 0, running_max, np.nan)
+    drawdowns = (values - safe_running_max) / safe_running_max
+    drawdowns = np.nan_to_num(drawdowns, nan=0.0, posinf=0.0, neginf=0.0)
 
     max_dd = float(abs(np.min(drawdowns)))
 

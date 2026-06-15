@@ -1,8 +1,9 @@
 """Pydantic v2 models — matches frontend TypeScript AllocationRequest/Response exactly."""
 from __future__ import annotations
 
+from datetime import date
 from typing import Any, Dict, List, Literal, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # ─── Request ───
@@ -14,15 +15,23 @@ MarketRegime = Literal["goldilocks", "overheat", "stagflation", "deflation", "ba
 
 
 class AllocationRequest(BaseModel):
-    age: int = 35
+    age: int = Field(default=35, ge=18, le=120)
     goal_type: Optional[GoalType] = "wealth"
     investment_horizon: Optional[InvestmentHorizon] = "medium"
-    amount: float = 500000
+    amount: float = Field(default=500000, gt=0, le=1_000_000_000)
     target_date: Optional[str] = None
     behavior_answers: Optional[Dict[str, str]] = None
     risk_tolerance: RiskTolerance = "balanced"
-    max_drawdown: Optional[float] = None
-    preferred_tags: List[str] = Field(default_factory=list)
+    max_drawdown: Optional[float] = Field(default=None, ge=0, le=100)
+    preferred_tags: List[str] = Field(default_factory=list, max_length=20)
+
+    @field_validator("target_date")
+    @classmethod
+    def validate_target_date(cls, value: Optional[str]) -> Optional[str]:
+        if not value:
+            return value
+        date.fromisoformat(value)
+        return value
 
 
 # ─── Response Sub-Models ───

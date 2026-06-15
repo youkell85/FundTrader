@@ -41,14 +41,19 @@ DEFAULT_THRESHOLDS = {
 }
 
 _DEFAULT_USER = "__default__"
+MAX_ALERTS_PER_USER = 100
 _alerts_by_user: Dict[str, List[Dict]] = {}
-_alerts_lock = threading.Lock()
+_alerts_lock = threading.RLock()
 
 
 def _get_user_alerts(user_id: str) -> List[Dict]:
-    if user_id not in _alerts_by_user:
-        _alerts_by_user[user_id] = []
-    return _alerts_by_user[user_id]
+    with _alerts_lock:
+        if user_id not in _alerts_by_user:
+            _alerts_by_user[user_id] = []
+        alerts = _alerts_by_user[user_id]
+        if len(alerts) > MAX_ALERTS_PER_USER:
+            del alerts[:-MAX_ALERTS_PER_USER]
+        return alerts
 
 
 def check_alerts(
@@ -167,7 +172,10 @@ def check_alerts(
 
     # Store alerts (thread-safe, user-isolated)
     with _alerts_lock:
-        _get_user_alerts(user_id).extend(alerts)
+        stored_alerts = _get_user_alerts(user_id)
+        stored_alerts.extend(alerts)
+        if len(stored_alerts) > MAX_ALERTS_PER_USER:
+            del stored_alerts[:-MAX_ALERTS_PER_USER]
 
     return alerts
 
