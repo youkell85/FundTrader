@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
   backendReturnSeries,
   chartDateTick,
+  mergeReturnSeriesByDate,
   navPointsToReturnSeries,
   resolveFundReturnSeries,
 } from "../src/lib/fund-detail-chart";
@@ -50,5 +51,22 @@ describe("fund detail chart helpers", () => {
   test("formats full dates for compact axis ticks", () => {
     expect(chartDateTick("2026-06-02")).toBe("06-02");
     expect(chartDateTick("06-02")).toBe("06-02");
+  });
+
+  test("merges comparison series by date union so sparse index dates remain drawable", () => {
+    const rows = mergeReturnSeriesByDate(
+      [
+        { data: [{ d: "2026-06-01", value: 0 }, { d: "2026-06-03", value: 1 }] },
+        { data: [] },
+        { data: [{ d: "2026-06-02", value: 2 }, { d: "2026-06-03", value: 3 }] },
+      ],
+      ["fund", "peer", "index"],
+    );
+
+    expect(rows).toEqual([
+      { d: "2026-06-01", fund: 0, peer: null, index: null },
+      { d: "2026-06-02", fund: null, peer: null, index: 2 },
+      { d: "2026-06-03", fund: 1, peer: null, index: 3 },
+    ]);
   });
 });

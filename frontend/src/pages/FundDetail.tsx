@@ -22,6 +22,7 @@ import { getChangeTextClass } from "@/lib/colors";
 import {
   backendReturnSeries,
   chartDateTick,
+  mergeReturnSeriesByDate,
   navPointsToReturnSeries,
   resolveFundReturnSeries,
   type NavPoint,
@@ -1197,19 +1198,11 @@ function PerformanceSection({
 }) {
   // 把 4 series 合并成 recharts 友好的长格式
   // 当一条 series.data 为空时（缺数），键仍存在但值为 null，recharts 会画"断点"
-  // 这里我们仅当 4 条都有数据时才合并；否则只画本基金单线。
-  const hasAll = series.every((s) => s.data.length > 0);
-  const comparisonChartData = hasAll
-    ? series[0].data.map((point) => {
-        const keys = ["fund", "peer", "index", "bench"] as const;
-        const row: Record<string, string | number | null> = { d: point.d };
-        series.forEach((s, index) => {
-          const matched = s.data.find((item) => item.d === point.d);
-          row[keys[index]] = matched?.value ?? null;
-        });
-        return row;
-      })
-    : navSeries;
+  // 使用日期并集做横轴；基金和指数交易日不完全一致时，通过 connectNulls 连成各自曲线。
+  const seriesKeys = ["fund", "peer", "index", "bench"] as const;
+  const hasAnyComparison = series.slice(1).some((s) => s.data.length > 0);
+  const comparisonChartData = hasAnyComparison ? mergeReturnSeriesByDate(series, seriesKeys) : navSeries;
+  const missingComparisonNames = series.slice(1).filter((s) => s.data.length === 0).map((s) => s.name);
 
   return (
     <>
@@ -1249,19 +1242,19 @@ function PerformanceSection({
           ))}
         </div>
         <div className="h-[320px]">
-          {navSeries.length === 0 ? (
+          {comparisonChartData.length === 0 ? (
             <EmptyState />
-          ) : hasAll ? (
+          ) : hasAnyComparison ? (
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart data={comparisonChartData}>
                 <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                 <XAxis dataKey="d" tick={{ fontSize: 11 }} tickFormatter={chartDateTick} />
                 <YAxis tick={{ fontSize: 11 }} />
                 <Tooltip contentStyle={TOOLTIP_STYLE} formatter={(value: number) => [`${Number(value).toFixed(2)}%`, ""]} />
-                <Line dataKey="fund" stroke={SERIES_COLORS.fund} dot={false} name="本基金" />
-                <Line dataKey="peer" stroke={SERIES_COLORS.peer} dot={false} name="偏股混合均值" />
-                <Line dataKey="index" stroke={SERIES_COLORS.index} dot={false} name="沪深300" />
-                <Line dataKey="bench" stroke={SERIES_COLORS.bench} dot={false} name="业绩比较基准" />
+                <Line dataKey="fund" stroke={SERIES_COLORS.fund} dot={false} name="本基金" connectNulls />
+                <Line dataKey="peer" stroke={SERIES_COLORS.peer} dot={false} name="偏股混合均值" connectNulls />
+                <Line dataKey="index" stroke={SERIES_COLORS.index} dot={false} name="沪深300" connectNulls />
+                <Line dataKey="bench" stroke={SERIES_COLORS.bench} dot={false} name="业绩比较基准" connectNulls />
               </ComposedChart>
             </ResponsiveContainer>
           ) : (
@@ -1282,10 +1275,14 @@ function PerformanceSection({
             </ResponsiveContainer>
           )}
         </div>
-        {!hasAll ? (
+        {!hasAnyComparison ? (
           <div className="mt-2 text-xs text-muted-foreground">
             🛈 当前只绘制了本基金曲线。偏股混合均值 / 沪深300 / 业绩比较基准 3 条对比曲线
             需后端补充对应接口后展示。
+          </div>
+        ) : missingComparisonNames.length > 0 ? (
+          <div className="mt-2 text-xs text-muted-foreground">
+            🛈 已展示可用对比曲线；{missingComparisonNames.join(" / ")} 暂无序列数据。
           </div>
         ) : null}
       </Panel>

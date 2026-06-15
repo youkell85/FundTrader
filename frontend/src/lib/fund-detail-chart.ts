@@ -1,6 +1,7 @@
 export type NavPoint = { d: string; nav: number };
 export type ReturnSeriesPoint = { d: string; value: number };
 export type ReturnSeriesResult = { data: ReturnSeriesPoint[]; rangeReturn: number | null };
+export type MergedReturnSeriesRow = { d: string } & Record<string, string | number | null>;
 
 export function navPointsToReturnSeries(points: NavPoint[]): ReturnSeriesResult {
   if (!points.length) return { data: [], rangeReturn: null };
@@ -27,6 +28,22 @@ export function resolveFundReturnSeries(
 ): ReturnSeriesResult {
   const fromNav = navPointsToReturnSeries(navPoints);
   return fromNav.data.length > 0 ? fromNav : backendReturnSeries(backendSeries);
+}
+
+export function mergeReturnSeriesByDate(
+  series: Array<{ data: ReturnSeriesPoint[] }>,
+  keys: readonly string[],
+): MergedReturnSeriesRow[] {
+  const dates = Array.from(new Set(series.flatMap((item) => item.data.map((point) => point.d)))).sort();
+  const valueMaps = series.map((item) => new Map(item.data.map((point) => [point.d, point.value])));
+
+  return dates.map((date) => {
+    const row: MergedReturnSeriesRow = { d: date };
+    keys.forEach((key, index) => {
+      row[key] = valueMaps[index]?.get(date) ?? null;
+    });
+    return row;
+  });
 }
 
 export function chartDateTick(value: unknown): string {
