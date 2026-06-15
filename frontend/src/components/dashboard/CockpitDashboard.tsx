@@ -1,3 +1,5 @@
+import { useMemo, useState } from 'react'
+import { Link } from 'react-router'
 import { Bell, ChevronRight, Gauge, Search, UserCircle } from 'lucide-react'
 
 type FundLike = {
@@ -156,6 +158,7 @@ export function CockpitDashboard({
   loading?: boolean
   error?: string | null
 }) {
+  const [query, setQuery] = useState('')
   const weighted = buildEqualWeights(funds)
   const assetMix = distributionByType(weighted)
   const avgDay = average(funds.map((fund) => parseMetric(fund.dailyChange)))
@@ -171,8 +174,22 @@ export function CockpitDashboard({
     : mode === 'userEmptyFallback'
       ? '用户暂无自选，暂展示最优夏普组合'
       : '未登录：最优夏普组合'
-  const topFunds = weighted.slice(0, 8)
-  const cards = weighted.slice(0, 4)
+  const filteredWeighted = useMemo(() => {
+    const keyword = query.trim().toLowerCase()
+    if (!keyword) return weighted
+    return weighted.filter(({ fund }) => {
+      const haystack = [
+        fund.fundCode,
+        fundName(fund),
+        managerName(fund),
+        typeLabel(fund),
+        fund.company,
+      ].filter(Boolean).join(' ').toLowerCase()
+      return haystack.includes(keyword)
+    })
+  }, [query, weighted])
+  const visibleCards = filteredWeighted.slice(0, 4)
+  const visibleRows = filteredWeighted.slice(0, 8)
 
   return (
     <section className="relative overflow-hidden rounded-md border border-[#2a2f2b] bg-[#050706] p-3 text-[#f4efe3] shadow-2xl shadow-black/50">
@@ -184,10 +201,15 @@ export function CockpitDashboard({
             <div className="rounded-full border border-[#58c792]/25 bg-[#58c792]/10 px-3 py-1 text-xs text-[#8de0b5]">{sourceLabel}</div>
           </div>
           <div className="flex flex-wrap items-center gap-3 text-xs text-[#bcb5aa]">
-            <div className="flex h-8 min-w-[260px] items-center gap-2 rounded-full border border-white/15 bg-white/[0.04] px-3">
+            <label className="flex h-8 min-w-[260px] items-center gap-2 rounded-full border border-white/15 bg-white/[0.04] px-3">
               <Search size={14} />
-              <span>搜索基金 / 代码 / 经理 / 公司</span>
-            </div>
+              <input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="搜索基金 / 代码 / 经理 / 公司"
+                className="min-w-0 flex-1 bg-transparent text-xs text-[#f4efe3] outline-none placeholder:text-[#bcb5aa]"
+              />
+            </label>
             <Bell size={16} />
             <span>消息</span>
             <span>预警</span>
@@ -248,7 +270,7 @@ export function CockpitDashboard({
           </div>
         </Panel>
 
-        <Panel title="我的组合" action={<div className="flex gap-2"><button className="rounded-full border border-white/15 px-3 py-1 text-xs">组合诊断</button><button className="rounded-full border border-white/15 px-3 py-1 text-xs">组合对比</button></div>} className="mt-3">
+        <Panel title="我的组合" action={<div className="flex gap-2"><Link to="/analysis" className="rounded-full border border-white/15 px-3 py-1 text-xs hover:bg-white/8">组合诊断</Link><Link to="/recommend" className="rounded-full border border-white/15 px-3 py-1 text-xs hover:bg-white/8">组合对比</Link></div>} className="mt-3">
           <div className="grid grid-cols-2 gap-3 border-b border-white/[0.08] pb-4 md:grid-cols-6">
             {[
               ['组合净值', netValue, 'text-white'],
@@ -315,10 +337,11 @@ export function CockpitDashboard({
 
         <Panel title={mode === 'user' ? '用户组合持仓' : '优选基金'} action={<div className="flex flex-wrap gap-4 text-xs text-white/62"><span className="rounded bg-white/10 px-2 py-1 text-white">按夏普</span><span>真实指标</span><span>最新净值</span><span>更多</span></div>} className="mt-3">
           <div className="grid gap-3 lg:grid-cols-4">
-            {cards.map(({ fund, weight }) => {
+            {visibleCards.map(({ fund, weight }) => {
               const returnRate = parseMetric(fund.performance?.return1y ?? fund.performance?.annualizedReturn)
+              const detailPath = fund.fundCode ? `/${fund.fundCode}` : '/analysis'
               return (
-                <div key={fund.fundCode || fundName(fund)} className="rounded-sm border border-white/[0.08] bg-white/[0.035] p-3">
+                <Link key={fund.fundCode || fundName(fund)} to={detailPath} className="block rounded-sm border border-white/[0.08] bg-white/[0.035] p-3 transition hover:border-[#58c792]/55 hover:bg-white/[0.055]">
                   <div className="flex items-center justify-between gap-3">
                     <div>
                       <div className="font-semibold text-[#f7f1e7]">{fundName(fund)}</div>
@@ -337,9 +360,14 @@ export function CockpitDashboard({
                     <span className="rounded bg-[#d2a66a]/12 px-2 py-1 text-[#ddb878]">权重 {weight.toFixed(2)}%</span>
                     <span className="text-[#f1eadf]">{metricText(fund.nav, 4)}<span className="ml-1 text-[#9f988f]">最新净值</span></span>
                   </div>
-                </div>
+                </Link>
               )
             })}
+            {visibleCards.length === 0 && (
+              <div className="rounded-sm border border-white/[0.08] bg-white/[0.035] p-4 text-sm text-[#bcb5aa] lg:col-span-4">
+                没有匹配的基金，请调整搜索条件。
+              </div>
+            )}
           </div>
         </Panel>
 
@@ -347,15 +375,18 @@ export function CockpitDashboard({
           <Panel title="持仓明细">
             <div className="grid grid-cols-[58px_1fr_70px_72px_70px] gap-2 text-xs text-[#d8cec0]">
               <span className="text-[#58c792]">代码</span><span>基金名称</span><span>权重</span><span>夏普</span><span>回撤</span>
-              {topFunds.map(({ fund, weight }) => (
+              {visibleRows.map(({ fund, weight }) => (
                 <div key={fund.fundCode || fundName(fund)} className="contents">
-                  <span className="py-1">{fund.fundCode || '—'}</span>
-                  <span className="truncate py-1">{fundName(fund)}</span>
+                  <Link to={fund.fundCode ? `/${fund.fundCode}` : '/analysis'} className="py-1 text-[#8de0b5] hover:text-white">{fund.fundCode || '—'}</Link>
+                  <Link to={fund.fundCode ? `/${fund.fundCode}` : '/analysis'} className="truncate py-1 hover:text-white">{fundName(fund)}</Link>
                   <span className="py-1 text-[#e8c184]">{weight.toFixed(2)}%</span>
                   <span className="py-1">{metricText(fund.performance?.sharpeRatio)}</span>
                   <span className="py-1 text-[#58c792]">{plainPct(parseMetric(fund.performance?.maxDrawdown))}</span>
                 </div>
               ))}
+              {visibleRows.length === 0 && (
+                <div className="col-span-5 py-4 text-sm text-[#bcb5aa]">没有匹配的持仓。</div>
+              )}
             </div>
           </Panel>
           <Panel title="组合风险" action={<Gauge size={15} className="text-[#d5a765]" />}>
@@ -383,7 +414,7 @@ export function CockpitDashboard({
                   <span>{text}</span>
                 </div>
               ))}
-              <button className="mt-2 flex items-center gap-1 text-xs font-semibold text-[#58c792]">查看全部建议 <ChevronRight size={14} /></button>
+              <Link to="/recommend" className="mt-2 flex items-center gap-1 text-xs font-semibold text-[#58c792] hover:text-white">查看全部建议 <ChevronRight size={14} /></Link>
             </div>
           </Panel>
         </div>
