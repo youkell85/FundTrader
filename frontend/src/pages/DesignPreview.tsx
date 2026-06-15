@@ -173,7 +173,7 @@ function TerminalPreview() {
   )
 }
 
-function CockpitPreview() {
+export function CockpitPreview() {
   return (
     <section className="relative overflow-hidden rounded-md border border-[#2a2f2b] bg-[#050706] p-3 text-[#f4efe3] shadow-2xl shadow-black/50">
       <div className="absolute inset-0 opacity-[0.08] [background-image:linear-gradient(rgba(255,255,255,.16)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.16)_1px,transparent_1px)] [background-size:32px_32px]" />
