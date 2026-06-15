@@ -1,4 +1,4 @@
-"""AkShare 数据获取层"""
+﻿"""AkShare 数据获取层"""
 import akshare as ak
 import pandas as pd
 import efinance as ef
@@ -149,6 +149,30 @@ def get_fund_portfolio(code: str) -> Optional[Dict[str, Any]]:
 
 
 
+def _pick_value(row: Any, keys: List[str]) -> Any:
+    for key in keys:
+        if key in row:
+            value = row.get(key)
+            if value is not None and value != "":
+                return value
+    return None
+
+
+def _safe_ratio(value: Any) -> float:
+    if value is None:
+        return 0.0
+    if isinstance(value, str):
+        cleaned = value.replace("%", "").replace(",", "").strip()
+        try:
+            return float(cleaned)
+        except (TypeError, ValueError):
+            return 0.0
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def get_fund_bond_portfolio(code: str) -> Optional[Dict[str, Any]]:
     """获取基金债券持仓信息 - 用于债券型基金"""
     from datetime import datetime
@@ -160,20 +184,86 @@ def get_fund_bond_portfolio(code: str) -> Optional[Dict[str, Any]]:
             bond_df = ak.fund_portfolio_bond_hold_em(symbol=code, date=str(year))
             if bond_df is not None and not bond_df.empty:
                 for _, row in bond_df.head(10).iterrows():
-                    ratio_val = row.get("占净值比例", 0)
-                    if isinstance(ratio_val, str):
-                        ratio_val = ratio_val.replace("%", "").strip()
-                    try:
-                        ratio = float(ratio_val)
-                    except (ValueError, TypeError):
-                        ratio = 0
+                    as_of = _pick_value(row, ["报告期", "持仓日期", "quarter", "date"]) or year
+                    ratio_val = _pick_value(
+                        row,
+                        [
+                            "占净值比例",
+                            "债券占净值比",
+                            "占净值比",
+                            "ratio",
+                            "nav_ratio",
+                            "nav_ratio_pct",
+                        ],
+                    )
                     bond_holdings.append({
-                        "name": row.get("债券名称", ""),
-                        "code": row.get("债券代码", ""),
-                        "ratio": ratio,
-                        "quarter": str(row.get("报告期") or year),
+                        "name": _pick_value(
+                            row,
+                            [
+                                "债券名称",
+                                "bond_name",
+                                "债券简称",
+                                "证券简称",
+                                "证券简称/债券名称",
+                            ],
+                        ) or "",
+                        "code": _pick_value(row, ["债券代码", "代码", "bond_code"]) or "",
+                        "ratio": _safe_ratio(ratio_val),
+                        "quarter": str(as_of),
+                        "couponRate": _safe_ratio(
+                            _pick_value(
+                                row,
+                                [
+                                    "couponRate",
+                                    "coupon_rate",
+                                    "ticket_rate",
+                                    "interestRate",
+                                    "票面利率",
+                                    "票息",
+                                    "收益率",
+                                ],
+                            )
+                        ),
+                        "issuer": _pick_value(
+                            row,
+                            [
+                                "issuer",
+                                "issuerName",
+                                "creditor",
+                                "发行人",
+                                "债务人",
+                            ],
+                        ),
+                        "bondType": _pick_value(
+                            row,
+                            [
+                                "bondType",
+                                "bond_type",
+                                "bondKind",
+                                "债券类型",
+                            ],
+                        ) or "",
+                        "creditRating": _pick_value(
+                            row,
+                            [
+                                "creditRating",
+                                "credit_rating",
+                                "评级",
+                            ],
+                        ),
+                        "marketValue": _safe_ratio(
+                            _pick_value(
+                                row,
+                                [
+                                    "marketValue",
+                                    "market_value",
+                                    "市值",
+                                    "市值(万)",
+                                ],
+                            )
+                        ),
                         "source": "AkShare 东方财富F10 债券持仓",
-                        "updated_at": str(row.get("报告期") or year),
+                        "updated_at": str(as_of),
                     })
                 break
         except Exception:
@@ -312,7 +402,7 @@ def get_fund_industry_board() -> List[Dict[str, Any]]:
 
 
 def get_market_index() -> List[Dict[str, Any]]:
-    """Get major market indices with latest quote and 30-day OHLC series."""
+    """获取主要市场指数（优先 Tushare index_daily，回退 AkShare 最新2日数据）"""
     def _float_or_none(value: Any) -> Optional[float]:
         try:
             if value is None or value == "":
@@ -369,11 +459,13 @@ def get_market_index() -> List[Dict[str, Any]]:
     except Exception as e:
         console_error(f"Tushare market index error: {e}")
 
+    # 回退：akshare 指数日线
     try:
         indices = {"sh000001": "上证指数", "sz399001": "深证成指", "sz399006": "创业板指"}
         result = []
         for code, name in indices.items():
             try:
+                # 限制获取最近30个交易日数据，减少网络开销
                 df = ak.stock_zh_index_daily(symbol=code)
                 if df is not None and not df.empty:
                     df_tail_30 = df.tail(30)
@@ -393,6 +485,7 @@ def get_market_index() -> List[Dict[str, Any]]:
                             "close": close_value,
                             "volume": _float_or_none(row.get("volume") or row.get("成交量")),
                         })
+                    # 取最新两行计算涨跌幅
                     df_tail = df.tail(2)
                     if len(df_tail) >= 2:
                         latest = df_tail.iloc[-1]
@@ -419,3 +512,4 @@ def get_market_index() -> List[Dict[str, Any]]:
     except Exception as e:
         console_error(f"Market index error: {e}")
         return []
+

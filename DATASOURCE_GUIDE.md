@@ -1,7 +1,7 @@
 ﻿# FundTrader 金融数据源与密钥指南
 
 > 面向智能体（Agent）的权威参考。当你在构建、修改、扩展金融项目时，依据本文档选取合适的数据源。
-> 更新日期: 2026-05-30 | 数据源可用: 9/9
+> 更新日期: 2026-06-14 | 数据源可用: 9/9
 
 ---
 
@@ -1492,3 +1492,176 @@ ETF行情 ─── TickFlow(日K最快) + westock-data(详情/持仓) + Tushare
   - MarketDataStreamPayload
 - frontend/src/components/allocation/MarketDataDiagnosticsPanel.tsx
   - props: { health, dataSourceStatus }
+
+---
+
+## 2026-06-14 数据源学习与实践复盘（TickFlow / Tushare / iFinD）
+
+本节记录最近一轮数据源文档阅读、代码接入排查、生产接口核对后的可复用结论。后续新增数据源、修复基金详情页字段、排查行情缺口时，应优先遵循这里的实践规则。
+
+### 1. 总体结论
+
+当前 FundTrader 不是单一数据源架构，而是“Provider 融合层 + Fetcher 兜底 + SQLite 快照 + 页面级 dataStatus”的组合。数据源选型不能只看谁字段最多，还要看响应速度、历史回溯、接口稳定性、字段口径和是否能在详情页形成可解释的 `available / partial / stale / missing` 状态。
+
+推荐分工如下：
+
+| 数据源 | 最适合承担 | 不适合承担 | 当前实践结论 |
+|---|---|---|---|
+| TickFlow | ETF/股票行情、日 K、分钟 K、批量 K 线、盘口、除权因子、行情诊断 | 公募基金基础资料、基金经理、基金评级、季报持仓 | 用作高速行情源和市场数据健康监控源，不应替代 Tushare 的基金结构化数据 |
+| Tushare | 基金基础、净值、份额、规模、持仓、基金经理、评级、分红、复权、交易日历、指数日线、宏观指标 | 交易时段基金估值、全市场基金收益排名的直接展示、部分实时行情 | 当前基金详情补字段最可靠的数据源；字段稳定但要处理权限、后缀和空表 |
+| iFinD | 专业风险指标、宏观、新闻、ESG、自然语言式专业金融查询 | 高频行情、低延迟批量 K 线、无降级的主链路依赖 | 适合作为高价值增强源；接入时必须处理慢响应和返回结构不统一 |
+
+### 2. TickFlow 实践记录
+
+官方资料的可靠入口是：
+
+| 用途 | 地址 / 路径 | 实践结论 |
+|---|---|---|
+| 文档索引 | `https://docs.tickflow.org/llms.txt` | 避免猜中文路径；先从 `llms.txt` 找真实子页面 |
+| REST OpenAPI | `https://api.tickflow.org/openapi.json` | 以 OpenAPI 为准确认真实 endpoint |
+| WebSocket AsyncAPI | `https://docs.tickflow.org/zh-Hans/api-reference/websocket.yaml` | WebSocket 使用 query 参数 `api_key`，推荐 `/v1/ws/stream` |
+| REST 鉴权 | Header `x-api-key` | SDK 里由 `TickFlow(api_key=...)` 封装 |
+
+已验证的核心 REST 能力包括：
+
+| 能力 | 典型 endpoint / SDK | 用途 |
+|---|---|---|
+| 实时行情 | `/v1/quotes`, `tf.quotes.get(...)` | 多市场 quote，适合市场诊断和行情看板 |
+| K 线 | `/v1/klines`, `tf.klines.get(...)` | 单标的日 K / 分钟 K |
+| 批量 K 线 | `/v1/klines/batch`, `tf.klines.batch(...)` | 多标的批量取数，需控制批量大小 |
+| 日内分时 | `/v1/klines/intraday` | 日内曲线，适合实时看板 |
+| 盘口深度 | `/v1/depth`, `tf.depth.get(...)` | 五档行情 / market depth |
+| 除权因子 | `/v1/klines/ex-factors`, `tf.klines.ex_factors(...)` | 复权计算辅助 |
+| 标的与市场 | `/v1/instruments`, `/v1/universes`, `/v1/exchanges` | 搜索、市场范围、批量 universe |
+| WebSocket | `/v1/ws/stream` | quote/depth 订阅，适合后续实时推送 |
+
+仓库实现要点：
+
+| 文件 | 当前行为 |
+|---|---|
+| `backend/app/data/providers/tickflow_provider.py` | `TickflowClientFactory` 支持 `paid/free/auto`；有 `TICKFLOW_API_KEY` 时优先付费客户端，失败回落 `TickFlow.free()` |
+| `backend/app/data/providers/tickflow_provider.py` | `TickflowQuotaPolicy` 统一 period、batch size 和分钟 K 最大窗口 |
+| `backend/app/data/providers/tickflow_provider.py` | `TickflowProvider.get_fund_nav()` 当前本质是用交易所 K 线映射 ETF/LOF，不是公募基金结构化净值源 |
+| `backend/app/main.py` | `/market-data/data-sources` 返回 TickFlow paid/free 配额说明，前端诊断面板消费这些字段 |
+| `frontend/src/components/allocation/MarketDataDiagnosticsPanel.tsx` | 已展示 `tickflow_paid` 和 `tickflow_free` 状态 |
+
+TickFlow 使用规则：
+
+1. ETF、股票行情优先 TickFlow；开放式基金详情字段不要从 TickFlow 补。
+2. `TICKFLOW_API_LEVEL=auto` 是默认安全配置；本地无 key 时走免费模式，有 key 时走付费模式。
+3. 分钟 K 请求必须走 `TickflowQuotaPolicy.normalize_request_window()`，避免一次请求超过当前包限制。
+4. 批量请求必须走 `TickflowQuotaPolicy.validate_batch_size()`，当前按 100 标的上限控制。
+5. WebSocket 新接入应优先 `/v1/ws/stream`，鉴权用 `api_key` query 参数，不要照搬 REST 的 `x-api-key` header。
+6. 文档调研时不要猜 URL；先读 `llms.txt`，再用 OpenAPI / AsyncAPI 校验 endpoint。
+
+### 3. Tushare 实践记录
+
+Tushare 是当前基金结构化数据的主力增强源。它的优势不是实时性，而是字段稳定、历史可回溯、适合写入本地快照。
+
+仓库实现要点：
+
+| 文件 | 当前行为 |
+|---|---|
+| `backend/app/data/providers/tushare_provider.py` | 使用 `TUSHARE_TOKEN`，缺失时尝试读取 `~/.tushare_token` |
+| `backend/app/data/providers/tushare_provider.py` | `_safe_call()` 对接口异常降级并做短暂停顿，避免单接口失败拖垮详情链路 |
+| `backend/app/data/providers/tushare_provider.py` | 基金代码优先 `.OF`，ETF/LOF 根据代码前缀尝试 `.SH` / `.SZ` |
+| `backend/app/data/providers/tushare_provider.py` | `fund_nav` 不直接给日涨幅时，本地按前一日单位净值计算 `day_growth` |
+| `backend/app/services/fund_service.py` | 规模历史可用 `fund_share * unit_nav` 回填季度规模并入库 |
+| `backend/app/services/fund_service.py` | 基金经理历史可从 `fund_manager` 回填，包含任职回报 |
+| `backend/app/api/fund.py` | `rating` 优先 Tushare `fund_rating`，缺失时用本地 score 作 partial 兜底 |
+| `backend/app/allocation/data/macro_fetcher.py` | PMI、GDP、CPI、PPI、10Y 国债、社融、M2、融资余额等宏观指标优先 Tushare，再回退 AkShare |
+
+关键接口与用途：
+
+| 接口 | 用途 | 项目实践 |
+|---|---|---|
+| `fund_basic` | 基金基础、公司、类型、成立日、基准 | 基金列表、详情基础字段、公司信息补齐 |
+| `fund_nav` | 单位净值、累计净值、复权净值 | 基金详情、风险指标、阶段收益、定投/回测候选源 |
+| `fund_share` | 基金份额 | 与 `unit_nav` 组合计算规模 |
+| `fund_portfolio` | 季报持仓 | 股票持仓、股债配置、部分持有人/券种相关字段 |
+| `fund_manager` | 基金经理和任职回报 | 经理历史、现任经理字段补齐 |
+| `fund_rating` | 基金评级 | 详情页评级字段 |
+| `fund_div` | 分红记录 | 分红展示和收益口径增强 |
+| `fund_adj` | 复权因子 | 复权收益计算辅助 |
+| `trade_cal` | 交易日历 | 交易日判断 |
+| `index_daily` | 指数日线 | 沪深 300 等基准曲线 |
+
+Tushare 使用规则：
+
+1. 日期统一使用 `YYYYMMDD` 请求，入库和前端展示再转换成 `YYYY-MM-DD`。
+2. 基金 `ts_code` 后缀必须显式处理：开放式基金 `.OF`，沪市 ETF/LOF `.SH`，深市 ETF/LOF `.SZ`。
+3. 每个接口都要接受空 DataFrame；空表是正常业务结果，不应抛出到页面。
+4. 列字段优先显式 `fields`，避免接口返回结构变化影响解析。
+5. 列表类接口必须分页或限量，避免一次拉全量造成限流或超时。
+6. `fund_nav` 的 `day_growth` 可以本地计算；不要因为 Tushare 未给日涨幅就判定净值源不可用。
+7. 规模字段不要只信单一口径；当前更可靠做法是 `fund_share(fd_share) * fund_nav(unit_nav)`，再按亿元归一。
+8. 页面字段补齐时，Tushare 只做真实数据或可解释回填；如果缺真实基准，例如业绩比较基准净值，不要伪造成沪深 300。
+
+### 4. iFinD 实践记录
+
+iFinD 在文档层面是专业金融数据源，适合补专业指标，但当前仓库里的 `iFinDProvider` 仍是轻量 HTTP provider。后续继续深化 iFinD 时，要区分“已接入实现”和“文档/账号可用能力”。
+
+仓库实现要点：
+
+| 文件 | 当前行为 |
+|---|---|
+| `backend/app/data/providers/ifind_provider.py` | 使用 `IFIND_TOKEN`，通过 Bearer Token 请求 `https://quantapi.51ifind.com/api/v1` |
+| `backend/app/data/providers/ifind_provider.py` | 当前实现包含基金列表、基金详情、基金净值、基金持仓等轻量接口 |
+| `backend/app/data/providers/fusion.py` | `iFinDProvider` 已纳入融合层，优先级高于 TickFlow |
+
+实践规则：
+
+1. iFinD 适合风险指标、宏观、新闻、ESG、专业查询；不适合作为低延迟行情主源。
+2. iFinD 返回结构可能不统一，解析层必须接受 dict、list、str 等变体。
+3. iFinD 调用要设置明确超时，并在页面字段上标记 `partial/stale/missing`，避免等待专业源拖慢主页面。
+4. 如果切到 iFinD MCP JSON-RPC 方案，必须新建清晰适配层，不要把 MCP 协议细节混进现有普通 REST provider。
+5. 基金详情页需要的风险摘要可以优先用本地净值指标兜底，再由 iFinD 风险指标增强。
+
+### 5. 基金详情页数据实践
+
+详情页现在不是一个接口解决全部字段，而是多接口并行：
+
+| 前端 tRPC | 后端 REST | 主要数据源 |
+|---|---|---|
+| `detailByCode` | `/fund/snapshot/{code}` | 本地快照、Tushare、东方财富、efinance |
+| `rating` | `/fund/rating` | Tushare `fund_rating`，本地 score 兜底 |
+| `purchaseInfo` | `/fund/purchase-info` | 本地 metrics，缺失时默认费率 partial |
+| `holderStructure` | `/fund/holder-structure` | 季报快照 / Tushare |
+| `yearReturns` | `/fund/year-returns` | NAV 计算、沪深 300、同类均值 |
+| `peerPerformance` | `/fund/peer-performance` | 本基金 NAV、沪深 300、同类统计 |
+| `scaleHistory` | `/fund/scale-history` | 季度快照，Tushare `fund_share * unit_nav` 回填 |
+| `turnoverHistory` | `/fund/turnover-history` | 季报快照 |
+| `managerHistory` | `/fund/manager-history` | Tushare `fund_manager` |
+| `bondAllocation` | `/fund/bond-allocation` | 季报快照 / Tushare |
+| `bondHoldings` | `/fund/bond-holdings` | 季报快照 / Tushare |
+| `managerReport` | `/fund/manager-report` | 东财公告 / AkShare |
+| `riskSummary` | `/fund/risk-summary` | 本地净值风险指标 + 同类均值 |
+| `detailCompleteness` | `/fund/detail-completeness` | 字段覆盖度聚合 |
+
+实践规则：
+
+1. 页面字段是否“可用”以 `detailCompleteness` 和具体 section payload 同时判断。
+2. 可计算回填必须标记为 `partial` 或保留 source 说明，不要伪装成原始数据。
+3. `peerPerformance.benchmark` 只有在有真实业绩比较基准净值时才填；不能默认等同沪深 300。
+4. 本基金、沪深 300、同类均值可以分别使用不同来源，但页面上要保留 `source/asOf/coverage/missingReason`。
+5. BFF 路径排查要保留 `/fund/api/...` 形状；FastAPI 下游路由是 `/fund/...`，BFF 会剥离 `/fund/api` 前缀。
+
+### 6. 新增或修复数据源的标准流程
+
+1. 先确定字段归属：结构化基金字段优先 Tushare，行情优先 TickFlow，专业风险/宏观优先 iFinD。
+2. 再确认调用链：Provider / Fetcher / SQLite 快照 / FastAPI / BFF tRPC / 前端消费点。
+3. 接口级验证一个代表基金或 ETF，不要只看文档能力。
+4. 每个字段都写清楚 source、asOf、coverage、missingReason。
+5. 任何外部源失败都降级为 `partial/stale/missing`，不要让页面主链路失败。
+6. 对用户可见字段，真实缺失时显示缺口，不用模板假数据补空白。
+
+### 7. 当前优先级建议
+
+| 优先级 | 建议项 | 原因 |
+|---|---|---|
+| P0 | 继续完善 `detailCompleteness` 与具体 section 的字段级一致性 | 这是产品详情页判断“还缺什么”的唯一稳定入口 |
+| P0 | 保持 `peerPerformance.benchmark` 空缺直到有真实业绩基准净值源 | 避免把沪深 300 伪装成基金合同基准 |
+| P1 | 为 TickFlow WebSocket 新建独立实时行情 adapter | 当前 REST/SDK 已接入，实时推送还未进入 Provider 层 |
+| P1 | 将 Tushare 关键接口 smoke 脚本固化 | 方便快速区分 token/权限/字段变化问题 |
+| P2 | iFinD MCP JSON-RPC 适配独立化 | 现有 `iFinDProvider` 是轻量 REST 形态，和 MCP 文档能力不是同一层 |
+| P2 | westock-data / NeoData 只在有真实产品入口时再接 Provider | 当前更多是 Agent 能力，不宜提前混入核心链路 |
