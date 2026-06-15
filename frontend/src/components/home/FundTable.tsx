@@ -183,7 +183,7 @@ export default function FundTable({
                   <div className="flex items-center gap-1.5 flex-wrap">
                     <span className="px-2 py-0.5 rounded text-xs bg-white/[0.05] text-white/60">{typeLabels[fund.fundType] || fund.fundType}</span>
                     {(fund.tags || []).slice(0, 2).map((tag: string) => (
-                      <span key={tag} className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-[#3B6CFF]/10 text-[#5AA9FF] border border-[#3B6CFF]/20">{tag}</span>
+                      <span key={tag} className="px-2 py-0.5 rounded-sm text-[10px] font-medium bg-[#45B084]/10 text-[#8FD9BA] border border-[#45B084]/22">{tag}</span>
                     ))}
                   </div>
                 </Link>

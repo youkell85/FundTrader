@@ -6,9 +6,9 @@ export default function LuminousBackground() {
       style={{
         zIndex: 0,
         background: `
-          radial-gradient(ellipse at 20% 50%, rgba(59, 108, 255, 0.08) 0%, transparent 60%),
-          radial-gradient(ellipse at 80% 30%, rgba(0, 240, 255, 0.05) 0%, transparent 50%),
-          linear-gradient(180deg, #000110 0%, #01081a 40%, #00020a 100%)
+          radial-gradient(ellipse at 18% 16%, rgba(69, 176, 132, 0.18) 0%, transparent 42%),
+          radial-gradient(ellipse at 82% 20%, rgba(214, 157, 99, 0.13) 0%, transparent 36%),
+          linear-gradient(180deg, #050706 0%, #07110c 38%, #030504 100%)
         `,
       }}
     />

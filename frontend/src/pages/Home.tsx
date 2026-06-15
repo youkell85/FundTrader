@@ -266,10 +266,10 @@ export default function Home() {
 
   return (
     <div className="min-h-screen pt-14 pb-12">
-      <section className="relative px-6 pt-16 pb-12 max-w-7xl mx-auto">
-        <div className="mb-2">
-          <h1 className="text-4xl md:text-5xl font-semibold text-white tracking-tight leading-tight">洞察趋势，甄选长跑冠军</h1>
-          <p className="mt-3 text-white/40 text-base max-w-2xl">基于鑫基荟优选池，智能驱动的产品筛选与配置平台</p>
+      <section className="relative px-4 sm:px-6 pt-10 pb-8 max-w-7xl mx-auto">
+        <div className="mb-2 rounded-md border border-white/[0.08] bg-[#101411]/70 p-5 md:p-6">
+          <h1 className="text-3xl md:text-4xl font-semibold text-white tracking-tight leading-tight">洞察趋势，甄选长跑冠军</h1>
+          <p className="mt-3 text-[#cfc5b7]/70 text-sm md:text-base max-w-2xl">基于鑫基荟优选池，智能驱动的产品筛选与配置平台</p>
         </div>
 
         <StatCards

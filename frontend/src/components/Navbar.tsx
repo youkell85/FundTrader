@@ -23,7 +23,7 @@ export default function Navbar() {
       <nav className="liquid-glass-nav fixed top-0 left-0 right-0 z-50 h-12 flex items-center justify-between px-3 md:px-6">
         <div className="flex items-center gap-8 min-w-0">
           <Link to="/" className="flex items-center gap-2 group shrink-0">
-            <div className="w-6 h-6 rounded bg-[#3B6CFF] flex items-center justify-center">
+            <div className="w-6 h-6 rounded-sm bg-[#45B084] flex items-center justify-center shadow-[0_0_18px_rgba(69,176,132,0.22)]">
               <span className="text-white font-bold text-[10px]">基</span>
             </div>
             <span className="text-white/90 font-semibold text-sm tracking-tight group-hover:text-white transition-colors">
@@ -48,15 +48,15 @@ export default function Navbar() {
                   <Icon className="w-3.5 h-3.5" />
                   {item.label}
                   {isActive && (
-                    <div className="absolute bottom-0 left-3 right-3 h-px bg-[#3B6CFF]" />
+                    <div className="absolute bottom-0 left-3 right-3 h-px bg-[#45B084]" />
                   )}
                 </Link>
               );
             })}
             {user?.role === "admin" && (
-              <Link to="/admin" className={`relative flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-300 ${location.pathname.startsWith("/admin") ? "text-[#FFB800]/95" : "text-[#FFB800]/50 hover:text-[#FFB800]/70 hover:bg-white/[0.03]"}`}>
+              <Link to="/admin" className={`relative flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-300 ${location.pathname.startsWith("/admin") ? "text-[#D69D63]/95" : "text-[#D69D63]/50 hover:text-[#D69D63]/70 hover:bg-white/[0.03]"}`}>
                 <Shield className="w-3.5 h-3.5" />管理
-                {location.pathname.startsWith("/admin") && <div className="absolute bottom-0 left-3 right-3 h-px bg-[#FFB800]" />}
+                {location.pathname.startsWith("/admin") && <div className="absolute bottom-0 left-3 right-3 h-px bg-[#D69D63]" />}
               </Link>
             )}
           </div>
@@ -74,7 +74,7 @@ export default function Navbar() {
                 <span className={`absolute -top-1.5 -right-1.5 min-w-[16px] h-4 px-1 rounded-full text-[10px] font-bold flex items-center justify-center ${
                   criticalCount > 0
                     ? "bg-red-500 text-white"
-                    : "bg-amber-500 text-white"
+                    : "bg-[#D69D63] text-white"
                 }`}>
                   {unreadCount > 99 ? "99+" : unreadCount}
                 </span>
@@ -92,9 +92,9 @@ export default function Navbar() {
                 aria-haspopup="menu"
                 onClick={() => setShowUserMenu(!showUserMenu)}
                 onKeyDown={(e) => { if (e.key === 'Escape') setShowUserMenu(false); }}
-                className="flex items-center gap-2 px-2 md:px-3 py-1.5 rounded-lg hover:bg-white/5 transition-colors focus-visible:ring-2 focus-visible:ring-[#3B6CFF]/50"
+                className="flex items-center gap-2 px-2 md:px-3 py-1.5 rounded-lg hover:bg-white/5 transition-colors focus-visible:ring-2 focus-visible:ring-[#45B084]/50"
               >
-                <div className="w-6 h-6 rounded-full bg-[#3B6CFF] flex items-center justify-center">
+                <div className="w-6 h-6 rounded-sm bg-[#45B084] flex items-center justify-center">
                   <User className="w-3.5 h-3.5 text-white" aria-hidden="true" />
                 </div>
                 <span className="hidden sm:inline text-white/80 text-sm">{user.name || "用户"}</span>
@@ -105,7 +105,7 @@ export default function Navbar() {
                   <button
                     role="menuitem"
                     onClick={() => { logout(); setShowUserMenu(false); }}
-                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-white/70 hover:text-white hover:bg-white/5 transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#3B6CFF]/50"
+                    className="w-full flex items-center gap-2 px-3 py-2 text-sm text-white/70 hover:text-white hover:bg-white/5 transition-colors focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#45B084]/50"
                   >
                     <LogOut className="w-3.5 h-3.5" aria-hidden="true" />
                     退出登录
@@ -116,7 +116,7 @@ export default function Navbar() {
           ) : (
             <Link
               to="/login"
-              className="flex items-center gap-1.5 px-3 md:px-4 py-2 rounded-lg text-sm font-medium text-white/70 hover:text-white bg-white/5 hover:bg-white/10 transition-all"
+              className="flex items-center gap-1.5 px-3 md:px-4 py-2 rounded-md text-sm font-medium text-white/70 hover:text-white bg-white/[0.055] hover:bg-[#45B084]/12 border border-white/[0.06] transition-all"
             >
               <LogIn className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">登录</span>
@@ -126,7 +126,7 @@ export default function Navbar() {
       </nav>
 
       {/* Mobile bottom navigation — 5 items + safe area */}
-      <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 border-t border-white/[0.04] bg-[#000110]/92 backdrop-blur-xl pb-[env(safe-area-inset-bottom)]">
+      <div className="md:hidden fixed bottom-0 left-0 right-0 z-50 border-t border-white/[0.075] bg-[#050706]/94 backdrop-blur-xl pb-[env(safe-area-inset-bottom)]">
         <div className="grid grid-cols-5 px-1 py-1.5">
           {navItems.map((item) => {
             const isActive = location.pathname === item.path || location.pathname.startsWith(item.path + "/");
@@ -136,14 +136,14 @@ export default function Navbar() {
                 key={item.path}
                 to={item.path}
                 className={`h-12 rounded-lg flex flex-col items-center justify-center gap-0.5 text-[11px] transition-all ${
-                  isActive ? "text-white/90 bg-white/[0.04]" : "text-white/40 active:bg-white/[0.04]"
+                  isActive ? "text-[#8FD9BA] bg-[#45B084]/10" : "text-white/40 active:bg-white/[0.04]"
                 }`}
               >
                 <div className="relative">
                   <Icon className="w-4 h-4" />
                   {item.path === "/allocation" && unreadCount > 0 && (
                     <span className={`absolute -top-1 -right-2 min-w-[12px] h-3 px-0.5 rounded-full text-[8px] font-bold flex items-center justify-center ${
-                      criticalCount > 0 ? "bg-red-500 text-white" : "bg-amber-500 text-white"
+                      criticalCount > 0 ? "bg-red-500 text-white" : "bg-[#D69D63] text-white"
                     }`}>
                       {unreadCount}
                     </span>

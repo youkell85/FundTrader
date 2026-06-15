@@ -88,14 +88,14 @@ export default function FilterBar(props: FilterBarProps) {
             onChange={(e) => onSearchChange(e.target.value)}
             placeholder="输入基金代码 / 名称 / 基金经理..."
             aria-label="搜索基金"
-            className="w-full h-11 pl-10 pr-4 rounded-xl bg-white/[0.03] border border-white/[0.06] text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-[#3B6CFF]/50 focus:bg-white/[0.05] transition-all"
+            className="w-full h-11 pl-10 pr-4 rounded-md bg-white/[0.035] border border-white/[0.08] text-white text-sm placeholder:text-white/22 focus:outline-none focus:border-[#45B084]/55 focus:bg-white/[0.055] transition-all"
           />
           {searchError && <div className="absolute left-0 top-full mt-1 text-xs text-[#FF3366]">{searchError}</div>}
         </form>
 
         <div className="flex gap-2 flex-wrap">
           <Select value={fundType} onValueChange={onFundTypeChange}>
-            <SelectTrigger className="h-11 min-w-[110px] px-3 rounded-xl bg-[#0B1021] border border-white/[0.08] text-white text-sm data-[placeholder]:text-white/50">
+            <SelectTrigger className="h-11 min-w-[110px] px-3 rounded-md bg-[#101411] border border-white/[0.08] text-white text-sm data-[placeholder]:text-white/50">
               <SelectValue placeholder="基金类型" />
             </SelectTrigger>
             <SelectContent>
@@ -107,7 +107,7 @@ export default function FilterBar(props: FilterBarProps) {
           </Select>
 
           <Select value={riskLevel} onValueChange={onRiskLevelChange}>
-            <SelectTrigger className="h-11 min-w-[110px] px-3 rounded-xl bg-[#0B1021] border border-white/[0.08] text-white text-sm data-[placeholder]:text-white/50">
+            <SelectTrigger className="h-11 min-w-[110px] px-3 rounded-md bg-[#101411] border border-white/[0.08] text-white text-sm data-[placeholder]:text-white/50">
               <SelectValue placeholder="风险类型" />
             </SelectTrigger>
             <SelectContent>
@@ -119,7 +119,7 @@ export default function FilterBar(props: FilterBarProps) {
           </Select>
 
           <Select value={category} onValueChange={onCategoryChange}>
-            <SelectTrigger className="h-11 min-w-[110px] px-3 rounded-xl bg-[#0B1021] border border-white/[0.08] text-white text-sm data-[placeholder]:text-white/50">
+            <SelectTrigger className="h-11 min-w-[110px] px-3 rounded-md bg-[#101411] border border-white/[0.08] text-white text-sm data-[placeholder]:text-white/50">
               <SelectValue placeholder="题材类型" />
             </SelectTrigger>
             <SelectContent>
@@ -131,7 +131,7 @@ export default function FilterBar(props: FilterBarProps) {
           </Select>
 
           <Select value={company} onValueChange={onCompanyChange}>
-            <SelectTrigger className="h-11 min-w-[110px] px-3 rounded-xl bg-[#0B1021] border border-white/[0.08] text-white text-sm data-[placeholder]:text-white/50">
+            <SelectTrigger className="h-11 min-w-[110px] px-3 rounded-md bg-[#101411] border border-white/[0.08] text-white text-sm data-[placeholder]:text-white/50">
               <SelectValue placeholder="基金公司" />
             </SelectTrigger>
             <SelectContent>
@@ -146,7 +146,7 @@ export default function FilterBar(props: FilterBarProps) {
             onClick={onToggleXinjihui}
             className={`h-11 px-4 rounded-xl text-sm font-medium transition-all ${
               showXinjihui
-                ? "bg-[#3B6CFF]/20 text-[#00F0FF] border border-[#3B6CFF]/30"
+                ? "bg-[#45B084]/16 text-[#8FD9BA] border border-[#45B084]/32"
                 : "bg-white/[0.03] text-white/50 border border-white/[0.06] hover:bg-white/[0.06]"
             }`}
           >
@@ -156,7 +156,7 @@ export default function FilterBar(props: FilterBarProps) {
             onClick={onToggleWatchlist}
             className={`h-11 px-4 rounded-xl text-sm font-medium transition-all ${
               showWatchlist
-                ? "bg-[#3B6CFF]/20 text-[#00F0FF] border border-[#3B6CFF]/30"
+                ? "bg-[#45B084]/16 text-[#8FD9BA] border border-[#45B084]/32"
                 : "bg-white/[0.03] text-white/50 border border-white/[0.06] hover:bg-white/[0.06]"
             }`}
           >
@@ -179,7 +179,7 @@ export default function FilterBar(props: FilterBarProps) {
             onClick={() => onSortChange(s.key)}
             className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
               sortBy === s.key
-                ? "bg-[#3B6CFF]/15 text-[#00F0FF]"
+                ? "bg-[#45B084]/14 text-[#8FD9BA]"
                 : "text-white/40 hover:text-white/70 hover:bg-white/[0.03]"
             }`}
           >
