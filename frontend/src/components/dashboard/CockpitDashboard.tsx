@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router'
 import { Bell, ChevronRight, Gauge, Search, UserCircle } from 'lucide-react'
+import type { MarketDataStatus } from '@/types/allocation'
 
 type FundLike = {
   fundCode?: string
@@ -24,6 +25,37 @@ type FundLike = {
 }
 
 type DashboardMode = 'user' | 'bestSharpe' | 'userEmptyFallback'
+
+type MarketIndexItem = {
+  code?: string | null
+  name?: string | null
+  close?: number | string | null
+  value?: number | string | null
+  price?: number | string | null
+  latest?: number | string | null
+  change?: number | string | null
+  pct_change?: number | string | null
+  change_pct?: number | string | null
+  date?: string | null
+  source?: string | null
+  [key: string]: unknown
+}
+
+type MarketIndustryItem = {
+  name?: string | null
+  industry?: string | null
+  board?: string | null
+  change?: number | string | null
+  pct_change?: number | string | null
+  change_pct?: number | string | null
+  [key: string]: unknown
+}
+
+type MarketOverviewPayload = {
+  market?: MarketIndexItem[]
+  industries?: MarketIndustryItem[]
+  industry?: MarketIndustryItem[]
+}
 
 const TYPE_LABELS: Record<string, string> = {
   equity: '股票型',
@@ -145,18 +177,94 @@ function distributionByType(weighted: Array<{ fund: FundLike; weight: number }>)
     .sort((a, b) => b.value - a.value)
 }
 
+function pickNumber(record: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = record[key]
+    const num = parseMetric(value)
+    if (num !== null) return num
+  }
+  return null
+}
+
+function normalizeMarketIndices(payload?: MarketOverviewPayload | null) {
+  return (payload?.market || [])
+    .map((item) => {
+      const record = item as Record<string, unknown>
+      return {
+        code: String(item.code || record.symbol || record.ts_code || '—'),
+        name: String(item.name || record.index_name || record.short_name || item.code || '市场指数'),
+        close: pickNumber(record, ['close', 'value', 'price', 'latest', '最新价', '收盘']),
+        change: pickNumber(record, ['change', 'pct_change', 'change_pct', '涨跌幅', 'pctChg']),
+        date: String(item.date || record.trade_date || record.as_of || ''),
+        source: String(item.source || record.source || '真实行情接口'),
+      }
+    })
+    .filter((item) => item.close !== null || item.change !== null)
+}
+
+function normalizeIndustries(payload?: MarketOverviewPayload | null) {
+  return (payload?.industries || payload?.industry || [])
+    .map((item) => {
+      const record = item as Record<string, unknown>
+      return {
+        name: String(item.name || item.industry || item.board || record.label || '行业板块'),
+        change: pickNumber(record, ['change', 'pct_change', 'change_pct', '涨跌幅', 'pctChg']),
+      }
+    })
+    .filter((item) => item.change !== null)
+    .sort((a, b) => (b.change || 0) - (a.change || 0))
+}
+
+function formatIndexValue(value: number | null) {
+  if (value === null) return '—'
+  return value.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function formatDateTime(value?: string | null) {
+  if (!value) return '—'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+function healthLabel(status?: MarketDataStatus['health']) {
+  switch (status) {
+    case 'healthy':
+      return '健康'
+    case 'degraded':
+      return '降级可用'
+    case 'critical':
+      return '异常'
+    default:
+      return '未知'
+  }
+}
+
 export function CockpitDashboard({
   funds,
   mode,
   userName,
   loading,
   error,
+  marketOverview,
+  marketStatus,
+  marketLoading,
+  marketError,
 }: {
   funds: FundLike[]
   mode: DashboardMode
   userName?: string | null
   loading?: boolean
   error?: string | null
+  marketOverview?: MarketOverviewPayload | null
+  marketStatus?: MarketDataStatus | null
+  marketLoading?: boolean
+  marketError?: string | null
 }) {
   const [query, setQuery] = useState('')
   const weighted = buildEqualWeights(funds)
@@ -169,6 +277,18 @@ export function CockpitDashboard({
   const netValue = avgYear === null ? '—' : (1 + avgYear / 100).toFixed(4)
   const riskScore = clamp(Math.round(58 + (avgSharpe || 0) * 8 - Math.abs(avgDrawdown || 0) * 0.45), 15, 92)
   const latestDate = funds.map((fund) => fund.navDate).filter(Boolean).sort().at(-1) || new Date().toISOString().slice(0, 10)
+  const marketIndices = useMemo(() => normalizeMarketIndices(marketOverview), [marketOverview])
+  const marketIndustries = useMemo(() => normalizeIndustries(marketOverview), [marketOverview])
+  const risingCount = marketIndices.filter((item) => (item.change || 0) > 0).length
+  const fallingCount = marketIndices.filter((item) => (item.change || 0) < 0).length
+  const avgMarketChange = average(marketIndices.map((item) => item.change))
+  const marketScore = clamp(
+    Math.round(50 + (avgMarketChange || 0) * 10 + ((marketStatus?.macro_confidence || 0) - 0.5) * 22 - Math.max((marketStatus?.vol_ratio || 1) - 1, 0) * 9),
+    5,
+    95,
+  )
+  const marketAsOf = marketStatus?.last_refresh ? formatDateTime(marketStatus.last_refresh) : (marketIndices.find((item) => item.date)?.date || latestDate)
+  const strongestIndustry = marketIndustries[0]
   const sourceLabel = mode === 'user'
     ? '登录用户组合'
     : mode === 'userEmptyFallback'
@@ -224,44 +344,63 @@ export function CockpitDashboard({
           </div>
         )}
 
-        <Panel title="市场全景" action={<span className="text-xs text-[#c8bba9]">组合数据截至 {latestDate}</span>}>
+        <Panel
+          title="市场全景"
+          action={<span className="text-xs text-[#c8bba9]">{marketLoading ? '真实行情加载中' : `真实行情截至 ${marketAsOf}`}</span>}
+        >
+          {(marketLoading || marketError || marketIndices.length === 0) && (
+            <div className="mb-3 rounded-sm border border-white/[0.08] bg-white/[0.035] px-3 py-2 text-xs text-[#d8cec0]">
+              {marketLoading
+                ? '正在加载真实市场指数和市场状态...'
+                : marketError
+                  ? `市场全景加载异常：${marketError}`
+                  : '真实行情暂不可用，未使用组合指标替代。'}
+            </div>
+          )}
           <div className="grid gap-4 xl:grid-cols-[1fr_1fr_1fr_170px_150px]">
-            {[
-              ['组合平均日涨跌', signedPct(avgDay), '当前组合'],
-              ['组合近一年收益', signedPct(avgYear), `${funds.length} 只基金`],
-              ['组合平均夏普', avgSharpe === null ? '—' : avgSharpe.toFixed(2), '风险收益'],
-            ].map(([name, value, change], index) => (
-              <div key={name} className="min-h-[120px] border-r border-white/[0.08] pr-4">
+            {marketIndices.length > 0 ? marketIndices.slice(0, 3).map((item) => (
+              <div key={item.code || item.name} className="min-h-[120px] border-r border-white/[0.08] pr-4">
                 <div className="flex items-baseline gap-3">
-                  <span className="font-semibold text-[#f2eadc]">{name}</span>
-                  <span className="text-sm font-semibold text-[#58c792]">{value}</span>
-                  <span className="text-xs text-[#b9b1a4]">{change}</span>
+                  <span className="font-semibold text-[#f2eadc]">{item.name}</span>
+                  <span className="text-sm font-semibold text-[#f4efe3]">{formatIndexValue(item.close)}</span>
+                  <span className={classNames('text-xs font-semibold', (item.change || 0) >= 0 ? 'text-[#e37757]' : 'text-[#58c792]')}>
+                    {signedPct(item.change)}
+                  </span>
                 </div>
-                <Sparkline warm={index === 1 && (avgYear || 0) < 0} />
-                <div className="flex justify-between text-[10px] text-[#9f988f]"><span>持仓</span><span>指标</span><span>更新</span></div>
+                <Sparkline warm={(item.change || 0) >= 0} />
+                <div className="flex justify-between text-[10px] text-[#9f988f]"><span>{item.code}</span><span>{item.source}</span><span>实时</span></div>
               </div>
-            ))}
+            )) : (
+              <div className="min-h-[120px] border-r border-white/[0.08] pr-4 xl:col-span-3">
+                <div className="font-semibold text-[#f2eadc]">真实行情暂不可用</div>
+                <div className="mt-4 text-sm leading-6 text-[#b9b1a4]">市场全景等待 `/fund/api/recommend/market` 返回指数数据后展示，不用基金组合数据兜底。</div>
+              </div>
+            )}
             <div className="space-y-3 border-r border-white/[0.08] pr-4 text-xs">
-              <div className="font-semibold text-[#f2eadc]">组合状态</div>
+              <div className="font-semibold text-[#f2eadc]">市场状态</div>
               {[
-                ['基金数量', `${funds.length}`, '#58c792'],
-                ['权益/指数占比', `${assetMix.filter((item) => ['equity', 'index', 'etf'].includes(item.key)).reduce((sum, item) => sum + item.value, 0).toFixed(2)}%`, '#d9815d'],
-                ['平均回撤', plainPct(avgDrawdown), '#81b1d9'],
-                ['数据来源', mode === 'user' ? '用户自选' : '基金池排序', '#d7d2c6'],
+                ['上涨指数', `${risingCount}/${marketIndices.length}`, '#e37757'],
+                ['下跌指数', `${fallingCount}/${marketIndices.length}`, '#58c792'],
+                ['波动倍率', marketStatus?.vol_ratio ? `${marketStatus.vol_ratio.toFixed(2)}x` : '—', '#81b1d9'],
+                ['数据健康', healthLabel(marketStatus?.health), marketStatus?.health === 'critical' ? '#e37757' : '#d7d2c6'],
               ].map(([label, value, color]) => (
                 <div key={label} className="flex items-center justify-between gap-3">
                   <span className="flex items-center gap-2 text-[#bbb4a9]"><i className="h-2 w-2 rounded-full" style={{ backgroundColor: color }} />{label}</span>
                   <span className="text-[#f4efe3]">{value}</span>
                 </div>
               ))}
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-[#bbb4a9]">强势行业</span>
+                <span className="text-right text-[#f4efe3]">{strongestIndustry ? `${strongestIndustry.name} ${signedPct(strongestIndustry.change)}` : '暂无行业数据'}</span>
+              </div>
             </div>
             <div>
-              <div className="mb-3 text-xs font-semibold text-[#f2eadc]">组合评分</div>
-              <div className="mx-auto grid h-24 w-24 place-items-center rounded-full bg-[conic-gradient(from_210deg,#58c792_0_var(--score),#b68a5f_var(--score)_78%,rgba(255,255,255,.08)_78%_100%)] p-2" style={{ ['--score' as string]: `${riskScore}%` }}>
+              <div className="mb-3 text-xs font-semibold text-[#f2eadc]">市场情绪</div>
+              <div className="mx-auto grid h-24 w-24 place-items-center rounded-full bg-[conic-gradient(from_210deg,#58c792_0_var(--score),#b68a5f_var(--score)_78%,rgba(255,255,255,.08)_78%_100%)] p-2" style={{ ['--score' as string]: `${marketScore}%` }}>
                 <div className="grid h-full w-full place-items-center rounded-full bg-[#0c0f0d] text-center">
                   <div>
-                    <div className="text-2xl font-bold text-[#e8c184]">{riskScore}</div>
-                    <div className="text-[10px] text-[#d6c9b7]">{riskScore >= 70 ? '稳健优秀' : riskScore >= 50 ? '中性偏稳' : '需降波动'}</div>
+                    <div className="text-2xl font-bold text-[#e8c184]">{marketScore}</div>
+                    <div className="text-[10px] text-[#d6c9b7]">{marketScore >= 65 ? '偏强' : marketScore >= 40 ? '中性' : '偏弱'}</div>
                   </div>
                 </div>
               </div>
@@ -423,4 +562,4 @@ export function CockpitDashboard({
   )
 }
 
-export type { FundLike, DashboardMode }
+export type { FundLike, DashboardMode, MarketOverviewPayload }

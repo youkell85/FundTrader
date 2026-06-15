@@ -1,6 +1,8 @@
-import { useMemo } from 'react'
-import { CockpitDashboard, type DashboardMode, type FundLike } from '@/components/dashboard/CockpitDashboard'
+import { useEffect, useMemo, useState } from 'react'
+import { CockpitDashboard, type DashboardMode, type FundLike, type MarketOverviewPayload } from '@/components/dashboard/CockpitDashboard'
+import { getMarketDataStatus, getMarketOverview } from '@/lib/api'
 import { trpc } from '@/providers/trpc'
+import type { MarketDataStatus } from '@/types/allocation'
 
 function parseMetric(value: unknown): number | null {
   if (value === undefined || value === null || value === '' || value === '—' || value === '-') return null
@@ -17,6 +19,10 @@ function isUserFund(fund: FundLike) {
 }
 
 export default function Home() {
+  const [marketOverview, setMarketOverview] = useState<MarketOverviewPayload | null>(null)
+  const [marketStatus, setMarketStatus] = useState<MarketDataStatus | null>(null)
+  const [marketLoading, setMarketLoading] = useState(true)
+  const [marketError, setMarketError] = useState<string | null>(null)
   const { data: user } = trpc.auth.me.useQuery(undefined, { staleTime: 60_000 })
   const {
     data: listData,
@@ -27,6 +33,36 @@ export default function Home() {
     { page: 1, pageSize: 120, withMetrics: true, sortBy: 'sharpeRatio', sortOrder: 'desc' },
     { staleTime: 5 * 60 * 1000, refetchOnWindowFocus: false, retry: 1 },
   )
+
+  useEffect(() => {
+    let active = true
+    setMarketLoading(true)
+    setMarketError(null)
+
+    Promise.allSettled([getMarketOverview(), getMarketDataStatus()])
+      .then(([overviewResult, statusResult]) => {
+        if (!active) return
+        if (overviewResult.status === 'fulfilled') {
+          setMarketOverview(overviewResult.value)
+        } else {
+          setMarketError(overviewResult.reason?.message || '市场全景数据加载失败')
+        }
+
+        if (statusResult.status === 'fulfilled') {
+          setMarketStatus(statusResult.value)
+        } else {
+          setMarketStatus(null)
+          setMarketError((prev) => prev || statusResult.reason?.message || '市场状态数据加载失败')
+        }
+      })
+      .finally(() => {
+        if (active) setMarketLoading(false)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [])
 
   const { funds, mode } = useMemo<{ funds: FundLike[]; mode: DashboardMode }>(() => {
     const allFunds = ((listData as any)?.funds || []) as FundLike[]
@@ -48,6 +84,10 @@ export default function Home() {
           userName={user?.name || user?.username}
           loading={isLoading}
           error={isError ? error?.message || '基金数据加载失败' : null}
+          marketOverview={marketOverview}
+          marketStatus={marketStatus}
+          marketLoading={marketLoading}
+          marketError={marketError}
         />
       </div>
     </div>
