@@ -11,6 +11,14 @@ from .ifind_provider import iFinDProvider
 from ...utils import console_error
 
 
+PROVIDER_CAPABILITIES = {
+    "tushare": ["fund_basic", "fund_nav", "fund_share", "fund_holdings", "fund_dividend", "fund_manager", "fund_rating", "trade_cal"],
+    "ifind": ["risk_indicators", "macro", "news", "fund_profile", "fund_market_performance"],
+    "tickflow": ["etf_quotes", "etf_klines", "minute_klines", "depth", "adjustment_factors"],
+    "tencent": ["realtime_quote", "fund_quote_fallback"],
+}
+
+
 class DataFusion:
     """Data fusion layer: orchestrates multiple provider backends and merges results."""
 
@@ -276,19 +284,27 @@ class DataFusion:
         return None
 
     def get_providers_status(self) -> List[Dict[str, Any]]:
-        return [
-            {
+        statuses = []
+        for p in self.providers:
+            state = self._provider_status.get(p.name, {})
+            available = p.is_available()
+            last_error = state.get("last_error")
+            statuses.append({
                 "name": p.name,
                 "priority": p.priority,
-                "available": p.is_available(),
-                "used": bool(self._provider_status.get(p.name, {}).get("used", False)),
-                "last_check": self._provider_status.get(p.name, {}).get("last_check"),
-                "last_error": self._provider_status.get(p.name, {}).get("last_error"),
-                "fallback_reason": self._provider_status.get(p.name, {}).get("fallback_reason"),
-                "source_hint": self._provider_status.get(p.name, {}).get("source_hint"),
-            }
-            for p in self.providers
-        ]
+                "capabilities": PROVIDER_CAPABILITIES.get(p.name, []),
+                "available": available,
+                "status": "available" if available and not last_error else "degraded" if available else "missing",
+                "used": bool(state.get("used", False)),
+                "last_check": state.get("last_check"),
+                "lastSuccessAt": state.get("last_check") if available and not last_error else None,
+                "lastError": last_error,
+                "last_error": last_error,
+                "cooldownUntil": None,
+                "fallback_reason": state.get("fallback_reason"),
+                "source_hint": state.get("source_hint"),
+            })
+        return statuses
 
     def get_provider_health_snapshot(self) -> Dict[str, Any]:
         provider_status = self.get_providers_status()

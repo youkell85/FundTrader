@@ -1,17 +1,14 @@
 /**
  * ResearchReportExportPanel
  *
- * 研究报告导出面板：将当前组合、候选池、匹配分析、约束草案整理成 Markdown 报告，
+ * 研究报告导出面板：优先使用后端可复现 Markdown 报告，
+ * 后端暂不可用时回退到当前组合、候选池、匹配分析、约束草案的本地 Markdown，
  * 支持复制到剪贴板或下载为 .md 文件。
- *
- * 约束：
- * - 不自动改权重
- * - 不调用后端
- * - 不持久化
  */
 
 import { useState, useMemo } from "react";
 import { FileText, Copy, CheckCircle2, Download, ChevronDown, ChevronUp } from "lucide-react";
+import { trpc } from "@/providers/trpc";
 import {
   generateResearchReportMarkdown,
   generateConstraintDraft,
@@ -31,13 +28,24 @@ export default function ResearchReportExportPanel({ portfolioFunds, candidates, 
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const primaryCode = String(
+    portfolioFunds?.[0]?.fundCode ||
+    portfolioFunds?.[0]?.code ||
+    candidates?.[0]?.fundCode ||
+    candidates?.[0]?.code ||
+    "",
+  );
+  const backendReportQ = trpc.fund.fundResearchReport.useQuery(
+    { code: primaryCode },
+    { enabled: /^\d{6}$/.test(primaryCode), staleTime: 30 * 60 * 1000, refetchOnWindowFocus: false },
+  );
 
   const constraintDrafts = useMemo(
     () => generateConstraintDraft(candidates, portfolioFunds),
     [candidates, portfolioFunds]
   );
 
-  const markdown = useMemo(
+  const fallbackMarkdown = useMemo(
     () =>
       generateResearchReportMarkdown({
         portfolioFunds,
@@ -48,6 +56,7 @@ export default function ResearchReportExportPanel({ portfolioFunds, candidates, 
       }),
     [portfolioFunds, candidates, constraintDrafts, backtestResult, dcaResult]
   );
+  const markdown = backendReportQ.data?.markdown || fallbackMarkdown;
 
   const handleCopy = async () => {
     setCopyError(false);
@@ -94,7 +103,7 @@ export default function ResearchReportExportPanel({ portfolioFunds, candidates, 
       {/* 说明条 */}
       <div className="flex items-start gap-2 text-[10px] text-white/30">
         <FileText className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-        <span>导出当前组合、研究候选池、匹配分析和配置约束草案。</span>
+        <span>{backendReportQ.data?.markdown ? "后端生成的可复现 Markdown 报告。" : "导出当前组合、研究候选池、匹配分析和配置约束草案。"}</span>
       </div>
 
       {/* 按钮组 */}

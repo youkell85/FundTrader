@@ -25,6 +25,15 @@ _meta_cache_lock = threading.Lock()
 _META_CACHE_TTL = 6 * 3600  # 6 hours
 
 
+def _profile_cache_signature(profile) -> tuple:
+    return (
+        getattr(profile, "metadata_status", None),
+        getattr(profile, "metadata_source", None),
+        getattr(profile, "metadata_as_of", None),
+        getattr(profile, "stale_days", None),
+    )
+
+
 def refresh_pool_metadata(profiles: Dict) -> Dict:
     """Refresh metadata for all funds in the pool.
 
@@ -34,15 +43,17 @@ def refresh_pool_metadata(profiles: Dict) -> Dict:
     for code, profile in profiles.items():
         try:
             # Check in-memory cache first
+            signature = _profile_cache_signature(profile)
             with _meta_cache_lock:
                 if code in _meta_cache:
-                    ts, cached = _meta_cache[code]
-                    if time.time() - ts < _META_CACHE_TTL:
+                    ts, cached, cached_signature = _meta_cache[code]
+                    if cached_signature == signature and time.time() - ts < _META_CACHE_TTL:
                         result[code] = cached
                         continue
             refreshed = _refresh_single(profile)
-            with _meta_cache_lock:
-                _meta_cache[code] = (time.time(), refreshed)
+            if getattr(refreshed, "metadata_status", None) == "real":
+                with _meta_cache_lock:
+                    _meta_cache[code] = (time.time(), refreshed, signature)
             result[code] = refreshed
         except Exception as e:
             logger.debug(f"Metadata refresh failed for {code}: {e}")

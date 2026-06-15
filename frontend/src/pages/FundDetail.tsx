@@ -306,6 +306,10 @@ export default function FundDetail() {
     { code },
     { enabled, staleTime: DETAIL_QUARTERLY_STALE_MS, refetchOnWindowFocus: false },
   );
+  const marketContextQ = trpc.fund.marketContext.useQuery(
+    { code },
+    { enabled, staleTime: DETAIL_QUARTERLY_STALE_MS, refetchOnWindowFocus: false },
+  );
 
   // 延后启动 LLM 类查询，避免阻塞首屏
   const [llmReady, setLlmReady] = useState(false);
@@ -720,6 +724,10 @@ export default function FundDetail() {
             />
           </ReportSection>
 
+          <ReportSection id="market-context" title="市场上下文">
+            <MarketContextPanel context={marketContextQ.data} />
+          </ReportSection>
+
           {/* 3. 风险画像 */}
           <ReportSection
             id="risk"
@@ -1029,6 +1037,60 @@ function PeerSection({
         )}
       </Panel>
     </>
+  );
+}
+
+function MarketContextPanel({ context }: { context: any }) {
+  const sections = context?.sections || {};
+  const rows = [
+    { key: "etfKline", label: "ETF K 线", ...sections.etfKline },
+    { key: "northFlow", label: "北向资金", ...sections.northFlow },
+    { key: "sectorFlow", label: "行业/概念资金流", ...sections.sectorFlow },
+    { key: "holdingsStyle", label: "持仓风格匹配", ...sections.holdingsStyle },
+  ];
+  return (
+    <Panel
+      title="市场上下文"
+      extra={
+        <span className="text-xs text-muted-foreground">
+          覆盖率 {context?.coverage != null ? `${Math.round(Number(context.coverage) * 100)}%` : "—"}
+        </span>
+      }
+    >
+      <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+        {rows.map((row) => {
+          const status = row.status || row.dataStatus || "missing";
+          const tone = STATUS_TONES[status as keyof typeof STATUS_TONES] || STATUS_TONES.missing;
+          const topIndustries = Array.isArray(row.data?.topIndustries) ? row.data.topIndustries : [];
+          return (
+            <div key={row.key} className="rounded-md border border-white/[0.06] bg-white/[0.02] p-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-sm font-medium text-white/80">{row.label}</div>
+                <span className={`rounded border px-2 py-0.5 text-xs ${tone}`}>
+                  {STATUS_LABELS[status as keyof typeof STATUS_LABELS] || status}
+                </span>
+              </div>
+              <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                <span>来源 {row.source || "—"}</span>
+                <span>日期 {row.asOf || context?.asOf || "—"}</span>
+              </div>
+              {topIndustries.length > 0 ? (
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {topIndustries.slice(0, 4).map((item: any) => (
+                    <span key={`${row.key}-${item.industry}`} className="rounded border border-white/[0.08] px-2 py-0.5 text-xs text-white/55">
+                      {item.industry} {item.weight != null ? `${Number(item.weight).toFixed(2)}%` : ""}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+              {row.missingReason ? (
+                <div className="mt-2 text-xs text-white/35">{row.missingReason}</div>
+              ) : null}
+            </div>
+          );
+        })}
+      </div>
+    </Panel>
   );
 }
 

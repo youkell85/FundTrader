@@ -75,6 +75,49 @@ describe('fund detail contract fallbacks', () => {
     expectMissingFallback(result);
   });
 
+  test('marketContext requests backend fund route and falls back structurally', async () => {
+    const ftFetchMock = vi.mocked(fundClient.ftFetch);
+    ftFetchMock.mockResolvedValueOnce({
+      fundCode: '512880',
+      status: 'partial',
+      sections: { etfKline: { status: 'partial', source: 'TickFlow' } },
+      warnings: [],
+    });
+
+    const result = await caller.marketContext({ code: '512880' }) as any;
+
+    expect(result.fundCode).toBe('512880');
+    expect(ftFetchMock).toHaveBeenLastCalledWith('/fund/512880/market-context');
+  });
+
+  test('fundResearchReport returns missing fallback when backend fails', async () => {
+    const result = await caller.fundResearchReport({ code: '000001' }) as any;
+
+    expect(result.code).toBe('000001');
+    expect(result.dataStatus).toBe('missing');
+    expect(result.missingReason).toBeTruthy();
+  });
+
+  test('dataSourcesStatus requests unified provider health route', async () => {
+    const ftFetchMock = vi.mocked(fundClient.ftFetch);
+    ftFetchMock.mockResolvedValueOnce({ status: 'available', providers: [], availableCount: 0, totalCount: 0 });
+
+    const result = await caller.dataSourcesStatus() as any;
+
+    expect(result.status).toBe('available');
+    expect(ftFetchMock).toHaveBeenLastCalledWith('/data-sources/status');
+  });
+
+  test('fundDataStatus requests existing job/data status route', async () => {
+    const ftFetchMock = vi.mocked(fundClient.ftFetch);
+    ftFetchMock.mockResolvedValueOnce({ jobs: { pending: 1 }, snapshots: {} });
+
+    const result = await caller.fundDataStatus() as any;
+
+    expect(result.jobs.pending).toBe(1);
+    expect(ftFetchMock).toHaveBeenLastCalledWith('/fund/data-status');
+  });
+
   test('detailByCode preserves snapshot holdings in fast fallback', async () => {
     vi.mocked(fundClient.getFundSnapshot).mockResolvedValueOnce({
       code: '000003',

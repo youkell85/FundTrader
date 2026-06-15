@@ -1464,10 +1464,11 @@ def get_fund_bond_holdings(code: str) -> dict:
             return _rows_response(
                 code,
                 out,
-                status=DETAIL_STATUS_AVAILABLE,
+                status=DETAIL_STATUS_PARTIAL,
                 source="AkShare 东方财富F10 债券持仓",
                 as_of=as_of or None,
                 coverage=0.7,
+                missing_reason="AkShare 返回真实债券持仓，但票息/主体/评级等字段可能不完整。",
             )
     except TimeoutError:
         console_error(f"bond holdings fetch timed out for {code}")
@@ -1703,7 +1704,7 @@ def get_fund_year_returns(code: str) -> dict:
     if has_hs300 and has_peer:
         missing_reason = "本基金/沪深300/同类均值均按真实数据计算；排名需补基准/同类历史表。"
     elif has_peer:
-        missing_reason = "本基金/同类均值按真实数据计算；沪深300 同期收益缺失，排名需补同类历史表。"
+        missing_reason = "本基金年度收益已按真实净值计算；沪深300 同期收益缺失，排名需补同类历史表。"
     else:
         missing_reason = "本基金年度收益已按真实净值计算；沪深300同期收益来自指数净值；同类均值、排名需补基准/同类历史表。"
     return _rows_response(
@@ -2386,7 +2387,7 @@ def get_fund_turnover_history(code: str, periods: int = 40) -> dict:
                     missing_reason=(
                         "定期报告披露了买入/卖出成交额，已尽量按披露口径计算换手率。"
                         if any(row.get("turnoverRate") is not None for row in activity)
-                        else "定期报告披露了股票买入/卖出成交额，但缺少股票持仓口径市值，无法按披露口径计算。"
+                        else "定期报告披露了股票买入/卖出成交额，但缺少股票持仓口径市值，无法按信息披露口径计算。"
                     ),
                 )
     return _rows_response(

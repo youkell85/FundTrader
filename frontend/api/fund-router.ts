@@ -2177,4 +2177,90 @@ export const fundRouter = createRouter({
         return { code: input.code, sections: {}, available: 0, partial: 0, total: 0, coverage: 0, dataStatus: "missing", missingReason: "详情完整度读取失败" };
       }
     }),
+
+  detailFields: publicQuery
+    .input(_codeOnlySchema)
+    .query(async ({ input }) => {
+      try {
+        return await cachedFtFetch(
+          `detail_fields_${input.code}`,
+          DETAIL_QUARTERLY_TTL,
+          () => ftFetch<any>(`/fund/detail-fields?code=${encodeURIComponent(input.code)}`),
+        );
+      } catch (err) {
+        console.warn(`[fundRouter] 字段矩阵失败 ${input.code}:`, err);
+        return { code: input.code, fieldSources: {}, fieldGroups: {}, coverage: 0, dataStatus: "missing", missingReason: "字段矩阵读取失败" };
+      }
+    }),
+
+  marketContext: publicQuery
+    .input(_codeOnlySchema)
+    .query(async ({ input }) => {
+      try {
+        return await cachedFtFetch(
+          `detail_marketContext_${input.code}`,
+          DETAIL_QUARTERLY_TTL,
+          () => ftFetch<any>(`/fund/${encodeURIComponent(input.code)}/market-context`),
+        );
+      } catch (err) {
+        console.warn(`[fundRouter] 市场上下文失败 ${input.code}:`, err);
+        return { fundCode: input.code, status: "missing", dataStatus: "missing", sections: {}, warnings: ["市场上下文读取失败"] };
+      }
+    }),
+
+  fundEvidencePack: publicQuery
+    .input(_codeOnlySchema)
+    .query(async ({ input }) => {
+      try {
+        return await cachedFtFetch(
+          `detail_evidencePack_${input.code}`,
+          DETAIL_LLM_TTL,
+          () => ftFetch<any>(`/fund/${encodeURIComponent(input.code)}/evidence-pack`),
+        );
+      } catch (err) {
+        console.warn(`[fundRouter] evidence pack 失败 ${input.code}:`, err);
+        return { subject: { id: input.code, name: input.code }, data_quality: { status: "missing", coverage: 0, missing_reason: "evidence pack 读取失败" }, field_sources: {}, warnings: ["evidence pack 读取失败"] };
+      }
+    }),
+
+  fundResearchReport: publicQuery
+    .input(_codeOnlySchema)
+    .query(async ({ input }) => {
+      try {
+        return await cachedFtFetch(
+          `detail_researchReport_${input.code}`,
+          DETAIL_LLM_TTL,
+          () => ftFetch<any>(`/fund/${encodeURIComponent(input.code)}/research-report`),
+        );
+      } catch (err) {
+        console.warn(`[fundRouter] 研究报告失败 ${input.code}:`, err);
+        return { code: input.code, markdown: "", dataStatus: "missing", missingReason: "研究报告读取失败" };
+      }
+    }),
+
+  dataSourcesStatus: publicQuery.query(async () => {
+    try {
+      return await cachedFtFetch(
+        "data_sources_status",
+        60_000,
+        () => ftFetch<any>("/data-sources/status"),
+      );
+    } catch (err) {
+      console.warn("[fundRouter] 数据源状态失败:", err);
+      return { status: "missing", providers: [], availableCount: 0, totalCount: 0 };
+    }
+  }),
+
+  fundDataStatus: publicQuery.query(async () => {
+    try {
+      return await cachedFtFetch(
+        "fund_data_status",
+        60_000,
+        () => ftFetch<any>("/fund/data-status"),
+      );
+    } catch (err) {
+      console.warn("[fundRouter] 基金数据任务状态失败:", err);
+      return { jobs: {}, dataStatus: "missing", missingReason: "基金数据任务状态读取失败" };
+    }
+  }),
 });

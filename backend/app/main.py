@@ -697,6 +697,22 @@ async def market_data_data_sources():
 
 
 
+@app.get("/data-sources/status")
+async def data_sources_status():
+    """Unified provider health endpoint exposed as /fund/api/data-sources/status via BFF."""
+    from .data.providers.fusion import get_fusion
+
+    snapshot = get_fusion().get_provider_health_snapshot()
+    providers = snapshot.get("providers", [])
+    return {
+        "status": "available" if snapshot.get("available_count", 0) > 0 else "missing",
+        "updatedAt": snapshot.get("updated_at"),
+        "providers": providers,
+        "availableCount": snapshot.get("available_count", 0),
+        "totalCount": snapshot.get("total_count", len(providers)),
+    }
+
+
 @app.get("/market-data/source-status")
 
 async def market_data_source_status():

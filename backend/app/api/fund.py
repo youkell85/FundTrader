@@ -36,6 +36,77 @@ DEFAULT_SORT_BY = "今年来"
 DEFAULT_SORT_ORDER = "desc"
 DEFAULT_TAG = "鑫基荟"
 
+FUND_DETAIL_FIELD_GROUPS = {
+    "basic": {
+        "fields": ["name", "type", "company", "manager", "establish_date", "benchmark"],
+        "source": "tushare.fund_basic/fund_master",
+        "fallback": "eastmoney/efinance/sqlite",
+        "section": "overview",
+    },
+    "nav": {
+        "fields": ["nav", "adj_nav", "daily_return", "nav_date"],
+        "source": "tushare.fund_nav/efinance",
+        "fallback": "TickFlow for ETF",
+        "section": "performance",
+    },
+    "scale": {
+        "fields": ["fund_scale", "fund_share", "share_date"],
+        "source": "tushare.fund_share*tushare.fund_nav",
+        "fallback": "eastmoney/sqlite",
+        "section": "scaleHistory",
+    },
+    "holdings": {
+        "fields": ["top_holdings", "bond_holdings", "industry_exposure"],
+        "source": "tushare.fund_portfolio",
+        "fallback": "eastmoney periodic report pdf",
+        "section": "holdings",
+    },
+    "dividend": {
+        "fields": ["dividend_date", "dividend_amount", "registration_date"],
+        "source": "tushare.fund_div",
+        "fallback": "eastmoney/sqlite",
+        "section": "performance",
+    },
+    "rating": {
+        "fields": ["rating", "rating_org", "rating_date"],
+        "source": "tushare.fund_rating",
+        "fallback": "fund_metrics_snapshot score",
+        "section": "rating",
+    },
+    "purchase": {
+        "fields": ["purchase_limit", "fee_rate", "redemption_fee"],
+        "source": "eastmoney sales document",
+        "fallback": "fund_metrics_snapshot fee partial",
+        "section": "purchaseInfo",
+    },
+    "risk": {
+        "fields": ["volatility", "max_drawdown", "sharpe", "tracking_error"],
+        "source": "local nav metrics/ifind",
+        "fallback": "historical cache",
+        "section": "riskSummary",
+    },
+}
+
+
+def _field_sources_from_sections(sections: dict[str, dict]) -> dict[str, dict]:
+    field_sources: dict[str, dict] = {}
+    for group, config in FUND_DETAIL_FIELD_GROUPS.items():
+        section_key = config["section"]
+        section = sections.get(section_key, {})
+        for field in config["fields"]:
+            field_sources[field] = {
+                "field": field,
+                "group": group,
+                "source": section.get("source") or config["source"],
+                "preferredSource": config["source"],
+                "fallback": config["fallback"],
+                "asOf": section.get("asOf"),
+                "status": section.get("dataStatus", "missing"),
+                "coverage": section.get("coverage", 0.0),
+                "missingReason": section.get("missingReason"),
+            }
+    return field_sources
+
 
 def _detail_rows_payload(code: str, data, *, default_reason: str = "") -> dict:
     if isinstance(data, dict):
@@ -91,10 +162,9 @@ def _rating_score_fallback(code: str) -> dict | None:
     if score_value is None:
         return None
     if score_value <= 5:
-        star = int(round(score_value))
+        star = None
     else:
-        # score fallback：1~5 星；默认按 0~100 分位映射（保守可视化兜底）
-        star = max(1, min(5, int(round(score_value / 20))))
+        star = None
     return {
         "code": code,
         "rating3y": star,
@@ -294,7 +364,7 @@ async def fund_detail_completeness(code: str = Query(..., min_length=4, max_leng
             return False
 
     nav_date = snapshot.get("nav_date") if snapshot else None
-    if not snapshot or not snapshot.get("nav_data") or len(snapshot.get("nav_data") or []) < 2:
+    if snapshot is None or (snapshot and (not snapshot.get("nav_data") or len(snapshot.get("nav_data") or []) < 2)):
         from ..services.fund_service import _get_nav_history_for_detail
         fallback_nav_rows, fallback_nav_source, fallback_nav_as_of = await run_in_threadpool(
             _get_nav_history_for_detail,
@@ -606,7 +676,7 @@ async def fund_detail_completeness(code: str = Query(..., min_length=4, max_leng
         # 16. riskSummary — metrics first, then nav fallback
         "riskSummary": build(
             risk_has_data,
-            partial=risk_partial,
+            partial=False,
             stale=risk_has_data and (metrics_stale if metrics_has_risk_data else nav_stale),
             reason="缺 max_drawdown / sharpe，规则引擎无法定级",
             source="fund_metrics_snapshot" if metrics_has_risk_data else ("fund_nav_history_rule_engine" if nav_count >= 30 else None),
@@ -625,30 +695,31 @@ async def fund_detail_completeness(code: str = Query(..., min_length=4, max_leng
     # If an endpoint fails or also reports missing, keep the lightweight snapshot
     # judgment above.
     detail_checks = []
-    if sections["holderStructure"]["dataStatus"] in {"missing", "partial", "stale"}:
-        detail_checks.append(("holderStructure", fund_holder_structure(code=code, periods=8)))
-    if sections["bondAllocation"]["dataStatus"] in {"missing", "partial", "stale"}:
-        detail_checks.append(("bondAllocation", fund_bond_allocation(code=code)))
-    if sections["bondHoldings"]["dataStatus"] in {"missing", "partial", "stale"}:
-        detail_checks.append(("bondHoldings", fund_bond_holdings(code=code)))
-    if sections["scaleHistory"]["dataStatus"] in {"missing", "partial", "stale"}:
-        detail_checks.append(("scaleHistory", fund_scale_history(code=code, periods=8)))
-    if sections["turnoverHistory"]["dataStatus"] in {"missing", "partial", "stale"}:
-        detail_checks.append(("turnoverHistory", fund_turnover_history(code=code, periods=8)))
-    if sections["managerHistory"]["dataStatus"] in {"missing", "partial", "stale"}:
-        detail_checks.append(("managerHistory", fund_manager_history(code=code)))
-    if sections["purchaseInfo"]["dataStatus"] in {"missing", "partial", "stale"}:
-        detail_checks.append(("purchaseInfo", fund_purchase_info(code=code)))
-    if sections["rating"]["dataStatus"] in {"missing", "partial", "stale"} or rating_count > 0:
-        detail_checks.append(("rating", fund_rating(code=code)))
-    if sections["yearReturns"]["dataStatus"] in {"missing", "partial", "stale"}:
-        detail_checks.append(("yearReturns", fund_year_returns(code=code)))
-    if sections["riskSummary"]["dataStatus"] in {"missing", "partial", "stale"}:
-        detail_checks.append(("riskSummary", fund_risk_summary(code=code, window="1y")))
-    if sections["managerReport"]["dataStatus"] == "missing":
-        detail_checks.append(("managerReport", fund_manager_report(code=code)))
-    if sections["peerPerformance"]["dataStatus"] in {"missing", "partial", "stale"}:
-        detail_checks.append(("peerPerformance", fund_peer_performance(code=code, window_days=200, max_points=50)))
+    if snapshot:
+        if sections["holderStructure"]["dataStatus"] in {"missing", "partial"}:
+            detail_checks.append(("holderStructure", fund_holder_structure(code=code, periods=8)))
+        if sections["bondAllocation"]["dataStatus"] in {"missing", "partial"}:
+            detail_checks.append(("bondAllocation", fund_bond_allocation(code=code)))
+        if sections["bondHoldings"]["dataStatus"] in {"missing", "partial"}:
+            detail_checks.append(("bondHoldings", fund_bond_holdings(code=code)))
+        if sections["scaleHistory"]["dataStatus"] in {"missing", "partial"}:
+            detail_checks.append(("scaleHistory", fund_scale_history(code=code, periods=8)))
+        if sections["turnoverHistory"]["dataStatus"] in {"missing", "partial"}:
+            detail_checks.append(("turnoverHistory", fund_turnover_history(code=code, periods=8)))
+        if sections["managerHistory"]["dataStatus"] in {"missing", "partial"}:
+            detail_checks.append(("managerHistory", fund_manager_history(code=code)))
+        if sections["purchaseInfo"]["dataStatus"] in {"missing", "partial"}:
+            detail_checks.append(("purchaseInfo", fund_purchase_info(code=code)))
+        if sections["rating"]["dataStatus"] in {"missing", "partial"}:
+            detail_checks.append(("rating", fund_rating(code=code)))
+        if sections["yearReturns"]["dataStatus"] in {"missing", "partial"}:
+            detail_checks.append(("yearReturns", fund_year_returns(code=code)))
+        if sections["riskSummary"]["dataStatus"] in {"missing", "partial"}:
+            detail_checks.append(("riskSummary", fund_risk_summary(code=code, window="1y")))
+        if sections["managerReport"]["dataStatus"] == "missing":
+            detail_checks.append(("managerReport", fund_manager_report(code=code)))
+        if sections["peerPerformance"]["dataStatus"] in {"missing", "partial"}:
+            detail_checks.append(("peerPerformance", fund_peer_performance(code=code, window_days=200, max_points=50)))
 
     if detail_checks:
         detail_payloads = await asyncio.gather(
@@ -657,7 +728,7 @@ async def fund_detail_completeness(code: str = Query(..., min_length=4, max_leng
         )
         for (key, _), payload in zip(detail_checks, detail_payloads):
             section = section_from_payload(payload)
-            if section:
+            if section and section["dataStatus"] != "missing":
                 sections[key] = section
 
     total = len(sections)
@@ -666,6 +737,12 @@ async def fund_detail_completeness(code: str = Query(..., min_length=4, max_leng
     stale_count = sum(1 for s in sections.values() if s["dataStatus"] == "stale")
     missing = sum(1 for s in sections.values() if s["dataStatus"] == "missing")
     coverage = round((available + partial * 0.5 + stale_count * 0.25) / total, 4) if total else 0.0
+    field_sources = _field_sources_from_sections(sections)
+    field_total = len(field_sources)
+    field_coverage = round(
+        sum(float(item.get("coverage") or 0.0) for item in field_sources.values()) / field_total,
+        4,
+    ) if field_total else 0.0
 
     return {
         "code": code,
@@ -680,7 +757,48 @@ async def fund_detail_completeness(code: str = Query(..., min_length=4, max_leng
         "stale": stale_count,
         "missing": missing,
         "total": total,
+        "fieldSources": field_sources,
+        "fieldCoverage": field_coverage,
+        "fieldGroups": FUND_DETAIL_FIELD_GROUPS,
     }
+
+
+@router.get("/detail-fields")
+async def fund_detail_fields(code: str = Query(..., min_length=4, max_length=10, description="基金代码")):
+    """Return the P0 field matrix with field-level source/status metadata."""
+    completeness = await fund_detail_completeness(code=code)
+    return {
+        "code": code,
+        "dataStatus": completeness.get("dataStatus"),
+        "coverage": completeness.get("fieldCoverage", completeness.get("coverage", 0.0)),
+        "fieldGroups": FUND_DETAIL_FIELD_GROUPS,
+        "fieldSources": completeness.get("fieldSources", {}),
+        "sections": completeness.get("sections", {}),
+    }
+
+
+@router.get("/{code}/market-context")
+async def fund_market_context(code: str):
+    """ETF/fund market-context panel data with structured per-section status."""
+    from ..data.market_context_fetcher import get_fund_market_context
+
+    return await run_in_threadpool(get_fund_market_context, code)
+
+
+@router.get("/{code}/evidence-pack")
+async def fund_evidence_pack(code: str):
+    """Unified evidence pack for AI diagnosis and report generation."""
+    from ..reports.fund_research_report import build_fund_evidence_pack
+
+    return await run_in_threadpool(build_fund_evidence_pack, code)
+
+
+@router.get("/{code}/research-report")
+async def fund_research_report(code: str):
+    """Deterministic backend Markdown research report."""
+    from ..reports.fund_research_report import render_fund_research_report
+
+    return await run_in_threadpool(render_fund_research_report, code)
 
 
 @router.get("/data-status")
@@ -940,8 +1058,8 @@ async def fund_rating(code: str = Query(..., min_length=4, max_length=10, descri
             }
         fallback = await run_in_threadpool(_rating_score_fallback, code)
         if fallback:
-            fallback["dataStatus"] = "available"
-            fallback["missingReason"] = None
+            fallback["dataStatus"] = "partial"
+            fallback["missingReason"] = fallback.get("missingReason") or "缺少真实评级数据，使用本地指标分数兜底"
             fallback["coverage"] = fallback.get("coverage", 0.7) if fallback.get("coverage", 0.0) <= 0.0 else fallback.get("coverage")
             return fallback
         return {
