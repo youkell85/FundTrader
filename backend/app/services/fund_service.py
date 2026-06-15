@@ -1151,7 +1151,7 @@ def get_fund_purchase_info(code: str) -> dict | None:
 
     数据源：
       - 费率：fund_metrics_snapshot.fee_manage / fee_custody
-      - 起购 / 状态：行业标准（偏股混合 / 股票 / 混合型 起购 1.00 元）
+      - 起购 / 状态：未接入真实销售文件时保持为空
     """
     try:
         with get_db_context() as conn:
@@ -1168,50 +1168,39 @@ def get_fund_purchase_info(code: str) -> dict | None:
         # 费率：基金行业数据库里 0.012 / 0.002 这样的数值（已经是 1.2% / 0.2% 的小数）
         mgmt = _safe_float(row["fee_manage"]) if row else None
         cust = _safe_float(row["fee_custody"]) if row else None
-        fund_type = master["fund_type"] if master else ""
-        # 行业标准起购和费率
-        if "货币" in fund_type:
-            min_amt = 0.01
-            sub_fee = "0.00%"
-            red_fee = "0.00%"
-        else:
-            min_amt = 1.00
-            sub_fee = "0.30%~1.50%"
-            red_fee = "0.00%~1.50%"
         has_complete_metrics = row is not None and row["fee_manage"] is not None and row["fee_custody"] is not None
         # mgmt/cust 常见格式是 0.012（小数）或 1.2（百分比）
         mgmt_pct = _format_fee(mgmt)
         cust_pct = _format_fee(cust)
-        if mgmt is None:
-            mgmt = 0.012
-        if cust is None:
-            cust = 0.002
-        mgmt_value = mgmt * 100 if 0 < mgmt <= 1 else mgmt
-        cust_value = cust * 100 if 0 < cust <= 1 else cust
-        try:
-            total = mgmt_value + cust_value
-        except Exception:
-            total = 1.4
-        status = DETAIL_STATUS_AVAILABLE if has_complete_metrics else DETAIL_STATUS_PARTIAL
+        if has_complete_metrics:
+            mgmt_value = mgmt * 100 if mgmt is not None and 0 < mgmt <= 1 else mgmt
+            cust_value = cust * 100 if cust is not None and 0 < cust <= 1 else cust
+            total = (mgmt_value or 0) + (cust_value or 0)
+        else:
+            total = None
+        status = DETAIL_STATUS_PARTIAL if has_complete_metrics else DETAIL_STATUS_MISSING
+        missing_reason = (
+            "申购/赎回状态、起购金额、申购费和赎回费缺少真实销售文件；仅展示已入库管理费/托管费。"
+            if has_complete_metrics
+            else "缺少真实销售文件与费率字段。"
+        )
         return {
             "code": code,
-            "purchaseStatus": "开放申购",
-            "redeemStatus": "开放赎回",
-            "minPurchaseAmount": min_amt,
-            "subscriptionFeeRate": sub_fee,
-            "redemptionFeeRate": red_fee,
+            "purchaseStatus": None,
+            "redeemStatus": None,
+            "minPurchaseAmount": None,
+            "subscriptionFeeRate": None,
+            "redemptionFeeRate": None,
             "managementFeeRate": mgmt_pct,
             "custodyFeeRate": cust_pct,
-            "serviceFeeRate": f"{total:.2f}%",
-            "totalFeeRate1y": f"{total:.2f}",
+            "serviceFeeRate": f"{total:.2f}%" if total is not None else None,
+            "totalFeeRate1y": f"{total:.2f}" if total is not None else None,
             **_detail_meta(
                 status=status,
-                source="fund_metrics_snapshot" if row else "industry-defaults",
+                source="fund_metrics_snapshot" if has_complete_metrics else None,
                 as_of=row["updated_at"] if row else None,
-                coverage=1.0 if status == DETAIL_STATUS_AVAILABLE else 0.5,
-                missing_reason=None
-                if status == DETAIL_STATUS_AVAILABLE
-                else "费率字段缺失，当前为行业默认值与默认口径估算。"
+                coverage=0.35 if has_complete_metrics else 0.0,
+                missing_reason=missing_reason,
             ),
         }
     except Exception:
@@ -2092,15 +2081,8 @@ def get_fund_peer_performance(
             coverage = min(1.0, coverage + 0.15)
             benchmark_row = index_row.copy()
 
-        # 3) peer（同类均值）—— 用同类 1y 年化收益作为常量线（所有点返回相同值）
-        if peer_1y is not None and series_data["fund"]:
-            try:
-                series_data["peer"] = [
-                    {"date": pt["date"], "return": round(peer_1y, 4)}
-                    for pt in series_data["fund"]
-                ]
-            except Exception as e:
-                console_error(f"peer series calc failed: {e}")
+        # peer series requires real peer NAV history. Do not draw a horizontal
+        # synthetic line from a single 1Y category average.
 
         # 4) 本基金回撤序列
         try:

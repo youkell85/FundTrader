@@ -21,7 +21,7 @@ from ..allocation.models import (
     FundRankingRequest, FundRankingResponse, FundRankingItem,
     RebalanceCheckRequest, RebalanceCheckResponse,
     RebalanceDeviationItem, RebalanceTriggerItem, TradeActionItem,
-    RebalanceHistoryResponse, RebalanceHistoryItem,
+    RebalanceHistoryResponse,
     VariantsResponse, ExplainReportModel, ExplainSectionModel,
     WhatIfRequest, WhatIfResponse,
     ShareSelectorRequest, ShareSelectorResponse, ShareRecommendationItem,
@@ -38,7 +38,7 @@ from ..allocation.correlation_checker import check_correlation_constraints, sugg
 from ..allocation.fee_scorer import batch_analyze_fees, get_fee_recommendation
 from ..allocation.backtest import BacktestRequest, BacktestResponse, run_backtest
 from ..allocation.fund_mapper import get_all_rankings
-from ..allocation.rebalancer import run_rebalance_check, get_mock_history
+from ..allocation.rebalancer import run_rebalance_check
 
 router = APIRouter(prefix="/allocation", tags=["资产配置"])
 GENERIC_ALLOCATION_ERROR = "配置生成失败，请稍后重试或联系管理员。"
@@ -309,18 +309,9 @@ async def check_rebalance(request: RebalanceCheckRequest):
 @router.get("/rebalance-history", response_model=RebalanceHistoryResponse)
 async def get_rebalance_history():
     """获取历史调仓记录"""
-    history = await run_in_threadpool(get_mock_history)
-    return RebalanceHistoryResponse(
-        history=[
-            RebalanceHistoryItem(
-                entry_id=h.entry_id, executed_at=h.executed_at,
-                risk_profile=h.risk_profile, trigger_type=h.trigger_type,
-                actions_count=h.actions_count, total_turnover=h.total_turnover,
-                estimated_cost=h.estimated_cost, status=h.status,
-                summary=h.summary,
-            ) for h in history
-        ]
-    )
+    # No persisted rebalance ledger exists yet. Return an empty real result
+    # instead of synthetic history records.
+    return RebalanceHistoryResponse(history=[])
 
 
 @router.post("/share-selector", response_model=ShareSelectorResponse)
@@ -344,6 +335,8 @@ async def select_share_class(request: ShareSelectorRequest):
                 total_cost_a=r.total_cost_a,
                 total_cost_c=r.total_cost_c,
                 savings=r.savings,
+                fee_source=r.fee_source,
+                missing_reason=r.missing_reason,
             ) for r in recs
         ],
         holding_months=request.holding_months,

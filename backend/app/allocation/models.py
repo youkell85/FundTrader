@@ -535,6 +535,8 @@ class ShareRecommendationItem(BaseModel):
     total_cost_a: float
     total_cost_c: float
     savings: float
+    fee_source: str = "default_assumption"
+    missing_reason: str = ""
 
 
 class ShareSelectorResponse(BaseModel):

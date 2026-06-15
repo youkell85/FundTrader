@@ -446,6 +446,8 @@ export interface ShareRecommendationItem {
   total_cost_a: number;
   total_cost_c: number;
   savings: number;
+  fee_source?: string;
+  missing_reason?: string;
 }
 
 export interface ShareSelectorResponse {

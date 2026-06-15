@@ -28,6 +28,8 @@ class ShareFeeProfile:
     c_sales_service_fee: float = 0.40  # 销售服务费率 (%/year)
     c_redemption_fee_short: float = 0.50  # 赎回费-短期 (%)
     c_redemption_fee_long: float = 0.0  # 赎回费-长期 (%)
+    source: str = "default_assumption"
+    missing_reason: str = "缺少按基金代码匹配的真实 A/C 份额费率档案"
 
 
 @dataclass
@@ -41,6 +43,8 @@ class ShareRecommendation:
     total_cost_a: float  # total cost % for A-share over holding period
     total_cost_c: float  # total cost % for C-share over holding period
     savings: float  # savings % by choosing recommended share
+    fee_source: str = "default_assumption"
+    missing_reason: str = ""
 
 
 # Common fund fee profiles (ETF/LOF typically have lower fees)
@@ -193,6 +197,8 @@ def recommend_share(
         total_cost_a=round(cost_a, 4),
         total_cost_c=round(cost_c, 4),
         savings=round(savings, 4),
+        fee_source=fee_profile.source,
+        missing_reason=fee_profile.missing_reason,
     )
 
 

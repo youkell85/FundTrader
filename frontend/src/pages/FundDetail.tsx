@@ -1060,7 +1060,14 @@ function MetaSection({
   return (
     <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
       {/* 购买信息 */}
-      {purchaseInfo && (purchaseInfo.purchaseStatus || purchaseInfo.minPurchaseAmount) ? (
+      {purchaseInfo && (
+        purchaseInfo.purchaseStatus
+        || purchaseInfo.redeemStatus
+        || purchaseInfo.minPurchaseAmount
+        || purchaseInfo.managementFeeRate
+        || purchaseInfo.custodyFeeRate
+        || purchaseInfo.totalFeeRate1y != null
+      ) ? (
         <Panel title="购买信息">
           <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-sm">
             <dt className="text-muted-foreground">申购状态</dt>

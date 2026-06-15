@@ -1,9 +1,9 @@
-import { useState, useEffect, useMemo, useCallback, memo, useRef } from 'react';
+import { useState, useEffect, useMemo, useCallback, memo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { RefreshCw, AlertTriangle, CheckCircle, Clock, TrendingUp, TrendingDown, History } from 'lucide-react';
 import { checkRebalance, getRebalanceHistory } from '@/lib/api';
 import { useAllocationStore } from '@/store/allocationStore';
-import { MOCK_DATA } from '@/pages/mockData';
+import { isMockOutput } from '@/lib/execution-plan';
 import type {
   RebalanceCheckResponse, RebalanceHistoryResponse,
 } from '@/types/allocation';
@@ -18,40 +18,26 @@ export default function RebalancePanel() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<'check' | 'history'>('check');
-  const cachedCurrentRef = useRef<Record<string, number> | null>(null);
-  const cachedTargetRef = useRef<Record<string, number> | null>(null);
-
   let storeOutput: any = null;
   try { storeOutput = useAllocationStore().state.output; } catch {}
-  const d = storeOutput || MOCK_DATA;
-
-  // Simulate current allocations with slight drift from target
-  const simulateCurrentAllocations = (target: Record<string, number>): Record<string, number> => {
-    const current: Record<string, number> = {};
-    let total = 0;
-    for (const [k, v] of Object.entries(target)) {
-      // Add random drift between -4% and +4%
-      const drift = (Math.random() - 0.5) * 8;
-      current[k] = Math.max(0, v + drift);
-      total += current[k];
-    }
-    // Normalize to 100%
-    for (const k of Object.keys(current)) {
-      current[k] = Math.round((current[k] / total) * 1000) / 10;
-    }
-    return current;
-  };
+  const d = storeOutput;
 
   const runCheck = async () => {
     setLoading(true);
     setError(null);
     try {
-      const target = d.saa.allocations as Record<string, number>;
-      if (!cachedCurrentRef.current || cachedTargetRef.current !== target) {
-        cachedCurrentRef.current = simulateCurrentAllocations(target);
-        cachedTargetRef.current = target;
+      if (!d || isMockOutput(d)) {
+        setResult(null);
+        setError('当前没有真实配置方案，请先生成真实配置后再检查调仓。');
+        return;
       }
-      const current = cachedCurrentRef.current;
+      const target = d.saa.allocations as Record<string, number>;
+      const current = (d.current_allocations || d.currentAllocations || null) as Record<string, number> | null;
+      if (!current) {
+        setResult(null);
+        setError('当前缺少真实持仓权重，不能用模拟漂移生成调仓建议。请先接入或导入当前持仓。');
+        return;
+      }
       const res = await checkRebalance({
         target_allocations: target,
         current_allocations: current,
