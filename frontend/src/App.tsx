@@ -15,6 +15,7 @@ const Backtest = lazy(() => import('./pages/Backtest'))
 const Recommend = lazy(() => import('./pages/Recommend'))
 const Analysis = lazy(() => import('./pages/Analysis'))
 const AllocationWizard = lazy(() => import('./pages/AllocationWizard'))
+const DesignPreview = lazy(() => import('./pages/DesignPreview'))
 
 // 资产配置结果页 — 侧边导航布局 + 子路由
 const AllocationLayout = lazy(() => import('./components/layout/AllocationLayout'))
@@ -73,8 +74,9 @@ export default function App() {
         <Suspense fallback={<PageLoader />}>
           <Routes>
             <Route path="/" element={<Home />} />
-            <Route path="/:code" element={<FundDetail />} />
+            <Route path="/ui-preview" element={<DesignPreview />} />
             <Route path="/login" element={<Login />} />
+            <Route path="/:code" element={<FundDetail />} />
 
             {/* 管理员 */}
             <Route path="/admin" element={<RequireAuth><AdminDashboard /></RequireAuth>} />
