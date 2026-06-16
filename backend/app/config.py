@@ -28,6 +28,7 @@ CACHE_TTL_INFO = int(os.getenv("CACHE_TTL_INFO", "86400"))  # 基础信息/分�
 TUSHARE_TOKEN = os.getenv("TUSHARE_TOKEN", "")
 TICKFLOW_API_KEY = os.getenv("TICKFLOW_API_KEY", "")
 TICKFLOW_API_LEVEL = os.getenv("TICKFLOW_API_LEVEL", "auto")
+TICKFLOW_BASE_URL = os.getenv("TICKFLOW_BASE_URL", "https://api.tickflow.org")
 IFIND_TOKEN = os.getenv("IFIND_TOKEN", "")
 IFIND_USE_MCP = os.getenv("IFIND_USE_MCP", "true")
 

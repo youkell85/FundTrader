@@ -25,7 +25,7 @@ class TickflowClientFactory:
             return None
 
     @staticmethod
-    def build_client(mode: str = "auto", api_key: str = "") -> Optional[Any]:
+    def build_client(mode: str = "auto", api_key: str = "", base_url: str = "") -> Optional[Any]:
         try:
             from tickflow import TickFlow
         except ImportError:
@@ -34,12 +34,13 @@ class TickflowClientFactory:
 
         request_mode = (mode or "auto").strip().lower()
         key = (api_key or os.getenv("TICKFLOW_API_KEY", "")).strip()
+        endpoint = (base_url or os.getenv("TICKFLOW_BASE_URL", "")).strip() or None
 
         if request_mode == "paid":
             if not key:
                 console_error("paid mode requested but TICKFLOW_API_KEY is missing")
                 return None
-            return TickFlow(api_key=key)
+            return TickFlow(api_key=key, base_url=endpoint)
 
         if request_mode == "free":
             return TickflowClientFactory._build_free_client(TickFlow)
@@ -47,23 +48,23 @@ class TickflowClientFactory:
         # auto
         if key:
             try:
-                return TickFlow(api_key=key)
+                return TickFlow(api_key=key, base_url=endpoint)
             except Exception as e:
                 console_error(f"TickFlow paid client init failed, fallback to free: {e}")
                 return TickflowClientFactory._build_free_client(TickFlow)
         return TickflowClientFactory._build_free_client(TickFlow)
 
     @classmethod
-    def build_klines_client(cls, mode: str = "auto", api_key: str = "") -> Optional[Any]:
-        return cls.build_client(mode=mode, api_key=api_key)
+    def build_klines_client(cls, mode: str = "auto", api_key: str = "", base_url: str = "") -> Optional[Any]:
+        return cls.build_client(mode=mode, api_key=api_key, base_url=base_url)
 
     @classmethod
-    def build_quotes_client(cls, mode: str = "auto", api_key: str = "") -> Optional[Any]:
-        return cls.build_client(mode=mode, api_key=api_key)
+    def build_quotes_client(cls, mode: str = "auto", api_key: str = "", base_url: str = "") -> Optional[Any]:
+        return cls.build_client(mode=mode, api_key=api_key, base_url=base_url)
 
     @classmethod
-    def build_orderbook_client(cls, mode: str = "auto", api_key: str = "") -> Optional[Any]:
-        return cls.build_client(mode=mode, api_key=api_key)
+    def build_orderbook_client(cls, mode: str = "auto", api_key: str = "", base_url: str = "") -> Optional[Any]:
+        return cls.build_client(mode=mode, api_key=api_key, base_url=base_url)
 
 
 class TickflowQuotaPolicy:
@@ -101,10 +102,15 @@ class TickflowProvider(DataProvider):
         self._client = None
         self._api_key = os.getenv("TICKFLOW_API_KEY", "").strip()
         self._api_level = os.getenv("TICKFLOW_API_LEVEL", "auto").strip().lower()
+        self._base_url = os.getenv("TICKFLOW_BASE_URL", "https://api.tickflow.org").strip()
 
     def _get_client(self):
         if self._client is None:
-            self._client = TickflowClientFactory.build_client(mode=self._api_level, api_key=self._api_key)
+            self._client = TickflowClientFactory.build_client(
+                mode=self._api_level,
+                api_key=self._api_key,
+                base_url=self._base_url,
+            )
             if self._client is None:
                 console_error("TickFlow client init failed")
         return self._client
