@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import contextlib
+import io
 import os
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -12,6 +14,15 @@ from ...utils import console_error
 
 class TickflowClientFactory:
     """Build TickFlow SDK clients under configured mode."""
+
+    @staticmethod
+    def _build_free_client(TickFlow) -> Optional[Any]:
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                return TickFlow.free()
+        except UnicodeEncodeError:
+            console_error("TickFlow free client notice could not be printed under current console encoding")
+            return None
 
     @staticmethod
     def build_client(mode: str = "auto", api_key: str = "") -> Optional[Any]:
@@ -31,15 +42,16 @@ class TickflowClientFactory:
             return TickFlow(api_key=key)
 
         if request_mode == "free":
-            return TickFlow.free()
+            return TickflowClientFactory._build_free_client(TickFlow)
 
         # auto
         if key:
             try:
                 return TickFlow(api_key=key)
-            except Exception:
-                return TickFlow.free()
-        return TickFlow.free()
+            except Exception as e:
+                console_error(f"TickFlow paid client init failed, fallback to free: {e}")
+                return TickflowClientFactory._build_free_client(TickFlow)
+        return TickflowClientFactory._build_free_client(TickFlow)
 
     @classmethod
     def build_klines_client(cls, mode: str = "auto", api_key: str = "") -> Optional[Any]:
@@ -279,4 +291,3 @@ class TickflowProvider(DataProvider):
                 uniq.append(item)
                 seen.add(item)
         return uniq
-
