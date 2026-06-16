@@ -3,6 +3,8 @@
  * ���� BFF ����� FundTrader REST API
  */
 
+import "./env";
+
 const API_BASE = process.env.FUNDTRADER_API_BASE || "http://localhost:8766";
 
 function createTimeoutSignal(timeoutMs: number, externalSignal?: AbortSignal) {

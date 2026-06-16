@@ -1,3 +1,4 @@
+import "./lib/env";
 import { parseReviewText } from "@/utils/llm-review";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";

@@ -3,6 +3,7 @@ import os
 import time
 from typing import Any
 
+from ...env import load_backend_env
 from ...utils import console_error
 from .base import (
     AdjFactor,
@@ -18,6 +19,8 @@ from .base import (
     IndexDaily,
     TradeCal,
 )
+
+load_backend_env()
 
 
 class TushareProvider(DataProvider):

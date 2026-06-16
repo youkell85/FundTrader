@@ -1,4 +1,23 @@
-import "dotenv/config";
+import dotenv from "dotenv";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const backendEnvCandidates = [
+  path.resolve(process.cwd(), "../backend/.env"),
+  path.resolve(process.cwd(), "backend/.env"),
+  path.resolve(__dirname, "../../../backend/.env"),
+];
+
+for (const envPath of backendEnvCandidates) {
+  if (fs.existsSync(envPath)) {
+    dotenv.config({ path: envPath });
+    break;
+  }
+}
+dotenv.config();
 
 function optional(name: string): string {
   return process.env[name] ?? "";

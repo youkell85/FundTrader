@@ -9,7 +9,10 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from .base import DataProvider, FundBasic, FundDetail, FundHolding, FundNav
+from ...env import load_backend_env
 from ...utils import console_error
+
+load_backend_env()
 
 
 class TickflowClientFactory:

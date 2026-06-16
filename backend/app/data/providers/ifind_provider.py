@@ -4,7 +4,10 @@ import json
 import urllib.request
 from typing import Optional, List
 from .base import DataProvider, FundBasic, FundNav, FundHolding, FundDetail, FundPerformance
+from ...env import load_backend_env
 from ...utils import console_error
+
+load_backend_env()
 
 
 class iFinDProvider(DataProvider):

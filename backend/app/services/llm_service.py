@@ -376,6 +376,20 @@ async def call_astorn_llm(
     timeout: float = 60.0,
 ) -> str:
     """调用 Astorn DeepSeek v4 Flash API 生成文本。"""
+    if not ASTORN_API_KEY and LLM_API_KEY:
+        try:
+            result = await _call_llm_with_retry(
+                [{"role": "user", "content": prompt}],
+                max_tokens=max_tokens,
+                temperature=temperature,
+                llm_timeout=timeout,
+                max_retries=2,
+            )
+            return _choice_content(result)
+        except Exception as e:
+            console_error(f"[LLM fallback] error: {e}")
+            return "AI analysis temporarily unavailable, please retry later"
+
     if not ASTORN_API_KEY:
         return "AI分析服务未配置（缺少 ASTORN_API_KEY），请联系管理员配置 API 密钥"
 

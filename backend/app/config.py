@@ -1,18 +1,9 @@
 """FundTrader 后端配置"""
 import os
-from pathlib import Path
+from .env import load_backend_env
 
 # 在任何 os.getenv 之前加载 .env 文件
-try:
-    from dotenv import load_dotenv
-    _env_backend = Path(__file__).resolve().parent.parent / ".env"
-    _env_root = Path(__file__).resolve().parent.parent.parent / ".env"
-    if _env_backend.exists():
-        load_dotenv(_env_backend)
-    elif _env_root.exists():
-        load_dotenv(_env_root)
-except ImportError:
-    pass
+load_backend_env()
 
 # 服务配置
 API_HOST = os.getenv("API_HOST", "0.0.0.0")
