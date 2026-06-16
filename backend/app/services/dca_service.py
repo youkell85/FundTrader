@@ -65,7 +65,7 @@ def _calc_buy_and_hold_curve(nav_data: List[Dict], total_amount: float) -> Dict[
     annual_return = _calc_xirr(cash_flows) * 100 if cash_flows else 0
     max_drawdown = _calc_max_drawdown(curve)
     sharpe_ratio = _calc_curve_sharpe(curve)
-    return {
+    result = {
         "curve": curve,
         "final_value": round(final_value, 2),
         "profit_rate": round((final_value - total_amount) / total_amount * 100, 2) if total_amount > 0 else 0,
@@ -75,6 +75,73 @@ def _calc_buy_and_hold_curve(nav_data: List[Dict], total_amount: float) -> Dict[
         "sharpe_ratio": round(sharpe_ratio, 2),
         "total_invested": total_amount,
     }
+    _attach_curve_diagnostics(result, curve_key="curve")
+    return result
+
+
+def _curve_drawdown_duration(curve: List[Dict[str, Any]], *, value_key: str = "value") -> int:
+    peak = 0.0
+    peak_idx = 0
+    max_duration = 0
+    current_duration = 0
+    for idx, point in enumerate(curve):
+        value = float(point.get(value_key) or 0)
+        if value >= peak:
+            peak = value
+            peak_idx = idx
+            max_duration = max(max_duration, current_duration)
+            current_duration = 0
+        elif peak > 0:
+            current_duration = idx - peak_idx
+    return max(max_duration, current_duration)
+
+
+def _monthly_extremes(curve: List[Dict[str, Any]], *, value_key: str = "value") -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    if len(curve) < 2:
+        return None, None
+    monthly: dict[str, dict[str, float]] = {}
+    for point in curve:
+        date = str(point.get("date") or "")
+        value = float(point.get(value_key) or 0)
+        if not date or value <= 0:
+            continue
+        month = date[:7]
+        bucket = monthly.setdefault(month, {"start": value, "end": value})
+        bucket["end"] = value
+    returns = {
+        month: round((item["end"] / item["start"] - 1) * 100, 2)
+        for month, item in monthly.items()
+        if item["start"] > 0
+    }
+    if not returns:
+        return None, None
+    best_month, best_value = max(returns.items(), key=lambda item: item[1])
+    worst_month, worst_value = min(returns.items(), key=lambda item: item[1])
+    return (
+        {"month": best_month, "return": best_value},
+        {"month": worst_month, "return": worst_value},
+    )
+
+
+def _attach_curve_diagnostics(
+    result: Dict[str, Any],
+    *,
+    benchmark: Dict[str, Any] | None = None,
+    curve_key: str = "nav_curve",
+) -> None:
+    curve = result.get(curve_key)
+    if not isinstance(curve, list):
+        return
+    best_month, worst_month = _monthly_extremes(curve)
+    result["cagr"] = result.get("annual_return", 0)
+    result["max_drawdown_duration_days"] = _curve_drawdown_duration(curve)
+    result["best_month"] = best_month
+    result["worst_month"] = worst_month
+    if benchmark and isinstance(benchmark, dict):
+        result["benchmark_return"] = benchmark.get("annual_return")
+        if result.get("annual_return") is not None and benchmark.get("annual_return") is not None:
+            result["benchmark_excess"] = round(float(result.get("annual_return") or 0) - float(benchmark.get("annual_return") or 0), 2)
+        result["benchmark_status"] = "available" if benchmark.get("curve") else "missing"
 
 
 def _calculate_dca_backtest(
@@ -107,6 +174,7 @@ def _calculate_dca_backtest(
     for strategy_result in results.values():
         total_invested = strategy_result.get("total_invested", 0)
         strategy_result["benchmark"] = _calc_buy_and_hold_curve(nav_data, total_invested)
+        _attach_curve_diagnostics(strategy_result, benchmark=strategy_result["benchmark"])
 
     primary = results.get("fixed") or results.get("ma") or next(iter(results.values()), {})
     benchmark = primary.get("benchmark", _calc_buy_and_hold_curve(nav_data, amount * 12))
@@ -222,7 +290,7 @@ def _merge_benchmarks(results: List[Dict]) -> Dict[str, Any]:
     if curve and total_invested > 0:
         cash_flows = [(curve[0]["date"], -total_invested), (curve[-1]["date"], final_value)]
 
-    return {
+    result = {
         "curve": curve,
         "final_value": round(final_value, 2),
         "profit_rate": round((final_value - total_invested) / total_invested * 100, 2) if total_invested > 0 else 0,
@@ -232,6 +300,8 @@ def _merge_benchmarks(results: List[Dict]) -> Dict[str, Any]:
         "sharpe_ratio": round(_calc_curve_sharpe(curve), 2),
         "total_invested": round(total_invested, 2),
     }
+    _attach_curve_diagnostics(result, curve_key="curve")
+    return result
 
 
 def _combine_strategy_results(results: List[Dict], fund_count: int, strategy_name: str) -> Dict[str, Any]:
@@ -253,7 +323,8 @@ def _combine_strategy_results(results: List[Dict], fund_count: int, strategy_nam
     if total_value > 0:
         cash_flows.append((curve[-1]["date"], total_value))
 
-    return {
+    benchmark = _merge_benchmarks(results)
+    result = {
         "strategy": strategy_name,
         "fund_count": fund_count,
         "start_date": curve[0]["date"],
@@ -267,8 +338,10 @@ def _combine_strategy_results(results: List[Dict], fund_count: int, strategy_nam
         "sharpe_ratio": round(_calc_curve_sharpe(curve), 2),
         "trade_count": sum(int(r.get("trade_count") or 0) for r in results),
         "nav_curve": curve,
-        "benchmark": _merge_benchmarks(results),
+        "benchmark": benchmark,
     }
+    _attach_curve_diagnostics(result, benchmark=benchmark)
+    return result
 
 
 def _calc_combined_backtest(results: List[Dict], fund_count: int, strategy: str = "compare") -> Dict[str, Any]:

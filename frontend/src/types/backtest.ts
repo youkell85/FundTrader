@@ -30,6 +30,7 @@ export interface RebalanceEvent {
 
 export interface BacktestMetrics {
   annualized_return: number;
+  cagr: number;
   annualized_volatility: number;
   sharpe_ratio: number;
   sortino_ratio: number | null;
@@ -44,7 +45,11 @@ export interface BacktestMetrics {
   alpha: number | null;
   beta: number | null;
   tracking_error: number | null;
+  benchmark_return?: number | null;
+  benchmark_excess?: number | null;
   benchmark_status?: 'available' | 'missing' | 'partial';
+  best_month?: { month: string; return: number } | null;
+  worst_month?: { month: string; return: number } | null;
 }
 
 export interface RegimeHistoryEntry {

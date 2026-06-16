@@ -61,6 +61,7 @@ class BacktestMetrics(BaseModel):
     """Aggregate performance metrics for one simulation mode."""
 
     annualized_return: float  # %
+    cagr: float  # %, explicit alias for annualized geometric return
     annualized_volatility: float  # % (frontend-aligned alias)
     max_drawdown: float  # % (positive number representing loss)
     max_drawdown_duration_days: int
@@ -75,6 +76,11 @@ class BacktestMetrics(BaseModel):
     alpha: Optional[float] = None  # % annualized
     beta: Optional[float] = None
     tracking_error: Optional[float] = None  # % annualized
+    benchmark_return: Optional[float] = None  # % annualized
+    benchmark_excess: Optional[float] = None  # percentage points
+    benchmark_status: Literal["available", "missing", "partial"] = "missing"
+    best_month: Optional[Dict[str, Any]] = None
+    worst_month: Optional[Dict[str, Any]] = None
 
 
 class RegimeHistoryEntry(BaseModel):

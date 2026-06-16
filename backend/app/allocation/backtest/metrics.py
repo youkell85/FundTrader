@@ -69,6 +69,9 @@ def compute_metrics(
 
     # Monthly win rate
     win_rate = _compute_monthly_win_rate(values, dates)
+    monthly_returns = compute_monthly_returns(daily_values, dates)
+    best_month = _pick_extreme_month(monthly_returns, best=True)
+    worst_month = _pick_extreme_month(monthly_returns, best=False)
 
     # Average turnover
     avg_turnover = float(np.mean(rebalance_turnovers)) if rebalance_turnovers else 0.0
@@ -83,12 +86,21 @@ def compute_metrics(
     information_ratio = None
     alpha = None
     beta = None
+    benchmark_return = None
+    benchmark_excess = None
+    benchmark_status = "missing"
 
     if benchmark_daily_values is not None and len(benchmark_daily_values) >= 2:
         bench = np.array(benchmark_daily_values, dtype=np.float64)
         if len(bench) == n:
+            benchmark_status = "available"
             bench_returns = np.diff(bench) / bench[:-1]
             bench_returns = np.nan_to_num(bench_returns, nan=0.0, posinf=0.0, neginf=0.0)
+            if bench[0] > 0:
+                bench_total_return = bench[-1] / bench[0] - 1.0
+                bench_ann_return = (1 + bench_total_return) ** (1.0 / n_years) - 1.0 if n_years > 0 else 0.0
+                benchmark_return = bench_ann_return
+                benchmark_excess = ann_return - bench_ann_return
 
             # Tracking Error = annualized std of daily excess returns
             excess_returns = daily_returns - bench_returns
@@ -112,9 +124,12 @@ def compute_metrics(
             if beta is not None:
                 alpha_daily = daily_returns - beta * bench_returns
                 alpha = float(np.mean(alpha_daily)) * 252
+        else:
+            benchmark_status = "partial"
 
     return BacktestMetrics(
         annualized_return=round(ann_return * 100, 2),
+        cagr=round(ann_return * 100, 2),
         annualized_volatility=round(ann_vol * 100, 2),
         max_drawdown=round(max_dd * 100, 2),
         max_drawdown_duration_days=max_dd_duration,
@@ -129,6 +144,11 @@ def compute_metrics(
         information_ratio=round(information_ratio, 3) if information_ratio is not None else None,
         alpha=round(alpha * 100, 2) if alpha is not None else None,
         beta=round(beta, 3) if beta is not None else None,
+        benchmark_return=round(benchmark_return * 100, 2) if benchmark_return is not None else None,
+        benchmark_excess=round(benchmark_excess * 100, 2) if benchmark_excess is not None else None,
+        benchmark_status=benchmark_status,
+        best_month=best_month,
+        worst_month=worst_month,
     )
 
 
@@ -322,10 +342,18 @@ def _compute_monthly_win_rate(values: np.ndarray, dates: List[str]) -> float:
     return (positive_months / total_months * 100) if total_months > 0 else 0.0
 
 
+def _pick_extreme_month(monthly_returns: Dict[str, float], *, best: bool) -> Optional[Dict[str, float | str]]:
+    if not monthly_returns:
+        return None
+    month, value = max(monthly_returns.items(), key=lambda item: item[1]) if best else min(monthly_returns.items(), key=lambda item: item[1])
+    return {"month": month, "return": round(float(value), 2)}
+
+
 def _empty_metrics() -> BacktestMetrics:
     """Return zero-filled metrics for edge cases."""
     return BacktestMetrics(
         annualized_return=0.0,
+        cagr=0.0,
         annualized_volatility=0.0,
         max_drawdown=0.0,
         max_drawdown_duration_days=0,
@@ -339,4 +367,9 @@ def _empty_metrics() -> BacktestMetrics:
         information_ratio=None,
         alpha=None,
         beta=None,
+        benchmark_return=None,
+        benchmark_excess=None,
+        benchmark_status="missing",
+        best_month=None,
+        worst_month=None,
     )

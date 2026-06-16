@@ -48,6 +48,10 @@ class DcaLogicTest(unittest.TestCase):
 
         self.assertEqual(first["individual"][0]["total_invested"], 12000)
         self.assertEqual(second["individual"][0]["total_invested"], 24000)
+        self.assertIn("cagr", first["individual"][0])
+        self.assertIn("max_drawdown_duration_days", first["individual"][0])
+        self.assertIn("benchmark_excess", first["individual"][0])
+        self.assertEqual(first["individual"][0]["benchmark_status"], "available")
 
     def test_backend_combined_backtest_sums_portfolio_cashflows(self):
         nav = constant_nav(date(2025, 1, 1), date(2025, 12, 31))
@@ -60,6 +64,9 @@ class DcaLogicTest(unittest.TestCase):
         self.assertEqual(result["combined"]["total_invested"], 24000)
         self.assertEqual(result["combined"]["total_value"], 24000)
         self.assertEqual(result["combined"]["sharpe_ratio"], 0)
+        self.assertIn("best_month", result["combined"])
+        self.assertIn("worst_month", result["combined"])
+        self.assertEqual(result["combined"]["benchmark_status"], "available")
 
     def test_suggestion_handles_flat_recent_nav(self):
         nav = constant_nav(date(2025, 1, 1), date(2025, 4, 30))

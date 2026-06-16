@@ -101,6 +101,21 @@ class TestBenchmarkDependentMetrics(unittest.TestCase):
         self.assertGreater(m.beta, 0.5)
         self.assertLess(m.beta, 1.5)
 
+    def test_extended_diagnostics_are_populated(self):
+        """P1 diagnostics include CAGR, benchmark excess, and best/worst month."""
+        values = [100, 105, 103, 110, 108, 114]
+        dates = ["2025-01-02", "2025-01-31", "2025-02-03", "2025-02-28", "2025-03-03", "2025-03-31"]
+        bench_values = [100, 102, 101, 103, 104, 105]
+
+        m = compute_metrics(values, dates, [], benchmark_daily_values=bench_values)
+
+        self.assertEqual(m.cagr, m.annualized_return)
+        self.assertEqual(m.benchmark_status, "available")
+        self.assertIsNotNone(m.benchmark_return)
+        self.assertIsNotNone(m.benchmark_excess)
+        self.assertEqual(m.best_month["month"], "2025-01")
+        self.assertEqual(m.worst_month["month"], "2025-03")
+
 
 class TestPercentageUnits(unittest.TestCase):
     def test_annualized_return_is_percentage(self):
