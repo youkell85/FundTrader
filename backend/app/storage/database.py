@@ -5,6 +5,7 @@ SQLite Database Module — 数据持久化层
 import json
 import logging
 import os
+import re
 import sqlite3
 import threading
 import time
@@ -1805,12 +1806,17 @@ class FundDataStore:
         import uuid
         now = datetime.now().isoformat()
         job_id = str(uuid.uuid4())
+        job_payload = dict(payload or {})
+        clean_code = str(code or "").strip()
+        if clean_code and not re.fullmatch(r"\d{4,10}", clean_code):
+            job_payload.setdefault("raw_code", clean_code)
+            clean_code = ""
         with get_db() as conn:
             existing = conn.execute(
                 """SELECT id FROM fund_data_job
                    WHERE job_type = ? AND code = ? AND status IN ('pending', 'running')
                    ORDER BY created_at DESC LIMIT 1""",
-                (job_type, code),
+                (job_type, clean_code),
             ).fetchone()
             if existing:
                 return existing["id"]
@@ -1818,7 +1824,7 @@ class FundDataStore:
                 """INSERT INTO fund_data_job
                    (id, job_type, code, priority, status, payload_json, created_at, updated_at)
                    VALUES (?, ?, ?, ?, 'pending', ?, ?, ?)""",
-                (job_id, job_type, code, priority, json.dumps(payload or {}, ensure_ascii=False), now, now),
+                (job_id, job_type, clean_code, priority, json.dumps(job_payload, ensure_ascii=False), now, now),
             )
         return job_id
 
@@ -1935,6 +1941,18 @@ class FundDataStore:
             "startedAt": row["started_at"] or None,
             "finishedAt": row["finished_at"] or None,
         }
+
+    @staticmethod
+    def _is_active_job_row(row: sqlite3.Row) -> bool:
+        if row["status"] == "running":
+            return True
+        if row["status"] != "pending":
+            return False
+        try:
+            updated_at = datetime.fromisoformat((row["updated_at"] or "")[:19])
+        except (TypeError, ValueError):
+            return False
+        return (datetime.now() - updated_at).total_seconds() <= 86400
 
     @staticmethod
     def log_external_api_call(
@@ -2298,11 +2316,11 @@ class FundDataStore:
             jobs = conn.execute(
                 "SELECT status, COUNT(*) as c FROM fund_data_job GROUP BY status"
             ).fetchall()
-            active_jobs = conn.execute(
+            active_job_rows = conn.execute(
                 """SELECT * FROM fund_data_job
                    WHERE status IN ('pending', 'running')
                    ORDER BY priority ASC, updated_at DESC, created_at DESC
-                   LIMIT 20"""
+                   LIMIT 50"""
             ).fetchall()
             recent_jobs = conn.execute(
                 """SELECT * FROM fund_data_job
@@ -2310,13 +2328,18 @@ class FundDataStore:
                    LIMIT 20"""
             ).fetchall()
             quote_ts = conn.execute("SELECT MAX(updated_at) as t FROM fund_quote_snapshot").fetchone()["t"]
+        active_jobs = [
+            FundDataStore._job_row_to_dict(row)
+            for row in active_job_rows
+            if FundDataStore._is_active_job_row(row)
+        ][:20]
         return {
             "tables": tables,
             "quote_updated_at": quote_ts,
             "quote_stale_level": _stale_level(quote_ts),
             "api_calls_24h": [dict(row) for row in calls],
             "jobs": {row["status"]: row["c"] for row in jobs},
-            "activeJobs": [FundDataStore._job_row_to_dict(row) for row in active_jobs],
+            "activeJobs": active_jobs,
             "recentJobs": [FundDataStore._job_row_to_dict(row) for row in recent_jobs],
             "jobStatusContract": {
                 "statusValues": ["pending", "running", "succeeded", "failed", "cancelled"],

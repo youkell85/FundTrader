@@ -54,6 +54,31 @@ def test_fund_job_lifecycle_is_persisted(isolated_db):
     assert "jobStatusContract" in status
 
 
+def test_stale_pending_jobs_are_not_reported_as_active(isolated_db):
+    job_id = FundDataStore.create_job(
+        "single_fund_backfill",
+        code="000001;enqueue_missing=false",
+        payload={"reason": "test"},
+    )
+    with database.get_db() as conn:
+        conn.execute(
+            """UPDATE fund_data_job
+               SET updated_at = '2026-01-01T00:00:00',
+                   created_at = '2026-01-01T00:00:00'
+               WHERE id = ?""",
+            (job_id,),
+        )
+
+    job = FundDataStore.get_job(job_id)
+    status = FundDataStore.data_status()
+
+    assert job["code"] == ""
+    assert job["payload"]["raw_code"] == "000001;enqueue_missing=false"
+    assert status["jobs"]["pending"] == 1
+    assert status["activeJobs"] == []
+    assert status["recentJobs"][0]["jobId"] == job_id
+
+
 def test_scheduler_records_backfill_script_status(isolated_db, monkeypatch):
     def fake_run(*args, **kwargs):
         payload = {"success": 2, "failed": 1, "total": 3, "rows": 9}
