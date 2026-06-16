@@ -809,6 +809,28 @@ async def fund_data_status():
     return await run_in_threadpool(FundDataStore.data_status)
 
 
+@router.get("/jobs")
+async def fund_jobs(
+    limit: int = Query(20, ge=1, le=100),
+    status: str | None = Query(None, description="pending/running/succeeded/failed/cancelled"),
+):
+    """List resumable fund data jobs for BFF polling."""
+    from ..storage.database import FundDataStore
+
+    return {"jobs": await run_in_threadpool(FundDataStore.list_jobs, limit, status)}
+
+
+@router.get("/jobs/{job_id}")
+async def fund_job_status(job_id: str):
+    """Return a single fund data job status."""
+    from ..storage.database import FundDataStore
+
+    job = await run_in_threadpool(FundDataStore.get_job, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="job not found")
+    return job
+
+
 @router.get("/category-metrics")
 async def fund_category_metrics(
     window_days: int = Query(365, ge=180, le=730),

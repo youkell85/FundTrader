@@ -152,6 +152,7 @@ export function updateUserState(userId: string, patch: Partial<UserState>) {
   let states: Record<string, UserState> = {};
   try { states = JSON.parse(fs.readFileSync(statesPath, 'utf-8')); } catch {}
   states['state_' + userId] = { ...getUserState(userId), ...patch };
+  fs.mkdirSync(path.dirname(statesPath), { recursive: true });
   fs.writeFileSync(statesPath, JSON.stringify(states, null, 2), 'utf-8');
   return states['state_' + userId];
 }

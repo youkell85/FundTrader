@@ -1340,7 +1340,13 @@ def _init_fund_data_center_tables() -> None:
                 code TEXT DEFAULT '',
                 priority INTEGER DEFAULT 5,
                 status TEXT NOT NULL DEFAULT 'pending',
+                step TEXT DEFAULT '',
+                progress REAL DEFAULT 0,
+                source TEXT DEFAULT '',
+                processed INTEGER DEFAULT 0,
+                total INTEGER DEFAULT 0,
                 payload_json TEXT DEFAULT '{}',
+                result_json TEXT DEFAULT '{}',
                 error TEXT DEFAULT '',
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
@@ -1378,6 +1384,17 @@ def _init_fund_data_center_tables() -> None:
         master_columns = {row["name"] for row in conn.execute("PRAGMA table_info(fund_master)").fetchall()}
         if "data_version" not in master_columns:
             conn.execute("ALTER TABLE fund_master ADD COLUMN data_version INTEGER DEFAULT 0")
+        job_columns = {row["name"] for row in conn.execute("PRAGMA table_info(fund_data_job)").fetchall()}
+        for column, ddl in {
+            "step": "ALTER TABLE fund_data_job ADD COLUMN step TEXT DEFAULT ''",
+            "progress": "ALTER TABLE fund_data_job ADD COLUMN progress REAL DEFAULT 0",
+            "source": "ALTER TABLE fund_data_job ADD COLUMN source TEXT DEFAULT ''",
+            "processed": "ALTER TABLE fund_data_job ADD COLUMN processed INTEGER DEFAULT 0",
+            "total": "ALTER TABLE fund_data_job ADD COLUMN total INTEGER DEFAULT 0",
+            "result_json": "ALTER TABLE fund_data_job ADD COLUMN result_json TEXT DEFAULT '{}'",
+        }.items():
+            if column not in job_columns:
+                conn.execute(ddl)
 
 
 def _fund_tags(value: Any) -> list[str]:
@@ -1806,6 +1823,120 @@ class FundDataStore:
         return job_id
 
     @staticmethod
+    def update_job(
+        job_id: str,
+        *,
+        status: str | None = None,
+        step: str | None = None,
+        progress: float | None = None,
+        source: str | None = None,
+        processed: int | None = None,
+        total: int | None = None,
+        result: dict[str, Any] | None = None,
+        error: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Persist resumable progress for a long-running data job."""
+        allowed = {"pending", "running", "succeeded", "failed", "cancelled"}
+        if status is not None and status not in allowed:
+            raise ValueError(f"invalid job status: {status}")
+        now = datetime.now().isoformat()
+        updates: list[str] = ["updated_at = ?"]
+        values: list[Any] = [now]
+        if status is not None:
+            updates.append("status = ?")
+            values.append(status)
+            if status == "running":
+                updates.append("started_at = CASE WHEN started_at = '' THEN ? ELSE started_at END")
+                values.append(now)
+            if status in {"succeeded", "failed", "cancelled"}:
+                updates.append("finished_at = ?")
+                values.append(now)
+        if step is not None:
+            updates.append("step = ?")
+            values.append(str(step)[:200])
+        if progress is not None:
+            updates.append("progress = ?")
+            values.append(max(0.0, min(1.0, float(progress))))
+        if source is not None:
+            updates.append("source = ?")
+            values.append(str(source)[:100])
+        if processed is not None:
+            updates.append("processed = ?")
+            values.append(max(0, int(processed)))
+        if total is not None:
+            updates.append("total = ?")
+            values.append(max(0, int(total)))
+        if result is not None:
+            updates.append("result_json = ?")
+            values.append(json.dumps(result, ensure_ascii=False))
+        if error is not None:
+            updates.append("error = ?")
+            values.append(str(error)[:1000])
+        values.append(job_id)
+        with get_db() as conn:
+            conn.execute(f"UPDATE fund_data_job SET {', '.join(updates)} WHERE id = ?", values)
+        return FundDataStore.get_job(job_id)
+
+    @staticmethod
+    def get_job(job_id: str) -> dict[str, Any] | None:
+        with get_db() as conn:
+            row = conn.execute("SELECT * FROM fund_data_job WHERE id = ?", (job_id,)).fetchone()
+        return FundDataStore._job_row_to_dict(row) if row else None
+
+    @staticmethod
+    def list_jobs(limit: int = 20, status: str | None = None) -> list[dict[str, Any]]:
+        limit = max(1, min(100, int(limit or 20)))
+        with get_db() as conn:
+            if status:
+                rows = conn.execute(
+                    """SELECT * FROM fund_data_job
+                       WHERE status = ?
+                       ORDER BY updated_at DESC, created_at DESC
+                       LIMIT ?""",
+                    (status, limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """SELECT * FROM fund_data_job
+                       ORDER BY updated_at DESC, created_at DESC
+                       LIMIT ?""",
+                    (limit,),
+                ).fetchall()
+        return [FundDataStore._job_row_to_dict(row) for row in rows]
+
+    @staticmethod
+    def _job_row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
+        payload = {}
+        result = {}
+        try:
+            payload = json.loads(row["payload_json"] or "{}")
+        except Exception:
+            payload = {}
+        try:
+            result = json.loads(row["result_json"] or "{}")
+        except Exception:
+            result = {}
+        return {
+            "jobId": row["id"],
+            "jobType": row["job_type"],
+            "code": row["code"] or "",
+            "priority": row["priority"],
+            "status": row["status"],
+            "step": row["step"] or "",
+            "progress": float(row["progress"] or 0),
+            "source": row["source"] or "",
+            "processed": int(row["processed"] or 0),
+            "total": int(row["total"] or 0),
+            "payload": payload,
+            "result": result,
+            "error": row["error"] or "",
+            "createdAt": row["created_at"],
+            "updatedAt": row["updated_at"],
+            "startedAt": row["started_at"] or None,
+            "finishedAt": row["finished_at"] or None,
+        }
+
+    @staticmethod
     def log_external_api_call(
         source: str,
         endpoint: str,
@@ -2167,6 +2298,17 @@ class FundDataStore:
             jobs = conn.execute(
                 "SELECT status, COUNT(*) as c FROM fund_data_job GROUP BY status"
             ).fetchall()
+            active_jobs = conn.execute(
+                """SELECT * FROM fund_data_job
+                   WHERE status IN ('pending', 'running')
+                   ORDER BY priority ASC, updated_at DESC, created_at DESC
+                   LIMIT 20"""
+            ).fetchall()
+            recent_jobs = conn.execute(
+                """SELECT * FROM fund_data_job
+                   ORDER BY updated_at DESC, created_at DESC
+                   LIMIT 20"""
+            ).fetchall()
             quote_ts = conn.execute("SELECT MAX(updated_at) as t FROM fund_quote_snapshot").fetchone()["t"]
         return {
             "tables": tables,
@@ -2174,6 +2316,13 @@ class FundDataStore:
             "quote_stale_level": _stale_level(quote_ts),
             "api_calls_24h": [dict(row) for row in calls],
             "jobs": {row["status"]: row["c"] for row in jobs},
+            "activeJobs": [FundDataStore._job_row_to_dict(row) for row in active_jobs],
+            "recentJobs": [FundDataStore._job_row_to_dict(row) for row in recent_jobs],
+            "jobStatusContract": {
+                "statusValues": ["pending", "running", "succeeded", "failed", "cancelled"],
+                "progressRange": [0, 1],
+                "fields": ["jobId", "status", "step", "progress", "source", "processed", "total", "error"],
+            },
         }
 
     @staticmethod

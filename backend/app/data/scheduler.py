@@ -26,6 +26,48 @@ from app.utils import console_error
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
 
 
+def _source_for_script(name: str) -> str:
+    if "tushare" in name:
+        return "tushare"
+    if name in {"metrics", "drawdown"}:
+        return "sqlite_nav_history"
+    return "local"
+
+
+def _job_progress_from_result(parsed: dict | None) -> tuple[int, int]:
+    if not isinstance(parsed, dict):
+        return 0, 0
+    success = int(parsed.get("success") or parsed.get("completed") or 0)
+    failed = int(parsed.get("failed") or 0)
+    total = int(parsed.get("total") or parsed.get("processed") or (success + failed) or 0)
+    processed = int(parsed.get("processed") or (success + failed) or total or 0)
+    return processed, total
+
+
+def _parse_result_from_stdout(stdout: str) -> tuple[dict | None, list[str]]:
+    lines = stdout.strip().splitlines()
+    for line in reversed(lines):
+        try:
+            parsed = json.loads(line)
+            if isinstance(parsed, dict):
+                return parsed, lines
+        except Exception:
+            continue
+    text = stdout.strip()
+    for marker in ("\n{", "{"):
+        start = text.rfind(marker)
+        if start < 0:
+            continue
+        block = text[start + (1 if marker.startswith("\n") else 0):]
+        try:
+            parsed = json.loads(block)
+            if isinstance(parsed, dict):
+                return parsed, lines
+        except Exception:
+            continue
+    return None, lines
+
+
 def _run_script(name: str, args: list[str]) -> dict:
     """Execute a backfill script as a subprocess, return parsed JSON result."""
     import subprocess
@@ -35,6 +77,19 @@ def _run_script(name: str, args: list[str]) -> dict:
         return {"error": f"Script not found: {script_path}"}
 
     cmd = [sys.executable, str(script_path)] + args
+    source = _source_for_script(name)
+    job_id = FundDataStore.create_job(
+        f"backfill_{name}",
+        payload={"script": str(script_path), "args": args},
+        priority=4,
+    )
+    FundDataStore.update_job(
+        job_id,
+        status="running",
+        step=f"run_{name}",
+        progress=0.05,
+        source=source,
+    )
     print(f"  [{datetime.now().strftime('%H:%M:%S')}] Running: {' '.join(cmd[-3:])}")
     start = time.time()
     try:
@@ -42,16 +97,22 @@ def _run_script(name: str, args: list[str]) -> dict:
             cmd, capture_output=True, text=True, timeout=3600, check=False
         )
         elapsed = time.time() - start
-        # Try to parse JSON from last line of stdout
-        lines = result.stdout.strip().splitlines()
-        parsed = None
-        for line in reversed(lines):
-            try:
-                parsed = json.loads(line)
-                break
-            except Exception:
-                continue
+        parsed, lines = _parse_result_from_stdout(result.stdout)
+        processed, total = _job_progress_from_result(parsed)
+        ok = result.returncode == 0
+        FundDataStore.update_job(
+            job_id,
+            status="succeeded" if ok else "failed",
+            step=f"finish_{name}",
+            progress=1.0 if ok else 0.0,
+            source=source,
+            processed=processed,
+            total=total,
+            result=parsed or {"stdout_tail": lines[-5:] if lines else []},
+            error=result.stderr[-500:] if result.returncode else "",
+        )
         return {
+            "job_id": job_id,
             "script": name,
             "elapsed": round(elapsed, 1),
             "returncode": result.returncode,
@@ -60,9 +121,25 @@ def _run_script(name: str, args: list[str]) -> dict:
             "stderr": result.stderr[-500:] if result.stderr else "",
         }
     except subprocess.TimeoutExpired:
-        return {"script": name, "error": "timeout after 3600s"}
+        FundDataStore.update_job(
+            job_id,
+            status="failed",
+            step=f"timeout_{name}",
+            progress=0.0,
+            source=source,
+            error="timeout after 3600s",
+        )
+        return {"job_id": job_id, "script": name, "error": "timeout after 3600s"}
     except Exception as e:
-        return {"script": name, "error": str(e)}
+        FundDataStore.update_job(
+            job_id,
+            status="failed",
+            step=f"error_{name}",
+            progress=0.0,
+            source=source,
+            error=str(e),
+        )
+        return {"job_id": job_id, "script": name, "error": str(e)}
 
 
 def run_nav_backfill(limit: int = 0, batch_size: int = 100) -> dict:

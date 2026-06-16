@@ -110,12 +110,33 @@ describe('fund detail contract fallbacks', () => {
 
   test('fundDataStatus requests existing job/data status route', async () => {
     const ftFetchMock = vi.mocked(fundClient.ftFetch);
-    ftFetchMock.mockResolvedValueOnce({ jobs: { pending: 1 }, snapshots: {} });
+    ftFetchMock.mockResolvedValueOnce({ jobs: { pending: 1 }, activeJobs: [{ jobId: 'job-1', status: 'running' }] });
 
     const result = await caller.fundDataStatus() as any;
 
     expect(result.jobs.pending).toBe(1);
+    expect(result.activeJobs[0].jobId).toBe('job-1');
     expect(ftFetchMock).toHaveBeenLastCalledWith('/fund/data-status');
+  });
+
+  test('fundJobs requests pollable backend job list route', async () => {
+    const ftFetchMock = vi.mocked(fundClient.ftFetch);
+    ftFetchMock.mockResolvedValueOnce({ jobs: [{ jobId: 'job-1', status: 'running' }] });
+
+    const result = await caller.fundJobs({ limit: 5, status: 'running' }) as any;
+
+    expect(result.jobs[0].status).toBe('running');
+    expect(ftFetchMock).toHaveBeenLastCalledWith('/fund/jobs?limit=5&status=running');
+  });
+
+  test('fundJobStatus requests single backend job route', async () => {
+    const ftFetchMock = vi.mocked(fundClient.ftFetch);
+    ftFetchMock.mockResolvedValueOnce({ jobId: 'job-1', status: 'succeeded', progress: 1 });
+
+    const result = await caller.fundJobStatus({ jobId: 'job-1' }) as any;
+
+    expect(result.progress).toBe(1);
+    expect(ftFetchMock).toHaveBeenLastCalledWith('/fund/jobs/job-1');
   });
 
   test('detailByCode preserves snapshot holdings in fast fallback', async () => {

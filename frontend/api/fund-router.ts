@@ -2255,7 +2255,7 @@ export const fundRouter = createRouter({
     try {
       return await cachedFtFetch(
         "fund_data_status",
-        60_000,
+        5_000,
         () => ftFetch<any>("/fund/data-status"),
       );
     } catch (err) {
@@ -2263,4 +2263,33 @@ export const fundRouter = createRouter({
       return { jobs: {}, dataStatus: "missing", missingReason: "基金数据任务状态读取失败" };
     }
   }),
+
+  fundJobs: publicQuery
+    .input(z.object({
+      limit: z.number().int().min(1).max(100).optional(),
+      status: z.enum(["pending", "running", "succeeded", "failed", "cancelled"]).optional(),
+    }).optional())
+    .query(async ({ input }) => {
+      const params = new URLSearchParams();
+      if (input?.limit) params.set("limit", String(input.limit));
+      if (input?.status) params.set("status", input.status);
+      const suffix = params.toString() ? `?${params.toString()}` : "";
+      try {
+        return await ftFetch<any>(`/fund/jobs${suffix}`);
+      } catch (err) {
+        console.warn("[fundRouter] 基金任务列表读取失败:", err);
+        return { jobs: [] };
+      }
+    }),
+
+  fundJobStatus: publicQuery
+    .input(z.object({ jobId: z.string().min(1) }))
+    .query(async ({ input }) => {
+      try {
+        return await ftFetch<any>(`/fund/jobs/${encodeURIComponent(input.jobId)}`);
+      } catch (err) {
+        console.warn("[fundRouter] 基金任务状态读取失败:", err);
+        return { jobId: input.jobId, status: "missing", progress: 0, missingReason: "任务状态读取失败" };
+      }
+    }),
 });
