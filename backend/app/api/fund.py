@@ -5,6 +5,7 @@ import logging
 from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Query
+from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from ..constants.guoyuan_funds import FUND_CATEGORIES, FUND_TYPES, GUOYUAN_FUND_LIST
@@ -22,6 +23,12 @@ from ..services.llm_service import call_astorn_llm
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/fund", tags=["基金排名筛选"])
+
+
+class FundAgentPlanRequest(BaseModel):
+    template: str = Field(default="single_fund_diagnosis")
+    code: str = Field(..., min_length=4, max_length=10)
+    context: dict | None = None
 
 # ── 排序参数白名单 ──
 ALLOWED_SORT_FIELDS = frozenset({
@@ -791,6 +798,27 @@ async def fund_evidence_pack(code: str):
     from ..reports.fund_research_report import build_fund_evidence_pack
 
     return await run_in_threadpool(build_fund_evidence_pack, code)
+
+
+@router.get("/agent-templates")
+async def fund_agent_templates():
+    """Fixed prompt templates and whitelisted tools for the lightweight fund agent."""
+    from ..agents.fund_agent import list_fund_agent_templates
+
+    return list_fund_agent_templates()
+
+
+@router.post("/agent-plan")
+async def fund_agent_plan(payload: FundAgentPlanRequest):
+    """Build an auditable fixed-template agent plan from the fund evidence pack."""
+    from ..agents.fund_agent import build_fund_agent_plan
+
+    return await run_in_threadpool(
+        build_fund_agent_plan,
+        payload.template,
+        payload.code,
+        payload.context,
+    )
 
 
 @router.get("/{code}/research-report")
