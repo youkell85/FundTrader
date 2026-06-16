@@ -1,6 +1,6 @@
 ﻿"""Data federation adapter for fund/detail providers."""
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 
 from .base import DataProvider, FundDetail, FundNav, FundHolding, FundPerformance, FundRisk
@@ -17,6 +17,9 @@ PROVIDER_CAPABILITIES = {
     "tickflow": ["etf_quotes", "etf_klines", "minute_klines", "depth", "adjustment_factors"],
     "tencent": ["realtime_quote", "fund_quote_fallback"],
 }
+
+PROVIDER_FAILURE_THRESHOLD = 3
+PROVIDER_COOLDOWN_SECONDS = 300
 
 
 class DataFusion:
@@ -41,12 +44,18 @@ class DataFusion:
                 "used": False,
                 "fallback_reason": None,
                 "source_hint": None,
+                "failure_count": 0,
+                "last_success_at": None,
+                "last_failure_at": None,
+                "cooldown_until": None,
+                "circuit_open": False,
             }
 
     def _get_available(self) -> List[DataProvider]:
         if self._available_providers is None:
             self._available_providers = [
-                p for p in self.providers if p.is_available()
+                p for p in self.providers
+                if not self._is_provider_in_cooldown(p.name) and p.is_available()
             ]
             self._available_providers.sort(key=lambda p: p.priority, reverse=True)
             console_error(f"Available data providers: {[p.name for p in self._available_providers]}")
@@ -62,6 +71,27 @@ class DataFusion:
             state["fallback_reason"] = None
             state["source_hint"] = None
             state["last_error"] = None
+
+    @staticmethod
+    def _parse_datetime(value: Any) -> Optional[datetime]:
+        if isinstance(value, datetime):
+            return value
+        if isinstance(value, str) and value:
+            try:
+                return datetime.fromisoformat(value)
+            except ValueError:
+                return None
+        return None
+
+    def _is_provider_in_cooldown(self, provider_name: str) -> bool:
+        state = self._provider_status.get(provider_name, {})
+        cooldown_until = self._parse_datetime(state.get("cooldown_until"))
+        if cooldown_until and cooldown_until > datetime.now():
+            return True
+        if cooldown_until:
+            state["cooldown_until"] = None
+            state["circuit_open"] = False
+        return False
 
     @staticmethod
     def _is_blank_text(value: Any) -> bool:
@@ -88,15 +118,34 @@ class DataFusion:
                 "used": False,
                 "fallback_reason": None,
                 "source_hint": None,
+                "failure_count": 0,
+                "last_success_at": None,
+                "last_failure_at": None,
+                "cooldown_until": None,
+                "circuit_open": False,
             },
         )
+        now = datetime.now()
         try:
             state["available"] = provider.is_available()
         except Exception:
             state["available"] = False
-        state["last_check"] = datetime.now().isoformat()
+        state["last_check"] = now.isoformat()
         state["used"] = bool(used or state.get("used"))
-        state["last_error"] = None if success else (error or "provider call failed")
+        if success:
+            state["failure_count"] = 0
+            state["last_success_at"] = now.isoformat()
+            state["last_error"] = None
+            state["cooldown_until"] = None
+            state["circuit_open"] = False
+        else:
+            failure_count = int(state.get("failure_count") or 0) + 1
+            state["failure_count"] = failure_count
+            state["last_failure_at"] = now.isoformat()
+            state["last_error"] = error or "provider call failed"
+            if failure_count >= PROVIDER_FAILURE_THRESHOLD:
+                state["circuit_open"] = True
+                state["cooldown_until"] = (now + timedelta(seconds=PROVIDER_COOLDOWN_SECONDS)).isoformat()
         if fallback_reason:
             state["fallback_reason"] = fallback_reason
         if source_hint:
@@ -287,20 +336,37 @@ class DataFusion:
         statuses = []
         for p in self.providers:
             state = self._provider_status.get(p.name, {})
-            available = p.is_available()
+            in_cooldown = self._is_provider_in_cooldown(p.name)
+            available = False if in_cooldown else p.is_available()
             last_error = state.get("last_error")
+            if in_cooldown:
+                status = "cooldown"
+            elif available and not last_error:
+                status = "available"
+            elif available:
+                status = "degraded"
+            else:
+                status = "missing"
             statuses.append({
                 "name": p.name,
                 "priority": p.priority,
                 "capabilities": PROVIDER_CAPABILITIES.get(p.name, []),
                 "available": available,
-                "status": "available" if available and not last_error else "degraded" if available else "missing",
+                "status": status,
                 "used": bool(state.get("used", False)),
                 "last_check": state.get("last_check"),
-                "lastSuccessAt": state.get("last_check") if available and not last_error else None,
+                "lastSuccessAt": state.get("last_success_at"),
+                "last_success_at": state.get("last_success_at"),
+                "lastFailureAt": state.get("last_failure_at"),
+                "last_failure_at": state.get("last_failure_at"),
                 "lastError": last_error,
                 "last_error": last_error,
-                "cooldownUntil": None,
+                "cooldownUntil": state.get("cooldown_until"),
+                "cooldown_until": state.get("cooldown_until"),
+                "failureCount": int(state.get("failure_count") or 0),
+                "failure_count": int(state.get("failure_count") or 0),
+                "circuitOpen": bool(state.get("circuit_open")),
+                "circuit_open": bool(state.get("circuit_open")),
                 "fallback_reason": state.get("fallback_reason"),
                 "source_hint": state.get("source_hint"),
             })

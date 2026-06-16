@@ -58,6 +58,22 @@ function formatQuotaValue(value: unknown) {
     .replace(/(\d+)\/min/g, "$1 次/分钟");
 }
 
+function providerDiagnosticText(p: DataSourceProviderStatus) {
+  const lastError = p.lastError || p.last_error;
+  const cooldownUntil = p.cooldownUntil || p.cooldown_until;
+  const failureCount = p.failureCount ?? p.failure_count ?? 0;
+  const statusParts = [
+    p.status || (p.available ? "available" : "missing"),
+    p.used ? "in-use" : "standby",
+  ];
+  if (failureCount > 0) statusParts.push(`fail=${failureCount}`);
+  if (p.circuitOpen || p.circuit_open) statusParts.push("circuit=open");
+  if (cooldownUntil) statusParts.push(`cooldown=${cooldownUntil}`);
+  if (p.fallback_reason) statusParts.push(p.fallback_reason);
+  if (lastError) statusParts.push(lastError);
+  return statusParts.join(" / ");
+}
+
 function ProviderList({ providers }: { providers: DataSourceProviderStatus[] }) {
   if (!providers.length) {
     return <p className="text-xs text-white/50">暂无供应商状态。</p>;
@@ -71,10 +87,8 @@ function ProviderList({ providers }: { providers: DataSourceProviderStatus[] }) 
             <span className="text-white/70">{p.name}</span>
             <span className="text-white/40">优先级 {p.priority}</span>
           </span>
-          <span className="text-white/40 truncate max-w-[180px]" title={p.last_error || ""}>
-            {p.used ? "使用中" : "备用"}
-            {p.fallback_reason ? ` / ${p.fallback_reason}` : ""}
-            {p.last_error && ` / ${p.last_error}`}
+          <span className="text-white/40 truncate max-w-[240px]" title={providerDiagnosticText(p)}>
+            {providerDiagnosticText(p)}
           </span>
         </div>
       ))}
