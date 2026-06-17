@@ -69,6 +69,7 @@ export default function AllocationWizard() {
   );
   const [currentStep, setCurrentStep] = useState(0);
   const [elapsed, setElapsed] = useState(0);
+  const [waitingNotice, setWaitingNotice] = useState<string | null>(null);
   const startTime = useRef(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
   const streamCancelRef = useRef<{ cancel: () => void } | null>(null);
@@ -91,6 +92,7 @@ export default function AllocationWizard() {
   const handleGenerate = () => {
     setGenerating(true);
     setGenError(null);
+    setWaitingNotice(null);
     setCurrentStep(0);
     setStreamSteps(Object.keys(STEP_LABELS).map(name => ({ name, status: "running" as const, detail: "" })));
     startTimer();
@@ -108,6 +110,11 @@ export default function AllocationWizard() {
       },
       // onProgress
       (step, _total, name, status, detail) => {
+        if (name === "_heartbeat") {
+          setWaitingNotice(detail || "引擎仍在运行，正在等待下一步结果...");
+          return;
+        }
+        setWaitingNotice(null);
         setCurrentStep(step);
         setStreamSteps(prev => prev.map(s =>
           s.name === name ? { ...s, status: status as StepState["status"], detail } : s
@@ -117,6 +124,7 @@ export default function AllocationWizard() {
       (result) => {
         stopTimer();
         setGenerating(false);
+        setWaitingNotice(null);
         dispatch({ type: "SET_OUTPUT", output: result });
         dispatch({ type: "SET_EXECUTION_PLAN", plan: null });
         dispatch({ type: "SET_DCA_CONFIG", config: null });
@@ -127,12 +135,14 @@ export default function AllocationWizard() {
       (msg) => {
         stopTimer();
         setGenerating(false);
+        setWaitingNotice(null);
         setGenError(msg);
       },
       // onCancelled
-      () => {
+      (_msg?) => {
         stopTimer();
         setGenerating(false);
+        setWaitingNotice(null);
       },
     );
   };
@@ -141,6 +151,7 @@ export default function AllocationWizard() {
     streamCancelRef.current?.cancel();
     stopTimer();
     setGenerating(false);
+    setWaitingNotice(null);
   };
 
   const behaviorAvg = config.behavior_answers ? (() => {
@@ -230,6 +241,7 @@ export default function AllocationWizard() {
                   totalSteps={14}
                   elapsed={elapsed}
                   onCancel={handleCancelGenerate}
+                  waitingNotice={waitingNotice ?? undefined}
                 />
               ) : (
                 <button onClick={handleGenerate} className="w-full h-12 rounded-lg bg-gradient-to-r from-[#3B6CFF] to-[#2A52CC] text-white font-medium text-sm flex items-center justify-center gap-2 hover:from-[#4B7CFF] hover:to-[#3A62DC] transition-all">

@@ -1,0 +1,25 @@
+{
+    "taskId":  "FT-UX-V11-MACRO-NORTHFLOW-COVERAGE-001",
+    "mode":  "list",
+    "generatedAt":  "2026-06-16T17:17:19.6759694+08:00",
+    "taskPath":  "docs\\pm\\outbox\\FT-UX-V11-MACRO-NORTHFLOW-COVERAGE-001.md",
+    "summary":  {
+                    "totalBlocks":  8,
+                    "safe":  1,
+                    "skipped_unsafe":  0,
+                    "unsupported":  0,
+                    "passed":  0,
+                    "failed":  0
+                },
+    "recommendedNext":  "Review listed blocks. Use -Run to execute safe blocks.",
+    "blocks":  {
+                   "number":  1,
+                   "language":  "powershell",
+                   "classification":  "safe",
+                   "reason":  "Passed safety checks",
+                   "command":  "cd D:\\Workspace\\Fundtrader\\backend\npython -m py_compile app/data/market_context_fetcher.py\npython -m pytest tests/test_fund_research_report.py -q",
+                   "exitCode":  null,
+                   "stdout":  null,
+                   "stderr":  null
+               }
+}

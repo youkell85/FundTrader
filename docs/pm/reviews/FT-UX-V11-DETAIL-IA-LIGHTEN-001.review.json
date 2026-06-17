@@ -1,0 +1,48 @@
+{
+    "taskId":  "FT-UX-V11-DETAIL-IA-LIGHTEN-001",
+    "status":  "pass",
+    "reviewedAt":  "2026-06-17T10:16:48.8809520+08:00",
+    "taskPath":  "docs\\pm\\outbox\\FT-UX-V11-DETAIL-IA-LIGHTEN-001.md",
+    "reportPath":  "docs\\pm\\reports\\FT-UX-V11-DETAIL-IA-LIGHTEN-001.md",
+    "logPath":  "docs\\pm\\logs\\FT-UX-V11-DETAIL-IA-LIGHTEN-001.jsonl",
+    "lockPath":  "FT-UX-V11-DETAIL-IA-LIGHTEN-001.lock.json (not found)",
+    "reportExists":  true,
+    "pmDigest":  {
+                     "found":  true,
+                     "values":  {
+                                    "status":  "complete",
+                                    "changed":  "frontend/src/pages/FundDetail.tsx",
+                                    "validation":  "passed - npm check, npm build, browser smoke",
+                                    "risk":  "existing dirty files from earlier PM tasks remain in the worktree",
+                                    "decision":  "none",
+                                    "next":  "accept"
+                                },
+                     "raw":  [
+                                 "Status: complete",
+                                 "Changed: frontend/src/pages/FundDetail.tsx",
+                                 "Validation: passed - npm check, npm build, browser smoke",
+                                 "Risk: existing dirty files from earlier PM tasks remain in the worktree",
+                                 "Decision: none",
+                                 "Next: accept"
+                             ]
+                 },
+    "lockExists":  false,
+    "diffCheckPassed":  true,
+    "diffCheckOutput":  "warning: in the working copy of \u0027backend/app/api/allocation.py\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027backend/app/data/market_context_fetcher.py\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027backend/tests/test_fund_research_report.py\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/App.tsx\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/components/allocation/AllocationProgress.tsx\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/components/dashboard/CockpitDashboard.tsx\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/components/report/ReportSection.tsx\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/pages/FundDetail.tsx\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/pages/Home.tsx\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/vite.config.ts\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027scripts/pm-accept.ps1\u0027, LF will be replaced by CRLF the next time Git touches it",
+    "allowedFiles":  [
+                         "frontend/src/pages/FundDetail.tsx",
+                         "frontend/src/components/fund-detail/DetailStatusPanels.tsx",
+                         "frontend/src/components/fund-detail/types.ts",
+                         "frontend/src/components/fund-detail/*.tsx",
+                         "frontend/src/components/fund-detail/*.ts",
+                         "docs/pm/reports/FT-UX-V11-DETAIL-IA-LIGHTEN-001.md"
+                     ],
+    "allowedFound":  true,
+    "newlyChanged":  [
+                         "M frontend/src/pages/FundDetail.tsx"
+                     ],
+    "issues":  [
+
+               ],
+    "recommendedNext":  "Ready for next task or archive."
+}

@@ -1,0 +1,45 @@
+{
+    "taskId":  "FT-UX-V11-ALLOCATION-STREAM-RESILIENCE-001-HOTFIX",
+    "status":  "pass",
+    "reviewedAt":  "2026-06-16T16:39:37.0716323+08:00",
+    "taskPath":  "docs\\pm\\outbox\\FT-UX-V11-ALLOCATION-STREAM-RESILIENCE-001-HOTFIX.md",
+    "reportPath":  "docs\\pm\\reports\\FT-UX-V11-ALLOCATION-STREAM-RESILIENCE-001-HOTFIX.md",
+    "logPath":  "docs\\pm\\logs\\FT-UX-V11-ALLOCATION-STREAM-RESILIENCE-001-HOTFIX.jsonl",
+    "lockPath":  "FT-UX-V11-ALLOCATION-STREAM-RESILIENCE-001-HOTFIX.lock.json (not found)",
+    "reportExists":  true,
+    "pmDigest":  {
+                     "found":  true,
+                     "values":  {
+                                    "status":  "complete",
+                                    "changed":  "frontend/src/lib/api.ts",
+                                    "validation":  "passed - npm.cmd run check; npm.cmd run build",
+                                    "risk":  "none",
+                                    "decision":  "none",
+                                    "next":  "accept"
+                                },
+                     "raw":  [
+                                 "Status: complete",
+                                 "Changed: frontend/src/lib/api.ts",
+                                 "Validation: passed - npm.cmd run check; npm.cmd run build",
+                                 "Risk: none",
+                                 "Decision: none",
+                                 "Next: accept",
+                                 "---"
+                             ]
+                 },
+    "lockExists":  false,
+    "diffCheckPassed":  true,
+    "diffCheckOutput":  "warning: in the working copy of \u0027backend/app/api/allocation.py\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/components/allocation/AllocationProgress.tsx\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/components/dashboard/CockpitDashboard.tsx\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/pages/Home.tsx\u0027, LF will be replaced by CRLF the next time Git touches it",
+    "allowedFiles":  [
+                         "frontend/src/lib/api.ts",
+                         "docs/pm/reports/FT-UX-V11-ALLOCATION-STREAM-RESILIENCE-001-HOTFIX.md"
+                     ],
+    "allowedFound":  true,
+    "newlyChanged":  [
+
+                     ],
+    "issues":  [
+
+               ],
+    "recommendedNext":  "Ready for next task or archive."
+}

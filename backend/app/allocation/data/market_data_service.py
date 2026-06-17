@@ -357,6 +357,17 @@ class MarketDataService:
         """Get service status for diagnostics."""
         with self._lock:
             rolling_quality = self._summarize_rolling_quality_locked()
+            macro_indicators = {}
+            if self._macro_snapshot is not None:
+                for name in ("PMI制造业", "CPI同比", "M2增速"):
+                    indicator = self._macro_snapshot.indicators.get(name)
+                    macro_indicators[name] = {
+                        "value": indicator.value if indicator else None,
+                        "source": indicator.source if indicator else None,
+                        "confidence": indicator.confidence if indicator else 0,
+                        "fetch_time": indicator.fetch_time if indicator else None,
+                        "ttl_seconds": indicator.ttl_seconds if indicator else None,
+                    }
             health = "healthy"
             if self._macro_snapshot is None or self._rolling_stats is None or self._vol_snapshot is None:
                 health = "degraded"
@@ -368,6 +379,7 @@ class MarketDataService:
                 "last_refresh": self._last_refresh,
                 "macro_available": self._macro_snapshot is not None,
                 "macro_confidence": self._macro_snapshot.overall_confidence if self._macro_snapshot else 0,
+                "macro_indicators": macro_indicators,
                 "rolling_stats_available": self._rolling_stats is not None,
                 "vol_ratio": self._vol_snapshot.vol_ratio if self._vol_snapshot else None,
                 "health": health,

@@ -1,0 +1,47 @@
+{
+    "taskId":  "FT-UX-V11-VISUAL-E2E-ACCEPT-001",
+    "status":  "pass",
+    "reviewedAt":  "2026-06-17T08:19:16.5301465+08:00",
+    "taskPath":  "docs\\pm\\outbox\\FT-UX-V11-VISUAL-E2E-ACCEPT-001.md",
+    "reportPath":  "docs\\pm\\reports\\FT-UX-V11-VISUAL-E2E-ACCEPT-001.md",
+    "logPath":  "docs\\pm\\logs\\FT-UX-V11-VISUAL-E2E-ACCEPT-001.jsonl",
+    "lockPath":  "FT-UX-V11-VISUAL-E2E-ACCEPT-001.lock.json (not found)",
+    "reportExists":  true,
+    "pmDigest":  {
+                     "found":  true,
+                     "values":  {
+                                    "status":  "complete",
+                                    "changed":  "docs/pm/reports/FT-UX-V11-VISUAL-E2E-ACCEPT-001.md",
+                                    "validation":  "passed",
+                                    "risk":  "stream endpoint emits heartbeat before complete within 15s sample window",
+                                    "decision":  "none",
+                                    "next":  "create_followup"
+                                },
+                     "raw":  [
+                                 "Status: complete",
+                                 "Changed: docs/pm/reports/FT-UX-V11-VISUAL-E2E-ACCEPT-001.md",
+                                 "Validation: passed",
+                                 "Risk: stream endpoint emits heartbeat before complete within 15s sample window",
+                                 "Decision: none",
+                                 "Next: create_followup"
+                             ]
+                 },
+    "lockExists":  false,
+    "diffCheckPassed":  true,
+    "diffCheckOutput":  "warning: in the working copy of \u0027backend/app/api/allocation.py\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027backend/app/data/market_context_fetcher.py\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027backend/tests/test_fund_research_report.py\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/App.tsx\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/components/allocation/AllocationProgress.tsx\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/components/dashboard/CockpitDashboard.tsx\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/pages/Home.tsx\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/vite.config.ts\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027scripts/pm-accept.ps1\u0027, LF will be replaced by CRLF the next time Git touches it",
+    "allowedFiles":  [
+                         "docs/pm/reports/FT-UX-V11-VISUAL-E2E-ACCEPT-001.md",
+                         "docs/pm/reviews/FT-UX-V11-VISUAL-E2E-ACCEPT-001.review.md",
+                         "docs/pm/reviews/FT-UX-V11-VISUAL-E2E-ACCEPT-001.review.json",
+                         "docs/pm/logs/FT-UX-V11-VISUAL-E2E-ACCEPT-001.jsonl",
+                         "docs/pm/reports/FT-UX-V11-VISUAL-E2E-ACCEPT-001.md"
+                     ],
+    "allowedFound":  true,
+    "newlyChanged":  [
+
+                     ],
+    "issues":  [
+
+               ],
+    "recommendedNext":  "Ready for next task or archive."
+}

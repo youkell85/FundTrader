@@ -1,0 +1,68 @@
+﻿ M backend/.env
+ M backend/app/api/allocation.py
+ M backend/app/data/market_context_fetcher.py
+ M backend/tests/test_fund_research_report.py
+ M frontend/src/App.tsx
+ M frontend/src/components/allocation/AllocationProgress.tsx
+ M frontend/src/components/dashboard/CockpitDashboard.tsx
+ M frontend/src/lib/api.ts
+ M frontend/src/pages/AllocationWizard.tsx
+ M frontend/src/pages/Home.tsx
+ M frontend/src/pages/allocation/OverviewPage.tsx
+ M frontend/vite.config.ts
+ M scripts/pm-accept.ps1
+?? docs/pm/outbox/FT-UX-V11-ALLOCATION-STREAM-RESILIENCE-001-HOTFIX.md
+?? docs/pm/outbox/FT-UX-V11-ALLOCATION-STREAM-RESILIENCE-001.md
+?? docs/pm/outbox/FT-UX-V11-DETAIL-COMPONENT-SPLIT-001.md
+?? docs/pm/outbox/FT-UX-V11-DETAIL-IA-LIGHTEN-001.md
+?? docs/pm/outbox/FT-UX-V11-DETAIL-READABILITY-001.md
+?? docs/pm/outbox/FT-UX-V11-FUND-BASEPATH-ROUTE-001.md
+?? docs/pm/outbox/FT-UX-V11-HOME-IA-001.md
+?? docs/pm/outbox/FT-UX-V11-MACRO-NORTHFLOW-COVERAGE-001.md
+?? docs/pm/outbox/FT-UX-V11-VISUAL-E2E-ACCEPT-001.md
+?? docs/pm/reviews/FT-UX-V11-ALLOCATION-STREAM-RESILIENCE-001-HOTFIX.acceptance.json
+?? docs/pm/reviews/FT-UX-V11-ALLOCATION-STREAM-RESILIENCE-001-HOTFIX.acceptance.md
+?? docs/pm/reviews/FT-UX-V11-ALLOCATION-STREAM-RESILIENCE-001-HOTFIX.baseline.status.txt
+?? docs/pm/reviews/FT-UX-V11-ALLOCATION-STREAM-RESILIENCE-001-HOTFIX.review.json
+?? docs/pm/reviews/FT-UX-V11-ALLOCATION-STREAM-RESILIENCE-001-HOTFIX.review.md
+?? docs/pm/reviews/FT-UX-V11-ALLOCATION-STREAM-RESILIENCE-001.acceptance.json
+?? docs/pm/reviews/FT-UX-V11-ALLOCATION-STREAM-RESILIENCE-001.acceptance.md
+?? docs/pm/reviews/FT-UX-V11-ALLOCATION-STREAM-RESILIENCE-001.baseline.status.txt
+?? docs/pm/reviews/FT-UX-V11-ALLOCATION-STREAM-RESILIENCE-001.review.json
+?? docs/pm/reviews/FT-UX-V11-ALLOCATION-STREAM-RESILIENCE-001.review.md
+?? docs/pm/reviews/FT-UX-V11-DETAIL-COMPONENT-SPLIT-001.acceptance.json
+?? docs/pm/reviews/FT-UX-V11-DETAIL-COMPONENT-SPLIT-001.acceptance.md
+?? docs/pm/reviews/FT-UX-V11-DETAIL-COMPONENT-SPLIT-001.baseline.status.txt
+?? docs/pm/reviews/FT-UX-V11-DETAIL-COMPONENT-SPLIT-001.review.json
+?? docs/pm/reviews/FT-UX-V11-DETAIL-COMPONENT-SPLIT-001.review.md
+?? docs/pm/reviews/FT-UX-V11-DETAIL-READABILITY-001.acceptance.json
+?? docs/pm/reviews/FT-UX-V11-DETAIL-READABILITY-001.acceptance.md
+?? docs/pm/reviews/FT-UX-V11-DETAIL-READABILITY-001.baseline.status.txt
+?? docs/pm/reviews/FT-UX-V11-DETAIL-READABILITY-001.review.json
+?? docs/pm/reviews/FT-UX-V11-DETAIL-READABILITY-001.review.md
+?? docs/pm/reviews/FT-UX-V11-FUND-BASEPATH-ROUTE-001.acceptance.json
+?? docs/pm/reviews/FT-UX-V11-FUND-BASEPATH-ROUTE-001.acceptance.md
+?? docs/pm/reviews/FT-UX-V11-FUND-BASEPATH-ROUTE-001.review.json
+?? docs/pm/reviews/FT-UX-V11-FUND-BASEPATH-ROUTE-001.review.md
+?? docs/pm/reviews/FT-UX-V11-HOME-IA-001.acceptance.json
+?? docs/pm/reviews/FT-UX-V11-HOME-IA-001.acceptance.md
+?? docs/pm/reviews/FT-UX-V11-HOME-IA-001.baseline.status.txt
+?? docs/pm/reviews/FT-UX-V11-HOME-IA-001.review.json
+?? docs/pm/reviews/FT-UX-V11-HOME-IA-001.review.md
+?? docs/pm/reviews/FT-UX-V11-MACRO-NORTHFLOW-COVERAGE-001.acceptance.json
+?? docs/pm/reviews/FT-UX-V11-MACRO-NORTHFLOW-COVERAGE-001.acceptance.md
+?? docs/pm/reviews/FT-UX-V11-MACRO-NORTHFLOW-COVERAGE-001.baseline.status.txt
+?? docs/pm/reviews/FT-UX-V11-MACRO-NORTHFLOW-COVERAGE-001.review.json
+?? docs/pm/reviews/FT-UX-V11-MACRO-NORTHFLOW-COVERAGE-001.review.md
+?? docs/pm/reviews/FT-UX-V11-VISUAL-E2E-ACCEPT-001.acceptance.json
+?? docs/pm/reviews/FT-UX-V11-VISUAL-E2E-ACCEPT-001.acceptance.md
+?? docs/pm/reviews/FT-UX-V11-VISUAL-E2E-ACCEPT-001.review.json
+?? docs/pm/reviews/FT-UX-V11-VISUAL-E2E-ACCEPT-001.review.md
+?? docs/pm/reviews/UNKNOWN.review.json
+?? docs/pm/reviews/UNKNOWN.review.md
+?? frontend/src/components/fund-detail/DetailStatusPanels.tsx
+?? frontend/src/components/fund-detail/types.ts
+ M frontend/src/components/report/ReportSection.tsx
+?? docs/pm/reviews/FT-UX-V11-DETAIL-IA-LIGHTEN-001.baseline.status.txt
+?? docs/pm/reviews/FT-UX-V11-DETAIL-IA-LIGHTEN-001.review.json
+?? docs/pm/reviews/FT-UX-V11-DETAIL-IA-LIGHTEN-001.review.md

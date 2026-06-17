@@ -1,0 +1,46 @@
+{
+    "taskId":  "FT-UX-V11-DETAIL-COMPONENT-SPLIT-001",
+    "status":  "pass",
+    "reviewedAt":  "2026-06-16T18:13:21.2651335+08:00",
+    "taskPath":  "docs\\pm\\outbox\\FT-UX-V11-DETAIL-COMPONENT-SPLIT-001.md",
+    "reportPath":  "docs\\pm\\reports\\FT-UX-V11-DETAIL-COMPONENT-SPLIT-001.md",
+    "logPath":  "docs\\pm\\logs\\FT-UX-V11-DETAIL-COMPONENT-SPLIT-001.jsonl",
+    "lockPath":  "FT-UX-V11-DETAIL-COMPONENT-SPLIT-001.lock.json (not found)",
+    "reportExists":  true,
+    "pmDigest":  {
+                     "found":  true,
+                     "values":  {
+                                    "status":  "complete",
+                                    "changed":  "`frontend/src/pages/FundDetail.tsx`, `frontend/src/components/fund-detail/DetailStatusPanels.tsx`, `frontend/src/components/fund-detail/types.ts`",
+                                    "validation":  "passed - `npm.cmd run check`, `npm.cmd run build`",
+                                    "risk":  "low - display-only component extraction; data fetching and chart logic unchanged",
+                                    "decision":  "none",
+                                    "next":  "continue with deeper section-level extraction only after UI behavior is visually smoke-tested"
+                                },
+                     "raw":  [
+                                 "Status: complete",
+                                 "Changed: `frontend/src/pages/FundDetail.tsx`, `frontend/src/components/fund-detail/DetailStatusPanels.tsx`, `frontend/src/components/fund-detail/types.ts`",
+                                 "Validation: passed - `npm.cmd run check`, `npm.cmd run build`",
+                                 "Risk: low - display-only component extraction; data fetching and chart logic unchanged",
+                                 "Decision: none",
+                                 "Next: continue with deeper section-level extraction only after UI behavior is visually smoke-tested"
+                             ]
+                 },
+    "lockExists":  false,
+    "diffCheckPassed":  true,
+    "diffCheckOutput":  "warning: in the working copy of \u0027backend/app/api/allocation.py\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027backend/app/data/market_context_fetcher.py\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027backend/tests/test_fund_research_report.py\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/components/allocation/AllocationProgress.tsx\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/components/dashboard/CockpitDashboard.tsx\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/pages/FundDetail.tsx\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/pages/Home.tsx\u0027, LF will be replaced by CRLF the next time Git touches it",
+    "allowedFiles":  [
+                         "frontend/src/pages/FundDetail.tsx",
+                         "frontend/src/components/fund-detail/DetailStatusPanels.tsx",
+                         "docs/pm/reports/FT-UX-V11-DETAIL-COMPONENT-SPLIT-001.md",
+                         "frontend/src/components/fund-detail/types.ts"
+                     ],
+    "allowedFound":  true,
+    "newlyChanged":  [
+
+                     ],
+    "issues":  [
+
+               ],
+    "recommendedNext":  "Ready for next task or archive."
+}

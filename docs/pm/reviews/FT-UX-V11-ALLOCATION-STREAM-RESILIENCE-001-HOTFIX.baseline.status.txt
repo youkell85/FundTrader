@@ -1,0 +1,27 @@
+﻿ M backend/.env
+ M backend/app/api/allocation.py
+ M frontend/src/components/allocation/AllocationProgress.tsx
+ M frontend/src/components/dashboard/CockpitDashboard.tsx
+ M frontend/src/lib/api.ts
+ M frontend/src/pages/AllocationWizard.tsx
+ M frontend/src/pages/FundDetail.tsx
+ M frontend/src/pages/Home.tsx
+ M frontend/src/pages/allocation/OverviewPage.tsx
+?? docs/pm/outbox/FT-UX-V11-ALLOCATION-STREAM-RESILIENCE-001-HOTFIX.md
+?? docs/pm/outbox/FT-UX-V11-ALLOCATION-STREAM-RESILIENCE-001.md
+?? docs/pm/outbox/FT-UX-V11-DETAIL-READABILITY-001.md
+?? docs/pm/outbox/FT-UX-V11-HOME-IA-001.md
+?? docs/pm/reviews/FT-UX-V11-ALLOCATION-STREAM-RESILIENCE-001-HOTFIX.baseline.status.txt
+?? docs/pm/reviews/FT-UX-V11-ALLOCATION-STREAM-RESILIENCE-001.baseline.status.txt
+?? docs/pm/reviews/FT-UX-V11-ALLOCATION-STREAM-RESILIENCE-001.review.json
+?? docs/pm/reviews/FT-UX-V11-ALLOCATION-STREAM-RESILIENCE-001.review.md
+?? docs/pm/reviews/FT-UX-V11-DETAIL-READABILITY-001.acceptance.json
+?? docs/pm/reviews/FT-UX-V11-DETAIL-READABILITY-001.acceptance.md
+?? docs/pm/reviews/FT-UX-V11-DETAIL-READABILITY-001.baseline.status.txt
+?? docs/pm/reviews/FT-UX-V11-DETAIL-READABILITY-001.review.json
+?? docs/pm/reviews/FT-UX-V11-DETAIL-READABILITY-001.review.md
+?? docs/pm/reviews/FT-UX-V11-HOME-IA-001.acceptance.json
+?? docs/pm/reviews/FT-UX-V11-HOME-IA-001.acceptance.md
+?? docs/pm/reviews/FT-UX-V11-HOME-IA-001.baseline.status.txt
+?? docs/pm/reviews/FT-UX-V11-HOME-IA-001.review.json
+?? docs/pm/reviews/FT-UX-V11-HOME-IA-001.review.md

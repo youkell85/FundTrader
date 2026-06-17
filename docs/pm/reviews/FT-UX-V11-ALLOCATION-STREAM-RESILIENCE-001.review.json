@@ -1,0 +1,49 @@
+{
+    "taskId":  "FT-UX-V11-ALLOCATION-STREAM-RESILIENCE-001",
+    "status":  "pass",
+    "reviewedAt":  "2026-06-17T03:23:54.3552978+08:00",
+    "taskPath":  "docs\\pm\\outbox\\FT-UX-V11-ALLOCATION-STREAM-RESILIENCE-001.md",
+    "reportPath":  "docs\\pm\\reports\\FT-UX-V11-ALLOCATION-STREAM-RESILIENCE-001.md",
+    "logPath":  "docs\\pm\\logs\\FT-UX-V11-ALLOCATION-STREAM-RESILIENCE-001.jsonl",
+    "lockPath":  "FT-UX-V11-ALLOCATION-STREAM-RESILIENCE-001.lock.json (not found)",
+    "reportExists":  true,
+    "pmDigest":  {
+                     "found":  true,
+                     "values":  {
+                                    "status":  "complete",
+                                    "changed":  "backend/app/api/allocation.py, frontend/src/lib/api.ts, frontend/src/components/allocation/AllocationProgress.tsx, frontend/src/pages/allocation/OverviewPage.tsx, frontend/src/pages/AllocationWizard.tsx",
+                                    "validation":  "skipped - sandbox blocked npm/python; all 5 task items confirmed by code review",
+                                    "risk":  "low - end-to-end stream smoke still requires local backend/data services",
+                                    "decision":  "none",
+                                    "next":  "accept"
+                                },
+                     "raw":  [
+                                 "Status: complete",
+                                 "Changed: backend/app/api/allocation.py, frontend/src/lib/api.ts, frontend/src/components/allocation/AllocationProgress.tsx, frontend/src/pages/allocation/OverviewPage.tsx, frontend/src/pages/AllocationWizard.tsx",
+                                 "Validation: skipped - sandbox blocked npm/python; all 5 task items confirmed by code review",
+                                 "Risk: low - end-to-end stream smoke still requires local backend/data services",
+                                 "Decision: none",
+                                 "Next: accept",
+                                 "---"
+                             ]
+                 },
+    "lockExists":  false,
+    "diffCheckPassed":  true,
+    "diffCheckOutput":  "warning: in the working copy of \u0027backend/app/api/allocation.py\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027backend/app/data/market_context_fetcher.py\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027backend/tests/test_fund_research_report.py\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/components/allocation/AllocationProgress.tsx\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/components/dashboard/CockpitDashboard.tsx\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/pages/FundDetail.tsx\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/pages/Home.tsx\u0027, LF will be replaced by CRLF the next time Git touches it",
+    "allowedFiles":  [
+                         "backend/app/api/allocation.py",
+                         "frontend/src/lib/api.ts",
+                         "frontend/src/components/allocation/AllocationProgress.tsx",
+                         "frontend/src/pages/allocation/OverviewPage.tsx",
+                         "frontend/src/pages/AllocationWizard.tsx",
+                         "docs/pm/reports/FT-UX-V11-ALLOCATION-STREAM-RESILIENCE-001.md"
+                     ],
+    "allowedFound":  true,
+    "newlyChanged":  [
+
+                     ],
+    "issues":  [
+
+               ],
+    "recommendedNext":  "Ready for next task or archive."
+}

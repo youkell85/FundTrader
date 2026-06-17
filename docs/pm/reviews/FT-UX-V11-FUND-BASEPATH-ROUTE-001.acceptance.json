@@ -1,0 +1,25 @@
+{
+    "taskId":  "FT-UX-V11-FUND-BASEPATH-ROUTE-001",
+    "mode":  "run",
+    "generatedAt":  "2026-06-17T04:19:59.5345853+08:00",
+    "taskPath":  "docs\\pm\\outbox\\FT-UX-V11-FUND-BASEPATH-ROUTE-001.md",
+    "summary":  {
+                    "totalBlocks":  8,
+                    "safe":  1,
+                    "skipped_unsafe":  0,
+                    "unsupported":  0,
+                    "passed":  0,
+                    "failed":  1
+                },
+    "recommendedNext":  "One or more safe blocks failed. Review output and fix issues.",
+    "blocks":  {
+                   "number":  1,
+                   "language":  "powershell",
+                   "classification":  "safe",
+                   "reason":  "Passed safety checks",
+                   "command":  "git log --oneline -5\ngit rev-parse --short HEAD\ngit status --short --untracked-files=all\ncd frontend\nnpm.cmd run check\nnpm.cmd run build\ncd ..",
+                   "exitCode":  -1,
+                   "stdout":  null,
+                   "stderr":  ""
+               }
+}

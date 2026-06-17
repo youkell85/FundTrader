@@ -8,13 +8,19 @@ import DrawdownChart from './DrawdownChart';
 import RegimeTimeline from './RegimeTimeline';
 import BacktestMetricsTable from './BacktestMetricsTable';
 
-export default function BacktestPanel() {
+interface BacktestPanelProps {
+  disabled?: boolean;
+  disabledReason?: string;
+}
+
+export default function BacktestPanel({ disabled = false, disabledReason }: BacktestPanelProps) {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<BacktestResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lastRequest, setLastRequest] = useState<BacktestRequest | null>(null);
 
   const handleRun = async (req: BacktestRequest) => {
+    if (disabled) return;
     setLoading(true);
     setError(null);
     setLastRequest(req);
@@ -34,7 +40,12 @@ export default function BacktestPanel() {
 
   return (
     <div className="space-y-5">
-      <BacktestConfig onRun={handleRun} loading={loading} />
+      <BacktestConfig
+        onRun={handleRun}
+        loading={loading}
+        disabled={disabled}
+        disabledReason={disabledReason}
+      />
 
       {error && (
         <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-4 flex items-start gap-3">

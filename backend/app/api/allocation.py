@@ -138,8 +138,9 @@ async def generate_allocation_stream(request: AllocationRequest, user: dict | No
             payload = _response_payload(result)
             assert_json_finite(payload)
             progress_queue.put({"type": "result", "data": payload})
-        except TaskCancelledError:
-            progress_queue.put({"type": "cancelled", "message": "任务已取消"})
+        except TaskCancelledError as e:
+            msg = str(e) if str(e) else "任务已取消"
+            progress_queue.put({"type": "cancelled", "message": msg})
         except Exception:
             error_id = uuid.uuid4().hex
             logger.exception("Stream allocation failed")
@@ -153,13 +154,23 @@ async def generate_allocation_stream(request: AllocationRequest, user: dict | No
     thread.start()
 
     async def _event_stream() -> AsyncGenerator[str, None]:
+        _start = asyncio.get_event_loop().time()
+        _last_event = _start
+        _heartbeat_interval = 3.0
+
         try:
             while thread.is_alive() or not progress_queue.empty():
                 try:
                     msg = progress_queue.get(timeout=0.1)
+                    _last_event = asyncio.get_event_loop().time()
                     yield f"data: {json.dumps(msg, ensure_ascii=False)}\n\n"
                 except queue.Empty:
                     await asyncio.sleep(0.05)
+                    now = asyncio.get_event_loop().time()
+                    if now - _last_event >= _heartbeat_interval:
+                        elapsed = int(now - _start)
+                        yield f"data: {json.dumps({'type': 'heartbeat', 'elapsed': elapsed, 'message': '引擎仍在运行，正在等待下一步结果...'}, ensure_ascii=False)}\n\n"
+                        _last_event = now
             yield "data: {\"type\": \"done\"}\n\n"
         except asyncio.CancelledError:
             cancel_event.set()
@@ -219,6 +230,122 @@ async def run_allocation_backtest(request: BacktestRequest, user: dict | None = 
         return result
     except asyncio.TimeoutError:
         raise HTTPException(status_code=504, detail="回测计算超时（3分钟），请缩小回测区间后重试")
+
+
+BACKTEST_STREAM_STEPS = [
+    ("backtest_prepare", "Validate request and initialize backtest"),
+    ("historical_data", "Load ETF and macro history"),
+    ("strategy_replay", "Replay SAA/TAA allocation rules"),
+    ("metric_calculation", "Calculate returns, drawdowns, and risk metrics"),
+    ("result_assembly", "Assemble backtest report"),
+]
+
+
+@router.post("/backtest/stream")
+async def run_allocation_backtest_stream(request: BacktestRequest, user: dict | None = Depends(get_optional_user)) -> StreamingResponse:
+    """Stream allocation backtest progress using the same SSE envelope as generation."""
+
+    progress_queue: queue.Queue = queue.Queue()
+    stage_state = {"index": 0}
+
+    def _step_name(index: int) -> str:
+        safe_index = max(0, min(index, len(BACKTEST_STREAM_STEPS) - 1))
+        return BACKTEST_STREAM_STEPS[safe_index][0]
+
+    def _put_progress(index: int, status: str, detail: str) -> None:
+        stage_state["index"] = index
+        name, _label = BACKTEST_STREAM_STEPS[index]
+        progress_queue.put({
+            "type": "progress",
+            "step": index + 1,
+            "total": len(BACKTEST_STREAM_STEPS),
+            "name": name,
+            "status": status,
+            "detail": detail,
+        })
+
+    def _run_pipeline() -> None:
+        try:
+            _put_progress(0, "ok", "Request accepted")
+            _put_progress(1, "running", "Loading historical fund and macro data")
+            result = run_backtest(request)
+            payload = _response_payload(result)
+            assert_json_finite(payload)
+            _put_progress(1, "ok", "Historical data loaded")
+            _put_progress(2, "ok", "Strategy replay completed")
+            _put_progress(3, "ok", "Risk and return metrics calculated")
+            _put_progress(4, "ok", "Backtest report assembled")
+            progress_queue.put({"type": "result", "data": payload})
+        except Exception as exc:
+            stage_index = stage_state["index"]
+            message = str(exc) or "Backtest failed"
+            logger.exception("Stream backtest failed at stage=%s", _step_name(stage_index))
+            _put_progress(stage_index, "error", message[:180])
+            progress_queue.put({
+                "type": "error",
+                "message": message,
+                "stage": _step_name(stage_index),
+                "retryable": True,
+            })
+
+    thread = threading.Thread(target=_run_pipeline, daemon=True)
+    thread.start()
+
+    async def _event_stream() -> AsyncGenerator[str, None]:
+        _start = asyncio.get_event_loop().time()
+        _last_event = _start
+        _heartbeat_interval = 3.0
+        _timeout_seconds = 180.0
+        timed_out = False
+
+        try:
+            while thread.is_alive() or not progress_queue.empty():
+                now = asyncio.get_event_loop().time()
+                if thread.is_alive() and now - _start >= _timeout_seconds and not timed_out:
+                    timed_out = True
+                    stage_index = stage_state["index"]
+                    timeout_message = "Backtest timed out after 3 minutes. Please shorten the date range and retry."
+                    progress_queue.put({
+                        "type": "progress",
+                        "step": stage_index + 1,
+                        "total": len(BACKTEST_STREAM_STEPS),
+                        "name": _step_name(stage_index),
+                        "status": "error",
+                        "detail": timeout_message,
+                    })
+                    progress_queue.put({
+                        "type": "error",
+                        "message": timeout_message,
+                        "stage": _step_name(stage_index),
+                        "retryable": True,
+                    })
+
+                try:
+                    msg = progress_queue.get(timeout=0.1)
+                    _last_event = asyncio.get_event_loop().time()
+                    yield f"data: {json.dumps(msg, ensure_ascii=False)}\n\n"
+                    if timed_out and msg.get("type") == "error":
+                        break
+                except queue.Empty:
+                    await asyncio.sleep(0.05)
+                    now = asyncio.get_event_loop().time()
+                    if now - _last_event >= _heartbeat_interval:
+                        elapsed = int(now - _start)
+                        yield f"data: {json.dumps({'type': 'heartbeat', 'elapsed': elapsed, 'message': 'Backtest is still running; waiting for the current stage to finish.'}, ensure_ascii=False)}\n\n"
+                        _last_event = now
+            yield "data: {\"type\": \"done\"}\n\n"
+        except asyncio.CancelledError:
+            logger.info("Backtest stream client disconnected")
+
+    return StreamingResponse(
+        _event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
 
 
 @router.post("/fund-ranking", response_model=FundRankingResponse)

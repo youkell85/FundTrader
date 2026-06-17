@@ -1,0 +1,118 @@
+import pandas as pd
+
+from app.allocation.backtest import historical_data as h
+from app.storage.database import ETFPriceCache, MacroCache
+
+
+def _cached_prices(days: int = 25) -> dict[str, float]:
+    dates = pd.date_range("2024-01-02", periods=days, freq="B")
+    return {d.strftime("%Y-%m-%d"): float(i + 1) for i, d in enumerate(dates)}
+
+
+def test_requested_cache_window_bypasses_today_recency_gate(monkeypatch):
+    monkeypatch.setattr(ETFPriceCache, "get_range", staticmethod(lambda *_args: _cached_prices(days=45)))
+    monkeypatch.setattr(
+        ETFPriceCache,
+        "get_latest_date",
+        staticmethod(lambda _code: (_ for _ in ()).throw(AssertionError("latest date should not be required"))),
+    )
+    monkeypatch.setattr(
+        h,
+        "_try_efinance_full",
+        lambda _code: (_ for _ in ()).throw(AssertionError("network provider should not be called")),
+    )
+
+    series = h._fetch_etf_prices_with_dates(
+        "510300",
+        start_date="2024-01-01",
+        end_date="2024-03-01",
+        allow_network=False,
+    )
+
+    assert series is not None
+    assert len(series) == 45
+    assert series.index[0] == pd.Timestamp("2024-01-02")
+
+
+def test_cache_miss_with_network_disabled_returns_none(monkeypatch):
+    monkeypatch.setattr(ETFPriceCache, "get_range", staticmethod(lambda *_args: {}))
+    monkeypatch.setattr(
+        h,
+        "_try_efinance_full",
+        lambda _code: (_ for _ in ()).throw(AssertionError("efinance should not be called")),
+    )
+    monkeypatch.setattr(
+        h,
+        "_try_tushare_full",
+        lambda _code: (_ for _ in ()).throw(AssertionError("tushare should not be called")),
+    )
+    monkeypatch.setattr(
+        h,
+        "_try_akshare_etf",
+        lambda _code: (_ for _ in ()).throw(AssertionError("akshare should not be called")),
+    )
+
+    assert h._fetch_etf_prices_with_dates(
+        "508088",
+        start_date="2024-01-01",
+        end_date="2024-03-01",
+        allow_network=False,
+    ) is None
+
+
+def test_stale_requested_cache_window_is_not_used(monkeypatch):
+    monkeypatch.setattr(ETFPriceCache, "get_range", staticmethod(lambda *_args: _cached_prices(days=25)))
+    monkeypatch.setattr(
+        h,
+        "_try_efinance_full",
+        lambda _code: (_ for _ in ()).throw(AssertionError("efinance should not be called")),
+    )
+
+    assert h._fetch_etf_prices_with_dates(
+        "510300",
+        start_date="2024-06-01",
+        end_date="2024-08-01",
+        allow_network=False,
+    ) is None
+
+
+def test_load_etf_history_passes_network_policy(monkeypatch):
+    calls = []
+
+    def fake_fetch(code, start_date=None, end_date=None, allow_network=True):
+        calls.append((code, start_date, end_date, allow_network))
+        dates = pd.date_range("2024-01-02", periods=25, freq="B")
+        return pd.Series(range(1, 26), index=dates, name=code, dtype=float)
+
+    monkeypatch.setattr(h, "REPRESENTATIVE_ETFS", {"a_share_large": "510300", "cash": None})
+    monkeypatch.setattr(h, "_fetch_etf_prices_with_dates", fake_fetch)
+
+    prices, quality = h.load_etf_history("2024-01-01", "2024-03-01", allow_network=False)
+
+    assert calls == [("510300", "2024-01-01", "2024-03-01", False)]
+    assert "a_share_large" in prices.columns
+    assert "cash" in prices.columns
+    assert "money_fund" in prices.columns
+    assert quality["assets_with_full_history"] == 2
+
+
+def test_load_macro_history_uses_cache_when_network_disabled(monkeypatch):
+    def fake_history(indicator, limit=24):
+        if indicator == "PMI制造业":
+            return [
+                ("2024-01-31", 50.1, "cache"),
+                ("2024-02-29", 50.3, "cache"),
+            ]
+        return []
+
+    monkeypatch.setattr(MacroCache, "get_history", staticmethod(fake_history))
+    monkeypatch.setattr(
+        h,
+        "_fetch_pmi_history",
+        lambda *_args: (_ for _ in ()).throw(AssertionError("macro provider should not be called")),
+    )
+
+    macro = h.load_macro_history("2024-01-01", "2024-03-01", allow_network=False)
+
+    assert list(macro["PMI制造业"].round(1)) == [50.1, 50.3]
+    assert macro["GDP同比"].empty

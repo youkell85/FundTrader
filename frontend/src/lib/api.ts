@@ -219,6 +219,110 @@ export async function runAllocationBacktest(params: import("@/types/backtest").B
   });
 }
 
+export function runAllocationBacktestStream(
+  params: import("@/types/backtest").BacktestRequest,
+  onProgress?: (step: number, total: number, name: string, status: string, detail: string) => void,
+  onDone?: (result: import("@/types/backtest").BacktestResponse) => void,
+  onError?: (message: string) => void,
+  onCancelled?: (message?: string) => void,
+): { cancel: () => void } {
+  const controller = new AbortController();
+
+  (async () => {
+    let doneCalled = false;
+    let cancelledCalled = false;
+    let erroredCalled = false;
+
+    const callDone = (result: import("@/types/backtest").BacktestResponse) => {
+      if (doneCalled || cancelledCalled || erroredCalled) return;
+      doneCalled = true;
+      onDone?.(result);
+    };
+    const callError = (msg: string) => {
+      if (doneCalled || cancelledCalled || erroredCalled) return;
+      erroredCalled = true;
+      onError?.(msg);
+    };
+    const callCancelled = (msg?: string) => {
+      if (doneCalled || cancelledCalled || erroredCalled) return;
+      cancelledCalled = true;
+      onCancelled?.(msg);
+    };
+
+    try {
+      const res = await fetch(`${API_BASE}/allocation/backtest/stream`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(params),
+        signal: controller.signal,
+      });
+
+      if (!res.ok) throw new Error(`请求失败：${res.status}`);
+
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error("当前浏览器不支持流式响应");
+
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let terminalReceived = false;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const msg = JSON.parse(line.slice(6));
+            switch (msg.type) {
+              case "progress":
+                onProgress?.(msg.step, msg.total, msg.name, msg.status, msg.detail);
+                break;
+              case "result":
+                terminalReceived = true;
+                callDone(msg.data);
+                break;
+              case "error":
+                terminalReceived = true;
+                callError(msg.stage ? `失败阶段 ${msg.stage}: ${msg.message}` : msg.message);
+                break;
+              case "cancelled":
+                terminalReceived = true;
+                callCancelled(msg.message);
+                break;
+              case "heartbeat":
+                onProgress?.(-1, -1, "_heartbeat", "running", msg.message || "");
+                break;
+              case "done":
+                terminalReceived = true;
+                if (!doneCalled && !cancelledCalled && !erroredCalled) {
+                  callError("回测流已关闭，但未收到结果，请重试。");
+                }
+                break;
+            }
+          } catch { /* skip malformed stream rows */ }
+        }
+      }
+
+      if (!terminalReceived) {
+        callError("回测流意外中断，未收到结果，请重试。");
+      }
+    } catch (e: any) {
+      if (e?.name === "AbortError") {
+        callCancelled("回测已取消");
+      } else {
+        callError(e?.message || "流式回测请求失败");
+      }
+    }
+  })();
+
+  return { cancel: () => controller.abort() };
+}
+
 // ==================== 鍩洪噾閫変紭鎺掑悕 ====================
 export async function getFundRanking(preferred_tags: string[] = [], signal?: AbortSignal) {
   return fetchJson<import("@/types/allocation").FundRankingResponse>("/allocation/fund-ranking", {
@@ -242,11 +346,31 @@ export function generateAllocationStream(
   onProgress?: (step: number, total: number, name: string, status: string, detail: string) => void,
   onDone?: (result: import("@/types/allocation").AllocationResponse) => void,
   onError?: (message: string) => void,
-  onCancelled?: () => void,
+  onCancelled?: (message?: string) => void,
 ): { cancel: () => void } {
   const controller = new AbortController();
 
   (async () => {
+    let doneCalled = false;
+    let cancelledCalled = false;
+    let erroredCalled = false;
+
+    const callDone = (result: import("@/types/allocation").AllocationResponse) => {
+      if (doneCalled || cancelledCalled || erroredCalled) return;
+      doneCalled = true;
+      onDone?.(result);
+    };
+    const callError = (msg: string) => {
+      if (doneCalled || cancelledCalled || erroredCalled) return;
+      erroredCalled = true;
+      onError?.(msg);
+    };
+    const callCancelled = (msg?: string) => {
+      if (doneCalled || cancelledCalled || erroredCalled) return;
+      cancelledCalled = true;
+      onCancelled?.(msg);
+    };
+
     try {
       const res = await fetch(`${API_BASE}/allocation/generate/stream`, {
         method: "POST",
@@ -262,6 +386,7 @@ export function generateAllocationStream(
 
       const decoder = new TextDecoder();
       let buffer = "";
+      let terminalReceived = false;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -280,24 +405,47 @@ export function generateAllocationStream(
                   onProgress?.(msg.step, msg.total, msg.name, msg.status, msg.detail);
                   break;
                 case "result":
-                  onDone?.(msg.data);
+                  terminalReceived = true;
+                  callDone(msg.data);
                   break;
                 case "error":
-                  onError?.(msg.message);
+                  terminalReceived = true;
+                  callError(msg.message);
                   break;
                 case "cancelled":
-                  onCancelled?.();
+                  terminalReceived = true;
+                  {
+                    const cancelMsg: string = msg.message || "";
+                    if (/超时|自动终止|timeout|timed out/i.test(cancelMsg)) {
+                      callError(cancelMsg || "管线超过120s总超时，自动终止");
+                    } else {
+                      callCancelled(cancelMsg);
+                    }
+                  }
+                  break;
+                case "heartbeat":
+                  onProgress?.(-1, -1, "_heartbeat", "running", msg.message || "");
+                  break;
+                case "done":
+                  terminalReceived = true;
+                  if (!doneCalled && !cancelledCalled && !erroredCalled) {
+                    callError("流式连接已关闭，未收到配置结果，请重试。");
+                  }
                   break;
               }
             } catch { /* skip parse errors */ }
           }
         }
       }
+
+      if (!terminalReceived) {
+        callError("流式连接意外中断，未收到配置结果，请重试。");
+      }
     } catch (e: any) {
       if (e?.name === "AbortError") {
-        onCancelled?.();
+        callCancelled();
       } else {
-        onError?.(e?.message || "娴佸紡璇锋眰澶辫触");
+        callError(e?.message || "流式请求失败");
       }
     }
   })();

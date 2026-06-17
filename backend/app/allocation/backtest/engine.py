@@ -43,11 +43,11 @@ def run_backtest(request: BacktestRequest) -> BacktestResponse:
                 f"freq={request.rebalance_frequency}, modes={request.comparison_modes}")
 
     # 1. Load historical data
-    prices_df, quality_info = load_etf_history(request.start_date, request.end_date)
+    prices_df, quality_info = load_etf_history(request.start_date, request.end_date, allow_network=False)
     returns_df = prices_df.pct_change().fillna(0.0)
 
     # Load macro history for TAA/regime replay
-    macro_history = load_macro_history(request.start_date, request.end_date)
+    macro_history = load_macro_history(request.start_date, request.end_date, allow_network=False)
     macro_coverage = sum(1 for s in macro_history.values() if len(s) > 0) / 13.0 * 100
 
     # 2. Generate rebalance schedule

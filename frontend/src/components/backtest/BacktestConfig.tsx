@@ -9,12 +9,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 interface Props {
   onRun: (req: BacktestRequest) => void;
   loading: boolean;
+  disabled?: boolean;
+  disabledReason?: string;
 }
 
 const DEFAULT_START = '2020-01-01';
 const DEFAULT_END = new Date().toISOString().slice(0, 10);
 
-export default function BacktestConfig({ onRun, loading }: Props) {
+export default function BacktestConfig({ onRun, loading, disabled = false, disabledReason }: Props) {
   const [risk, setRisk] = React.useState<RiskTolerance>('balanced');
   const [start, setStart] = React.useState(DEFAULT_START);
   const [end, setEnd] = React.useState(DEFAULT_END);
@@ -27,6 +29,7 @@ export default function BacktestConfig({ onRun, loading }: Props) {
   };
 
   const handleRun = () => {
+    if (disabled) return;
     if (modes.length === 0) return;
     onRun({ risk_profile: risk, start_date: start, end_date: end, rebalance_frequency: freq, comparison_modes: modes, initial_amount: amount });
   };
@@ -109,12 +112,15 @@ export default function BacktestConfig({ onRun, loading }: Props) {
       </div>
 
       {/* 执行按钮 */}
-      <div className="mt-5 flex justify-end">
-        <button onClick={handleRun} disabled={loading || modes.length === 0}
+      <div className="mt-5 flex flex-col items-end gap-2">
+        <button onClick={handleRun} disabled={loading || disabled || modes.length === 0}
           className="flex items-center gap-2 rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
           {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
           {loading ? '回测中...' : '执行回测'}
         </button>
+        {disabled && disabledReason && (
+          <span className="text-xs text-[#FAC858]/80">{disabledReason}</span>
+        )}
       </div>
     </div>
   );

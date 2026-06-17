@@ -16,6 +16,11 @@ const STEP_LABELS: Record<string, string> = {
   scenario_analysis: "情景分析",
   portfolio_metrics: "组合指标计算",
   output_assembly: "输出组装",
+  backtest_prepare: "回测准备",
+  historical_data: "历史数据加载",
+  strategy_replay: "策略回放",
+  metric_calculation: "指标计算",
+  result_assembly: "结果生成",
 };
 
 export interface StepState {
@@ -30,6 +35,7 @@ interface Props {
   totalSteps: number;
   elapsed: number;
   onCancel: () => void;
+  waitingNotice?: string;
 }
 
 export { STEP_LABELS };
@@ -54,8 +60,10 @@ function formatTime(s: number) {
   return `${m}分${sec}秒`;
 }
 
-export default function AllocationProgress({ steps, currentStep, totalSteps, elapsed, onCancel }: Props) {
-  const pct = Math.round((currentStep / totalSteps) * 100);
+export default function AllocationProgress({ steps, currentStep, totalSteps, elapsed, onCancel, waitingNotice }: Props) {
+  const safeCurrentStep = Math.max(0, Math.min(currentStep, totalSteps));
+  const activeIndex = safeCurrentStep > 0 ? Math.min(safeCurrentStep - 1, steps.length - 1) : -1;
+  const pct = totalSteps > 0 ? Math.round((safeCurrentStep / totalSteps) * 100) : 0;
 
   return (
     <div className="rounded-xl border border-white/[0.06] bg-[#0B1021]/80 p-5 space-y-4">
@@ -64,7 +72,7 @@ export default function AllocationProgress({ steps, currentStep, totalSteps, ela
         <div className="flex items-center gap-3">
           <Loader2 className="w-5 h-5 text-[#3B6CFF] animate-spin" />
           <span className="text-white text-sm font-medium">
-            引擎计算中... {currentStep}/{totalSteps}
+            引擎计算中... {safeCurrentStep}/{totalSteps}
           </span>
         </div>
         <div className="flex items-center gap-3">
@@ -90,13 +98,21 @@ export default function AllocationProgress({ steps, currentStep, totalSteps, ela
         />
       </div>
 
+      {/* Waiting notice */}
+      {waitingNotice && (
+        <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg border border-[#3B6CFF]/15 bg-[#3B6CFF]/[0.04] text-xs text-[#5AA9FF]">
+          <Loader2 className="w-3 h-3 animate-spin shrink-0" />
+          <span>{waitingNotice}</span>
+        </div>
+      )}
+
       {/* Step list */}
       <div className="space-y-0.5 max-h-60 overflow-y-auto">
         {steps.map((s, i) => (
           <div
             key={s.name}
             className={`flex items-center gap-2.5 px-2 py-1 rounded text-xs ${
-              i === currentStep ? "text-white/90 bg-white/[0.04]" : "text-white/40"
+              i === activeIndex ? "text-white/90 bg-white/[0.04]" : "text-white/40"
             }`}
           >
             {statusIcon(s.status)}

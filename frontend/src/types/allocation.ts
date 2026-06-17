@@ -197,6 +197,13 @@ export interface MarketDataStatus {
   last_refresh: string | null;
   macro_available: boolean;
   macro_confidence: number;
+  macro_indicators?: Record<string, {
+    value?: number | null;
+    source?: string | null;
+    confidence?: number | null;
+    fetch_time?: string | null;
+    ttl_seconds?: number | null;
+  }>;
   rolling_stats_available: boolean;
   vol_ratio: number | null;
   health?: "healthy" | "degraded" | "critical" | "unknown";

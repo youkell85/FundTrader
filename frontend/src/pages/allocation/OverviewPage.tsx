@@ -39,6 +39,7 @@ export default function OverviewPage() {
   );
   const [currentStep, setCurrentStep] = useState(0);
   const [elapsed, setElapsed] = useState(0);
+  const [waitingNotice, setWaitingNotice] = useState<string | null>(null);
   const [marketStatus, setMarketStatus] = useState<MarketDataStatus | null>(null);
   const startTime = useRef(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
@@ -67,6 +68,7 @@ export default function OverviewPage() {
   const handleGenerate = () => {
     setGenerating(true);
     setGenError(null);
+    setWaitingNotice(null);
     setCurrentStep(0);
     setStreamSteps(Object.keys(STEP_LABELS).map(name => ({ name, status: "running" as const, detail: "" })));
     startTimer();
@@ -74,12 +76,17 @@ export default function OverviewPage() {
     streamCancelRef.current = generateAllocationStream(
       storeState.config,
       (step, _total, name, status, detail) => {
+        if (name === "_heartbeat") {
+          setWaitingNotice(detail || "引擎仍在运行，正在等待下一步结果...");
+          return;
+        }
+        setWaitingNotice(null);
         setCurrentStep(step);
         setStreamSteps(prev => prev.map(s => s.name === name ? { ...s, status: status as StepState["status"], detail } : s));
       },
-      (result) => { stopTimer(); setGenerating(false); dispatch({ type: 'SET_OUTPUT', output: result }); },
-      (msg) => { stopTimer(); setGenerating(false); setGenError(msg); },
-      () => { stopTimer(); setGenerating(false); },
+      (result) => { stopTimer(); setGenerating(false); setWaitingNotice(null); dispatch({ type: 'SET_OUTPUT', output: result }); },
+      (msg) => { stopTimer(); setGenerating(false); setWaitingNotice(null); setGenError(msg); },
+      (_msg?) => { stopTimer(); setGenerating(false); setWaitingNotice(null); },
     );
   };
 
@@ -87,6 +94,7 @@ export default function OverviewPage() {
     streamCancelRef.current?.cancel();
     stopTimer();
     setGenerating(false);
+    setWaitingNotice(null);
   };
 
   const pieData = Object.entries(saa.group_allocations)
@@ -160,7 +168,7 @@ export default function OverviewPage() {
               )}
             </div>
             {generating ? (
-              <AllocationProgress steps={streamSteps} currentStep={currentStep} totalSteps={14} elapsed={elapsed} onCancel={handleCancelGenerate} />
+              <AllocationProgress steps={streamSteps} currentStep={currentStep} totalSteps={14} elapsed={elapsed} onCancel={handleCancelGenerate} waitingNotice={waitingNotice ?? undefined} />
             ) : (
               <button onClick={handleGenerate} disabled={generating} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[#3B6CFF] text-white text-sm font-medium hover:bg-[#3B6CFF]/80 disabled:opacity-50 transition-colors">
                 <Play className="w-4 h-4" aria-hidden="true" /> 生成配置
@@ -173,7 +181,7 @@ export default function OverviewPage() {
       {!isMock && (
         <div className="flex items-center gap-3">
           {generating ? (
-            <div className="flex-1"><AllocationProgress steps={streamSteps} currentStep={currentStep} totalSteps={14} elapsed={elapsed} onCancel={handleCancelGenerate} /></div>
+            <div className="flex-1"><AllocationProgress steps={streamSteps} currentStep={currentStep} totalSteps={14} elapsed={elapsed} onCancel={handleCancelGenerate} waitingNotice={waitingNotice ?? undefined} /></div>
           ) : (
             <button onClick={handleGenerate} disabled={generating} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[#3B6CFF]/10 text-[#5AA9FF] text-xs font-medium hover:bg-[#3B6CFF]/20 disabled:opacity-50 transition-colors">
               <Play className="w-3.5 h-3.5" aria-hidden="true" /> 重新生成

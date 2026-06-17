@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useEffect, useCallback } from 'react';
 import {
   TrendingUp, Loader2, AlertCircle, Activity, BarChart3, Gauge,
   Clock, Wallet, Info, CheckCircle2, XCircle, Zap, Calendar,
@@ -12,7 +12,8 @@ import DrawdownChart from '@/components/backtest/DrawdownChart';
 import RegimeTimeline from '@/components/backtest/RegimeTimeline';
 import BacktestMetricsTable from '@/components/backtest/BacktestMetricsTable';
 import BacktestCostAssumptionPanel from '@/components/backtest/BacktestCostAssumptionPanel';
-import { runAllocationBacktest } from '@/lib/api';
+import { runAllocationBacktestStream } from '@/lib/api';
+import AllocationProgress, { type StepState } from '@/components/allocation/AllocationProgress';
 import type { BacktestRequest, BacktestResponse, BacktestMetrics, ComparisonMode } from '@/types/backtest';
 import { MODE_LABELS, MODE_COLORS } from '@/types/backtest';
 import type { ParsedDcaResult } from '@/lib/execution-plan';
@@ -60,6 +61,18 @@ function getPrimaryMetrics(metrics: Record<string, BacktestMetrics>): BacktestMe
 }
 
 /** DCA 现金流图数据 */
+const BACKTEST_STEP_NAMES = [
+  'backtest_prepare',
+  'historical_data',
+  'strategy_replay',
+  'metric_calculation',
+  'result_assembly',
+];
+
+function createBacktestSteps(): StepState[] {
+  return BACKTEST_STEP_NAMES.map(name => ({ name, status: 'running' as const, detail: '' }));
+}
+
 function buildDcaCashflowData(curve: ParsedDcaResult['curve']) {
   if (!curve || curve.length === 0) return [];
   return curve.map(pt => ({
@@ -79,6 +92,13 @@ export default function BacktestPage() {
   const [backtestResult, setBacktestResult] = useState<BacktestResponse | null>(storeState.backtestResult || null);
   const [backtestLoading, setBacktestLoading] = useState(false);
   const [backtestError, setBacktestError] = useState<string | null>(null);
+  const [backtestSteps, setBacktestSteps] = useState<StepState[]>(() => createBacktestSteps());
+  const [currentBacktestStep, setCurrentBacktestStep] = useState(0);
+  const [backtestElapsed, setBacktestElapsed] = useState(0);
+  const [backtestWaitingNotice, setBacktestWaitingNotice] = useState<string | null>(null);
+  const backtestStartTime = useRef(0);
+  const backtestTimerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
+  const backtestCancelRef = useRef<{ cancel: () => void } | null>(null);
 
   // ─── DCA 回测结果（来自 ExecutePage 的 store）───
   const dcaResult: ParsedDcaResult | null = storeState.dcaResult || null;
@@ -89,8 +109,30 @@ export default function BacktestPage() {
   const hasDcaBacktest = dcaResult != null;
   const hasAnyResult = hasAllocationBacktest || hasDcaBacktest;
 
+  useEffect(() => {
+    return () => {
+      if (backtestTimerRef.current) clearInterval(backtestTimerRef.current);
+      backtestCancelRef.current?.cancel();
+    };
+  }, []);
+
+  const startBacktestTimer = useCallback(() => {
+    backtestStartTime.current = Date.now();
+    if (backtestTimerRef.current) clearInterval(backtestTimerRef.current);
+    backtestTimerRef.current = setInterval(() => {
+      setBacktestElapsed(Math.floor((Date.now() - backtestStartTime.current) / 1000));
+    }, 200);
+  }, []);
+
+  const stopBacktestTimer = useCallback(() => {
+    if (backtestTimerRef.current) {
+      clearInterval(backtestTimerRef.current);
+      backtestTimerRef.current = undefined;
+    }
+  }, []);
+
   // ─── 快速回测 handler ───
-  const handleQuickBacktest = async () => {
+  const handleQuickBacktest = () => {
     if (!isReal) {
       setBacktestError('当前为演示数据，请先生成真实配置方案');
       return;
@@ -100,25 +142,64 @@ export default function BacktestPage() {
       setBacktestError('请先生成配置方案');
       return;
     }
+
+    const req: BacktestRequest = {
+      risk_profile: riskProfile,
+      start_date: '2020-01-01',
+      end_date: new Date().toISOString().slice(0, 10),
+      initial_amount: d?.user_profile?.amount || 500000,
+      rebalance_frequency: 'monthly',
+      comparison_modes: ['saa_only', 'saa_taa'],
+    };
+
     setBacktestLoading(true);
     setBacktestError(null);
-    try {
-      const req: BacktestRequest = {
-        risk_profile: riskProfile,
-        start_date: '2020-01-01',
-        end_date: new Date().toISOString().slice(0, 10),
-        initial_amount: d?.user_profile?.amount || 500000,
-        rebalance_frequency: 'monthly',
-        comparison_modes: ['saa_only', 'saa_taa'],
-      };
-      const res = await runAllocationBacktest(req);
-      setBacktestResult(res);
-      dispatch({ type: "SET_BACKTEST_RESULT", result: res });
-    } catch (e: any) {
-      setBacktestError(e?.message || '回测失败');
-    } finally {
-      setBacktestLoading(false);
-    }
+    setBacktestWaitingNotice(null);
+    setCurrentBacktestStep(0);
+    setBacktestElapsed(0);
+    setBacktestSteps(createBacktestSteps());
+    startBacktestTimer();
+
+    backtestCancelRef.current = runAllocationBacktestStream(
+      req,
+      (step, _total, name, status, detail) => {
+        if (name === '_heartbeat') {
+          setBacktestWaitingNotice(detail || '回测仍在运行，正在等待当前阶段完成。');
+          return;
+        }
+        setBacktestWaitingNotice(null);
+        setCurrentBacktestStep(Math.max(0, step));
+        setBacktestSteps(prev => prev.map(s =>
+          s.name === name ? { ...s, status: status as StepState['status'], detail } : s
+        ));
+      },
+      (res) => {
+        stopBacktestTimer();
+        setBacktestLoading(false);
+        setBacktestWaitingNotice(null);
+        setCurrentBacktestStep(BACKTEST_STEP_NAMES.length);
+        setBacktestResult(res);
+        dispatch({ type: "SET_BACKTEST_RESULT", result: res });
+      },
+      (msg) => {
+        stopBacktestTimer();
+        setBacktestLoading(false);
+        setBacktestWaitingNotice(null);
+        setBacktestError(`${msg || '回测失败'}。可缩短回测区间后重试。`);
+      },
+      (_msg) => {
+        stopBacktestTimer();
+        setBacktestLoading(false);
+        setBacktestWaitingNotice(null);
+      },
+    );
+  };
+
+  const handleCancelBacktest = () => {
+    backtestCancelRef.current?.cancel();
+    stopBacktestTimer();
+    setBacktestLoading(false);
+    setBacktestWaitingNotice(null);
   };
 
   // ─── 派生数据 ───
@@ -203,6 +284,18 @@ export default function BacktestPage() {
               {backtestLoading ? '回测中...' : '运行快速回测'}
             </button>
           </div>
+          {backtestLoading && (
+            <div className="mt-4">
+              <AllocationProgress
+                steps={backtestSteps}
+                currentStep={currentBacktestStep}
+                totalSteps={BACKTEST_STEP_NAMES.length}
+                elapsed={backtestElapsed}
+                onCancel={handleCancelBacktest}
+                waitingNotice={backtestWaitingNotice ?? undefined}
+              />
+            </div>
+          )}
         </section>
       )}
 
@@ -592,7 +685,12 @@ export default function BacktestPage() {
       )}
 
       {/* ===== 回测配置面板（始终显示） ===== */}
-      {!hasAllocationBacktest && <BacktestPanel />}
+      {!hasAllocationBacktest && (
+        <BacktestPanel
+          disabled={!isReal}
+          disabledReason={!isReal ? '当前为演示数据，请先生成真实配置方案后再执行回测。' : undefined}
+        />
+      )}
 
       {/* ===== 再平衡面板 ===== */}
       <RebalancePanel />

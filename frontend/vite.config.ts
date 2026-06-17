@@ -2,11 +2,31 @@ import devServer from "@hono/vite-dev-server"
 import path from "path"
 const __dirname = import.meta.dirname
 import react from "@vitejs/plugin-react"
-import { defineConfig } from "vite"
+import { defineConfig, type Plugin } from "vite"
+
+function fundBaseSlashRedirect(): Plugin {
+  return {
+    name: "fund-base-slash-redirect",
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        const url = req.url ?? "";
+        const [pathname, search] = url.split("?");
+        if (pathname === "/fund") {
+          const target = search ? `/fund/?${search}` : "/fund/";
+          res.writeHead(302, { Location: target });
+          res.end();
+          return;
+        }
+        next();
+      })
+    },
+  };
+}
 
 export default defineConfig({
   base: "/fund/",
   plugins: [
+    fundBaseSlashRedirect(),
     devServer({ entry: "api/boot.ts", exclude: [/^\/(?!api\/|fund\/api\/).*$/] }),
     react(),
   ],

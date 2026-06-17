@@ -1,0 +1,11 @@
+﻿ M backend/.env
+ M frontend/src/components/dashboard/CockpitDashboard.tsx
+ M frontend/src/pages/Home.tsx
+?? docs/pm/outbox/FT-UX-V11-DETAIL-READABILITY-001.md
+?? docs/pm/outbox/FT-UX-V11-HOME-IA-001.md
+?? docs/pm/reviews/FT-UX-V11-DETAIL-READABILITY-001.baseline.status.txt
+?? docs/pm/reviews/FT-UX-V11-HOME-IA-001.acceptance.json
+?? docs/pm/reviews/FT-UX-V11-HOME-IA-001.acceptance.md
+?? docs/pm/reviews/FT-UX-V11-HOME-IA-001.baseline.status.txt
+?? docs/pm/reviews/FT-UX-V11-HOME-IA-001.review.json
+?? docs/pm/reviews/FT-UX-V11-HOME-IA-001.review.md

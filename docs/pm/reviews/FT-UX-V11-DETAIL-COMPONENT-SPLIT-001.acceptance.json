@@ -1,0 +1,25 @@
+{
+    "taskId":  "FT-UX-V11-DETAIL-COMPONENT-SPLIT-001",
+    "mode":  "list",
+    "generatedAt":  "2026-06-16T18:13:41.6038385+08:00",
+    "taskPath":  "docs\\pm\\outbox\\FT-UX-V11-DETAIL-COMPONENT-SPLIT-001.md",
+    "summary":  {
+                    "totalBlocks":  8,
+                    "safe":  1,
+                    "skipped_unsafe":  0,
+                    "unsupported":  0,
+                    "passed":  0,
+                    "failed":  0
+                },
+    "recommendedNext":  "Review listed blocks. Use -Run to execute safe blocks.",
+    "blocks":  {
+                   "number":  1,
+                   "language":  "powershell",
+                   "classification":  "safe",
+                   "reason":  "Passed safety checks",
+                   "command":  "cd \"D:\\Workspace\\Fundtrader\\frontend\"\nnpm.cmd run check\nnpm.cmd run build",
+                   "exitCode":  null,
+                   "stdout":  null,
+                   "stderr":  null
+               }
+}

@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect } from 'react'
 import { AllocationProvider } from './store/allocationStore'
-import { Routes, Route, useLocation, Outlet } from 'react-router'
+import { Routes, Route, useLocation, Outlet, Navigate } from 'react-router'
 import Home from './pages/Home'
 import Login from './pages/Login'
 import NotFound from './pages/NotFound'
@@ -74,6 +74,8 @@ export default function App() {
         <Suspense fallback={<PageLoader />}>
           <Routes>
             <Route path="/" element={<Home />} />
+            {/* /fund (no trailing slash) → redirect to /fund/ so basename routing resolves correctly */}
+            <Route path="" element={<Navigate to="/" replace />} />
             <Route path="/ui-preview" element={<DesignPreview />} />
             <Route path="/login" element={<Login />} />
             <Route path="/:code" element={<FundDetail />} />

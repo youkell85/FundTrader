@@ -5,11 +5,13 @@ availability metadata so a failed market source never blocks the fund detail.
 """
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from typing import Any
 
 from ..storage.database import get_db_context
 
+logger = logging.getLogger(__name__)
 
 EXCHANGE_FUND_CODE_PREFIXES = ("15", "16", "18", "5")
 
@@ -89,6 +91,74 @@ def _top_industries(code: str) -> tuple[list[dict[str, Any]], str | None, str | 
     return rows, row["source"], row["updated_at"]
 
 
+def _resolve_northbound_section(now: str) -> dict[str, Any]:
+    """Build northFlow section from cached macro data.
+
+    Priority:
+      1. In-memory market_data_service MacroSnapshot (instant, no I/O)
+      2. SQLite MacroCache.get_history / get (best-effort, non-fatal)
+      3. Fall back to partial placeholder
+    """
+    indicator_name = "北向资金净流入"
+    net_inflow: float | None = None
+    source: str | None = None
+    as_of: str | None = None
+
+    # 1. Try in-memory macro snapshot (the preferred path)
+    try:
+        from ..allocation.data.market_data_service import market_data_service
+
+        snapshot = market_data_service.get_macro_snapshot()
+        if snapshot is not None:
+            indicator = snapshot.indicators.get(indicator_name)
+            if indicator is not None and indicator.value is not None:
+                net_inflow = indicator.value
+                source = indicator.source
+                as_of = indicator.fetch_time
+    except Exception:
+        logger.debug("northFlow: in-memory macro snapshot unavailable", exc_info=True)
+
+    # 2. Fall back to SQLite MacroCache
+    if net_inflow is None:
+        try:
+            from ..storage.database import MacroCache
+
+            history = MacroCache.get_history(indicator_name, limit=1)
+            if history:
+                date_str, value, hist_source = history[0]
+                net_inflow = value
+                source = hist_source or "sqlite_cache"
+                as_of = date_str
+            else:
+                value = MacroCache.get(indicator_name)
+                if value is not None:
+                    net_inflow = value
+                    source = "sqlite_cache"
+        except Exception:
+            logger.debug("northFlow: SQLite MacroCache unavailable", exc_info=True)
+
+    # 3. Build section from resolved data or placeholder
+    if net_inflow is not None:
+        trend = "inflow" if net_inflow > 0 else "outflow" if net_inflow < 0 else "flat"
+        return _status_section(
+            "available",
+            source=source or "macro_cache",
+            as_of=as_of,
+            coverage=0.9,
+            data={"trend": trend, "netInflow": net_inflow},
+        )
+
+    # Placeholder: no cached northbound data available
+    return _status_section(
+        "partial",
+        source="akshare/eastmoney",
+        as_of=now,
+        coverage=0.35,
+        missing_reason="当前未持久化北向资金行业映射；详情页保留结构化占位，不阻塞主链路。",
+        data={"trend": None, "netInflow": None},
+    )
+
+
 def get_fund_market_context(code: str) -> dict[str, Any]:
     code = str(code or "").strip()
     basic = _snapshot_basic(code)
@@ -109,14 +179,7 @@ def get_fund_market_context(code: str) -> dict[str, Any]:
                 "latestNavDate": basic.get("nav_date"),
             },
         ),
-        "northFlow": _status_section(
-            "partial",
-            source="akshare/eastmoney",
-            as_of=now,
-            coverage=0.35,
-            missing_reason="当前未持久化北向资金行业映射；详情页保留结构化占位，不阻塞主链路。",
-            data={"trend": None, "netInflow": None},
-        ),
+        "northFlow": _resolve_northbound_section(now),
         "sectorFlow": _status_section(
             "partial" if industries else "missing",
             source=holdings_source or "fund_portfolio_snapshot",

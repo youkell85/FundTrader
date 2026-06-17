@@ -276,8 +276,17 @@ if ($Run) {
         try {
             Write-Utf8NoBom -Path $tempScript -Content $cmd
 
-            $stdout = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $tempScript 2>&1
-            $exitCode = $LASTEXITCODE
+            # Native tools often write advisory warnings to stderr while still
+            # exiting successfully. Capture combined output but trust the
+            # process exit code.
+            $prevEAP = $ErrorActionPreference
+            $ErrorActionPreference = "Continue"
+            try {
+                $stdout = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $tempScript 2>&1
+                $exitCode = $LASTEXITCODE
+            } finally {
+                $ErrorActionPreference = $prevEAP
+            }
 
             $validationBlock.exitCode = $exitCode
             $outputStr = ($stdout | ForEach-Object { $_.ToString() }) -join [Environment]::NewLine

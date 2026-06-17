@@ -1,0 +1,42 @@
+{
+    "taskId":  "FT-UX-V11-MACRO-NORTHFLOW-COVERAGE-001",
+    "status":  "pass",
+    "reviewedAt":  "2026-06-17T03:37:36.5638304+08:00",
+    "taskPath":  "docs\\pm\\outbox\\FT-UX-V11-MACRO-NORTHFLOW-COVERAGE-001.md",
+    "reportPath":  "docs\\pm\\reports\\FT-UX-V11-MACRO-NORTHFLOW-COVERAGE-001.md",
+    "logPath":  "docs\\pm\\logs\\FT-UX-V11-MACRO-NORTHFLOW-COVERAGE-001.jsonl",
+    "lockPath":  "FT-UX-V11-MACRO-NORTHFLOW-COVERAGE-001.lock.json (not found)",
+    "reportExists":  true,
+    "pmDigest":  {
+                     "found":  true,
+                     "values":  {
+
+                                },
+                     "raw":  [
+                                 "| Field      | Value |",
+                                 "|------------|-------|",
+                                 "| **Status** | 鉁?Done |",
+                                 "| **Changed** | `backend/app/data/market_context_fetcher.py` (+68/-8), `backend/tests/test_fund_research_report.py` (+51) |",
+                                 "| **Validation** | PM reran `python -m py_compile app/data/market_context_fetcher.py` and `python -m pytest tests/test_fund_research_report.py -q`: both passed (`5 passed`). |",
+                                 "| **Risk** | Low. The change is additive and isolated. All macro cache access is wrapped in try/except. The fallback placeholder is identical to the original hardcoded section. |",
+                                 "| **Decision** | None needed. |",
+                                 "| **Next** | Run `python -m py_compile backend/app/data/market_context_fetcher.py` and `python -m pytest backend/tests/test_fund_research_report.py -q` to confirm. |"
+                             ]
+                 },
+    "lockExists":  false,
+    "diffCheckPassed":  true,
+    "diffCheckOutput":  "warning: in the working copy of \u0027backend/app/api/allocation.py\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027backend/app/data/market_context_fetcher.py\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027backend/tests/test_fund_research_report.py\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/components/allocation/AllocationProgress.tsx\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/components/dashboard/CockpitDashboard.tsx\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/pages/FundDetail.tsx\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/pages/Home.tsx\u0027, LF will be replaced by CRLF the next time Git touches it",
+    "allowedFiles":  [
+                         "backend/app/data/market_context_fetcher.py",
+                         "backend/tests/test_fund_research_report.py",
+                         "docs/pm/reports/FT-UX-V11-MACRO-NORTHFLOW-COVERAGE-001.md"
+                     ],
+    "allowedFound":  true,
+    "newlyChanged":  [
+
+                     ],
+    "issues":  [
+
+               ],
+    "recommendedNext":  "Ready for next task or archive."
+}

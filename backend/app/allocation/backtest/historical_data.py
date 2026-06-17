@@ -33,7 +33,7 @@ ASSET_ORDER = list(REPRESENTATIVE_ETFS.keys())
 CASH_ANNUAL_RETURN = 0.02
 
 
-def load_etf_history(start_date: str, end_date: str) -> Tuple[pd.DataFrame, Dict]:
+def load_etf_history(start_date: str, end_date: str, allow_network: bool = True) -> Tuple[pd.DataFrame, Dict]:
     """Load daily price data for all 14 asset classes.
 
     Returns:
@@ -56,7 +56,7 @@ def load_etf_history(start_date: str, end_date: str) -> Tuple[pd.DataFrame, Dict
             # Cash: synthesized later
             continue
 
-        prices = _fetch_etf_prices_with_dates(etf_code)
+        prices = _fetch_etf_prices_with_dates(etf_code, start_date, end_date, allow_network=allow_network)
         if prices is not None and len(prices) > 0:
             # Filter to requested date range
             mask = (prices.index >= start_dt) & (prices.index <= end_dt)
@@ -109,7 +109,39 @@ def load_etf_history(start_date: str, end_date: str) -> Tuple[pd.DataFrame, Dict
     return prices_df, quality
 
 
-def load_macro_history(start_date: str, end_date: str) -> Dict[str, pd.Series]:
+def _macro_series_from_cache(name: str, start: str, end: str, limit: int = 240) -> Optional[pd.Series]:
+    """Read a macro indicator history from SQLite cache without provider calls."""
+    try:
+        from app.storage.database import MacroCache
+
+        rows = MacroCache.get_history(name, limit=limit)
+    except Exception as e:
+        logger.debug(f"Macro {name}: SQLite history miss - {e}")
+        return None
+
+    if not rows:
+        return None
+
+    dates = []
+    values = []
+    for date_str, value, _source in rows:
+        try:
+            dt = pd.Timestamp(date_str)
+            val = float(value)
+        except (TypeError, ValueError):
+            continue
+        dates.append(dt)
+        values.append(val)
+
+    if not dates:
+        return None
+
+    series = pd.Series(values, index=pd.DatetimeIndex(dates), name=name).sort_index()
+    series = series[~series.index.duplicated(keep="last")]
+    return _filter_date_range(series, start, end)
+
+
+def load_macro_history(start_date: str, end_date: str, allow_network: bool = True) -> Dict[str, pd.Series]:
     """Load historical macro indicator time series.
 
     Returns dict mapping indicator name -> date-indexed Series.
@@ -135,7 +167,10 @@ def load_macro_history(start_date: str, end_date: str) -> Dict[str, pd.Series]:
 
     for name, fetcher in fetchers:
         try:
-            series = fetcher(start_date, end_date)
+            if allow_network:
+                series = fetcher(start_date, end_date)
+            else:
+                series = _macro_series_from_cache(name, start_date, end_date)
             if series is not None and len(series) > 0:
                 macro_data[name] = series
                 logger.debug(f"Macro {name}: {len(series)} data points loaded")
@@ -152,11 +187,57 @@ def load_macro_history(start_date: str, end_date: str) -> Dict[str, pd.Series]:
 # ETF Price Fetching
 # ---------------------------------------------------------------------------
 
-def _fetch_etf_prices_with_dates(code: str) -> Optional[pd.Series]:
+def _cached_series_from_range(code: str, start: str, end: str, min_rows: int = 20) -> Optional[pd.Series]:
+    """Read a requested ETF date range from SQLite cache if it is usable."""
+    try:
+        from app.storage.database import ETFPriceCache
+
+        cached = ETFPriceCache.get_range(code, start, end)
+        if len(cached) >= min_rows:
+            s = pd.Series(cached, name=code)
+            s.index = pd.to_datetime(s.index)
+            s = s.sort_index()
+            start_ts = pd.Timestamp(start)
+            end_ts = pd.Timestamp(end)
+            covers_start = s.index[0] <= start_ts + pd.Timedelta(days=5)
+            covers_end = s.index[-1] >= end_ts - pd.Timedelta(days=5)
+            if covers_start and covers_end:
+                logger.debug(f"ETF {code}: loaded {len(s)} requested rows from SQLite cache")
+                return s
+            logger.debug(
+                "ETF %s: cached requested rows do not cover %s..%s (have %s..%s)",
+                code,
+                start,
+                end,
+                s.index[0].strftime("%Y-%m-%d"),
+                s.index[-1].strftime("%Y-%m-%d"),
+            )
+    except Exception as e:
+        logger.debug(f"ETF {code}: requested SQLite cache miss - {e}")
+    return None
+
+
+def _fetch_etf_prices_with_dates(
+    code: str,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    allow_network: bool = True,
+) -> Optional[pd.Series]:
     """Fetch full ETF price history as a date-indexed Series.
 
     SQLite cache → efinance → tushare → akshare fallback chain.
     """
+    # Use the requested window from cache even when it is not current to today.
+    # Backtest API calls set allow_network=False so provider stalls cannot block
+    # the request path when cached historical data is already enough.
+    if start_date and end_date:
+        cached_requested = _cached_series_from_range(code, start_date, end_date)
+        if cached_requested is not None:
+            return cached_requested
+        if not allow_network:
+            logger.info(f"ETF {code}: cache insufficient for requested range {start_date}..{end_date}")
+            return None
+
     # 0. SQLite cache — check if we have recent data (within 1 day)
     try:
         from app.storage.database import ETFPriceCache

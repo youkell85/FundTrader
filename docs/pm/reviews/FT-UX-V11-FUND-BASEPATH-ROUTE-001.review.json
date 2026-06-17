@@ -1,0 +1,44 @@
+{
+    "taskId":  "FT-UX-V11-FUND-BASEPATH-ROUTE-001",
+    "status":  "pass",
+    "reviewedAt":  "2026-06-17T04:19:42.1904018+08:00",
+    "taskPath":  "docs\\pm\\outbox\\FT-UX-V11-FUND-BASEPATH-ROUTE-001.md",
+    "reportPath":  "docs\\pm\\reports\\FT-UX-V11-FUND-BASEPATH-ROUTE-001.md",
+    "logPath":  "docs\\pm\\logs\\FT-UX-V11-FUND-BASEPATH-ROUTE-001.jsonl",
+    "lockPath":  "FT-UX-V11-FUND-BASEPATH-ROUTE-001.lock.json (not found)",
+    "reportExists":  true,
+    "pmDigest":  {
+                     "found":  true,
+                     "values":  {
+                                    "status":  "complete",
+                                    "changed":  "frontend/vite.config.ts",
+                                    "validation":  "passed, skipped(test:smoke)",
+                                    "risk":  "none",
+                                    "decision":  "none",
+                                    "next":  "accept"
+                                },
+                     "raw":  [
+                                 "Status: complete",
+                                 "Changed: frontend/vite.config.ts",
+                                 "Validation: passed, skipped(test:smoke)",
+                                 "Risk: none",
+                                 "Decision: none",
+                                 "Next: accept"
+                             ]
+                 },
+    "lockExists":  false,
+    "diffCheckPassed":  true,
+    "diffCheckOutput":  "warning: in the working copy of \u0027backend/app/api/allocation.py\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027backend/app/data/market_context_fetcher.py\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027backend/tests/test_fund_research_report.py\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/App.tsx\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/components/allocation/AllocationProgress.tsx\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/components/dashboard/CockpitDashboard.tsx\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/pages/FundDetail.tsx\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/pages/Home.tsx\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/vite.config.ts\u0027, LF will be replaced by CRLF the next time Git touches it",
+    "allowedFiles":  [
+                         "frontend/vite.config.ts",
+                         "docs/pm/reports/FT-UX-V11-FUND-BASEPATH-ROUTE-001.md"
+                     ],
+    "allowedFound":  true,
+    "newlyChanged":  [
+
+                     ],
+    "issues":  [
+
+               ],
+    "recommendedNext":  "Ready for next task or archive."
+}
