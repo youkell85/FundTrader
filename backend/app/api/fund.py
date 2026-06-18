@@ -63,10 +63,16 @@ FUND_DETAIL_FIELD_GROUPS = {
         "section": "scaleHistory",
     },
     "holdings": {
-        "fields": ["top_holdings", "bond_holdings", "industry_exposure"],
+        "fields": ["top_holdings", "industry_exposure"],
         "source": "tushare.fund_portfolio",
         "fallback": "eastmoney periodic report pdf",
         "section": "holdings",
+    },
+    "bondHoldings": {
+        "fields": ["bond_name", "bond_code", "bond_nav_ratio", "bond_coupon_rate", "bond_issuer", "bond_type", "bond_credit_rating"],
+        "source": "akshare.fund_portfolio_bond_hold_em/eastmoney periodic report pdf",
+        "fallback": "confirmed empty periodic report",
+        "section": "bondHoldings",
     },
     "dividend": {
         "fields": ["dividend_date", "dividend_amount", "registration_date"],

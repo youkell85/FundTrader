@@ -172,7 +172,8 @@ class FundDetailContractTest(unittest.TestCase):
         fallback = {
             "bond_holdings": [
                 {
-                    "name": "\u6d4b\u8bd5\u503a\u5238",
+                    "name": "26\u56fd\u503a01",
+                    "code": "019801",
                     "ratio": 12.34,
                     "quarter": "2026-03-31",
                 }
@@ -183,7 +184,9 @@ class FundDetailContractTest(unittest.TestCase):
             payload = fund_service.get_fund_bond_holdings("000001")
 
         self.assertEqual(payload["dataStatus"], "partial")
-        self.assertEqual(payload["rows"][0]["bondName"], "\u6d4b\u8bd5\u503a\u5238")
+        self.assertEqual(payload["rows"][0]["bondName"], "26\u56fd\u503a01")
+        self.assertEqual(payload["rows"][0]["bondCode"], "019801")
+        self.assertEqual(payload["rows"][0]["bondType"], "\u56fd\u5bb6\u503a\u5238")
         self.assertEqual(payload["rows"][0]["navRatio"], 12.34)
         self.assertEqual(payload["asOf"], "2026-03-31")
 
@@ -547,7 +550,7 @@ class FundDetailContractTest(unittest.TestCase):
             ),
         }
         with patch.object(fund_service, "_safe_table_query", return_value=[]), \
-            patch.object(fund_service, "_fetch_eastmoney_holder_report_pdf_text", return_value=report):
+            patch.object(fund_service, "_fetch_eastmoney_holder_report_pdf_texts", return_value=[report]):
             payload = fund_service.get_fund_turnover_history("000001", periods=8)
 
         self.assertEqual(payload["dataStatus"], "partial")
@@ -555,7 +558,42 @@ class FundDetailContractTest(unittest.TestCase):
         self.assertIsNone(payload["rows"][0]["turnoverRate"])
         self.assertEqual(payload["rows"][0]["buyStockAmount"], 785562768.66)
         self.assertEqual(payload["rows"][0]["sellStockAmount"], 5878949463.92)
-        self.assertIn("无法按信息披露口径计算", payload["missingReason"])
+        self.assertIn("1/8", payload["missingReason"])
+
+    def test_turnover_history_backfills_multiple_report_periods(self):
+        reports = [
+            {
+                "report_date": "2025-12-31",
+                "source": "eastmoney:periodic_report_pdf",
+                "text": (
+                    "8.4.3 \u4e70\u5165\u80a1\u7968\u7684\u6210\u672c\u603b\u989d\u53ca\u5356\u51fa\u80a1\u7968\u7684\u6536\u5165\u603b\u989d\n"
+                    "\u4e70\u5165\u80a1\u7968\u6210\u672c\uff08\u6210\u4ea4\uff09\u603b\u989d 100,000,000.00\n"
+                    "\u5356\u51fa\u80a1\u7968\u6536\u5165\uff08\u6210\u4ea4\uff09\u603b\u989d 300,000,000.00\n"
+                    "\u80a1\u7968\u6301\u4ed3\u5e73\u5747\u5e02\u503c 1,000,000,000.00\n"
+                ),
+            },
+            {
+                "report_date": "2025-06-30",
+                "source": "eastmoney:periodic_report_pdf",
+                "text": (
+                    "8.4.3 \u4e70\u5165\u80a1\u7968\u7684\u6210\u672c\u603b\u989d\u53ca\u5356\u51fa\u80a1\u7968\u7684\u6536\u5165\u603b\u989d\n"
+                    "\u4e70\u5165\u80a1\u7968\u6210\u672c\uff08\u6210\u4ea4\uff09\u603b\u989d 200,000,000.00\n"
+                    "\u5356\u51fa\u80a1\u7968\u6536\u5165\uff08\u6210\u4ea4\uff09\u603b\u989d 200,000,000.00\n"
+                    "\u80a1\u7968\u6301\u4ed3\u5e73\u5747\u5e02\u503c 2,000,000,000.00\n"
+                ),
+            },
+        ]
+        with patch.object(fund_service, "_safe_table_query", return_value=[]), \
+            patch.object(fund_service, "_fetch_eastmoney_holder_report_pdf_texts", return_value=reports), \
+            patch.object(fund_service, "_persist_turnover_snapshot") as persist:
+            payload = fund_service.get_fund_turnover_history("000001", periods=2)
+
+        self.assertEqual(payload["dataStatus"], "available")
+        self.assertEqual(payload["coverage"], 1.0)
+        self.assertEqual([row["quarter"] for row in payload["rows"]], ["2025-06-30", "2025-12-31"])
+        self.assertEqual(payload["rows"][0]["turnoverRate"], 10.0)
+        self.assertEqual(payload["rows"][1]["turnoverRate"], 20.0)
+        self.assertEqual(persist.call_count, 2)
 
     def test_cached_analysis_persists_cached_holdings_snapshot(self):
         cached = {

@@ -1487,6 +1487,111 @@ def get_fund_bond_allocation(code: str) -> dict:
     )
 
 
+def _clean_bond_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _infer_bond_type(name: str | None) -> str | None:
+    text = name or ""
+    if not text:
+        return None
+    if "转债" in text or "可转" in text:
+        return "可转换债券"
+    if "国债" in text:
+        return "国家债券"
+    if any(keyword in text for keyword in ("国开", "农发", "进出", "口行")):
+        return "政策性金融债"
+    if any(keyword in text for keyword in ("同业存单", "存单")):
+        return "同业存单"
+    if any(keyword in text for keyword in ("地方债", "专项债")):
+        return "地方政府债"
+    if "金融债" in text:
+        return "金融债券"
+    if any(keyword in text for keyword in ("MTN", "中票", "短融", "超短融", "SCP", "CP")):
+        return "信用债"
+    return None
+
+
+def _normalize_bond_holding_row(item: dict[str, Any]) -> dict[str, Any] | None:
+    if not isinstance(item, dict):
+        return None
+    name = _clean_bond_text(item.get("bondName") or item.get("bond_name") or item.get("bond_name_cn") or item.get("name"))
+    if not name:
+        return None
+    bond_code = _clean_bond_text(item.get("bondCode") or item.get("bond_code") or item.get("code") or item.get("symbol"))
+    issuer_info = item.get("issuerInfo") if isinstance(item.get("issuerInfo"), dict) else {}
+    issuer_info_alt = item.get("issuer_info") if isinstance(item.get("issuer_info"), dict) else {}
+    issuer = _clean_bond_text(
+        item.get("issuer")
+        or item.get("issuer_name")
+        or item.get("issuerName")
+        or item.get("creditor")
+        or issuer_info.get("name")
+        or issuer_info_alt.get("issuer")
+    )
+    bond_type = _clean_bond_text(
+        item.get("bondType")
+        or item.get("bond_type")
+        or item.get("bond_kind")
+        or item.get("bondKind")
+        or item.get("type")
+        or item.get("category")
+        or item.get("bond_type_cn")
+    ) or _infer_bond_type(name)
+    credit_rating = _clean_bond_text(
+        item.get("creditRating")
+        or item.get("credit_rating")
+        or item.get("rating")
+        or item.get("credit")
+        or item.get("creditGrade")
+        or item.get("credit_grade")
+    )
+    return {
+        "bondName": name,
+        "bondCode": bond_code,
+        "marketValue": _safe_number(item.get("marketValue") or item.get("market_value") or item.get("market_value2") or item.get("marketValue1")),
+        "navRatio": _safe_float(item.get("navRatio") or item.get("nav_ratio") or item.get("ratio") or item.get("weight") or item.get("nav_ratio_pct")),
+        "couponRate": _safe_number(item.get("couponRate") or item.get("coupon_rate") or item.get("coupon") or item.get("interestRate") or item.get("couponRatePct")),
+        "issuer": issuer,
+        "bondType": bond_type,
+        "creditRating": credit_rating,
+    }
+
+
+def _bond_holdings_quality(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    if not rows:
+        return {"status": DETAIL_STATUS_MISSING, "coverage": 0.0, "missingReason": "缺少真实重仓债券数据。"}
+    fields = ["bondName", "bondCode", "marketValue", "navRatio", "couponRate", "issuer", "bondType", "creditRating"]
+    present = 0
+    total = len(rows) * len(fields)
+    missing_fields: set[str] = set()
+    for row in rows:
+        for field in fields:
+            value = row.get(field)
+            if value not in (None, "", []):
+                present += 1
+            else:
+                missing_fields.add(field)
+    coverage = round(present / total, 4) if total else 0.0
+    status = DETAIL_STATUS_AVAILABLE if coverage >= 0.85 else DETAIL_STATUS_PARTIAL
+    labels = {
+        "bondCode": "债券代码",
+        "marketValue": "持仓市值",
+        "couponRate": "票面利率",
+        "issuer": "发行主体",
+        "bondType": "债券类型",
+        "creditRating": "信用评级",
+    }
+    missing_reason = None
+    if status != DETAIL_STATUS_AVAILABLE:
+        shown = [labels.get(field, field) for field in sorted(missing_fields) if field != "bondName"]
+        missing_reason = "重仓债券真实行已返回，但细项字段不完整：" + "、".join(shown[:6])
+    return {"status": status, "coverage": coverage, "missingReason": missing_reason}
+
+
 def get_fund_bond_holdings(code: str) -> dict:
     """重仓债券：优先读取快照，其次尝试 AkShare 东方财富真实债券持仓。"""
     snapshot_rows = _safe_table_query(
@@ -1501,55 +1606,18 @@ def get_fund_bond_holdings(code: str) -> dict:
         row = snapshot_rows[0]
         out = []
         for item in _parse_json_array(row["bond_holdings_json"]):
-            name = str(item.get("bondName") or item.get("bond_name") or item.get("bond_name_cn") or item.get("name") or "")
-            ratio = _safe_float(item.get("navRatio") or item.get("nav_ratio") or item.get("ratio") or item.get("weight") or item.get("nav_ratio_pct"))
-            issuer = (
-                item.get("issuer")
-                or item.get("issuer_name")
-                or item.get("issuerName")
-                or item.get("creditor")
-                or item.get("issuerInfo", {}).get("name")
-                or item.get("issuer_info", {}).get("issuer")
-                or ""
-            )
-            issuer = str(issuer).strip() if issuer is not None else ""
-            bond_type = (
-                item.get("bondType")
-                or item.get("bond_type")
-                or item.get("bond_kind")
-                or item.get("bondKind")
-                or item.get("type")
-                or item.get("category")
-                or ""
-            )
-            credit_rating = (
-                item.get("creditRating")
-                or item.get("credit_rating")
-                or item.get("rating")
-                or item.get("credit")
-                or item.get("creditGrade")
-                or item.get("credit_grade")
-                or ""
-            )
-            issuer = issuer if issuer else None
-            bond_type = bond_type if bond_type else None
-            credit_rating = credit_rating if credit_rating else None
-            if name:
-                out.append({
-                    "bondName": name,
-                    "marketValue": _safe_number(item.get("marketValue") or item.get("market_value") or item.get("market_value2")),
-                    "navRatio": ratio,
-                    "couponRate": _safe_number(item.get("couponRate") or item.get("coupon_rate") or item.get("coupon") or item.get("interestRate") or item.get("couponRatePct")),
-                    "issuer": issuer,
-                    "bondType": bond_type,
-                    "creditRating": credit_rating,
-                })
+            normalized = _normalize_bond_holding_row(item)
+            if normalized:
+                out.append(normalized)
+        quality = _bond_holdings_quality(out)
         return _rows_response(
             code,
             out,
+            status=quality["status"],
             source=row["source"] or "fund_detail_quarterly_snapshot",
             as_of=row["report_date"],
-            missing_reason="债券持仓快照为空。",
+            coverage=quality["coverage"],
+            missing_reason=quality["missingReason"] or "债券持仓快照为空。",
         )
 
     try:
@@ -1565,58 +1633,21 @@ def get_fund_bond_holdings(code: str) -> dict:
         out = []
         as_of = None
         for item in holdings:
-            name = str(item.get("name") or item.get("bondName") or item.get("bond_name") or "")
-            ratio = _safe_float(item.get("ratio") or item.get("navRatio"))
-            if not name:
+            normalized = _normalize_bond_holding_row(item)
+            if not normalized:
                 continue
             as_of = str(item.get("quarter") or item.get("updated_at") or as_of or "")
-            issuer = (
-                item.get("issuer")
-                or item.get("issuerName")
-                or item.get("creditor")
-                or item.get("issuer_name")
-                or item.get("issuerInfo", {}).get("name")
-                or item.get("issuer_info", {}).get("issuer")
-                or ""
-            )
-            issuer = str(issuer).strip() if issuer is not None else ""
-            bond_type = (
-                item.get("bondType")
-                or item.get("bond_type")
-                or item.get("bondKind")
-                or item.get("type")
-                or item.get("bond_type_cn")
-                or ""
-            )
-            credit_rating = (
-                item.get("creditRating")
-                or item.get("credit_rating")
-                or item.get("rating")
-                or item.get("creditGrade")
-                or item.get("credit_grade")
-                or ""
-            )
-            issuer = issuer if issuer else None
-            bond_type = bond_type if bond_type else None
-            credit_rating = credit_rating if credit_rating else None
-            out.append({
-                "bondName": name,
-                "marketValue": _safe_number(item.get("marketValue") or item.get("market_value") or item.get("marketValue1")),
-                "navRatio": ratio,
-                "couponRate": _safe_number(item.get("couponRate") or item.get("coupon_rate") or item.get("coupon") or item.get("interestRate") or item.get("couponRatePct")),
-                "issuer": issuer,
-                "bondType": bond_type,
-                "creditRating": credit_rating,
-            })
+            out.append(normalized)
         if out:
+            quality = _bond_holdings_quality(out)
             return _rows_response(
                 code,
                 out,
-                status=DETAIL_STATUS_PARTIAL,
+                status=quality["status"],
                 source="AkShare 东方财富F10 债券持仓",
                 as_of=as_of or None,
-                coverage=0.7,
-                missing_reason="AkShare 返回真实债券持仓，但票息/主体/评级等字段可能不完整。",
+                coverage=quality["coverage"],
+                missing_reason=quality["missingReason"],
             )
     except TimeoutError:
         console_error(f"bond holdings fetch timed out for {code}")
@@ -2472,6 +2503,7 @@ def get_fund_scale_history(code: str, periods: int = 40) -> dict:
 
 def get_fund_turnover_history(code: str, periods: int = 40) -> dict:
     """基金换手率：只读取真实季报快照。"""
+    target_periods = max(1, min(periods, 8))
     rows = _safe_table_query(
         """SELECT report_date, turnover_rate, source, updated_at
            FROM fund_detail_quarterly_snapshot
@@ -2485,65 +2517,27 @@ def get_fund_turnover_history(code: str, periods: int = 40) -> dict:
         for row in reversed(rows)
         if _safe_float(row["turnover_rate"]) is not None
     ]
-    if not out:
-        report = _fetch_eastmoney_holder_report_pdf_text(code)
-        if report:
-            activity = _parse_stock_trading_activity_from_report_text(report.get("text") or "", report.get("report_date"))
-            if activity:
-                if not any(row.get("turnoverRate") is not None for row in activity):
-                    scale_rows = _safe_table_query(
-                        """SELECT total_scale, report_date
-                           FROM fund_detail_quarterly_snapshot
-                           WHERE code = ? AND total_scale IS NOT NULL
-                           ORDER BY report_date DESC
-                           LIMIT 1""",
-                        (code,),
-                    )
-                    fallback_scale = None
-                    if scale_rows:
-                        fallback_scale = _safe_float(scale_rows[0]["total_scale"])
-                    if fallback_scale and fallback_scale > 0:
-                        fallback_turnover = None
-                        for row in activity:
-                            buy_amount = _safe_float(row.get("buyStockAmount"))
-                            sell_amount = _safe_float(row.get("sellStockAmount"))
-                            if buy_amount is None and sell_amount is None:
-                                continue
-                            numerator = (buy_amount or 0.0) + (sell_amount or 0.0)
-                            if numerator <= 0:
-                                continue
-                            row["turnoverRate"] = round((numerator / (fallback_scale * 2 * 100000000.0)) * 100, 4)
-                            row["calculationStatus"] = "estimated_from_total_scale"
-                            fallback_turnover = row["turnoverRate"]
-                            break
-                        if fallback_turnover is not None:
-                            report_quarter = activity[0].get("quarter") or report.get("report_date")
-                            if report_quarter:
-                                _persist_turnover_snapshot(
-                                    code,
-                                    str(report_quarter),
-                                    turnover_rate=fallback_turnover,
-                                    source=report.get("source") or "eastmoney:periodic_report_pdf",
-                                )
-                return _rows_response(
-                    code,
-                    activity,
-                    status=DETAIL_STATUS_PARTIAL,
-                    source=report.get("source") or "eastmoney:periodic_report_pdf",
-                    as_of=report.get("report_date"),
-                    coverage=0.65,
-                    missing_reason=(
-                        "定期报告披露了买入/卖出成交额，已尽量按披露口径计算换手率。"
-                        if any(row.get("turnoverRate") is not None for row in activity)
-                        else "定期报告披露了股票买入/卖出成交额，但缺少股票持仓口径市值，无法按信息披露口径计算。"
-                    ),
-                )
+    if len(out) < target_periods:
+        out = _backfill_turnover_history_from_reports(code, out, target_periods)
+    if out:
+        out = sorted(out, key=lambda item: str(item.get("quarter") or ""))[-periods:]
+        coverage = round(min(1.0, len([row for row in out if row.get("turnoverRate") is not None]) / target_periods), 4)
+        status = DETAIL_STATUS_AVAILABLE if coverage >= 0.5 else DETAIL_STATUS_PARTIAL
+        return _rows_response(
+            code,
+            out,
+            status=status,
+            source=rows[0]["source"] if rows else "eastmoney:periodic_report_pdf",
+            as_of=out[-1].get("quarter"),
+            coverage=coverage,
+            missing_reason=None if status == DETAIL_STATUS_AVAILABLE else f"仅有 {len(out)}/{target_periods} 个季度真实换手率，历史深度不足。",
+        )
     return _rows_response(
         code,
         out,
-        source=rows[0]["source"] if rows else None,
-        as_of=rows[0]["report_date"] if rows else None,
-        coverage=min(1.0, len(out) / max(1, periods)) if out else 0.0,
+        source=None,
+        as_of=None,
+        coverage=0.0,
         missing_reason="缺少真实基金换手率季报数据；不再生成周期波动模拟值。",
     )
 
@@ -2655,6 +2649,7 @@ _HOLDER_REPORT_KEYWORDS = (
     "\u534a\u5e74\u5ea6\u62a5\u544a",
 )
 _REPORT_PDF_TEXT_CACHE: dict[str, dict[str, Any]] = {}
+_REPORT_PDF_TEXTS_CACHE: dict[tuple[str, int], list[dict[str, Any]]] = {}
 _REPORT_PDF_TEXT_CACHE_LOCK = threading.Lock()
 
 
@@ -2758,6 +2753,82 @@ def _latest_eastmoney_notice(code: str, title_keywords: tuple[str, ...]) -> dict
         return None
 
 
+def _recent_eastmoney_notices(code: str, title_keywords: tuple[str, ...], limit: int = 4) -> list[dict[str, str]]:
+    try:
+        import akshare as ak
+
+        notices = ak.fund_announcement_report_em(symbol=code)
+        if notices is None or getattr(notices, "empty", True):
+            return []
+
+        candidates = []
+        for index, row in enumerate(notices.to_dict("records")):
+            title = _clean_notice_value(row.get(_REPORT_TITLE_COL) or row.get("title"))
+            report_id = _clean_notice_value(row.get(_REPORT_ID_COL) or row.get("report_id"))
+            publish_date = _clean_notice_value(row.get(_REPORT_DATE_COL) or row.get("date"))
+            if not report_id or "\u6458\u8981" in title:
+                continue
+            if not any(keyword in title for keyword in title_keywords):
+                continue
+            candidates.append((publish_date, index, title, report_id))
+        if not candidates:
+            return []
+        ordered = sorted(candidates, key=lambda item: (item[0], item[1]), reverse=True)
+        return [
+            {"publish_date": publish_date, "title": title, "report_id": report_id}
+            for publish_date, _index, title, report_id in ordered[: max(1, min(limit, 8))]
+        ]
+    except Exception as e:
+        console_error(f"eastmoney recent notice lookup failed for {code}: {e}")
+        return []
+
+
+def _download_eastmoney_report_pdf_text(notice: dict[str, str]) -> dict[str, Any] | None:
+    try:
+        import pdfplumber
+        import requests
+
+        response = requests.get(
+            "https://np-cnotice-fund.eastmoney.com/api/content/ann",
+            params={"art_code": notice["report_id"], "client_source": "web"},
+            headers={"User-Agent": "Mozilla/5.0", "Referer": "https://fundf10.eastmoney.com/"},
+            timeout=20,
+        )
+        payload = response.json()
+        data = payload.get("data") if isinstance(payload, dict) else None
+        if not isinstance(data, dict):
+            return None
+        attach_url = _clean_notice_value(data.get("attach_url_web") or data.get("attach_url"))
+        if not attach_url:
+            return None
+
+        pdf_response = requests.get(
+            attach_url,
+            headers={"User-Agent": "Mozilla/5.0", "Referer": "https://fundf10.eastmoney.com/"},
+            timeout=20,
+        )
+        pdf_response.raise_for_status()
+
+        pages: list[str] = []
+        with pdfplumber.open(io.BytesIO(pdf_response.content)) as pdf:
+            for page in pdf.pages:
+                pages.append(page.extract_text(x_tolerance=1, y_tolerance=3) or "")
+        text = "\n".join(pages)
+        if not text.strip():
+            return None
+
+        report_date = _parse_cn_report_date(text, notice.get("publish_date"))
+        return {
+            "report_date": report_date or _clean_notice_value(notice.get("publish_date"))[:10],
+            "report_type": notice["title"],
+            "source": "eastmoney:periodic_report_pdf",
+            "text": text,
+        }
+    except Exception as e:
+        console_error(f"eastmoney report pdf fetch failed for {notice.get('report_id')}: {e}")
+        return None
+
+
 def _fetch_eastmoney_holder_report_pdf_text(code: str) -> dict[str, Any] | None:
     with _REPORT_PDF_TEXT_CACHE_LOCK:
         cached = _REPORT_PDF_TEXT_CACHE.get(code)
@@ -2769,50 +2840,35 @@ def _fetch_eastmoney_holder_report_pdf_text(code: str) -> dict[str, Any] | None:
             return None
 
         try:
-            import pdfplumber
-            import requests
-
-            response = requests.get(
-                "https://np-cnotice-fund.eastmoney.com/api/content/ann",
-                params={"art_code": notice["report_id"], "client_source": "web"},
-                headers={"User-Agent": "Mozilla/5.0", "Referer": "https://fundf10.eastmoney.com/"},
-                timeout=20,
-            )
-            payload = response.json()
-            data = payload.get("data") if isinstance(payload, dict) else None
-            if not isinstance(data, dict):
+            result = _download_eastmoney_report_pdf_text(notice)
+            if not result:
                 return None
-            attach_url = _clean_notice_value(data.get("attach_url_web") or data.get("attach_url"))
-            if not attach_url:
-                return None
-
-            pdf_response = requests.get(
-                attach_url,
-                headers={"User-Agent": "Mozilla/5.0", "Referer": "https://fundf10.eastmoney.com/"},
-                timeout=20,
-            )
-            pdf_response.raise_for_status()
-
-            pages: list[str] = []
-            with pdfplumber.open(io.BytesIO(pdf_response.content)) as pdf:
-                for page in pdf.pages:
-                    pages.append(page.extract_text(x_tolerance=1, y_tolerance=3) or "")
-            text = "\n".join(pages)
-            if not text.strip():
-                return None
-
-            report_date = _parse_cn_report_date(text, notice.get("publish_date"))
-            result = {
-                "report_date": report_date or _clean_notice_value(notice.get("publish_date"))[:10],
-                "report_type": notice["title"],
-                "source": "eastmoney:periodic_report_pdf",
-                "text": text,
-            }
             _REPORT_PDF_TEXT_CACHE[code] = result
             return result
         except Exception as e:
             console_error(f"eastmoney report pdf fetch failed for {code}: {e}")
             return None
+
+
+def _fetch_eastmoney_holder_report_pdf_texts(code: str, limit: int = 4) -> list[dict[str, Any]]:
+    bounded_limit = max(1, min(limit, 8))
+    cache_key = (code, bounded_limit)
+    with _REPORT_PDF_TEXT_CACHE_LOCK:
+        cached = _REPORT_PDF_TEXTS_CACHE.get(cache_key)
+        if cached is not None:
+            return cached
+
+    reports: list[dict[str, Any]] = []
+    for notice in _recent_eastmoney_notices(code, _HOLDER_REPORT_KEYWORDS, bounded_limit):
+        report = _download_eastmoney_report_pdf_text(notice)
+        if report:
+            reports.append(report)
+
+    with _REPORT_PDF_TEXT_CACHE_LOCK:
+        _REPORT_PDF_TEXTS_CACHE[cache_key] = reports
+        if reports and code not in _REPORT_PDF_TEXT_CACHE:
+            _REPORT_PDF_TEXT_CACHE[code] = reports[0]
+    return reports
 
 
 def _parse_bond_allocation_from_report_text(text: str) -> list[dict[str, Any]]:
@@ -3067,26 +3123,26 @@ def _parse_stock_trading_activity_from_report_text(text: str, report_date: str |
         return []
 
     avg_stock_value_patterns = [
-        r"加权平均股票(?:成交|持仓|市值)[^\u6570\u5b57]{0,30}([\d,.\-]+(?:亿|万)?)",
-        r"股票持仓平均市值[^\u6570\u5b57]{0,30}([\d,.\-]+(?:亿|万)?)",
-        r"加权平均(?:资产|证券|股票)(?:交易)?市值[^\u6570\u5b57]{0,30}([\d,.\-]+(?:亿|万)?)",
-        r"股票(?:日均|平均)(?:市值|持仓)[^\u6570\u5b57]{0,30}([\d,.\-]+(?:亿|万)?)",
-        r"持仓(?:股票)?(?:日均|平均)市值[^\u6570\u5b57]{0,30}([\d,.\-]+(?:亿|万)?)",
-        r"股票持仓[均总]值[^\u6570\u5b57]{0,30}([\d,.\-]+(?:亿|万)?)",
-        r"股票(?:日均|平均)持仓市值[^\u6570\u5b57]{0,30}([\d,.\-]+(?:亿|万)?)",
-        r"持仓市值(?:平均|日均)[^\u6570\u5b57]{0,30}([\d,.\-]+(?:亿|万)?)",
+        r"加权平均股票(?:成交|持仓|市值)[^\d]{0,30}([\d,.\-]+(?:亿|万)?)",
+        r"股票持仓平均市值[^\d]{0,30}([\d,.\-]+(?:亿|万)?)",
+        r"加权平均(?:资产|证券|股票)(?:交易)?市值[^\d]{0,30}([\d,.\-]+(?:亿|万)?)",
+        r"股票(?:日均|平均)(?:市值|持仓)[^\d]{0,30}([\d,.\-]+(?:亿|万)?)",
+        r"持仓(?:股票)?(?:日均|平均)市值[^\d]{0,30}([\d,.\-]+(?:亿|万)?)",
+        r"股票持仓[均总]值[^\d]{0,30}([\d,.\-]+(?:亿|万)?)",
+        r"股票(?:日均|平均)持仓市值[^\d]{0,30}([\d,.\-]+(?:亿|万)?)",
+        r"持仓市值(?:平均|日均)[^\d]{0,30}([\d,.\-]+(?:亿|万)?)",
     ]
 
     end_stock_value_patterns = [
-        r"期末(?:股票|股基)持仓市值[^\u6570\u5b57]{0,30}([\d,.\-]+(?:亿|万)?)",
-        r"期末股票持仓(?:金额|价值|市值)[^\u6570\u5b57]{0,30}([\d,.\-]+(?:亿|万)?)",
-        r"期末(?:全部|股票)资产[^\u6570\u5b57]{0,30}([\d,.\-]+(?:亿|万)?)",
-        r"期末持仓市值[^\u6570\u5b57]{0,30}([\d,.\-]+(?:亿|万)?)",
+        r"期末(?:股票|股基)持仓市值[^\d]{0,30}([\d,.\-]+(?:亿|万)?)",
+        r"期末股票持仓(?:金额|价值|市值)[^\d]{0,30}([\d,.\-]+(?:亿|万)?)",
+        r"期末(?:全部|股票)资产[^\d]{0,30}([\d,.\-]+(?:亿|万)?)",
+        r"期末持仓市值[^\d]{0,30}([\d,.\-]+(?:亿|万)?)",
     ]
     turnover_total_patterns = [
-        r"(?:总规模|总资产|资产总额)[^\u6570\u5b57]{0,30}([\d,.\-]+(?:亿|万)?)",
-        r"(?:股票资产|股票相关|权益投资)净额[^\u6570\u5b57]{0,30}([\d,.\-]+(?:亿|万)?)",
-        r"(?:基金净资产|基金总资产|规模)[^\u6570\u5b57]{0,30}([\d,.\-]+(?:亿|万)?)",
+        r"(?:总规模|总资产|资产总额)[^\d]{0,30}([\d,.\-]+(?:亿|万)?)",
+        r"(?:股票资产|股票相关|权益投资)净额[^\d]{0,30}([\d,.\-]+(?:亿|万)?)",
+        r"(?:基金净资产|基金总资产|规模)[^\d]{0,30}([\d,.\-]+(?:亿|万)?)",
     ]
 
     avg_stock_value = parse_any(avg_stock_value_patterns)
@@ -3114,6 +3170,57 @@ def _parse_stock_trading_activity_from_report_text(text: str, report_date: str |
         "sellStockAmount": sell_amount,
         "calculationStatus": status,
     }]
+
+
+def _estimate_turnover_from_scale(activity: list[dict[str, Any]], fallback_scale: float | None) -> None:
+    if not fallback_scale or fallback_scale <= 0:
+        return
+    for row in activity:
+        if row.get("turnoverRate") is not None:
+            continue
+        buy_amount = _safe_float(row.get("buyStockAmount"))
+        sell_amount = _safe_float(row.get("sellStockAmount"))
+        if buy_amount is None and sell_amount is None:
+            continue
+        numerator = (buy_amount or 0.0) + (sell_amount or 0.0)
+        if numerator <= 0:
+            continue
+        row["turnoverRate"] = round((numerator / (fallback_scale * 2 * 100000000.0)) * 100, 4)
+        row["calculationStatus"] = "estimated_from_total_scale"
+
+
+def _backfill_turnover_history_from_reports(code: str, existing: list[dict[str, Any]], target_periods: int) -> list[dict[str, Any]]:
+    existing_by_quarter = {str(row.get("quarter") or ""): row for row in existing if row.get("quarter")}
+    scale_rows = _safe_table_query(
+        """SELECT total_scale, report_date
+           FROM fund_detail_quarterly_snapshot
+           WHERE code = ? AND total_scale IS NOT NULL
+           ORDER BY report_date DESC
+           LIMIT 1""",
+        (code,),
+    )
+    fallback_scale = _safe_float(scale_rows[0]["total_scale"]) if scale_rows else None
+
+    for report in _fetch_eastmoney_holder_report_pdf_texts(code, limit=target_periods):
+        activity = _parse_stock_trading_activity_from_report_text(report.get("text") or "", report.get("report_date"))
+        if not activity:
+            continue
+        _estimate_turnover_from_scale(activity, fallback_scale)
+        for row in activity:
+            quarter = str(row.get("quarter") or report.get("report_date") or "")
+            if not quarter or quarter in existing_by_quarter:
+                continue
+            if row.get("turnoverRate") is not None:
+                _persist_turnover_snapshot(
+                    code,
+                    quarter,
+                    turnover_rate=float(row["turnoverRate"]),
+                    source=report.get("source") or "eastmoney:periodic_report_pdf",
+                )
+            existing_by_quarter[quarter] = {**row, "quarter": quarter}
+        if len(existing_by_quarter) >= target_periods:
+            break
+    return sorted(existing_by_quarter.values(), key=lambda item: str(item.get("quarter") or ""))
 
 
 def _persist_quarterly_snapshot_field(

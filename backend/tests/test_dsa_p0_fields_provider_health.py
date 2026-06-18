@@ -112,8 +112,17 @@ class FundDetailFieldGroupsTest(unittest.TestCase):
     def test_holdings_fields(self):
         h = FUND_DETAIL_FIELD_GROUPS["holdings"]
         self.assertIn("top_holdings", h["fields"])
-        self.assertIn("bond_holdings", h["fields"])
         self.assertIn("industry_exposure", h["fields"])
+
+    def test_bond_holdings_fields(self):
+        bond = FUND_DETAIL_FIELD_GROUPS["bondHoldings"]
+        self.assertIn("bond_name", bond["fields"])
+        self.assertIn("bond_code", bond["fields"])
+        self.assertIn("bond_nav_ratio", bond["fields"])
+        self.assertIn("bond_coupon_rate", bond["fields"])
+        self.assertIn("bond_issuer", bond["fields"])
+        self.assertIn("bond_type", bond["fields"])
+        self.assertIn("bond_credit_rating", bond["fields"])
 
     def test_risk_fields(self):
         r = FUND_DETAIL_FIELD_GROUPS["risk"]
@@ -132,6 +141,7 @@ class FundDetailFieldGroupsTest(unittest.TestCase):
             "performance": {"dataStatus": "available", "source": "fund_quote_snapshot", "asOf": "2026-06-18", "coverage": 1.0},
             "scaleHistory": {"dataStatus": "partial", "source": "tushare.fund_share", "asOf": "2026-03-31", "coverage": 0.5, "missingReason": "partial scale history"},
             "holdings": {"dataStatus": "available", "source": "fund_portfolio_snapshot", "asOf": "2026-03-31", "coverage": 1.0},
+            "bondHoldings": {"dataStatus": "partial", "source": "AkShare 东方财富F10 债券持仓", "asOf": "2026-03-31", "coverage": 0.5, "missingReason": "partial bond fields"},
             "riskSummary": {"dataStatus": "missing", "source": None, "asOf": None, "coverage": 0.0, "missingReason": "no risk metrics"},
         }
         sources = _field_sources_from_sections(sections)
@@ -153,6 +163,11 @@ class FundDetailFieldGroupsTest(unittest.TestCase):
         self.assertEqual(sources["fund_scale"]["status"], "partial")
         self.assertEqual(sources["fund_scale"]["missingReason"], "partial scale history")
 
+        # bond holdings maps to its own section
+        self.assertEqual(sources["bond_name"]["source"], "AkShare 东方财富F10 债券持仓")
+        self.assertEqual(sources["bond_code"]["status"], "partial")
+        self.assertEqual(sources["bond_code"]["missingReason"], "partial bond fields")
+
         # risk group maps to riskSummary section
         self.assertEqual(sources["volatility"]["status"], "missing")
         self.assertEqual(sources["volatility"]["missingReason"], "no risk metrics")
@@ -161,7 +176,7 @@ class FundDetailFieldGroupsTest(unittest.TestCase):
         sections = {}  # no data at all
         sources = _field_sources_from_sections(sections)
 
-        for field_name in ["name", "nav", "fund_scale", "volatility"]:
+        for field_name in ["name", "nav", "fund_scale", "bond_name", "volatility"]:
             if field_name in sources:
                 self.assertEqual(sources[field_name]["status"], "missing")
 
