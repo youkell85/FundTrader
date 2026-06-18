@@ -59,3 +59,5 @@ output/
 
 # QA / 诊断报告（本地一次性产物）
 reports/
+!backend/app/reports/
+!backend/app/reports/*.py
