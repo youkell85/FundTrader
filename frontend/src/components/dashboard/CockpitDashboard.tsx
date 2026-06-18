@@ -15,6 +15,8 @@ type FundLike = {
   nav?: string | number | null
   navDate?: string | null
   dailyChange?: string | number | null
+  dataQuality?: string | null
+  staleLevel?: string | null
   manager?: { name?: string } | string | null
   performance?: {
     return1y?: string | number | null

@@ -18,6 +18,21 @@ function isUserFund(fund: FundLike) {
   return fund.source === 'watchlist' || fund.isXinjihui === false
 }
 
+function isReliableDashboardCandidate(fund: FundLike) {
+  const nav = parseMetric(fund.nav)
+  const sharpe = parseMetric(fund.performance?.sharpeRatio)
+  const dataQuality = String(fund.dataQuality || '').toLowerCase()
+  const staleLevel = String(fund.staleLevel || '').toLowerCase()
+  return (
+    nav !== null &&
+    nav > 0 &&
+    sharpe !== null &&
+    Boolean(fund.navDate) &&
+    dataQuality !== 'seeded' &&
+    staleLevel !== 'missing'
+  )
+}
+
 const MARKET_LOAD_MAX_ATTEMPTS = 4
 const MARKET_LOAD_RETRY_DELAY_MS = 4_000
 
@@ -93,12 +108,13 @@ export default function Home() {
   const { funds, mode } = useMemo<{ funds: FundLike[]; mode: DashboardMode }>(() => {
     const allFunds = ((listData as any)?.funds || []) as FundLike[]
     const sorted = [...allFunds].sort(bySharpeDesc)
+    const reliableCandidates = sorted.filter(isReliableDashboardCandidate)
     if (user) {
       const userFunds = sorted.filter(isUserFund)
       if (userFunds.length > 0) return { funds: userFunds.slice(0, 8), mode: 'user' }
-      return { funds: sorted.slice(0, 8), mode: 'userEmptyFallback' }
+      return { funds: reliableCandidates.slice(0, 8), mode: 'userEmptyFallback' }
     }
-    return { funds: sorted.slice(0, 8), mode: 'bestSharpe' }
+    return { funds: reliableCandidates.slice(0, 8), mode: 'bestSharpe' }
   }, [listData, user])
 
   return (
