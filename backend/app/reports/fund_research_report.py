@@ -10,6 +10,7 @@ from ..services.fund_service import (
     get_fund_manager_report,
     get_fund_risk_summary,
 )
+from ..services.dca_service import run_dca_backtest
 from ..storage.database import FundDataStore
 from .markdown_renderer import section, table
 
@@ -56,6 +57,107 @@ def _diagnosis_status(missing: list[dict[str, Any]]) -> str:
     return "partial" if missing else "available"
 
 
+def _select_backtest_metrics(result: dict[str, Any]) -> dict[str, Any]:
+    keys = [
+        "total_invested",
+        "final_value",
+        "total_profit_rate",
+        "annual_return",
+        "cagr",
+        "max_drawdown",
+        "max_drawdown_duration_days",
+        "sharpe_ratio",
+        "benchmark_return",
+        "benchmark_excess",
+        "benchmark_status",
+        "best_month",
+        "worst_month",
+    ]
+    return {key: result.get(key) for key in keys if key in result}
+
+
+def _curve_window(result: dict[str, Any]) -> dict[str, Any]:
+    curve = result.get("nav_curve") or result.get("curve") or []
+    if not isinstance(curve, list) or not curve:
+        benchmark_curve = result.get("benchmark", {}).get("curve", []) if isinstance(result.get("benchmark"), dict) else []
+        curve = benchmark_curve if isinstance(benchmark_curve, list) else []
+    if not curve:
+        return {}
+    return {
+        "start": curve[0].get("date"),
+        "end": curve[-1].get("date"),
+        "points": len(curve),
+    }
+
+
+def _build_dca_backtest_summary(code: str) -> dict[str, Any]:
+    try:
+        payload = run_dca_backtest(
+            [code],
+            amount=1000,
+            frequency="monthly",
+            strategy="fixed",
+        )
+    except Exception as exc:  # pragma: no cover - defensive against provider/network failures
+        return {
+            "available": False,
+            "status": "missing",
+            "metrics": {},
+            "window": {},
+            "source": "dca_service.run_dca_backtest",
+            "missingReason": f"DCA 回测执行失败：{exc}",
+        }
+
+    individual = payload.get("individual") if isinstance(payload, dict) else None
+    result = individual[0] if isinstance(individual, list) and individual else {}
+    if not isinstance(result, dict) or result.get("error"):
+        return {
+            "available": False,
+            "status": "missing",
+            "metrics": {},
+            "window": {},
+            "source": "dca_service.run_dca_backtest",
+            "missingReason": result.get("error") if isinstance(result, dict) else "DCA 回测无有效结果",
+        }
+
+    metrics = _select_backtest_metrics(result)
+    benchmark = result.get("benchmark") if isinstance(result.get("benchmark"), dict) else {}
+    return {
+        "available": True,
+        "status": "available",
+        "strategy": "fixed_monthly_dca",
+        "amount": 1000,
+        "frequency": "monthly",
+        "metrics": metrics,
+        "benchmark": _select_backtest_metrics(benchmark),
+        "window": _curve_window(result),
+        "source": "dca_service.run_dca_backtest",
+        "missingReason": None,
+    }
+
+
+def _summarize_fund_events(fund_events: dict[str, Any]) -> dict[str, Any]:
+    events = fund_events.get("events") if isinstance(fund_events, dict) else []
+    events = events if isinstance(events, list) else []
+    quality = fund_events.get("data_quality") if isinstance(fund_events, dict) else {}
+    return {
+        "status": fund_events.get("dataStatus") or quality.get("status") or ("available" if events else "missing"),
+        "count": len(events),
+        "latest": [
+            {
+                "title": item.get("title"),
+                "published_at": item.get("published_at"),
+                "event_type": item.get("event_type"),
+                "source": item.get("source"),
+            }
+            for item in events[:3]
+            if isinstance(item, dict)
+        ],
+        "source": quality.get("source") or fund_events.get("source") or "fund_events",
+        "missingReason": quality.get("missing_reason") or fund_events.get("missingReason"),
+    }
+
+
 def build_fund_evidence_pack(code: str) -> dict[str, Any]:
     snapshot = FundDataStore.get_snapshot(code) or {"code": code, "data_quality": "missing"}
     market_context = get_fund_market_context(code)
@@ -72,6 +174,8 @@ def build_fund_evidence_pack(code: str) -> dict[str, Any]:
     }
 
     fund_events = collect_fund_events(code)
+    backtest = _build_dca_backtest_summary(code)
+    event_summary = _summarize_fund_events(fund_events)
 
     field_sources = {
         "name": _field("name", snapshot.get("name"), snapshot.get("source") or "fund_master", snapshot.get("updated_at"), "available" if snapshot.get("name") else "missing", "缺少基金名称"),
@@ -110,7 +214,7 @@ def build_fund_evidence_pack(code: str) -> dict[str, Any]:
             "status": _section_status(risk_summary),
             "fields": risk_summary,
         },
-        "backtest": {"available": False, "metrics": {}, "window": {}},
+        "backtest": backtest,
         "manager_report": {
             "status": _section_status(manager_report),
             "text": manager_report.get("report"),
@@ -118,6 +222,7 @@ def build_fund_evidence_pack(code: str) -> dict[str, Any]:
             "source": manager_report.get("source"),
         },
         "fund_events": fund_events,
+        "event_summary": event_summary,
         "data_quality": {
             "status": data_quality_status,
             "coverage": coverage,
@@ -145,7 +250,14 @@ def render_fund_research_report(code: str) -> dict[str, Any]:
         for name, item in fields.items()
     ]
     risk_fields = pack["risk_metrics"]["fields"]
+    backtest = pack.get("backtest") or {}
+    event_summary = pack.get("event_summary") or {}
     warnings = pack.get("warnings") or ["无"]
+    backtest_metrics = backtest.get("metrics") or {}
+    event_rows = [
+        [item.get("published_at"), item.get("event_type"), item.get("title"), item.get("source")]
+        for item in event_summary.get("latest") or []
+    ]
     markdown = "\n".join([
         f"# {subject['name']}（{subject['id']}）基金诊断报告",
         section("核心结论", f"当前数据覆盖率为 {pack['data_quality']['coverage']:.0%}，状态为 {pack['data_quality']['status']}。本报告只基于 evidence pack 中已取得的数据生成。"),
@@ -154,6 +266,20 @@ def render_fund_research_report(code: str) -> dict[str, Any]:
             ["section", "状态", "来源", "日期", "说明"],
             [[k, v.get("status"), v.get("source"), v.get("asOf"), v.get("missingReason") or ""] for k, v in (pack["market_context"].get("sections") or {}).items()],
         )),
+        section("回测证据", table(
+            ["项目", "值"],
+            [
+                ["状态", backtest.get("status")],
+                ["策略", backtest.get("strategy") or ""],
+                ["窗口", f"{(backtest.get('window') or {}).get('start', '')} 至 {(backtest.get('window') or {}).get('end', '')}".strip()],
+                ["年化收益", backtest_metrics.get("annual_return")],
+                ["最大回撤", backtest_metrics.get("max_drawdown")],
+                ["夏普", backtest_metrics.get("sharpe_ratio")],
+                ["基准超额", backtest_metrics.get("benchmark_excess")],
+                ["缺失说明", backtest.get("missingReason") or ""],
+            ],
+        )),
+        section("基金事件", table(["日期", "类型", "标题", "来源"], event_rows) if event_rows else (event_summary.get("missingReason") or "暂无基金公告/新闻事件。")),
         section("风险和不确定性", str(risk_fields.get("summary") or "缺少足量风险指标，暂不输出强结论。")),
         section("缺失字段说明", "\n".join(f"- {item}" for item in warnings)),
         section("使用参数", table(["参数", "值"], [["code", code], ["generated_at", pack["generated_at"]], ["report_format", "markdown"]])),

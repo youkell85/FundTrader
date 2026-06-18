@@ -5,6 +5,57 @@ from app.data.providers.fusion import DataFusion
 from app.reports.fund_research_report import build_fund_evidence_pack, render_fund_research_report
 
 
+def _fake_dca_backtest():
+    return {
+        "individual": [
+            {
+                "fund_code": "000001",
+                "total_invested": 12000,
+                "final_value": 12600,
+                "total_profit_rate": 5.0,
+                "annual_return": 4.8,
+                "cagr": 4.8,
+                "max_drawdown": 3.2,
+                "max_drawdown_duration_days": 18,
+                "sharpe_ratio": 1.1,
+                "benchmark_return": 3.7,
+                "benchmark_excess": 1.1,
+                "benchmark_status": "available",
+                "best_month": {"month": "2026-01", "return": 2.1},
+                "worst_month": {"month": "2026-02", "return": -1.2},
+                "nav_curve": [
+                    {"date": "2025-01-01", "value": 1000},
+                    {"date": "2025-12-31", "value": 12600},
+                ],
+                "benchmark": {
+                    "annual_return": 3.7,
+                    "max_drawdown": 4.0,
+                    "sharpe_ratio": 0.8,
+                    "curve": [
+                        {"date": "2025-01-01", "value": 12000},
+                        {"date": "2025-12-31", "value": 12450},
+                    ],
+                },
+            }
+        ]
+    }
+
+
+def _fake_fund_events():
+    return {
+        "dataStatus": "available",
+        "events": [
+            {
+                "title": "基金经理发布季度观点",
+                "published_at": "2026-06-15",
+                "event_type": "announcement",
+                "source": "static_fund_events",
+            }
+        ],
+        "data_quality": {"status": "available", "source": "static_fund_events", "missing_reason": None},
+    }
+
+
 def test_market_context_non_etf_has_structured_missing_reason():
     with patch("app.data.market_context_fetcher._snapshot_basic", return_value={"name": "主动权益基金", "fund_type": "混合型"}), \
          patch("app.data.market_context_fetcher._top_industries", return_value=([], None, None)):
@@ -46,14 +97,22 @@ def test_fund_research_report_markdown_is_deterministic_and_source_backed():
     with patch("app.reports.fund_research_report.FundDataStore.get_snapshot", return_value=snapshot), \
          patch("app.reports.fund_research_report.get_fund_market_context", return_value={"status": "partial", "sections": {}, "warnings": []}), \
          patch("app.reports.fund_research_report.get_fund_risk_summary", return_value={"dataStatus": "available", "summary": "风险摘要", "source": "rule-engine"}), \
-         patch("app.reports.fund_research_report.get_fund_manager_report", return_value={"dataStatus": "missing", "report": None}):
+         patch("app.reports.fund_research_report.get_fund_manager_report", return_value={"dataStatus": "missing", "report": None}), \
+         patch("app.reports.fund_research_report.run_dca_backtest", return_value=_fake_dca_backtest()), \
+         patch("app.reports.fund_research_report.collect_fund_events", return_value=_fake_fund_events()):
         first = render_fund_research_report("000001")
         second = render_fund_research_report("000001")
 
     assert first["markdown"] == second["markdown"]
     assert "# 测试基金（000001）基金诊断报告" in first["markdown"]
     assert "数据源覆盖" in first["markdown"]
+    assert "回测证据" in first["markdown"]
+    assert "基金事件" in first["markdown"]
+    assert "基金经理发布季度观点" in first["markdown"]
     assert "fund_quote_snapshot" in first["markdown"]
+    assert first["evidencePack"]["backtest"]["available"] is True
+    assert first["evidencePack"]["backtest"]["metrics"]["benchmark_excess"] == 1.1
+    assert first["evidencePack"]["event_summary"]["count"] == 1
     assert first["evidencePack"]["data_quality"]["coverage"] > 0
 
 
@@ -65,7 +124,9 @@ def test_fund_evidence_pack_downgrades_when_critical_evidence_missing():
     with patch("app.reports.fund_research_report.FundDataStore.get_snapshot", return_value=snapshot), \
          patch("app.reports.fund_research_report.get_fund_market_context", return_value={"status": "missing", "sections": {}, "warnings": []}), \
          patch("app.reports.fund_research_report.get_fund_risk_summary", return_value={"dataStatus": "missing", "summary": None}), \
-         patch("app.reports.fund_research_report.get_fund_manager_report", return_value={"dataStatus": "missing", "report": None}):
+         patch("app.reports.fund_research_report.get_fund_manager_report", return_value={"dataStatus": "missing", "report": None}), \
+         patch("app.reports.fund_research_report.run_dca_backtest", return_value={"individual": [{"error": "无法获取基金 000001 的净值数据"}]}), \
+         patch("app.reports.fund_research_report.collect_fund_events", return_value={"events": [], "data_quality": {"status": "missing", "missing_reason": "no events returned"}}):
         pack = build_fund_evidence_pack("000001")
 
     assert pack["diagnosis"]["status"] == "insufficient_data"
@@ -73,6 +134,8 @@ def test_fund_evidence_pack_downgrades_when_critical_evidence_missing():
     assert pack["diagnosis"]["llm_input_contract"] == "evidence_pack_only"
     assert any(item["field"] == "nav" for item in pack["missing_evidence"])
     assert any(item["field"] == "risk" for item in pack["missing_evidence"])
+    assert pack["backtest"]["available"] is False
+    assert "净值数据" in pack["backtest"]["missingReason"]
 
 
 def test_northflow_populated_from_cached_macro_snapshot():
