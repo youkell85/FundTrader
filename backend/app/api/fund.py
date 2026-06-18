@@ -4,7 +4,7 @@ import json
 import logging
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
@@ -822,11 +822,44 @@ async def fund_agent_plan(payload: FundAgentPlanRequest):
 
 
 @router.get("/{code}/research-report")
-async def fund_research_report(code: str):
-    """Deterministic backend Markdown research report."""
+async def fund_research_report(
+    code: str,
+    format: str = Query("markdown", pattern="^(markdown|md|docx|pdf)$"),
+):
+    """Deterministic backend research report, with optional DOCX/PDF export."""
     from ..reports.fund_research_report import render_fund_research_report
 
-    return await run_in_threadpool(render_fund_research_report, code)
+    selected_format = format if isinstance(format, str) else "markdown"
+    payload = await run_in_threadpool(render_fund_research_report, code)
+    if selected_format == "markdown":
+        return payload
+
+    from ..reports.exporters import export_markdown_docx, export_markdown_pdf
+
+    markdown = str(payload.get("markdown") or "")
+    title = f"fund-{code}-research-report"
+    if selected_format == "md":
+        return Response(
+            content=markdown.encode("utf-8"),
+            media_type="text/markdown; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{title}.md"'},
+        )
+    metadata = {
+        "code": code,
+        "dataStatus": payload.get("dataStatus"),
+        "asOf": payload.get("asOf"),
+        "source": payload.get("source"),
+    }
+    export = (
+        await run_in_threadpool(export_markdown_docx, markdown, title=title, metadata=metadata)
+        if selected_format == "docx"
+        else await run_in_threadpool(export_markdown_pdf, markdown, title=title, metadata=metadata)
+    )
+    return Response(
+        content=export.data,
+        media_type=export.content_type,
+        headers={"Content-Disposition": f'attachment; filename="{title}.{selected_format}"'},
+    )
 
 
 @router.get("/data-status")
