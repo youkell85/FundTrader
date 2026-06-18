@@ -41,17 +41,48 @@ def test_fund_job_lifecycle_is_persisted(isolated_db):
     )
 
     assert job["jobId"] == job_id
+    assert job["job_id"] == job_id
     assert job["status"] == "running"
     assert job["step"] == "fetch_tushare_holdings"
     assert job["source"] == "tushare"
     assert job["processed"] == 120
     assert job["total"] == 500
     assert job["progress"] == 0.36
+    assert job["updated_at"]
+    assert job["started_at"]
 
     status = FundDataStore.data_status()
     assert status["jobs"]["running"] == 1
     assert status["activeJobs"][0]["jobId"] == job_id
     assert "jobStatusContract" in status
+
+
+def test_failed_job_exposes_step_error_and_snake_case_aliases(isolated_db):
+    job_id = FundDataStore.create_job(
+        "fund-report-generation",
+        code="000001",
+        payload={"reason": "test"},
+    )
+    job = FundDataStore.update_job(
+        job_id,
+        status="failed",
+        step="render_report",
+        progress=0.42,
+        source="fund_research_report",
+        error="provider timeout",
+    )
+
+    assert job["jobId"] == job_id
+    assert job["job_id"] == job_id
+    assert job["jobType"] == "fund-report-generation"
+    assert job["job_type"] == "fund-report-generation"
+    assert job["status"] == "failed"
+    assert job["step"] == "render_report"
+    assert job["source"] == "fund_research_report"
+    assert job["error"] == "provider timeout"
+    assert job["progress"] == 0.42
+    assert job["updated_at"]
+    assert job["finished_at"]
 
 
 def test_stale_pending_jobs_are_not_reported_as_active(isolated_db):

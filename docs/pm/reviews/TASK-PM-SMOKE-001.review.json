@@ -1,0 +1,44 @@
+{
+    "taskId":  "TASK-PM-SMOKE-001",
+    "status":  "pass",
+    "reviewedAt":  "2026-06-18T10:06:54.9479934+08:00",
+    "taskPath":  "docs\\pm\\outbox\\TASK-PM-SMOKE-001.md",
+    "reportPath":  "docs\\pm\\reports\\TASK-PM-SMOKE-001.md",
+    "logPath":  "TASK-PM-SMOKE-001.jsonl (not found)",
+    "lockPath":  "TASK-PM-SMOKE-001.lock.json (not found)",
+    "reportExists":  true,
+    "pmDigest":  {
+                     "found":  true,
+                     "values":  {
+                                    "status":  "blocked",
+                                    "changed":  "docs/pm/reports/TASK-PM-SMOKE-001.md",
+                                    "validation":  "skipped - no executable scope defined in handoff",
+                                    "risk":  "medium; PM cannot validate without concrete task definition",
+                                    "decision":  "define exact smoke criteria, endpoints, and expected pass/fail",
+                                    "next":  "ask_user"
+                                },
+                     "raw":  [
+                                 "Status: blocked",
+                                 "Changed: docs/pm/reports/TASK-PM-SMOKE-001.md",
+                                 "Validation: skipped - no executable scope defined in handoff",
+                                 "Risk: medium; PM cannot validate without concrete task definition",
+                                 "Decision: define exact smoke criteria, endpoints, and expected pass/fail",
+                                 "Next: ask_user"
+                             ]
+                 },
+    "lockExists":  false,
+    "diffCheckPassed":  true,
+    "diffCheckOutput":  "warning: in the working copy of \u0027docs/pm/STATUS.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/outbox/FT-UX-V11-RELEASE-SPLIT-AUDIT-001.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/outbox/P1-STRESS-MC-PROVENANCE-001.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/outbox/TASK-PM-SMOKE-001.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/api/fund-router.ts\u0027, LF will be replaced by CRLF the next time Git touches it",
+    "allowedFiles":  [
+                         "docs/pm/reports/TASK-PM-SMOKE-001.md",
+                         "docs/pm/reviews/TASK-PM-SMOKE-001.review.md"
+                     ],
+    "allowedFound":  true,
+    "newlyChanged":  [
+
+                     ],
+    "issues":  [
+
+               ],
+    "recommendedNext":  "Ready for next task or archive."
+}

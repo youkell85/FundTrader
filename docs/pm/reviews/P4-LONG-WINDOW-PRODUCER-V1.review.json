@@ -1,0 +1,43 @@
+{
+    "taskId":  "P4-LONG-WINDOW-PRODUCER-V1",
+    "status":  "blocked",
+    "reviewedAt":  "2026-06-18T13:35:34.6746268+08:00",
+    "taskPath":  "docs\\pm\\outbox\\P4-LONG-WINDOW-PRODUCER-V1.md",
+    "reportPath":  "docs\\pm\\reports\\P4-LONG-WINDOW-PRODUCER-V1.md",
+    "logPath":  "P4-LONG-WINDOW-PRODUCER-V1.jsonl (not found)",
+    "lockPath":  "P4-LONG-WINDOW-PRODUCER-V1.lock.json (not found)",
+    "reportExists":  true,
+    "pmDigest":  {
+                     "found":  true,
+                     "values":  {
+                                    "status":  "complete",
+                                    "changed":  "backend/app/allocation/data/long_window_producer.py, backend/tests/test_long_window_producer.py, docs/pm/reports/P4-LONG-WINDOW-PRODUCER-V1.md",
+                                    "validation":  "passed - py_compile, test_long_window_producer, test_historical_calibrator, test_calibration_audit, test_allocation_api_contract, diff-check",
+                                    "risk":  "scoped; no runtime wiring, no schema changes, no live network calls",
+                                    "decision":  "none",
+                                    "next":  "accept"
+                                },
+                     "raw":  [
+                                 "Status: complete",
+                                 "Changed: backend/app/allocation/data/long_window_producer.py, backend/tests/test_long_window_producer.py, docs/pm/reports/P4-LONG-WINDOW-PRODUCER-V1.md",
+                                 "Validation: passed - py_compile, test_long_window_producer, test_historical_calibrator, test_calibration_audit, test_allocation_api_contract, diff-check",
+                                 "Risk: scoped; no runtime wiring, no schema changes, no live network calls",
+                                 "Decision: none",
+                                 "Next: accept"
+                             ]
+                 },
+    "lockExists":  false,
+    "diffCheckPassed":  true,
+    "diffCheckOutput":  "warning: in the working copy of \u0027backend/app/data/providers/fusion.py\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027backend/tests/test_etf_cache_population_script.py\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/STATUS.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/outbox/FT-UX-V11-RELEASE-SPLIT-AUDIT-001.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/outbox/HF1-P1-1-ETF-CACHE-POPULATION-001.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/outbox/P1-STRESS-MC-PROVENANCE-001.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/outbox/TASK-PM-SMOKE-001.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/reports/HF1-P1-1-ETF-CACHE-POPULATION-001.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/reviews/HF1-P1-1-ETF-CACHE-POPULATION-001.acceptance.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/api/fund-router.ts\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/components/fund-detail/DetailStatusPanels.tsx\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/pages/FundDetail/components/FieldSourceTip.tsx\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/pages/FundDetail/tabs/OverviewTab.tsx\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027scripts/populate-etf-cache.ps1\u0027, LF will be replaced by CRLF the next time Git touches it",
+    "allowedFiles":  [
+
+                     ],
+    "allowedFound":  false,
+    "newlyChanged":  [
+
+                     ],
+    "issues":  [
+                   "Allowed Files section not found or empty in task. Cannot verify scope."
+               ],
+    "recommendedNext":  "Unblock prerequisites (report, lock, scope) before re-dispatching."
+}

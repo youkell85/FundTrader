@@ -1,0 +1,43 @@
+{
+    "taskId":  "FT-P2-2",
+    "status":  "pass",
+    "reviewedAt":  "2026-06-18T14:53:37.8754142+08:00",
+    "taskPath":  "docs\\pm\\outbox\\FT-P2-2.md",
+    "reportPath":  "docs\\pm\\reports\\FT-P2-2.md",
+    "logPath":  "FT-P2-2.jsonl (not found)",
+    "lockPath":  "FT-P2-2.lock.json (not found)",
+    "reportExists":  true,
+    "pmDigest":  {
+                     "found":  true,
+                     "values":  {
+                                    "status":  "implemented",
+                                    "task":  "FT-P2-2 Research Report Word And PDF Export",
+                                    "executor":  "Codex PM fallback because Claude coding agent was unavailable (`AppIdNoAuthError`)",
+                                    "scope":  "`backend/app/reports/exporters.py`, `backend/tests/test_report_exporters.py`",
+                                    "validation":  "pending PM acceptance run"
+                                },
+                     "raw":  [
+                                 "- Status: implemented",
+                                 "- Task: FT-P2-2 Research Report Word And PDF Export",
+                                 "- Executor: Codex PM fallback because Claude coding agent was unavailable (`AppIdNoAuthError`)",
+                                 "- Scope: `backend/app/reports/exporters.py`, `backend/tests/test_report_exporters.py`",
+                                 "- Validation: pending PM acceptance run"
+                             ]
+                 },
+    "lockExists":  false,
+    "diffCheckPassed":  true,
+    "diffCheckOutput":  "warning: in the working copy of \u0027backend/app/agents/fund_agent.py\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027backend/app/data/data_gateway.py\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027backend/app/data/providers/fusion.py\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027backend/app/reports/fund_research_report.py\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027backend/app/storage/database.py\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027backend/tests/test_etf_cache_population_script.py\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027backend/tests/test_fund_agent.py\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027backend/tests/test_fund_job_status.py\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027backend/tests/test_fund_research_report.py\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027backend/tests/test_provider_health.py\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/STATUS.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/outbox/FT-UX-V11-RELEASE-SPLIT-AUDIT-001.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/outbox/HF1-P1-1-ETF-CACHE-POPULATION-001.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/outbox/P1-STRESS-MC-PROVENANCE-001.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/outbox/TASK-PM-SMOKE-001.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/reports/HF1-P1-1-ETF-CACHE-POPULATION-001.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/reviews/HF1-P1-1-ETF-CACHE-POPULATION-001.acceptance.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/api/fund-router.ts\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/components/fund-detail/DetailStatusPanels.tsx\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/pages/FundDetail/components/FieldSourceTip.tsx\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/pages/FundDetail/tabs/OverviewTab.tsx\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027scripts/populate-etf-cache.ps1\u0027, LF will be replaced by CRLF the next time Git touches it",
+    "allowedFiles":  [
+                         "backend\\app\\reports\\exporters.py",
+                         "backend\\tests\\test_report_exporters.py",
+                         "docs\\pm\\reports\\FT-P2-2.md"
+                     ],
+    "allowedFound":  true,
+    "newlyChanged":  [
+
+                     ],
+    "issues":  [
+
+               ],
+    "recommendedNext":  "Ready for next task or archive."
+}

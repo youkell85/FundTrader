@@ -1,0 +1,46 @@
+{
+    "taskId":  "FT-DSA-P0-FIELDS-PROVIDER-HEALTH-001",
+    "status":  "pass",
+    "reviewedAt":  "2026-06-18T10:43:59.0889337+08:00",
+    "taskPath":  "docs\\pm\\outbox\\FT-DSA-P0-FIELDS-PROVIDER-HEALTH-001.md",
+    "reportPath":  "docs\\pm\\reports\\FT-DSA-P0-FIELDS-PROVIDER-HEALTH-001.md",
+    "logPath":  "docs\\pm\\logs\\FT-DSA-P0-FIELDS-PROVIDER-HEALTH-001.jsonl",
+    "lockPath":  "FT-DSA-P0-FIELDS-PROVIDER-HEALTH-001.lock.json (not found)",
+    "reportExists":  true,
+    "pmDigest":  {
+                     "found":  true,
+                     "values":  {
+
+                                },
+                     "raw":  [
+                                 "- **status**: `done`",
+                                 "- **changed**: `backend/app/data/data_gateway.py`, `backend/app/main.py`, `backend/app/models/fund.py`, `backend/tests/test_dsa_p0_fields_provider_health.py`",
+                                 "- **compatibility**: all existing `/fund/api/*` payloads preserved; added additive provenance/status fields only"
+                             ]
+                 },
+    "lockExists":  false,
+    "diffCheckPassed":  true,
+    "diffCheckOutput":  "warning: in the working copy of \u0027docs/pm/STATUS.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/outbox/FT-UX-V11-RELEASE-SPLIT-AUDIT-001.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/outbox/P1-STRESS-MC-PROVENANCE-001.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/outbox/TASK-PM-SMOKE-001.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/api/fund-router.ts\u0027, LF will be replaced by CRLF the next time Git touches it",
+    "allowedFiles":  [
+                         "backend/app/data/data_gateway.py",
+                         "backend/app/main.py",
+                         "backend/app/models/fund.py",
+                         "backend/app/services",
+                         "backend/app/api/health.py",
+                         "frontend/api/fund-router.ts",
+                         "frontend/api/lib/mapper.ts",
+                         "frontend/src/pages/FundDetail",
+                         "frontend/src/components",
+                         "docs/pm/reports/FT-DSA-P0-FIELDS-PROVIDER-HEALTH-001.md",
+                         "docs/pm/reviews/FT-DSA-P0-FIELDS-PROVIDER-HEALTH-001.review.md",
+                         "docs/pm/reviews/FT-DSA-P0-FIELDS-PROVIDER-HEALTH-001.review.json"
+                     ],
+    "allowedFound":  true,
+    "newlyChanged":  [
+
+                     ],
+    "issues":  [
+
+               ],
+    "recommendedNext":  "Ready for next task or archive."
+}

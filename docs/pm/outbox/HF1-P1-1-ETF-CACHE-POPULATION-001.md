@@ -33,6 +33,13 @@ Files or areas the coding agent may edit:
 - `docs/pm/outbox/HF1-P1-1-ETF-CACHE-POPULATION-001.md`
 - `docs/pm/reports/HF1-P1-1-ETF-CACHE-POPULATION-001.md`
 
+## Allowed Files
+
+- `scripts/`
+- `backend/tests/`
+- `docs/pm/outbox/`
+- `docs/pm/reports/`
+
 Files or areas the coding agent must not edit:
 
 - `backend/app/allocation/backtest/historical_data.py`

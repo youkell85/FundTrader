@@ -134,4 +134,86 @@ class DataGateway:
         )
 
 
+    def get_health_snapshot(self) -> Dict[str, Any]:
+        """Return a structured health snapshot of all gateway-tracked providers."""
+        from datetime import datetime as dt
+
+        now = dt.now()
+        now_ts = time.time()
+        providers = []
+        for source in self.DEFAULT_TTLS:
+            cooldown_sec = self.FAILURE_COOLDOWN_SECONDS.get(source, 300)
+            failed_until = 0.0
+            last_error = None
+            last_success_at = None
+            last_failure_at = None
+            failure_count = 0
+
+            with self._lock:
+                # scan failures for this source
+                for key, fail_ts in self._failures.items():
+                    if key.startswith(f"{source}:"):
+                        failure_count += 1
+                        if fail_ts > failed_until:
+                            failed_until = fail_ts
+                # scan cache for last success
+                for key, (cache_expiry, cached_result) in list(self._cache.items()):
+                    if key.startswith(f"{source}:") and cached_result.fetched_at:
+                        last_success_at = max(
+                            last_success_at or "", cached_result.fetched_at
+                        )
+
+            in_cooldown = bool(failed_until and failed_until > now_ts)
+            cooldown_until = dt.fromtimestamp(failed_until).isoformat() if in_cooldown else None
+
+            capabilities = {
+                "akshare": ["fund_ranking", "fund_scale", "bond_portfolio"],
+                "efinance": ["fund_nav", "fund_info", "fund_scale"],
+                "eastmoney": ["fund_ranking", "fund_detail", "fund_report_pdf", "fund_announcement"],
+                "tushare": ["fund_basic", "fund_nav", "fund_share", "fund_portfolio"],
+                "ifind": ["risk_indicators", "macro", "fund_profile"],
+                "tencent": ["realtime_quote", "fund_quote_fallback"],
+            }.get(source, [])
+
+            if in_cooldown:
+                status = "cooldown"
+            elif last_success_at and not in_cooldown:
+                status = "available"
+            elif failure_count > 0:
+                status = "partial"
+            else:
+                status = "unknown"
+
+            providers.append({
+                "name": source,
+                "enabled": True,
+                "capabilities": capabilities,
+                "status": status,
+                "available": bool(last_success_at) or (not in_cooldown and failure_count == 0),
+                "lastSuccessAt": last_success_at,
+                "last_success_at": last_success_at,
+                "lastError": last_error,
+                "last_error": last_error,
+                "cooldownUntil": cooldown_until,
+                "cooldown_until": cooldown_until,
+                "failureCount": failure_count,
+                "failure_count": failure_count,
+                "circuitOpen": in_cooldown,
+                "circuit_open": in_cooldown,
+                "data_quality": {
+                    "status": status,
+                    "missing_reason": last_error if status in {"partial", "cooldown", "missing"} else None,
+                },
+            })
+
+        available_count = sum(1 for p in providers if p["available"])
+        return {
+            "status": "available" if available_count > 0 else "missing",
+            "updatedAt": now.isoformat(),
+            "providers": providers,
+            "availableCount": available_count,
+            "totalCount": len(providers),
+        }
+
+
 data_gateway = DataGateway()

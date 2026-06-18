@@ -1,0 +1,45 @@
+{
+    "taskId":  "FT-UX-V11-PROD-DEPLOY-SMOKE-001",
+    "status":  "pass",
+    "reviewedAt":  "2026-06-18T13:09:22.7042030+08:00",
+    "taskPath":  "docs\\pm\\outbox\\FT-UX-V11-PROD-DEPLOY-SMOKE-001.md",
+    "reportPath":  "docs\\pm\\reports\\FT-UX-V11-PROD-DEPLOY-SMOKE-001.md",
+    "logPath":  "FT-UX-V11-PROD-DEPLOY-SMOKE-001.jsonl (not found)",
+    "lockPath":  "FT-UX-V11-PROD-DEPLOY-SMOKE-001.lock.json (not found)",
+    "reportExists":  true,
+    "pmDigest":  {
+                     "found":  true,
+                     "values":  {
+                                    "status":  "complete",
+                                    "changed":  "production advanced to `bf2c4d2`",
+                                    "validation":  "passed - git push, backup, production fast-forward, npm ci, build, service health, API health, browser smoke",
+                                    "risk":  "backend startup takes about 30 seconds before listening on port 8766; frontend BFF must start after backend is ready",
+                                    "decision":  "none",
+                                    "next":  "accept"
+                                },
+                     "raw":  [
+                                 "Status: complete",
+                                 "Changed: production advanced to `bf2c4d2`",
+                                 "Validation: passed - git push, backup, production fast-forward, npm ci, build, service health, API health, browser smoke",
+                                 "Risk: backend startup takes about 30 seconds before listening on port 8766; frontend BFF must start after backend is ready",
+                                 "Decision: none",
+                                 "Next: accept"
+                             ]
+                 },
+    "lockExists":  false,
+    "diffCheckPassed":  true,
+    "diffCheckOutput":  "warning: in the working copy of \u0027backend/app/data/providers/fusion.py\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027backend/tests/test_etf_cache_population_script.py\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/STATUS.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/outbox/FT-UX-V11-RELEASE-SPLIT-AUDIT-001.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/outbox/HF1-P1-1-ETF-CACHE-POPULATION-001.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/outbox/P1-STRESS-MC-PROVENANCE-001.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/outbox/TASK-PM-SMOKE-001.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/reports/HF1-P1-1-ETF-CACHE-POPULATION-001.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/reviews/HF1-P1-1-ETF-CACHE-POPULATION-001.acceptance.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/api/fund-router.ts\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/components/fund-detail/DetailStatusPanels.tsx\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/pages/FundDetail/components/FieldSourceTip.tsx\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/pages/FundDetail/tabs/OverviewTab.tsx\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027scripts/populate-etf-cache.ps1\u0027, LF will be replaced by CRLF the next time Git touches it",
+    "allowedFiles":  [
+                         "docs/pm/reports/FT-UX-V11-PROD-DEPLOY-SMOKE-001.md",
+                         "docs/pm/reviews/FT-UX-V11-PROD-DEPLOY-SMOKE-001.review.md",
+                         "docs/ux-v11-deploy-runbook-20260617.md"
+                     ],
+    "allowedFound":  true,
+    "newlyChanged":  [
+
+                     ],
+    "issues":  [
+
+               ],
+    "recommendedNext":  "Ready for next task or archive."
+}

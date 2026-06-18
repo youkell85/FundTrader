@@ -1,0 +1,45 @@
+{
+    "taskId":  "P1-5-FUND-METADATA-REFRESH-001",
+    "status":  "blocked",
+    "reviewedAt":  "2026-06-18T13:35:35.8170471+08:00",
+    "taskPath":  "docs\\pm\\outbox\\P1-5-FUND-METADATA-REFRESH-001.md",
+    "reportPath":  "docs\\pm\\reports\\P1-5-FUND-METADATA-REFRESH-001.md",
+    "logPath":  "P1-5-FUND-METADATA-REFRESH-001.jsonl (not found)",
+    "lockPath":  "P1-5-FUND-METADATA-REFRESH-001.lock.json (not found)",
+    "reportExists":  true,
+    "pmDigest":  {
+                     "found":  true,
+                     "values":  {
+                                    "status":  "complete",
+                                    "changed":  "fund_pool_refresher.py (new), fund_scorer.py, fund_mapper.py, test_fund_pool_refresher.py (new)",
+                                    "validation":  "passed - 10 refresher tests + 359 total",
+                                    "risk":  "none",
+                                    "decision":  "none",
+                                    "next":  "accept"
+                                },
+                     "raw":  [
+                                 "```",
+                                 "Status: complete",
+                                 "Changed: fund_pool_refresher.py (new), fund_scorer.py, fund_mapper.py, test_fund_pool_refresher.py (new)",
+                                 "Validation: passed - 10 refresher tests + 359 total",
+                                 "Risk: none",
+                                 "Decision: none",
+                                 "Next: accept",
+                                 "```"
+                             ]
+                 },
+    "lockExists":  false,
+    "diffCheckPassed":  true,
+    "diffCheckOutput":  "warning: in the working copy of \u0027backend/app/data/providers/fusion.py\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027backend/tests/test_etf_cache_population_script.py\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/STATUS.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/outbox/FT-UX-V11-RELEASE-SPLIT-AUDIT-001.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/outbox/HF1-P1-1-ETF-CACHE-POPULATION-001.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/outbox/P1-STRESS-MC-PROVENANCE-001.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/outbox/TASK-PM-SMOKE-001.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/reports/HF1-P1-1-ETF-CACHE-POPULATION-001.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/reviews/HF1-P1-1-ETF-CACHE-POPULATION-001.acceptance.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/api/fund-router.ts\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/components/fund-detail/DetailStatusPanels.tsx\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/pages/FundDetail/components/FieldSourceTip.tsx\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/pages/FundDetail/tabs/OverviewTab.tsx\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027scripts/populate-etf-cache.ps1\u0027, LF will be replaced by CRLF the next time Git touches it",
+    "allowedFiles":  [
+
+                     ],
+    "allowedFound":  false,
+    "newlyChanged":  [
+
+                     ],
+    "issues":  [
+                   "Allowed Files section not found or empty in task. Cannot verify scope."
+               ],
+    "recommendedNext":  "Unblock prerequisites (report, lock, scope) before re-dispatching."
+}

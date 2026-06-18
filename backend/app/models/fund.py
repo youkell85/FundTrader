@@ -82,3 +82,51 @@ class FundListParams(BaseModel):
     page: int = 1
     page_size: int = 20
     guoyuan_only: bool = True
+
+
+class FieldSource(BaseModel):
+    """DSA-P0: 字段级数据溯源合同。
+
+    每个基金详情字段的 source / status / coverage 元数据。
+    status 枚举: available | partial | stale | missing
+    """
+    field: str
+    value: Optional[float | str] = None
+    source: Optional[str] = None
+    asOf: Optional[str] = None
+    status: str = "missing"
+    coverage: float = 0.0
+    missingReason: Optional[str] = None
+
+
+class FieldSourceGroup(BaseModel):
+    """字段组定义：一组字段的来源与回退策略。"""
+    fields: List[str]
+    source: str
+    fallback: Optional[str] = None
+    section: str = ""
+
+
+class ProviderHealth(BaseModel):
+    """DSA-P0: 数据源健康状态。
+
+    每个 provider 的能力清单、最近成功/失败时间、熔断状态。
+    """
+    name: str
+    capabilities: List[str] = []
+    status: str = "unknown"  # available | partial | stale | cooldown | missing | unknown
+    available: bool = False
+    lastSuccessAt: Optional[str] = None
+    lastError: Optional[str] = None
+    cooldownUntil: Optional[str] = None
+    failureCount: int = 0
+    circuitOpen: bool = False
+
+
+class ProviderHealthResponse(BaseModel):
+    """数据源健康端点响应。"""
+    status: str = "missing"  # available | partial | missing
+    updatedAt: Optional[str] = None
+    providers: List[ProviderHealth] = []
+    availableCount: int = 0
+    totalCount: int = 0

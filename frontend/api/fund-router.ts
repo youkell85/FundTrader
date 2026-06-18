@@ -326,7 +326,7 @@ function scheduleHomeFundsPrewarm() {
   }, 100);
 }
 
-function refreshHomeCaches(reason: string, retries = 3) {
+function refreshHomeCaches(reason: string, retries = 10) {
   invalidateCache("homeFunds");
   invalidateCache("homeFundSummaries");
   invalidateCache("marketOverview");

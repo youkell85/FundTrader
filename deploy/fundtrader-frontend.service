@@ -1,6 +1,7 @@
 [Unit]
 Description=FundTrader Frontend BFF Service
-After=network.target
+After=network.target fundtrader.service
+Wants=fundtrader.service
 
 [Service]
 Type=simple
@@ -9,7 +10,9 @@ WorkingDirectory=/opt/fundtrader/frontend
 Environment=NODE_ENV=production
 Environment=PORT=3000
 Environment=FUNDTRADER_API_BASE=http://127.0.0.1:8766
+ExecStartPre=/bin/bash -c 'for i in {1..60}; do if curl -sf http://127.0.0.1:8766/health > /dev/null 2>&1; then exit 0; fi; sleep 2; done; exit 1'
 ExecStart=/usr/bin/node dist/boot.js
+TimeoutStartSec=180
 Restart=always
 RestartSec=5
 

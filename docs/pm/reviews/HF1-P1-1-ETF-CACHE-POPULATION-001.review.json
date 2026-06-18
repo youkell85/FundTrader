@@ -1,0 +1,52 @@
+{
+    "taskId":  "HF1-P1-1-ETF-CACHE-POPULATION-001",
+    "status":  "pass",
+    "reviewedAt":  "2026-06-18T12:13:21.8274458+08:00",
+    "taskPath":  "docs\\pm\\outbox\\HF1-P1-1-ETF-CACHE-POPULATION-001.md",
+    "reportPath":  "docs\\pm\\reports\\HF1-P1-1-ETF-CACHE-POPULATION-001.md",
+    "logPath":  "docs\\pm\\logs\\HF1-P1-1-ETF-CACHE-POPULATION-001.jsonl",
+    "lockPath":  "HF1-P1-1-ETF-CACHE-POPULATION-001.lock.json (not found)",
+    "reportExists":  true,
+    "pmDigest":  {
+                     "found":  true,
+                     "values":  {
+                                    "status":  "complete",
+                                    "changed":  "scripts/populate-etf-cache.ps1, backend/tests/test_etf_cache_population_script.py",
+                                    "validation":  "skipped 鈥?pytest and dry-run require manual approval; static analysis and git diff --check passed",
+                                    "risk":  "none 鈥?default dry-run is read-only, -Apply is gated",
+                                    "decision":  "none",
+                                    "next":  "accept 鈥?run validation commands manually before merging"
+                                },
+                     "raw":  [
+                                 "Status: complete",
+                                 "Changed: scripts/populate-etf-cache.ps1, backend/tests/test_etf_cache_population_script.py",
+                                 "Validation: skipped 鈥?pytest and dry-run require manual approval; static analysis and git diff --check passed",
+                                 "Risk: none 鈥?default dry-run is read-only, -Apply is gated",
+                                 "Decision: none",
+                                 "Next: accept 鈥?run validation commands manually before merging",
+                                 "---"
+                             ]
+                 },
+    "lockExists":  false,
+    "diffCheckPassed":  true,
+    "diffCheckOutput":  "warning: in the working copy of \u0027backend/app/data/providers/fusion.py\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027backend/tests/test_etf_cache_population_script.py\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/STATUS.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/outbox/FT-UX-V11-RELEASE-SPLIT-AUDIT-001.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/outbox/HF1-P1-1-ETF-CACHE-POPULATION-001.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/outbox/P1-STRESS-MC-PROVENANCE-001.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/outbox/TASK-PM-SMOKE-001.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/reports/HF1-P1-1-ETF-CACHE-POPULATION-001.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/api/fund-router.ts\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/components/fund-detail/DetailStatusPanels.tsx\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/pages/FundDetail/components/FieldSourceTip.tsx\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/pages/FundDetail/tabs/OverviewTab.tsx\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027scripts/populate-etf-cache.ps1\u0027, LF will be replaced by CRLF the next time Git touches it",
+    "allowedFiles":  [
+                         "scripts/",
+                         "backend/tests/",
+                         "docs/pm/outbox/",
+                         "docs/pm/reports/",
+                         "backend/app/allocation/backtest/historical_data.py",
+                         "backend/app/storage/database.py",
+                         "backend/app/allocation/data/long_window_producer.py",
+                         "scripts/check-etf-cache-coverage.ps1",
+                         "scripts/build-long-window-stats.ps1"
+                     ],
+    "allowedFound":  true,
+    "newlyChanged":  [
+
+                     ],
+    "issues":  [
+
+               ],
+    "recommendedNext":  "Ready for next task or archive."
+}

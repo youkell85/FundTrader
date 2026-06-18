@@ -1,0 +1,50 @@
+{
+    "taskId":  "P1-STRESS-MC-PROVENANCE-001",
+    "status":  "pass",
+    "reviewedAt":  "2026-06-18T10:06:55.1615649+08:00",
+    "taskPath":  "docs\\pm\\outbox\\P1-STRESS-MC-PROVENANCE-001.md",
+    "reportPath":  "docs\\pm\\reports\\P1-STRESS-MC-PROVENANCE-001.md",
+    "logPath":  "P1-STRESS-MC-PROVENANCE-001.jsonl (not found)",
+    "lockPath":  "P1-STRESS-MC-PROVENANCE-001.lock.json (not found)",
+    "reportExists":  true,
+    "pmDigest":  {
+                     "found":  true,
+                     "values":  {
+                                    "status":  "complete",
+                                    "changed":  "docs/pm/reports/P1-STRESS-MC-PROVENANCE-001.md",
+                                    "validation":  "passed - python -m pytest tests/test_stress_monte_carlo_calibration.py tests/test_allocation_monte_carlo.py tests/test_allocation_api_contract.py; python -m pytest; npm.cmd run check; npm.cmd run build",
+                                    "risk":  "none",
+                                    "decision":  "none",
+                                    "next":  "accept"
+                                },
+                     "raw":  [
+                                 "Status: complete",
+                                 "Changed: docs/pm/reports/P1-STRESS-MC-PROVENANCE-001.md",
+                                 "Validation: passed - python -m pytest tests/test_stress_monte_carlo_calibration.py tests/test_allocation_monte_carlo.py tests/test_allocation_api_contract.py; python -m pytest; npm.cmd run check; npm.cmd run build",
+                                 "Risk: none",
+                                 "Decision: none",
+                                 "Next: accept"
+                             ]
+                 },
+    "lockExists":  false,
+    "diffCheckPassed":  true,
+    "diffCheckOutput":  "warning: in the working copy of \u0027docs/pm/STATUS.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/outbox/FT-UX-V11-RELEASE-SPLIT-AUDIT-001.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/outbox/P1-STRESS-MC-PROVENANCE-001.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/outbox/TASK-PM-SMOKE-001.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/api/fund-router.ts\u0027, LF will be replaced by CRLF the next time Git touches it",
+    "allowedFiles":  [
+                         "backend/app/allocation/models.py",
+                         "backend/app/allocation/monte_carlo.py",
+                         "backend/app/allocation/stress_test.py",
+                         "backend/tests/test_allocation_monte_carlo.py",
+                         "backend/tests/test_stress_monte_carlo_calibration.py",
+                         "frontend/src/types/allocation.ts",
+                         "docs/pm/reports/P1-STRESS-MC-PROVENANCE-001.md",
+                         "docs/pm/reviews/P1-STRESS-MC-PROVENANCE-001.review.md"
+                     ],
+    "allowedFound":  true,
+    "newlyChanged":  [
+
+                     ],
+    "issues":  [
+
+               ],
+    "recommendedNext":  "Ready for next task or archive."
+}

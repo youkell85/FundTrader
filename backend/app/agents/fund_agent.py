@@ -13,7 +13,7 @@ AGENT_TEMPLATES: dict[str, dict[str, Any]] = {
         "allowed_tools": ["fund.evidence_pack", "fund.market_context", "fund.risk_metrics", "fund.manager_report"],
         "sections": ["结论", "数据依据", "风险", "缺口"],
     },
-    "portfolio_allocation_explanation": {
+    "portfolio_explanation": {
         "title": "组合配置解释",
         "allowed_tools": ["fund.evidence_pack", "allocation.result", "allocation.backtest", "data_sources.status"],
         "sections": ["配置逻辑", "组合风险", "回测证据", "再平衡观察"],
@@ -64,6 +64,22 @@ def _compact_evidence(evidence_pack: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _conclusion_strength(evidence: dict[str, Any]) -> str:
+    quality = evidence.get("data_quality") or {}
+    status = str(quality.get("status") or "missing")
+    warnings = evidence.get("warnings") or []
+    fields = evidence.get("field_sources") or []
+    if status == "missing":
+        return "none"
+    if any("insufficient" in str(item).lower() for item in warnings):
+        return "none"
+    if status in {"partial", "stale"}:
+        return "limited"
+    if any(str(item.get("status") or "") in {"missing", "partial", "stale"} for item in fields):
+        return "limited"
+    return "normal"
+
+
 def build_fund_agent_plan(template: str, code: str, context: dict[str, Any] | None = None) -> dict[str, Any]:
     if template not in AGENT_TEMPLATES:
         return {
@@ -75,6 +91,8 @@ def build_fund_agent_plan(template: str, code: str, context: dict[str, Any] | No
     evidence_pack = build_fund_evidence_pack(code)
     template_spec = AGENT_TEMPLATES[template]
     compact = _compact_evidence(evidence_pack)
+    conclusion_strength = _conclusion_strength(compact)
+    plan_status = "insufficient_data" if conclusion_strength == "none" else "limited" if conclusion_strength == "limited" else "available"
     prompt = "\n".join([
         f"任务: {template_spec['title']}",
         f"对象: {compact['subject'].get('name') or code} ({code})",
@@ -94,6 +112,8 @@ def build_fund_agent_plan(template: str, code: str, context: dict[str, Any] | No
         "code": code,
         "allowedTools": template_spec["allowed_tools"],
         "sections": template_spec["sections"],
+        "planStatus": plan_status,
+        "conclusionStrength": conclusion_strength,
         "prompt": prompt,
         "evidence": compact,
         "context": context or {},

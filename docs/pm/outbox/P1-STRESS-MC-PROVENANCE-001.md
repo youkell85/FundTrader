@@ -4,6 +4,17 @@ Created: 2026-06-10T18:18:58+08:00
 PM: Codex
 Executor: Claude Code via cc-switch
 
+## Allowed Files
+
+- `backend/app/allocation/models.py`
+- `backend/app/allocation/monte_carlo.py`
+- `backend/app/allocation/stress_test.py`
+- `backend/tests/test_allocation_monte_carlo.py`
+- `backend/tests/test_stress_monte_carlo_calibration.py`
+- `frontend/src/types/allocation.ts`
+- `docs/pm/reports/P1-STRESS-MC-PROVENANCE-001.md`
+- `docs/pm/reviews/P1-STRESS-MC-PROVENANCE-001.review.md`
+
 ## Goal
 
 Bring the current P1 Stress Test and Monte Carlo provenance work to acceptance-ready state.

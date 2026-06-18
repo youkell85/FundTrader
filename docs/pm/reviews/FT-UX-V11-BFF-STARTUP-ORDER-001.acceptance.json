@@ -1,0 +1,27 @@
+{
+    "taskId":  "FT-UX-V11-BFF-STARTUP-ORDER-001",
+    "mode":  "run",
+    "generatedAt":  "2026-06-18T13:09:23.2324244+08:00",
+    "taskPath":  "docs\\pm\\outbox\\FT-UX-V11-BFF-STARTUP-ORDER-001.md",
+    "summary":  {
+                    "totalBlocks":  1,
+                    "safe":  1,
+                    "skipped_unsafe":  0,
+                    "unsupported":  0,
+                    "passed":  1,
+                    "failed":  0
+                },
+    "recommendedNext":  "All safe blocks passed. Review skipped blocks manually if needed.",
+    "blocks":  [
+                   {
+                       "number":  1,
+                       "language":  "powershell",
+                       "classification":  "safe",
+                       "reason":  "Passed safety checks",
+                       "command":  "cd \"D:\\Workspace\\Fundtrader\"\ngit log --oneline -5\ngit rev-parse --short HEAD\ngit status --short --untracked-files=all",
+                       "exitCode":  0,
+                       "stdout":  "bf2c4d2 feat: refine FundTrader UX v11 decision flow\r\n3c9b98d Load service credentials from backend env\r\nc310134 Pass TickFlow API base URL\r\n85557e1 Configure TickFlow SDK dependency\r\n223b052 Add fixed fund agent prompt plans\r\nbf2c4d2\r\n M backend/.env\r\n M backend/app/data/data_gateway.py\r\n M backend/app/data/providers/fusion.py\r\n M backend/app/main.py\r\n M backend/app/models/fund.py\r\n M backend/tests/test_etf_cache_population_script.py\r\n M deploy/deploy.sh\r\n M deploy/fundtrader-frontend.service\r\n M docs/pm/STATUS.md\r\n M docs/pm/outbox/FT-UX-V11-RELEASE-SPLIT-AUDIT-001.md\r\n M docs/pm/outbox/HF1-P1-1-ETF-CACHE-POPULATION-001.md\r\n M docs/pm/outbox/P1-STRESS-MC-PROVENANCE-001.md\r\n M docs/pm/outbox/TASK-PM-SMOKE-001.md\r\n M docs/pm/reports/HF1-P1-1-ETF-CACHE-POPULATION-001.md\r\n M docs/pm/reviews/HF1-P1-1-ETF-CACHE-POPULATION-001.acceptance.json\r\n M docs/pm/reviews/HF1-P1-1-ETF-CACHE-POPULATION-001.acceptance.md\r\n M frontend/api/fund-router.ts\r\n M frontend/src/components/fund-detail/DetailStatusPanels.tsx\r\n M frontend/src/pages/FundDetail/components/FieldSourceTip.tsx\r\n M frontend/src/pages/FundDetail/tabs/OverviewTab.tsx\r\n M scripts/populate-etf-cache.ps1\r\n?? backend/app/api/health.py\r\n?? backend/tests/test_dsa_p0_fields_provider_health.py\r\n?? docs/pm/outbox/FT-DSA-P0-FIELDS-PROVIDER-HEALTH-001.md\r\n?? docs/pm/outbox/FT-P0-2.md\r\n?? docs/pm/outbox/FT-UX-V11-BFF-STARTUP-ORDER-001.md\r\n?? docs/pm/outbox/FT-UX-V11-PROD-DEPLOY-SMOKE-001.md\r\n?? docs/pm/reviews/FT-DSA-P0-FIELDS-PROVIDER-HEALTH-001.acceptance.json\r\n?? docs/pm/reviews/FT-DSA-P0-FIELDS-PROVIDER-HEALTH-001.acceptance.md\r\n?? docs/pm/reviews/FT-DSA-P0-FIELDS-PROVIDER-HEALTH-001.baseline.status.txt\r\n?? docs/pm/reviews/FT-DSA-P0-FIELDS-PROVIDER-HEALTH-001.review.json\r\n?? docs/pm/reviews/FT-DSA-P0-FIELDS-PROVIDER-HEALTH-001.review.md\r\n?? docs/pm/reviews/FT-P0-2.acceptance.json\r\n?? docs/pm/reviews/FT-P0-2.acceptance.md\r\n?? docs/pm/reviews/FT-P0-2.review.json\r\n?? docs/pm/reviews/FT-P0-2.review.md\r\n?? docs/pm/reviews/FT-UX-V11-BFF-STARTUP-ORDER-001.review.json\r\n?? docs/pm/reviews/FT-UX-V11-BFF-STARTUP-ORDER-001.review.md\r\n?? docs/pm/reviews/FT-UX-V11-DETAIL-IA-LIGHTEN-001.acceptance.json\r\n?? docs/pm/reviews/FT-UX-V11-DETAIL-IA-LIGHTEN-001.acceptance.md\r\n?? docs/pm/reviews/FT-UX-V11-PROD-DEPLOY-SMOKE-001.acceptance.json\r\n?? docs/pm/reviews/FT-UX-V11-PROD-DEPLOY-SMOKE-001.acceptance.md\r\n?? docs/pm/reviews/FT-UX-V11-PROD-DEPLOY-SMOKE-001.baseline.status.txt\r\n?? docs/pm/reviews/FT-UX-V11-PROD-DEPLOY-SMOKE-001.review.json\r\n?? docs/pm/reviews/FT-UX-V11-PROD-DEPLOY-SMOKE-001.review.md\r\n?? docs/pm/reviews/FT-UX-V11-RELEASE-SPLIT-AUDIT-001.review.json\r\n?? docs/pm/reviews/FT-UX-V11-RELEASE-SPLIT-AUDIT-001.review.md\r\n?? docs/pm/reviews/HF1-P1-1-ETF-CACHE-POPULATION-001.review.json\r\n?? docs/pm/reviews/HF1-P1-1-ETF-CACHE-POPULATION-001.review.md\r\n?? docs/pm/reviews/P1-STRESS-MC-PROVENANCE-001.review.json\r\n?? docs/pm/reviews/P1-STRESS-MC-PROVENANCE-001.review.md\r\n?? docs/pm/reviews/TASK-PM-SMOKE-001.review.json\r\n?? docs/pm/reviews/TASK-PM-SMOKE-001.review.md\r\n?? docs/pm/reviews/UNKNOWN.review.json\r\n?? docs/pm/reviews/UNKNOWN.review.md\r\n?? frontend/api/fund-router.startup.test.ts",
+                       "stderr":  null
+                   }
+               ]
+}

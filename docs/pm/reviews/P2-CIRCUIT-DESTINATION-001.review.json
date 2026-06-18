@@ -1,0 +1,33 @@
+{
+    "taskId":  "P2-CIRCUIT-DESTINATION-001",
+    "status":  "blocked",
+    "reviewedAt":  "2026-06-18T13:35:32.6334163+08:00",
+    "taskPath":  "docs\\pm\\outbox\\P2-CIRCUIT-DESTINATION-001.md",
+    "reportPath":  "docs\\pm\\reports\\P2-CIRCUIT-DESTINATION-001.md",
+    "logPath":  "P2-CIRCUIT-DESTINATION-001.jsonl (not found)",
+    "lockPath":  "P2-CIRCUIT-DESTINATION-001.lock.json (not found)",
+    "reportExists":  true,
+    "pmDigest":  {
+                     "found":  false,
+                     "values":  {
+
+                                },
+                     "raw":  [
+
+                             ]
+                 },
+    "lockExists":  false,
+    "diffCheckPassed":  true,
+    "diffCheckOutput":  "warning: in the working copy of \u0027backend/app/data/providers/fusion.py\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027backend/tests/test_etf_cache_population_script.py\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/STATUS.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/outbox/FT-UX-V11-RELEASE-SPLIT-AUDIT-001.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/outbox/HF1-P1-1-ETF-CACHE-POPULATION-001.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/outbox/P1-STRESS-MC-PROVENANCE-001.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/outbox/TASK-PM-SMOKE-001.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/reports/HF1-P1-1-ETF-CACHE-POPULATION-001.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/reviews/HF1-P1-1-ETF-CACHE-POPULATION-001.acceptance.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/api/fund-router.ts\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/components/fund-detail/DetailStatusPanels.tsx\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/pages/FundDetail/components/FieldSourceTip.tsx\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/pages/FundDetail/tabs/OverviewTab.tsx\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027scripts/populate-etf-cache.ps1\u0027, LF will be replaced by CRLF the next time Git touches it",
+    "allowedFiles":  [
+
+                     ],
+    "allowedFound":  false,
+    "newlyChanged":  [
+
+                     ],
+    "issues":  [
+                   "Allowed Files section not found or empty in task. Cannot verify scope."
+               ],
+    "recommendedNext":  "Unblock prerequisites (report, lock, scope) before re-dispatching."
+}

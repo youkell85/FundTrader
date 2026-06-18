@@ -1,0 +1,25 @@
+{
+    "taskId":  "FT-P1-3",
+    "mode":  "run",
+    "generatedAt":  "2026-06-18T14:44:44.4030596+08:00",
+    "taskPath":  "docs\\pm\\outbox\\FT-P1-3.md",
+    "summary":  {
+                    "totalBlocks":  8,
+                    "safe":  1,
+                    "skipped_unsafe":  0,
+                    "unsupported":  0,
+                    "passed":  1,
+                    "failed":  0
+                },
+    "recommendedNext":  "All safe blocks passed. Review skipped blocks manually if needed.",
+    "blocks":  {
+                   "number":  1,
+                   "language":  "powershell",
+                   "classification":  "safe",
+                   "reason":  "Passed safety checks",
+                   "command":  "cd backend\n$env:PYTHONPATH = (Get-Location).Path\npytest tests\\test_fund_events.py tests\\test_fund_research_report.py -q",
+                   "exitCode":  0,
+                   "stdout":  ".........                                                                [100%]\r\n============================== warnings summary ===============================\r\ntests/test_fund_events.py::test_collect_fund_events_normalizes_static_provider_events\r\ntests/test_fund_events.py::test_collect_fund_events_downgrades_provider_failure\r\ntests/test_fund_events.py::test_collect_fund_events_marks_disabled_provider\r\ntests/test_fund_research_report.py::test_fund_research_report_markdown_is_deterministic_and_source_backed\r\ntests/test_fund_research_report.py::test_fund_research_report_markdown_is_deterministic_and_source_backed\r\ntests/test_fund_research_report.py::test_fund_evidence_pack_downgrades_when_critical_evidence_missing\r\n  D:\\Workspace\\Fundtrader\\backend\\app\\data\\fund_events.py:94: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).\r\n    clock = now or datetime.utcnow()\r\n\r\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\r\n9 passed, 6 warnings in 3.87s",
+                   "stderr":  null
+               }
+}

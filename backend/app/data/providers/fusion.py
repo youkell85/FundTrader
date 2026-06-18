@@ -339,16 +339,30 @@ class DataFusion:
             in_cooldown = self._is_provider_in_cooldown(p.name)
             available = False if in_cooldown else p.is_available()
             last_error = state.get("last_error")
+            last_success = state.get("last_success_at")
+            used = bool(state.get("used", False))
+
+            # Status semantics: available | partial | stale | cooldown | missing | unknown
             if in_cooldown:
                 status = "cooldown"
             elif available and not last_error:
-                status = "available"
+                if last_success:
+                    status = "available"
+                else:
+                    status = "unknown"  # available but never successfully used
             elif available:
-                status = "degraded"
-            else:
+                # available but has errors — partial degradation
+                status = "partial"
+            elif used and not available:
+                # was used before but now unavailable — stale
+                status = "stale"
+            elif not available:
                 status = "missing"
+            else:
+                status = "unknown"
             statuses.append({
                 "name": p.name,
+                "enabled": True,
                 "priority": p.priority,
                 "capabilities": PROVIDER_CAPABILITIES.get(p.name, []),
                 "available": available,
@@ -369,6 +383,10 @@ class DataFusion:
                 "circuit_open": bool(state.get("circuit_open")),
                 "fallback_reason": state.get("fallback_reason"),
                 "source_hint": state.get("source_hint"),
+                "data_quality": {
+                    "status": status,
+                    "missing_reason": last_error if status in {"partial", "cooldown", "missing"} else None,
+                },
             })
         return statuses
 

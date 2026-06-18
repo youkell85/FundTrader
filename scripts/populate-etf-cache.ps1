@@ -74,26 +74,16 @@ def _count_rows(selected: dict[str, str], start: str, end: str) -> list[dict]:
 
 def _apply_population(selected: dict[str, str], start: str, end: str) -> dict:
     # Import live-fetch code only in apply mode. Dry-run remains provider-free.
-    if set(selected.values()) == {code for code in REPRESENTATIVE_ETFS.values() if code}:
-        from app.allocation.backtest.historical_data import load_etf_history
+    # Always use load_etf_history (the approved interface) — it fetches all
+    # representative ETFs and writes through ETFPriceCache internally.
+    from app.allocation.backtest.historical_data import load_etf_history
 
-        prices_df, quality = load_etf_history(start, end)
-        return {
-            "method": "load_etf_history",
-            "columns": list(prices_df.columns),
-            "quality": quality,
-        }
-
-    from app.allocation.backtest.historical_data import _fetch_etf_prices_with_dates
-
-    fetched = {}
-    for asset, code in selected.items():
-        series = _fetch_etf_prices_with_dates(code)
-        fetched[asset] = {
-            "code": code,
-            "rows": 0 if series is None else int(len(series)),
-        }
-    return {"method": "_fetch_etf_prices_with_dates", "fetched": fetched}
+    prices_df, quality = load_etf_history(start, end, allow_network=True)
+    return {
+        "method": "load_etf_history",
+        "columns": list(prices_df.columns),
+        "quality": quality,
+    }
 
 
 def main() -> int:

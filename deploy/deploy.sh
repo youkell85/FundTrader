@@ -37,6 +37,19 @@ systemctl enable fundtrader-frontend
 
 echo "6. 重启服务..."
 systemctl restart fundtrader
+
+echo "   等待后端健康检查 (超时 120s)..."
+for i in $(seq 1 60); do
+  if curl -sf http://127.0.0.1:8766/health > /dev/null 2>&1; then
+    echo "   后端已就绪"
+    break
+  fi
+  if [ "$i" -eq 60 ]; then
+    echo "   警告: 后端启动超时，继续部署前端"
+  fi
+  sleep 2
+done
+
 systemctl restart fundtrader-frontend
 
 echo "7. 验证..."

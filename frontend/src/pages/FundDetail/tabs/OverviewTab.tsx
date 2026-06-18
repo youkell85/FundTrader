@@ -87,7 +87,7 @@ export default function OverviewTab({ detail, onSelectTab }: FundDetailTabProps)
               {detail.coverage.total ? `${detail.coverage.available}/${detail.coverage.total}` : "-"}
             </span>
             <span>可用</span>
-            <FieldSourceTip source="detail coverage summary" />
+            <FieldSourceTip source="detail coverage summary" status={detail.coverage.missing + detail.coverage.error > 0 ? "missing" : "available"} />
           </div>
           <DataGapsPanel items={detail.coverage.items} />
         </Panel>

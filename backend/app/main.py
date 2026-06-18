@@ -18,7 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import API_PREFIX, CORS_ORIGINS, MARKET_DATA_REFRESH_INTERVAL
 
-from .api import fund, analysis, recommend, dca, professional, settings, allocation, storage, auth, admin_api
+from .api import fund, analysis, recommend, dca, professional, settings, allocation, storage, auth, admin_api, health
 
 from .storage.database import init_db, get_db_context
 
@@ -543,6 +543,8 @@ app.include_router(auth.router)
 
 app.include_router(admin_api.router)
 
+app.include_router(health.router)
+
 
 
 
@@ -576,6 +578,23 @@ async def full_path_health():
     """Health endpoint for direct access with full path"""
 
     return {"status": "ok", "service": "FundTrader"}
+
+
+
+
+
+@app.get("/fund/api/data-sources/status")
+
+async def fund_api_data_sources_status():
+
+    """Unified provider health endpoint at the /fund/api prefix.
+
+    Delegates to the health router's data_sources_status logic.
+    """
+
+    from .api.health import data_sources_status
+
+    return await data_sources_status()
 
 
 
@@ -695,22 +714,6 @@ async def market_data_data_sources():
 
 
 
-
-
-@app.get("/data-sources/status")
-async def data_sources_status():
-    """Unified provider health endpoint exposed as /fund/api/data-sources/status via BFF."""
-    from .data.providers.fusion import get_fusion
-
-    snapshot = get_fusion().get_provider_health_snapshot()
-    providers = snapshot.get("providers", [])
-    return {
-        "status": "available" if snapshot.get("available_count", 0) > 0 else "missing",
-        "updatedAt": snapshot.get("updated_at"),
-        "providers": providers,
-        "availableCount": snapshot.get("available_count", 0),
-        "totalCount": snapshot.get("total_count", len(providers)),
-    }
 
 
 @app.get("/market-data/source-status")

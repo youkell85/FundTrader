@@ -1,0 +1,27 @@
+{
+    "taskId":  "FT-UX-V11-PROD-DEPLOY-SMOKE-001",
+    "mode":  "run",
+    "generatedAt":  "2026-06-18T13:09:22.7353722+08:00",
+    "taskPath":  "docs\\pm\\outbox\\FT-UX-V11-PROD-DEPLOY-SMOKE-001.md",
+    "summary":  {
+                    "totalBlocks":  1,
+                    "safe":  0,
+                    "skipped_unsafe":  1,
+                    "unsupported":  0,
+                    "passed":  0,
+                    "failed":  0
+                },
+    "recommendedNext":  "All safe blocks passed. Review skipped blocks manually if needed.",
+    "blocks":  [
+                   {
+                       "number":  1,
+                       "language":  "powershell",
+                       "classification":  "skipped_unsafe",
+                       "reason":  "Contains unsafe pattern: deploy",
+                       "command":  "cd \"D:\\Workspace\\Fundtrader\"\ngit log --oneline -5\ngit rev-parse --short HEAD\ngit status --short --untracked-files=all\nTest-Path \"D:\\Workspace\\docs\\ux-v11-deploy-runbook-20260617.md\" | Out-Null",
+                       "exitCode":  null,
+                       "stdout":  null,
+                       "stderr":  null
+                   }
+               ]
+}

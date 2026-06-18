@@ -1,0 +1,46 @@
+{
+    "taskId":  "PLAN-ALIGNMENT-AUDIT-001",
+    "status":  "blocked",
+    "reviewedAt":  "2026-06-18T13:35:35.1076753+08:00",
+    "taskPath":  "docs\\pm\\outbox\\PLAN-ALIGNMENT-AUDIT-001.md",
+    "reportPath":  "docs\\pm\\reports\\PLAN-ALIGNMENT-AUDIT-001.md",
+    "logPath":  "PLAN-ALIGNMENT-AUDIT-001.jsonl (not found)",
+    "lockPath":  "PLAN-ALIGNMENT-AUDIT-001.lock.json (not found)",
+    "reportExists":  true,
+    "pmDigest":  {
+                     "found":  true,
+                     "values":  {
+                                    "status":  "needs_fix",
+                                    "changed":  "docs/pm/reports/PLAN-ALIGNMENT-AUDIT-001.md",
+                                    "validation":  "passed - repo-head, grep-audit, code-search",
+                                    "risk":  "P0 never formally closed; P4 not in integrated plan; P1-3/P1-5 gaps; ETF cache empty",
+                                    "decision":  "Reclassify P4 as P1-1-Extension? Formally close P0? Prioritize ETF cache population?",
+                                    "next":  "ask_user"
+                                },
+                     "raw":  [
+                                 "```",
+                                 "Status: needs_fix",
+                                 "Changed: docs/pm/reports/PLAN-ALIGNMENT-AUDIT-001.md",
+                                 "Validation: passed - repo-head, grep-audit, code-search",
+                                 "Risk: P0 never formally closed; P4 not in integrated plan; P1-3/P1-5 gaps; ETF cache empty",
+                                 "Decision: Reclassify P4 as P1-1-Extension? Formally close P0? Prioritize ETF cache population?",
+                                 "Next: ask_user",
+                                 "```",
+                                 "---"
+                             ]
+                 },
+    "lockExists":  false,
+    "diffCheckPassed":  true,
+    "diffCheckOutput":  "warning: in the working copy of \u0027backend/app/data/providers/fusion.py\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027backend/tests/test_etf_cache_population_script.py\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/STATUS.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/outbox/FT-UX-V11-RELEASE-SPLIT-AUDIT-001.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/outbox/HF1-P1-1-ETF-CACHE-POPULATION-001.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/outbox/P1-STRESS-MC-PROVENANCE-001.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/outbox/TASK-PM-SMOKE-001.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/reports/HF1-P1-1-ETF-CACHE-POPULATION-001.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/reviews/HF1-P1-1-ETF-CACHE-POPULATION-001.acceptance.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/api/fund-router.ts\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/components/fund-detail/DetailStatusPanels.tsx\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/pages/FundDetail/components/FieldSourceTip.tsx\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/pages/FundDetail/tabs/OverviewTab.tsx\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027scripts/populate-etf-cache.ps1\u0027, LF will be replaced by CRLF the next time Git touches it",
+    "allowedFiles":  [
+
+                     ],
+    "allowedFound":  false,
+    "newlyChanged":  [
+
+                     ],
+    "issues":  [
+                   "Allowed Files section not found or empty in task. Cannot verify scope."
+               ],
+    "recommendedNext":  "Unblock prerequisites (report, lock, scope) before re-dispatching."
+}

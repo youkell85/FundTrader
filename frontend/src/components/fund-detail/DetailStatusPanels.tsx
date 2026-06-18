@@ -220,6 +220,7 @@ function GapRow({ it }: { it: CoverageEntry }) {
       <span className="inline-flex h-2 w-2 shrink-0 rounded-full bg-current opacity-60" />
       <span className="font-medium">{it.label}</span>
       <span className="ml-1 text-[11px] opacity-70">{statusLabel(it.status)}</span>
+      {it.source ? <span className="text-[10px] opacity-50">via {it.source}</span> : null}
       {it.reason ? <span className="ml-auto text-xs opacity-60">{it.reason}</span> : null}
     </div>
   );

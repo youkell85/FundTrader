@@ -1,0 +1,47 @@
+{
+    "taskId":  "FT-DSA-P0-FIELDS-PROVIDER-HEALTH-001",
+    "mode":  "run",
+    "generatedAt":  "2026-06-18T10:43:07.7857243+08:00",
+    "taskPath":  "docs\\pm\\outbox\\FT-DSA-P0-FIELDS-PROVIDER-HEALTH-001.md",
+    "summary":  {
+                    "totalBlocks":  3,
+                    "safe":  3,
+                    "skipped_unsafe":  0,
+                    "unsupported":  0,
+                    "passed":  3,
+                    "failed":  0
+                },
+    "recommendedNext":  "All safe blocks passed. Review skipped blocks manually if needed.",
+    "blocks":  [
+                   {
+                       "number":  1,
+                       "language":  "powershell",
+                       "classification":  "safe",
+                       "reason":  "Passed safety checks",
+                       "command":  "cd D:\\Workspace\\Fundtrader\\backend\npython -m pytest -q",
+                       "exitCode":  0,
+                       "stdout":  "........................................................................ [ 17%]\r\n........................................................................ [ 35%]\r\n........................................................................ [ 52%]\r\n........................................................................ [ 70%]\r\n........................................................................ [ 88%]\r\n................................................                         [100%]\r\n408 passed in 33.77s",
+                       "stderr":  null
+                   },
+                   {
+                       "number":  2,
+                       "language":  "powershell",
+                       "classification":  "safe",
+                       "reason":  "Passed safety checks",
+                       "command":  "cd D:\\Workspace\\Fundtrader\\frontend\nnpm.cmd run check\nnpm.cmd run build",
+                       "exitCode":  0,
+                       "stdout":  "\r\n\u003e my-app@0.0.0 check\r\n\u003e tsc -b\r\n\r\n\r\n\u003e my-app@0.0.0 build\r\n\u003e vite build \u0026\u0026 esbuild api/boot.ts --platform=node --bundle --format=esm --outdir=dist --banner:js=\"import { createRequire } from \u0027module\u0027;const require = createRequire(import.meta.url);\"\r\n\r\n\u001b[36mvite v7.3.3 \u001b[32mbuilding client environment for production...\u001b[36m\u001b[39m\r\ntransforming...\r\n\u001b[32m✓\u001b[39m 2631 modules transformed.\r\nrendering chunks...\r\ncomputing gzip size...\r\n\u001b[2mdist/public/\u001b[22m\u001b[32mindex.html                                    \u001b[39m\u001b[1m\u001b[2m  0.79 kB\u001b[22m\u001b[1m\u001b[22m\u001b[2m │ gzip:   0.38 kB\u001b[22m\r\n\u001b[2mdist/public/\u001b[22m\u001b[35massets/index-Doi39AMU.css                     \u001b[39m\u001b[1m\u001b[2m131.54 kB\u001b[22m\u001b[1m\u001b[22m\u001b[2m │ gzip:  22.26 kB\u001b[22m\r\n\u001b[2mdist/public/\u001b[22m\u001b[36massets/check-Cw9-6SaF.js                      \u001b[39m\u001b[1m\u001b[2m  0.13 kB\u001b[22m\u001b[1m\u001b[22m\u001b[2m │ gzip:   0.14 kB\u001b[22m\r\n\u001b[2mdist/public/\u001b[22m\u001b[36massets/chevron-up-DwM8Vidw.js                 \u001b[39m\u001b[1m\u001b[2m  0.13 kB\u001b[22m\u001b[1m\u001b[22m\u001b[2m │ gzip:   0.14 kB\u001b[22m\r\n\u001b[2mdist/public/\u001b[22m\u001b[36massets/chevron-down-CowQ9lou.js               \u001b[39m\u001b[1m\u001b[2m  0.13 kB\u001b[22m\u001b[1m\u001b[22m\u001b[2m │ gzip:   0.14 kB\u001b[22m\r\n\u001b[2mdist/public/\u001b[22m\u001b[36massets/plus-CQjj7dBI.js                       \u001b[39m\u001b[1m\u001b[2m  0.15 kB\u001b[22m\u001b[1m\u001b[22m\u001b[2m │ gzip:   0.15 kB\u001b[22m\r\n\u001b[2mdist/public/\u001b[22m\u001b[36massets/x-DtmrZnB7.js                          \u001b[39m\u001b[1m\u001b[2m  0.16 kB\u001b[22m\u001b[1m\u001b[22m\u001b[2m │ gzip:   0.15 kB\u001b[22m\r\n\u001b[2mdist/public/\u001b[22m\u001b[36massets/arrow-left-Cdi3LFut.js                 \u001b[39m\u001b[1m\u001b[2m  0.17 kB\u001b[22m\u001b[1m\u001b[22m\u001b[2m │ gzip:   0.16 kB\u001b[22m\r\n\u001b[2mdist/public/\u001b[22m\u001b[36massets/arrow-right-R4YTzpVY.js                \u001b[39m\u001b[1m\u001b[2m  0.17 kB\u001b[22m\u001b[1m\u001b[22m\u001b[2m │ gzip:   0.16 kB\u001b[22m\r\n\u001b[2mdist/public/\u001b[22m\u001b[36massets/clock-D0_xiIki.js                      \u001b[39m\u001b[1m\u001b[2m  0.17 kB\u001b[22m\u001b[1m\u001b[22m\u001b[2m │ gzip:   0.17 kB\u001b[22m\r\n\u001b[2mdist/public/\u001b[22m\u001b[36massets/gauge-DTzvLhzS.js                      \u001b[39m\u001b[1m\u001b[2m  0.18 kB\u001b[22m\u001b[1m\u001b[22m\u001b[2m │ gzip:   0.17 kB\u001b[22m\r\n\u001b[2mdist/public/\u001b[22m\u001b[36massets/trending-down-CxTCfzkm.js              \u001b[39m\u001b[1m\u001b[2m  0.18 kB\u001b[22m\u001b[1m\u001b[22m\u001b[2m │ gzip:   0.17 kB\u001b[22m\r\n\u001b[2mdist/public/\u001b[22m\u001b[36massets/circle-check-GJ8KSa3T.js               \u001b[39m\u001b[1m\u001b[2m  0.18 kB\u001b[22m\u001b[1m\u001b[22m\u001b[2m │ gzip:   0.17 kB\u001b[22m\r\n\u001b[2mdist/public/\u001b[22m\u001b[36massets/play-BGob31qy.js                       \u001b[39m\u001b[1m\u001b[2m  0.19 kB\u001b[22m\u001b[1m\u001b[22m\u001b[2m │ gzip:   0.18 kB\u001b[22m\r\n\u001b[2mdist/public/\u001b[22m\u001b[36massets/circle-check-big-BDBYDBXK.js           \u001b[39m\u001b[1m\u001b[2m  0.20 kB\u001b[22m\u001b[1m\u001b[22m\u001b[2m │ gzip:   0.18 kB\u001b[22m\r\n\u001b[2mdist/public/\u001b[22m\u001b[36massets/rotate-ccw-ySm4_-qE.js                 \u001b[39m\u001b[1m\u001b[2m  0.20 kB\u001b[22m\u001b[1m\u001b[22m\u001b[2m │ gzip:   0.19 kB\u001b[22m\r\n\u001b[2mdist/public/\u001b[22m\u001b[36massets/info-BdMAIMxn.js                       \u001b[39m\u001b[1m\u001b[2m  0.21 kB\u001b[22m\u001b[1m\u001b[22m\u001b[2m │ gzip:   0.18 kB\u001b[22m\r\n\u001b[2mdist/public/\u001b[22m\u001b[36massets/circle-x-DlS0_ksp.js                   \u001b[39m\u001b[1m\u001b[2m  0.21 kB\u001b[22m\u001b[1m\u001b[22m\u001b[2m │ gzip:   0.18 kB\u001b[22m\r\n\u001b[2mdist/public/\u001b[22m\u001b[36massets/target-tzW38M1f.js                     \u001b[39m\u001b[1m\u001b[2m  0.23 kB\u001b[22m\u001b[1m\u001b[22m\u001b[2m │ gzip:   0.16 kB\u001b[22m\r\n\u001b[2mdist/public/\u001b[22m\u001b[36massets/activity-DqEdPG6d.js                   \u001b[39m\u001b[1m\u001b[2m  0.24 kB\u001b[22m\u001b[1m\u001b[22m\u001b[2m │ gzip:   0.20 kB\u001b[22m\r\n\u001b[2mdist/public/\u001b[22m\u001b[36massets/copy-ic-731Iu.js                       \u001b[39m\u001b[1m\u001b[2m  0.24 kB\u001b[22m\u001b[1m\u001b[22m\u001b[2m │ gzip:   0.21 kB\u001b[22m\r\n\u001b[2mdist/public/\u001b[22m\u001b[36massets/database-CSAkAoQ1.js                   \u001b[39m\u001b[1m\u001b[2m  0.24 kB\u001b[22m\u001b[1m\u001b[22m\u001b[2m │ gzip:   0.20 kB\u001b[22m\r\n\u001b[2mdist/public/\u001b[22m\u001b[36massets/chart-column-COGFvDcZ.js               \u001b[39m\u001b[1m\u001b[2m  0.25 kB\u001b[22m\u001b[1m\u001b[22m\u001b[2m │ gzip:   0.19 kB\u001b[22m\r\n\u001b[2mdist/public/\u001b[22m\u001b[36massets/eye-D_frpekt.js                        \u001b[39m\u001b[1m\u001b[2m  0.26 kB\u001b[22m\u001b[1m\u001b[22m\u001b[2m │ gzip:   0.20 kB\u001b[22m\r\n\u001b[2mdist/public/\u001b[22m\u001b[36massets/zap-B85W3OlY.js                        \u001b[39m\u001b[1m\u001b[2m  0.26 kB\u001b[22m\u001b[1m\u001b[22m\u001b[2m │ gzip:   0.21 kB\u001b[22m\r\n\u001b[2mdist/public/\u001b[22m\u001b[36massets/triangle-alert-CK6gRjz7.js             \u001b[39m\u001b[1m\u001b[2m  0.27 kB\u001b[22m\u001b[1m\u001b[22m\u001b[2m │ gzip:   0.22 kB\u001b[22m\r\n\u001b[2mdi...[truncated]",
+                       "stderr":  null
+                   },
+                   {
+                       "number":  3,
+                       "language":  "powershell",
+                       "classification":  "safe",
+                       "reason":  "Passed safety checks",
+                       "command":  "cd D:\\Workspace\\Fundtrader\ncurl.exe -s http://127.0.0.1:8766/fund/api/health\ncurl.exe -s http://127.0.0.1:8766/fund/api/data-sources/status",
+                       "exitCode":  0,
+                       "stdout":  "",
+                       "stderr":  null
+                   }
+               ]
+}

@@ -1,0 +1,50 @@
+{
+    "taskId":  "FT-UX-V11-BFF-STARTUP-ORDER-001",
+    "status":  "pass",
+    "reviewedAt":  "2026-06-18T13:09:22.8679286+08:00",
+    "taskPath":  "docs\\pm\\outbox\\FT-UX-V11-BFF-STARTUP-ORDER-001.md",
+    "reportPath":  "docs\\pm\\reports\\FT-UX-V11-BFF-STARTUP-ORDER-001.md",
+    "logPath":  "docs\\pm\\logs\\FT-UX-V11-BFF-STARTUP-ORDER-001.jsonl",
+    "lockPath":  "FT-UX-V11-BFF-STARTUP-ORDER-001.lock.json (not found)",
+    "reportExists":  true,
+    "pmDigest":  {
+                     "found":  true,
+                     "values":  {
+                                    "status":  "complete",
+                                    "changed":  "deploy/deploy.sh, deploy/fundtrader-frontend.service, frontend/api/fund-router.ts",
+                                    "validation":  "passed 鈥?diff review, cross-layer consistency audit, test file present",
+                                    "risk":  "none 鈥?three-layer defense-in-depth; any single layer is sufficient",
+                                    "decision":  "none",
+                                    "next":  "accept 鈥?commit and deploy on next production rollout"
+                                },
+                     "raw":  [
+                                 "Status: complete",
+                                 "Changed: deploy/deploy.sh, deploy/fundtrader-frontend.service, frontend/api/fund-router.ts",
+                                 "Validation: passed 鈥?diff review, cross-layer consistency audit, test file present",
+                                 "Risk: none 鈥?three-layer defense-in-depth; any single layer is sufficient",
+                                 "Decision: none",
+                                 "Next: accept 鈥?commit and deploy on next production rollout",
+                                 "---"
+                             ]
+                 },
+    "lockExists":  false,
+    "diffCheckPassed":  true,
+    "diffCheckOutput":  "warning: in the working copy of \u0027backend/app/data/providers/fusion.py\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027backend/tests/test_etf_cache_population_script.py\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/STATUS.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/outbox/FT-UX-V11-RELEASE-SPLIT-AUDIT-001.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/outbox/HF1-P1-1-ETF-CACHE-POPULATION-001.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/outbox/P1-STRESS-MC-PROVENANCE-001.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/outbox/TASK-PM-SMOKE-001.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/reports/HF1-P1-1-ETF-CACHE-POPULATION-001.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/reviews/HF1-P1-1-ETF-CACHE-POPULATION-001.acceptance.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/api/fund-router.ts\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/components/fund-detail/DetailStatusPanels.tsx\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/pages/FundDetail/components/FieldSourceTip.tsx\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/pages/FundDetail/tabs/OverviewTab.tsx\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027scripts/populate-etf-cache.ps1\u0027, LF will be replaced by CRLF the next time Git touches it",
+    "allowedFiles":  [
+                         "deploy/deploy.sh",
+                         "deploy/fundtrader-frontend.service",
+                         "frontend/api/fund-router.ts",
+                         "frontend/api/fund-router.startup.test.ts",
+                         "docs/pm/reports/FT-UX-V11-BFF-STARTUP-ORDER-001.md",
+                         "docs/pm/reviews/FT-UX-V11-BFF-STARTUP-ORDER-001.review.md",
+                         "docs/pm/reviews/FT-UX-V11-BFF-STARTUP-ORDER-001.review.json"
+                     ],
+    "allowedFound":  true,
+    "newlyChanged":  [
+
+                     ],
+    "issues":  [
+
+               ],
+    "recommendedNext":  "Ready for next task or archive."
+}

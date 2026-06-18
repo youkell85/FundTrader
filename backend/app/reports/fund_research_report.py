@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from ..data.fund_events import collect_fund_events
 from ..data.market_context_fetcher import get_fund_market_context
 from ..services.fund_service import (
     get_fund_manager_report,
@@ -31,6 +32,30 @@ def _field(field: str, value: Any, source: str | None, as_of: str | None, status
     }
 
 
+def _missing_evidence(field_sources: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    missing: list[dict[str, Any]] = []
+    for name, item in field_sources.items():
+        status = str(item.get("status") or "missing")
+        if status == "available":
+            continue
+        missing.append({
+            "field": name,
+            "status": status,
+            "source": item.get("source"),
+            "asOf": item.get("asOf"),
+            "missingReason": item.get("missingReason") or "field is not available",
+        })
+    return missing
+
+
+def _diagnosis_status(missing: list[dict[str, Any]]) -> str:
+    critical = {"name", "nav", "risk", "top_holdings"}
+    missing_critical = {str(item.get("field")) for item in missing if item.get("status") == "missing"}
+    if critical & missing_critical:
+        return "insufficient_data"
+    return "partial" if missing else "available"
+
+
 def build_fund_evidence_pack(code: str) -> dict[str, Any]:
     snapshot = FundDataStore.get_snapshot(code) or {"code": code, "data_quality": "missing"}
     market_context = get_fund_market_context(code)
@@ -45,6 +70,8 @@ def build_fund_evidence_pack(code: str) -> dict[str, Any]:
         "report": None,
         "missingReason": "缺少真实基金定期报告原文。",
     }
+
+    fund_events = collect_fund_events(code)
 
     field_sources = {
         "name": _field("name", snapshot.get("name"), snapshot.get("source") or "fund_master", snapshot.get("updated_at"), "available" if snapshot.get("name") else "missing", "缺少基金名称"),
@@ -65,6 +92,8 @@ def build_fund_evidence_pack(code: str) -> dict[str, Any]:
         for item in field_sources.values()
         if item.get("missingReason")
     ] + list(market_context.get("warnings") or [])
+    missing_evidence = _missing_evidence(field_sources)
+    diagnosis_status = _diagnosis_status(missing_evidence)
 
     return {
         "subject": {
@@ -88,11 +117,19 @@ def build_fund_evidence_pack(code: str) -> dict[str, Any]:
             "period": manager_report.get("period"),
             "source": manager_report.get("source"),
         },
+        "fund_events": fund_events,
         "data_quality": {
             "status": data_quality_status,
             "coverage": coverage,
             "missing_reason": None if data_quality_status == "available" else "存在缺失或 partial 字段，详见 field_sources。",
         },
+        "diagnosis": {
+            "status": diagnosis_status,
+            "conclusion_strength": "none" if diagnosis_status == "insufficient_data" else "limited" if diagnosis_status == "partial" else "normal",
+            "llm_input_contract": "evidence_pack_only",
+            "missing_evidence_count": len(missing_evidence),
+        },
+        "missing_evidence": missing_evidence,
         "field_sources": field_sources,
         "warnings": warnings,
         "generated_at": datetime.now().replace(microsecond=0).isoformat(),

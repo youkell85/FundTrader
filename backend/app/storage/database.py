@@ -1924,7 +1924,9 @@ class FundDataStore:
             result = {}
         return {
             "jobId": row["id"],
+            "job_id": row["id"],
             "jobType": row["job_type"],
+            "job_type": row["job_type"],
             "code": row["code"] or "",
             "priority": row["priority"],
             "status": row["status"],
@@ -1937,9 +1939,13 @@ class FundDataStore:
             "result": result,
             "error": row["error"] or "",
             "createdAt": row["created_at"],
+            "created_at": row["created_at"],
             "updatedAt": row["updated_at"],
+            "updated_at": row["updated_at"],
             "startedAt": row["started_at"] or None,
+            "started_at": row["started_at"] or None,
             "finishedAt": row["finished_at"] or None,
+            "finished_at": row["finished_at"] or None,
         }
 
     @staticmethod

@@ -18,6 +18,8 @@ def test_provider_status_contract_exposes_circuit_fields():
     assert "cooldownUntil" in first
     assert "failureCount" in first
     assert "circuitOpen" in first
+    assert "enabled" in first
+    assert "data_quality" in first
 
 
 def test_provider_failures_open_circuit_and_cooldown():
@@ -36,6 +38,8 @@ def test_provider_failures_open_circuit_and_cooldown():
     assert status["failureCount"] == PROVIDER_FAILURE_THRESHOLD
     assert status["circuitOpen"] is True
     assert status["cooldownUntil"]
+    assert status["enabled"] is True
+    assert status["data_quality"]["status"] == "cooldown"
     assert PROVIDER_COOLDOWN_SECONDS == 300
 
 

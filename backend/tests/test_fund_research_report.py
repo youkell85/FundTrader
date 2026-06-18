@@ -2,7 +2,7 @@ from unittest.mock import patch
 
 from app.data.market_context_fetcher import get_fund_market_context
 from app.data.providers.fusion import DataFusion
-from app.reports.fund_research_report import render_fund_research_report
+from app.reports.fund_research_report import build_fund_evidence_pack, render_fund_research_report
 
 
 def test_market_context_non_etf_has_structured_missing_reason():
@@ -55,6 +55,24 @@ def test_fund_research_report_markdown_is_deterministic_and_source_backed():
     assert "数据源覆盖" in first["markdown"]
     assert "fund_quote_snapshot" in first["markdown"]
     assert first["evidencePack"]["data_quality"]["coverage"] > 0
+
+
+def test_fund_evidence_pack_downgrades_when_critical_evidence_missing():
+    snapshot = {
+        "code": "000001",
+        "updated_at": "2026-06-15T00:00:00",
+    }
+    with patch("app.reports.fund_research_report.FundDataStore.get_snapshot", return_value=snapshot), \
+         patch("app.reports.fund_research_report.get_fund_market_context", return_value={"status": "missing", "sections": {}, "warnings": []}), \
+         patch("app.reports.fund_research_report.get_fund_risk_summary", return_value={"dataStatus": "missing", "summary": None}), \
+         patch("app.reports.fund_research_report.get_fund_manager_report", return_value={"dataStatus": "missing", "report": None}):
+        pack = build_fund_evidence_pack("000001")
+
+    assert pack["diagnosis"]["status"] == "insufficient_data"
+    assert pack["diagnosis"]["conclusion_strength"] == "none"
+    assert pack["diagnosis"]["llm_input_contract"] == "evidence_pack_only"
+    assert any(item["field"] == "nav" for item in pack["missing_evidence"])
+    assert any(item["field"] == "risk" for item in pack["missing_evidence"])
 
 
 def test_northflow_populated_from_cached_macro_snapshot():

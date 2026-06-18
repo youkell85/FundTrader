@@ -21,6 +21,15 @@ Latest accepted scope:
 
 No active running PM task.
 
+## Current PM Track
+
+DSA/GPT technical-borrowing track opened on 2026-06-18.
+
+- Active handoff prepared: `docs/pm/outbox/FT-DSA-P0-FIELDS-PROVIDER-HEALTH-001.md`
+- Source plan: `D:\Workspace\docs\0615\gpt\FundTrader_2026-06-15.md`
+- First slice: field-level provenance for fund detail plus provider health/status endpoint.
+- Boundary: keep `/fund/` and `/fund/api/*`, no commit, push, deploy, secret edit, or manual database mutation without PM approval.
+
 P3 status: closed.
 
 - Closed at commit: `e6d8c61 Complete P3 calibration audit workflow`

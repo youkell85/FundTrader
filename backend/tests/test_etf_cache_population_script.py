@@ -22,9 +22,10 @@ def test_dry_run_does_not_import_live_fetch_loader_before_apply():
     assert live_import_index > apply_index
 
 
-def test_population_script_does_not_persist_long_window_stats():
+def test_population_script_references_load_etf_history():
     text = SCRIPT.read_text(encoding="utf-8")
 
+    assert "load_etf_history" in text
     assert "StatsSnapshotCache.save" not in text
     assert "persist_long_window_stats" not in text
 

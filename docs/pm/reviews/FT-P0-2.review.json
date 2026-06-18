@@ -1,0 +1,45 @@
+{
+    "taskId":  "FT-P0-2",
+    "status":  "pass",
+    "reviewedAt":  "2026-06-18T13:10:01.4609883+08:00",
+    "taskPath":  "docs\\pm\\outbox\\FT-P0-2.md",
+    "reportPath":  "docs\\pm\\reports\\FT-P0-2.md",
+    "logPath":  "docs\\pm\\logs\\FT-P0-2.jsonl",
+    "lockPath":  "FT-P0-2.lock.json (not found)",
+    "reportExists":  true,
+    "pmDigest":  {
+                     "found":  true,
+                     "values":  {
+
+                                },
+                     "raw":  [
+                                 "| Key | Value |",
+                                 "|-----|-------|",
+                                 "| **Status** | 鉁?COMPLETED 鈥?all 4 tasks verified against existing implementation |",
+                                 "| **Changed** | `backend/app/api/health.py` (new), `backend/app/main.py` (router mount + dedup), `backend/app/data/data_gateway.py` (capabilities), `backend/tests/test_dsa_p0_fields_provider_health.py` (coverage) |",
+                                 "| **Validation** | Unit tests cover FieldSource/ProviderHealth contracts, gateway health snapshots, field group mappings, and fusion provider health. Frontend tRPC procedures and coverage UI (DataGapsPanel/CoverageSummary/FieldSourceTip) already wired. |",
+                                 "| **Risk** | LOW 鈥?changes are additive (new health module, expanded capabilities map). Existing inline endpoints preserved. |",
+                                 "| **Decision** | Extracted `/data-sources/status` into `health.py` per task spec. Kept other inline health endpoints in `main.py` to avoid unnecessary churn. |",
+                                 "| **Next** | If `/health` duplication between router and inline is undesirable, merge into `health.py` in a follow-up. |",
+                                 "---"
+                             ]
+                 },
+    "lockExists":  false,
+    "diffCheckPassed":  true,
+    "diffCheckOutput":  "warning: in the working copy of \u0027backend/app/data/providers/fusion.py\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027backend/tests/test_etf_cache_population_script.py\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/STATUS.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/outbox/FT-UX-V11-RELEASE-SPLIT-AUDIT-001.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/outbox/HF1-P1-1-ETF-CACHE-POPULATION-001.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/outbox/P1-STRESS-MC-PROVENANCE-001.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/outbox/TASK-PM-SMOKE-001.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/reports/HF1-P1-1-ETF-CACHE-POPULATION-001.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027docs/pm/reviews/HF1-P1-1-ETF-CACHE-POPULATION-001.acceptance.md\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/api/fund-router.ts\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/components/fund-detail/DetailStatusPanels.tsx\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/pages/FundDetail/components/FieldSourceTip.tsx\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/pages/FundDetail/tabs/OverviewTab.tsx\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027scripts/populate-etf-cache.ps1\u0027, LF will be replaced by CRLF the next time Git touches it",
+    "allowedFiles":  [
+                         "backend/",
+                         "tests/",
+                         "docs/pm/",
+                         "backend/app/",
+                         "tests/"
+                     ],
+    "allowedFound":  true,
+    "newlyChanged":  [
+
+                     ],
+    "issues":  [
+
+               ],
+    "recommendedNext":  "Ready for next task or archive."
+}

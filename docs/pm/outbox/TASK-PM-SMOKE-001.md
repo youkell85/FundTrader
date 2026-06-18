@@ -4,6 +4,11 @@ Created: 2026-06-10T18:18:11+08:00
 PM: Codex
 Executor: Claude Code via cc-switch
 
+## Allowed Files
+
+- `docs/pm/reports/TASK-PM-SMOKE-001.md`
+- `docs/pm/reviews/TASK-PM-SMOKE-001.review.md`
+
 ## Goal
 
 Describe the user-facing outcome in one or two paragraphs.
