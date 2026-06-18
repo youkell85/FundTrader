@@ -2517,8 +2517,9 @@ def get_fund_turnover_history(code: str, periods: int = 40) -> dict:
         for row in reversed(rows)
         if _safe_float(row["turnover_rate"]) is not None
     ]
-    if len(out) < target_periods:
-        out = _backfill_turnover_history_from_reports(code, out, target_periods)
+    if len(out) < target_periods and (not out or periods <= 2):
+        backfill_target = min(target_periods, 2)
+        out = _backfill_turnover_history_from_reports(code, out, backfill_target)
     if out:
         out = sorted(out, key=lambda item: str(item.get("quarter") or ""))[-periods:]
         coverage = round(min(1.0, len([row for row in out if row.get("turnoverRate") is not None]) / target_periods), 4)

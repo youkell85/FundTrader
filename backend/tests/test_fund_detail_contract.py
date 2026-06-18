@@ -560,6 +560,17 @@ class FundDetailContractTest(unittest.TestCase):
         self.assertEqual(payload["rows"][0]["sellStockAmount"], 5878949463.92)
         self.assertIn("1/8", payload["missingReason"])
 
+    def test_turnover_history_with_snapshot_does_not_fetch_reports_for_large_window(self):
+        rows = [{"report_date": "2025-12-31", "turnover_rate": 2009.9638, "source": "eastmoney:periodic_report_pdf", "updated_at": "2026-06-19"}]
+        with patch.object(fund_service, "_safe_table_query", return_value=rows), \
+            patch.object(fund_service, "_fetch_eastmoney_holder_report_pdf_texts") as fetch_reports:
+            payload = fund_service.get_fund_turnover_history("000001", periods=8)
+
+        fetch_reports.assert_not_called()
+        self.assertEqual(payload["dataStatus"], "partial")
+        self.assertEqual(payload["coverage"], 0.125)
+        self.assertIn("1/8", payload["missingReason"])
+
     def test_turnover_history_backfills_multiple_report_periods(self):
         reports = [
             {
