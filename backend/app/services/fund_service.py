@@ -13,7 +13,9 @@ import os
 import json
 import re
 import io
+import html
 import threading
+import urllib.request
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from datetime import date, datetime, timedelta
 from typing import Any
@@ -1150,10 +1152,14 @@ def get_fund_purchase_info(code: str) -> dict | None:
     """购买信息（申购/赎回状态、起购、4 类费率、总费率）。
 
     数据源：
-      - 费率：fund_metrics_snapshot.fee_manage / fee_custody
-      - 起购 / 状态：未接入真实销售文件时保持为空
+      - 优先：东方财富 F10 购买信息（费率表）
+      - 回退：fund_metrics_snapshot.fee_manage / fee_custody
     """
     try:
+        eastmoney_payload = _fetch_eastmoney_purchase_info(code)
+        if eastmoney_payload:
+            return eastmoney_payload
+
         with get_db_context() as conn:
             row = conn.execute(
                 """SELECT fee_manage, fee_custody, updated_at
@@ -1205,6 +1211,148 @@ def get_fund_purchase_info(code: str) -> dict | None:
         }
     except Exception:
         return None
+
+
+def _fetch_eastmoney_purchase_info(code: str) -> dict | None:
+    url = f"https://fundf10.eastmoney.com/jjfl_{code}.html"
+    req = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "Mozilla/5.0",
+            "Referer": "https://fundf10.eastmoney.com/",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            raw = resp.read()
+    except Exception as exc:
+        console_error(f"eastmoney purchase info fetch failed for {code}: {exc}")
+        return None
+
+    text = _decode_html(raw)
+    if not text:
+        return None
+    return _parse_eastmoney_purchase_info(code, text, as_of=datetime.now().isoformat(timespec="seconds"))
+
+
+def _decode_html(raw: bytes) -> str:
+    for encoding in ("utf-8", "gb18030"):
+        try:
+            return raw.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    return ""
+
+
+def _parse_eastmoney_purchase_info(code: str, text: str, *, as_of: str) -> dict | None:
+    purchase_status = _extract_table_value(text, "申购状态")
+    redeem_status = _extract_table_value(text, "赎回状态")
+    min_purchase = _parse_amount(_extract_table_value(text, "申购起点") or _extract_table_value(text, "首次购买"))
+    management_fee = _normalize_fee_label(_extract_table_value(text, "管理费率"))
+    custody_fee = _normalize_fee_label(_extract_table_value(text, "托管费率"))
+    service_fee = _normalize_fee_label(_extract_table_value(text, "销售服务费率"))
+    subscription_fee = _extract_first_rate_in_section(text, "申购费率（前端）")
+    redemption_fee = _extract_first_rate_in_section(text, "赎回费率")
+
+    has_real_sales_data = any(
+        value not in (None, "", "—", "---")
+        for value in (purchase_status, redeem_status, min_purchase, subscription_fee, redemption_fee)
+    )
+    has_fee_data = any(value not in (None, "", "—", "---") for value in (management_fee, custody_fee, service_fee))
+    if not has_real_sales_data and not has_fee_data:
+        return None
+
+    total = sum(
+        fee for fee in (
+            _fee_string_to_percent(management_fee),
+            _fee_string_to_percent(custody_fee),
+            _fee_string_to_percent(service_fee),
+        )
+        if fee is not None
+    )
+    coverage = 1.0 if has_real_sales_data and has_fee_data else 0.7
+    status = DETAIL_STATUS_AVAILABLE if coverage >= 1.0 else DETAIL_STATUS_PARTIAL
+    return {
+        "code": code,
+        "purchaseStatus": purchase_status,
+        "redeemStatus": redeem_status,
+        "minPurchaseAmount": min_purchase,
+        "subscriptionFeeRate": subscription_fee,
+        "redemptionFeeRate": redemption_fee,
+        "managementFeeRate": management_fee,
+        "custodyFeeRate": custody_fee,
+        "serviceFeeRate": service_fee,
+        "totalFeeRate1y": f"{total:.2f}" if total > 0 else None,
+        **_detail_meta(
+            status=status,
+            source="eastmoney:fundf10_fee_page",
+            as_of=as_of,
+            coverage=coverage,
+            missing_reason=None if status == DETAIL_STATUS_AVAILABLE else "东方财富费率页缺少部分购买或费率字段。",
+        ),
+    }
+
+
+def _extract_table_value(text: str, label: str) -> str | None:
+    match = re.search(
+        rf"<td[^>]*>\s*{re.escape(label)}\s*</td>\s*<td[^>]*>(.*?)</td>",
+        text,
+        re.S,
+    )
+    if not match:
+        match = re.search(
+            rf"<th[^>]*>\s*{re.escape(label)}\s*</th>\s*<td[^>]*>(.*?)</td>",
+            text,
+            re.S,
+        )
+    if not match:
+        return None
+    value = html.unescape(re.sub(r"<[^>]+>", " ", match.group(1)))
+    value = re.sub(r"\s+", " ", value).strip()
+    return value or None
+
+
+def _extract_first_rate_in_section(text: str, title: str) -> str | None:
+    title_at = text.find(title)
+    if title_at < 0:
+        return None
+    segment = text[title_at : title_at + 3000]
+    next_box = segment.find("</div></div><div class=\"box\"", 100)
+    if next_box > 0:
+        segment = segment[:next_box]
+    plain = html.unescape(re.sub(r"<[^>]+>", " ", segment))
+    plain = re.sub(r"\s+", " ", plain).strip()
+    rates = re.findall(r"\d+(?:\.\d+)?\s*%", plain)
+    if not rates:
+        fixed = re.search(r"每笔\s*\d+(?:\.\d+)?\s*元", plain)
+        return fixed.group(0).replace(" ", "") if fixed else None
+    unique: list[str] = []
+    for rate in rates:
+        value = rate.replace(" ", "")
+        if value not in unique:
+            unique.append(value)
+    return " / ".join(unique[:2]) if len(unique) > 1 else unique[0]
+
+
+def _parse_amount(value: str | None) -> float | None:
+    if not value:
+        return None
+    match = re.search(r"\d+(?:\.\d+)?", value.replace(",", ""))
+    return float(match.group(0)) if match else None
+
+
+def _normalize_fee_label(value: str | None) -> str | None:
+    if not value or value.strip() in {"---", "--", "-"}:
+        return None
+    match = re.search(r"\d+(?:\.\d+)?\s*%", value)
+    return match.group(0).replace(" ", "") if match else None
+
+
+def _fee_string_to_percent(value: str | None) -> float | None:
+    if not value:
+        return None
+    match = re.search(r"\d+(?:\.\d+)?", value)
+    return float(match.group(0)) if match else None
 
 
 def get_fund_holder_structure(code: str, periods: int = 40) -> dict:

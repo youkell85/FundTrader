@@ -62,6 +62,48 @@ class FundDetailContractTest(unittest.TestCase):
         save.assert_not_called()
         self.assertEqual(rows, [])
 
+    def test_eastmoney_purchase_info_parser_extracts_sales_fields(self):
+        html = """
+        <table><tr><td class="th">申购状态</td><td>开放申购</td><td class="th">赎回状态</td><td>开放赎回</td></tr></table>
+        <table><tr><td class="th">申购起点</td><td>10.00元</td></tr></table>
+        <h4><label>运作费用</label></h4>
+        <table><tr><td class="th">管理费率</td><td>1.20%（每年）</td><td class="th">托管费率</td><td>0.20%（每年）</td><td class="th">销售服务费率</td><td>---</td></tr></table>
+        <div class="box"><h4><label>申购费率（前端）</label></h4><table><tbody><tr><td>小于100万元</td><td><strike>1.50%</strike>|0.15%</td></tr></tbody></table></div>
+        <div class="box"><h4><label>赎回费率</label></h4><table><tbody><tr><td>小于7天</td><td>1.50%</td></tr></tbody></table></div>
+        """
+
+        payload = fund_service._parse_eastmoney_purchase_info("000001", html, as_of="2026-06-19T00:00:00")
+
+        self.assertIsNotNone(payload)
+        self.assertEqual(payload["dataStatus"], "available")
+        self.assertEqual(payload["source"], "eastmoney:fundf10_fee_page")
+        self.assertEqual(payload["purchaseStatus"], "开放申购")
+        self.assertEqual(payload["redeemStatus"], "开放赎回")
+        self.assertEqual(payload["minPurchaseAmount"], 10.0)
+        self.assertEqual(payload["subscriptionFeeRate"], "1.50% / 0.15%")
+        self.assertEqual(payload["redemptionFeeRate"], "1.50%")
+        self.assertEqual(payload["managementFeeRate"], "1.20%")
+        self.assertEqual(payload["custodyFeeRate"], "0.20%")
+        self.assertEqual(payload["totalFeeRate1y"], "1.40")
+
+    def test_purchase_info_prefers_eastmoney_payload_over_metrics(self):
+        eastmoney_payload = {
+            "code": "000001",
+            "purchaseStatus": "开放申购",
+            "dataStatus": "available",
+            "source": "eastmoney:fundf10_fee_page",
+            "asOf": "2026-06-19T00:00:00",
+            "coverage": 1.0,
+            "missingReason": None,
+        }
+
+        with patch.object(fund_service, "_fetch_eastmoney_purchase_info", return_value=eastmoney_payload), \
+            patch.object(fund_service, "get_db_context") as db_ctx:
+            payload = fund_service.get_fund_purchase_info("000001")
+
+        self.assertEqual(payload, eastmoney_payload)
+        db_ctx.assert_not_called()
+
     def test_pct_for_api_does_not_double_scale_percent_values(self):
         self.assertEqual(fund_service._pct_for_api(54.57), 54.57)
         self.assertEqual(fund_service._pct_for_api("54.57"), 54.57)
