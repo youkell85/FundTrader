@@ -13,6 +13,7 @@ import { num, emptyPeerSeries, type PeerSeries, type PerfRow, emptyPerfCell } fr
 import {
   summarizeDetailCoverage,
   deriveStatus,
+  type DetailDataStatus,
   type CoverageInput,
   type CoverageKey,
   type CoverageEntry,
@@ -21,6 +22,38 @@ import {
 } from "@/lib/detail-status";
 import { DETAIL_STATIC_STALE_MS, DETAIL_QUARTERLY_STALE_MS, DETAIL_LLM_STALE_MS, SERIES_COLORS, type RangeKey } from "./constants";
 import { computeRisk, filterByRange } from "./utils";
+
+type DetailFieldSource = {
+  source?: string | null;
+  status?: string | null;
+  dataStatus?: string | null;
+  missingReason?: string | null;
+  asOf?: string | null;
+  coverage?: number | null;
+};
+
+type ProviderStatus = {
+  name?: string;
+  status?: string | null;
+  available?: boolean;
+  capabilities?: string[];
+  lastError?: string | null;
+  last_error?: string | null;
+  cooldownUntil?: string | null;
+  cooldown_until?: string | null;
+  failureCount?: number | null;
+  failure_count?: number | null;
+  circuitOpen?: boolean | null;
+  circuit_open?: boolean | null;
+  priority?: number | null;
+};
+
+function normalizeFieldStatus(value: unknown): DetailDataStatus {
+  if (value === "available" || value === "partial" || value === "stale" || value === "pending" || value === "error") {
+    return value;
+  }
+  return "missing";
+}
 
 export function useFundDetailData() {
   const location = useLocation();
@@ -81,6 +114,14 @@ export function useFundDetailData() {
   const detailCompletenessQ = trpc.fund.detailCompleteness.useQuery(
     { code },
     { enabled, staleTime: DETAIL_QUARTERLY_STALE_MS, refetchOnWindowFocus: false },
+  );
+  const detailFieldsQ = trpc.fund.detailFields.useQuery(
+    { code },
+    { enabled, staleTime: DETAIL_QUARTERLY_STALE_MS, refetchOnWindowFocus: false },
+  );
+  const dataSourcesStatusQ = trpc.fund.dataSourcesStatus.useQuery(
+    undefined,
+    { enabled, staleTime: 60_000, refetchOnWindowFocus: false },
   );
   const marketContextQ = trpc.fund.marketContext.useQuery(
     { code },
@@ -190,6 +231,83 @@ export function useFundDetailData() {
     scaleHistoryQ, turnoverHistoryQ, managerHistoryQ, bondAllocationQ, bondHoldingsQ,
     detailCompletenessQ, managerReportQ, riskSummaryQ,
   ]);
+
+  const sourceCoverage = useMemo(() => {
+    const fieldPayload = (detailFieldsQ.data || detailCompletenessQ.data) as
+      | { fieldSources?: Record<string, DetailFieldSource>; coverage?: number; fieldCoverage?: number }
+      | undefined;
+    const fieldSources = fieldPayload?.fieldSources && typeof fieldPayload.fieldSources === "object"
+      ? fieldPayload.fieldSources
+      : {};
+    const fieldEntries = Object.entries(fieldSources).map(([field, value]) => {
+      const status = normalizeFieldStatus(value?.dataStatus || value?.status);
+      return {
+        field,
+        status,
+        source: value?.source ?? null,
+        missingReason: value?.missingReason ?? null,
+        asOf: value?.asOf ?? null,
+        coverage: typeof value?.coverage === "number" ? value.coverage : null,
+      };
+    });
+
+    const sourceMap = new Map<string, { source: string; count: number; available: number; partial: number; missing: number }>();
+    for (const entry of fieldEntries) {
+      const source = entry.source || "unattributed";
+      const current = sourceMap.get(source) || { source, count: 0, available: 0, partial: 0, missing: 0 };
+      current.count += 1;
+      if (entry.status === "available") current.available += 1;
+      else if (entry.status === "partial" || entry.status === "stale") current.partial += 1;
+      else current.missing += 1;
+      sourceMap.set(source, current);
+    }
+
+    const providersPayload = dataSourcesStatusQ.data as
+      | { status?: string; providers?: ProviderStatus[]; availableCount?: number; totalCount?: number; updatedAt?: string | null }
+      | undefined;
+    const providers = Array.isArray(providersPayload?.providers) ? providersPayload.providers : [];
+    const availableProviders =
+      typeof providersPayload?.availableCount === "number"
+        ? providersPayload.availableCount
+        : providers.filter((provider) => provider.available).length;
+    const totalProviders =
+      typeof providersPayload?.totalCount === "number"
+        ? providersPayload.totalCount
+        : providers.length;
+
+    const statusRank: Record<DetailDataStatus, number> = {
+      error: 0,
+      missing: 1,
+      stale: 2,
+      partial: 3,
+      pending: 4,
+      simulated: 5,
+      available: 6,
+    };
+
+    return {
+      fieldCoverage: typeof fieldPayload?.coverage === "number" ? fieldPayload.coverage : fieldPayload?.fieldCoverage ?? null,
+      totalFields: fieldEntries.length,
+      availableFields: fieldEntries.filter((entry) => entry.status === "available").length,
+      partialFields: fieldEntries.filter((entry) => entry.status === "partial" || entry.status === "stale").length,
+      missingFields: fieldEntries.filter((entry) => entry.status === "missing" || entry.status === "error").length,
+      topSources: Array.from(sourceMap.values()).sort((a, b) => b.count - a.count).slice(0, 6),
+      problemFields: [...fieldEntries]
+        .filter((entry) => entry.status !== "available")
+        .sort((a, b) => (statusRank[a.status] ?? 9) - (statusRank[b.status] ?? 9))
+        .slice(0, 6),
+      providers: providers
+        .slice()
+        .sort((a, b) => Number(b.available) - Number(a.available) || (b.priority ?? 0) - (a.priority ?? 0))
+        .slice(0, 8),
+      providerStatus: providersPayload?.status || (availableProviders > 0 ? "available" : "missing"),
+      availableProviders,
+      totalProviders,
+      updatedAt: providersPayload?.updatedAt ?? null,
+      loading: detailFieldsQ.isLoading || dataSourcesStatusQ.isLoading,
+      error: detailFieldsQ.isError || dataSourcesStatusQ.isError,
+    };
+  }, [dataSourcesStatusQ.data, dataSourcesStatusQ.isError, dataSourcesStatusQ.isLoading, detailCompletenessQ.data, detailFieldsQ.data, detailFieldsQ.isError, detailFieldsQ.isLoading]);
 
   // === 业绩曲线：4 系列 ===
   //   - fund：本基金累计收益（前端从 navPoints 计算，或后端 series.fund 返回）
@@ -408,6 +526,8 @@ export function useFundDetailData() {
     bondAllocationQ,
     bondHoldingsQ,
     detailCompletenessQ,
+    detailFieldsQ,
+    dataSourcesStatusQ,
     marketContextQ,
     managerReportQ,
     riskSummaryQ,
@@ -417,6 +537,7 @@ export function useFundDetailData() {
     scopedPoints,
     risk,
     coverage,
+    sourceCoverage,
     series,
     performanceRows,
     navSeries,

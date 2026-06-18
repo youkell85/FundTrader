@@ -25,6 +25,72 @@ function isGapStatus(status: DetailDataStatus): boolean {
   return status === "missing" || status === "error" || status === "partial" || status === "stale";
 }
 
+type SourceCoverageSummary = {
+  fieldCoverage: number | null;
+  totalFields: number;
+  availableFields: number;
+  partialFields: number;
+  missingFields: number;
+  topSources: Array<{ source: string; count: number; available: number; partial: number; missing: number }>;
+  problemFields: Array<{
+    field: string;
+    status: DetailDataStatus;
+    source?: string | null;
+    missingReason?: string | null;
+    asOf?: string | null;
+    coverage?: number | null;
+  }>;
+  providers: Array<{
+    name?: string;
+    status?: string | null;
+    available?: boolean;
+    capabilities?: string[];
+    lastError?: string | null;
+    last_error?: string | null;
+    cooldownUntil?: string | null;
+    cooldown_until?: string | null;
+    failureCount?: number | null;
+    failure_count?: number | null;
+    circuitOpen?: boolean | null;
+    circuit_open?: boolean | null;
+  }>;
+  providerStatus: string;
+  availableProviders: number;
+  totalProviders: number;
+  updatedAt?: string | null;
+  loading: boolean;
+  error: boolean;
+};
+
+function pctLabel(value: number | null | undefined): string {
+  if (typeof value !== "number" || Number.isNaN(value)) return "-";
+  const normalized = value <= 1 ? value * 100 : value;
+  return `${Math.round(normalized)}%`;
+}
+
+function providerTone(provider: SourceCoverageSummary["providers"][number]): string {
+  const status = String(provider.status || "").toLowerCase();
+  if (provider.available || status === "available" || status === "healthy") {
+    return "text-[#16C784] border-[#16C784]/30 bg-[#16C784]/5";
+  }
+  if (status === "partial" || status === "degraded" || status === "cooldown" || status === "stale") {
+    return "text-[#FFB800] border-[#FFB800]/30 bg-[#FFB800]/5";
+  }
+  return "text-white/45 border-white/10 bg-white/[0.02]";
+}
+
+function providerNote(provider: SourceCoverageSummary["providers"][number]): string {
+  const parts = [provider.status || (provider.available ? "available" : "missing")];
+  const failureCount = provider.failureCount ?? provider.failure_count;
+  const cooldownUntil = provider.cooldownUntil || provider.cooldown_until;
+  const lastError = provider.lastError || provider.last_error;
+  if (failureCount) parts.push(`fail=${failureCount}`);
+  if (provider.circuitOpen || provider.circuit_open) parts.push("circuit=open");
+  if (cooldownUntil) parts.push(`cooldown=${cooldownUntil}`);
+  if (lastError) parts.push(lastError);
+  return parts.join(" / ");
+}
+
 export function DecisionSnapshot({
   fund,
   risk,
@@ -174,6 +240,94 @@ export function MarketContextPanel({ context }: { context: any }) {
           );
         })}
       </div>
+    </Panel>
+  );
+}
+
+export function SourceCoveragePanel({ summary }: { summary: SourceCoverageSummary }) {
+  if (!summary) return null;
+  const hasFields = summary.totalFields > 0;
+  const hasProviders = summary.totalProviders > 0;
+  const healthStatus: DetailDataStatus = summary.error
+    ? "error"
+    : summary.loading && !hasFields && !hasProviders
+      ? "pending"
+      : summary.missingFields > 0
+        ? "partial"
+        : "available";
+
+  return (
+    <Panel
+      title="Source coverage"
+      extra={<span className={`rounded border px-2 py-0.5 text-xs ${statusTone(healthStatus)}`}>{statusLabel(healthStatus)}</span>}
+    >
+      <div className="grid grid-cols-2 gap-2 text-sm">
+        <div className="rounded-md border border-white/[0.06] bg-white/[0.02] px-3 py-2">
+          <div className="text-[11px] text-white/40">Fields</div>
+          <div className="mt-1 data-number text-lg font-semibold text-white/85">
+            {hasFields ? `${summary.availableFields}/${summary.totalFields}` : "-"}
+          </div>
+          <div className="mt-0.5 text-xs text-white/45">
+            coverage {pctLabel(summary.fieldCoverage)}
+          </div>
+        </div>
+        <div className="rounded-md border border-white/[0.06] bg-white/[0.02] px-3 py-2">
+          <div className="text-[11px] text-white/40">Providers</div>
+          <div className="mt-1 data-number text-lg font-semibold text-white/85">
+            {hasProviders ? `${summary.availableProviders}/${summary.totalProviders}` : "-"}
+          </div>
+          <div className="mt-0.5 truncate text-xs text-white/45" title={summary.updatedAt || undefined}>
+            {summary.providerStatus || "unknown"}
+          </div>
+        </div>
+      </div>
+
+      {summary.topSources.length > 0 ? (
+        <div className="mt-3">
+          <div className="mb-1.5 text-[11px] text-white/40">Top field sources</div>
+          <div className="flex flex-wrap gap-1.5">
+            {summary.topSources.map((source) => (
+              <span key={source.source} className="rounded border border-white/[0.08] bg-white/[0.02] px-2 py-1 text-[11px] text-white/60">
+                {source.source} <span className="data-number text-white/80">{source.available}/{source.count}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {summary.providers.length > 0 ? (
+        <div className="mt-3 space-y-1.5">
+          <div className="text-[11px] text-white/40">Provider health</div>
+          {summary.providers.slice(0, 4).map((provider) => (
+            <div key={provider.name || providerNote(provider)} className={`rounded border px-2.5 py-1.5 text-xs ${providerTone(provider)}`}>
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-medium">{provider.name || "unknown"}</span>
+                <span className="shrink-0">{provider.available ? "available" : provider.status || "missing"}</span>
+              </div>
+              <div className="mt-1 truncate opacity-65" title={providerNote(provider)}>
+                {(provider.capabilities || []).slice(0, 3).join(", ") || providerNote(provider)}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {summary.problemFields.length > 0 ? (
+        <div className="mt-3 space-y-1.5">
+          <div className="text-[11px] text-white/40">Field gaps</div>
+          {summary.problemFields.slice(0, 4).map((field) => (
+            <div key={field.field} className={`rounded border px-2.5 py-1.5 text-xs ${statusTone(field.status)}`}>
+              <div className="flex items-center justify-between gap-2">
+                <span className="truncate font-medium">{field.field}</span>
+                <span className="shrink-0">{statusLabel(field.status)}</span>
+              </div>
+              <div className="mt-1 truncate opacity-65" title={field.missingReason || field.source || undefined}>
+                {field.source || "unattributed"}{field.missingReason ? ` / ${field.missingReason}` : ""}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
     </Panel>
   );
 }

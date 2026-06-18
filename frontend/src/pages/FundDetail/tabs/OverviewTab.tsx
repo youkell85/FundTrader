@@ -1,4 +1,5 @@
 import { CheckCircle2, CircleAlert, CircleDashed } from "lucide-react";
+import { SourceCoveragePanel } from "@/components/fund-detail/DetailStatusPanels";
 import { Panel } from "@/components/report/Panel";
 import { num, numFmt, pct } from "@/lib/fund-data";
 import { DataGapsPanel } from "../components/DataGapsPanel";
@@ -91,6 +92,8 @@ export default function OverviewTab({ detail, onSelectTab }: FundDetailTabProps)
           </div>
           <DataGapsPanel items={detail.coverage.items} />
         </Panel>
+
+        <SourceCoveragePanel summary={detail.sourceCoverage} />
       </div>
     </div>
   );
