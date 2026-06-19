@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Dict, List, Literal, Optional, Tuple
 
 
@@ -92,19 +92,6 @@ class RebalanceSuggestion:
     estimated_cost: float = 0.0  # 预估交易成本(元)
     summary: str = ""
 
-
-@dataclass
-class RebalanceHistoryEntry:
-    """历史调仓记录"""
-    entry_id: str
-    executed_at: str
-    risk_profile: str
-    trigger_type: str
-    actions_count: int
-    total_turnover: float
-    estimated_cost: float
-    status: Literal["executed", "skipped", "partial"]
-    summary: str
 
 
 # ─── 核心函数 ───
@@ -361,42 +348,3 @@ def run_rebalance_check(
         estimated_cost=round(estimated_cost, 2),
         summary=summary,
     )
-
-
-# ─── 模拟历史数据 ───
-
-def get_mock_history() -> List[RebalanceHistoryEntry]:
-    """返回模拟的历史调仓记录"""
-    now = datetime.now()
-    return [
-        RebalanceHistoryEntry(
-            entry_id="h001", executed_at=(now - timedelta(days=7)).strftime("%Y-%m-%d"),
-            risk_profile="balanced", trigger_type="deviation",
-            actions_count=4, total_turnover=3.2, estimated_cost=160.0,
-            status="executed", summary="权益超配3%，减仓A股大盘+增配利率债",
-        ),
-        RebalanceHistoryEntry(
-            entry_id="h002", executed_at=(now - timedelta(days=45)).strftime("%Y-%m-%d"),
-            risk_profile="balanced", trigger_type="time",
-            actions_count=3, total_turnover=2.1, estimated_cost=105.0,
-            status="executed", summary="季度定期再平衡，微调组合回归目标权重",
-        ),
-        RebalanceHistoryEntry(
-            entry_id="h003", executed_at=(now - timedelta(days=98)).strftime("%Y-%m-%d"),
-            risk_profile="balanced", trigger_type="regime_change",
-            actions_count=6, total_turnover=5.8, estimated_cost=290.0,
-            status="executed", summary="市场从金发女孩转向过热，降低权益增配黄金和债券",
-        ),
-        RebalanceHistoryEntry(
-            entry_id="h004", executed_at=(now - timedelta(days=140)).strftime("%Y-%m-%d"),
-            risk_profile="balanced", trigger_type="deviation",
-            actions_count=2, total_turnover=1.5, estimated_cost=75.0,
-            status="skipped", summary="偏离度轻微，用户选择暂不调仓",
-        ),
-        RebalanceHistoryEntry(
-            entry_id="h005", executed_at=(now - timedelta(days=210)).strftime("%Y-%m-%d"),
-            risk_profile="balanced", trigger_type="manual",
-            actions_count=5, total_turnover=4.3, estimated_cost=215.0,
-            status="executed", summary="用户手动发起再平衡，全面回归SAA目标权重",
-        ),
-    ]
