@@ -6,7 +6,7 @@ availability metadata so a failed market source never blocks the fund detail.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from ..storage.database import get_db_context
@@ -202,25 +202,76 @@ def _sector_flow_rows_from_eastmoney(limit: int) -> list[tuple[str, float]]:
     return rows
 
 
-def _fetch_sector_flow_rows(limit: int) -> tuple[list[tuple[str, float]], str, list[str]]:
+def _format_trade_date(value: Any) -> str | None:
+    text = str(value or "").strip()
+    if len(text) == 8 and text.isdigit():
+        return f"{text[:4]}-{text[4:6]}-{text[6:]}"
+    return text or None
+
+
+def _sector_flow_rows_from_tushare(limit: int) -> tuple[list[tuple[str, float]], str | None]:
+    from ..config import TUSHARE_TOKEN
+
+    if not TUSHARE_TOKEN:
+        return [], None
+
+    import tushare as ts
+
+    ts.set_token(TUSHARE_TOKEN)
+    pro = ts.pro_api(TUSHARE_TOKEN)
+    today = datetime.now().date()
+    latest_error: Exception | None = None
+    for offset in range(0, 12):
+        trade_date = (today - timedelta(days=offset)).strftime("%Y%m%d")
+        try:
+            df = pro.moneyflow_ind_ths(trade_date=trade_date)
+        except Exception as exc:
+            latest_error = exc
+            continue
+        if df is None or df.empty:
+            continue
+
+        rows: list[tuple[str, float]] = []
+        for _, row in df.head(max(1, min(limit, 100))).iterrows():
+            name = str(_pick_value(row, ("industry", "name", "名称")) or "").strip()
+            amount_yi = _to_float(_pick_value(row, ("net_amount", "netAmount")))
+            if name and amount_yi is not None:
+                rows.append((name, amount_yi * 100_000_000))
+        if rows:
+            return rows, _format_trade_date(trade_date)
+
+    if latest_error is not None:
+        raise latest_error
+    return [], None
+
+
+def _fetch_sector_flow_rows(limit: int) -> tuple[list[tuple[str, float]], str, str | None, list[str]]:
     warnings: list[str] = []
     try:
         rows = _sector_flow_rows_from_akshare(limit)
         if rows:
-            return rows, "akshare:stock_sector_fund_flow_rank", warnings
+            return rows, "akshare:stock_sector_fund_flow_rank", datetime.now().date().isoformat(), warnings
         warnings.append("akshare sector flow returned no rows")
     except Exception as exc:  # pragma: no cover - live provider shape/network drift
         warnings.append(f"akshare sector flow failed: {exc}")
 
     try:
+        rows, as_of = _sector_flow_rows_from_tushare(limit)
+        if rows:
+            return rows, "tushare:moneyflow_ind_ths", as_of, warnings
+        warnings.append("tushare sector flow returned no rows")
+    except Exception as exc:  # pragma: no cover - live provider shape/network/token drift
+        warnings.append(f"tushare sector flow failed: {exc}")
+
+    try:
         rows = _sector_flow_rows_from_eastmoney(limit)
         if rows:
-            return rows, "eastmoney:qt_clist_sector_fund_flow", warnings
+            return rows, "eastmoney:qt_clist_sector_fund_flow", datetime.now().date().isoformat(), warnings
         warnings.append("eastmoney sector flow returned no rows")
     except Exception as exc:  # pragma: no cover - live provider shape/network drift
         warnings.append(f"eastmoney sector flow failed: {exc}")
 
-    return [], "eastmoney:qt_clist_sector_fund_flow", warnings
+    return [], "eastmoney:qt_clist_sector_fund_flow", None, warnings
 
 
 def refresh_market_context_cache(limit: int = 30) -> dict[str, Any]:
@@ -267,11 +318,11 @@ def refresh_market_context_cache(limit: int = 30) -> dict[str, Any]:
     except Exception as exc:  # pragma: no cover - live provider shape/network drift
         warnings.append(f"market flow refresh failed: {exc}")
 
-    sector_rows, sector_source, sector_warnings = _fetch_sector_flow_rows(limit)
+    sector_rows, sector_source, sector_as_of, sector_warnings = _fetch_sector_flow_rows(limit)
     warnings.extend(sector_warnings)
     if sector_rows:
         batch = [
-            (f"{SECTOR_FLOW_PREFIX}{name}", amount, now, sector_source)
+            (f"{SECTOR_FLOW_PREFIX}{name}", amount, sector_as_of or now, sector_source)
             for name, amount in sector_rows
         ]
         MacroCache.save_batch(batch)

@@ -1,12 +1,14 @@
 import json
 import sqlite3
 from contextlib import contextmanager
+from datetime import datetime as real_datetime
 from unittest.mock import patch
 
 from app.data.market_context_fetcher import (
     MARKET_FLOW_INDICATOR,
     _fetch_sector_flow_rows,
     _sector_flow_rows_from_eastmoney,
+    _sector_flow_rows_from_tushare,
     _top_industries,
     get_fund_market_context,
 )
@@ -340,12 +342,54 @@ def test_top_industries_reads_fund_holdings_snapshot():
 
 def test_sector_flow_fetch_falls_back_to_direct_eastmoney():
     with patch("app.data.market_context_fetcher._sector_flow_rows_from_akshare", side_effect=ValueError("empty json")), \
+         patch("app.data.market_context_fetcher._sector_flow_rows_from_tushare", return_value=([], None)), \
          patch("app.data.market_context_fetcher._sector_flow_rows_from_eastmoney", return_value=[("半导体", 123.0)]):
-        rows, source, warnings = _fetch_sector_flow_rows(30)
+        rows, source, as_of, warnings = _fetch_sector_flow_rows(30)
 
     assert rows == [("半导体", 123.0)]
     assert source == "eastmoney:qt_clist_sector_fund_flow"
+    assert as_of is not None
     assert any("akshare sector flow failed" in item for item in warnings)
+
+
+def test_sector_flow_fetch_uses_tushare_after_akshare_failure():
+    with patch("app.data.market_context_fetcher._sector_flow_rows_from_akshare", side_effect=ValueError("empty json")), \
+         patch("app.data.market_context_fetcher._sector_flow_rows_from_tushare", return_value=([("半导体", 11_900_000_000.0)], "2026-06-18")), \
+         patch("app.data.market_context_fetcher._sector_flow_rows_from_eastmoney") as eastmoney:
+        rows, source, as_of, warnings = _fetch_sector_flow_rows(30)
+
+    assert rows == [("半导体", 11_900_000_000.0)]
+    assert source == "tushare:moneyflow_ind_ths"
+    assert as_of == "2026-06-18"
+    assert any("akshare sector flow failed" in item for item in warnings)
+    eastmoney.assert_not_called()
+
+
+def test_tushare_sector_flow_converts_yi_yuan_to_yuan():
+    class FakeDateTime:
+        @classmethod
+        def now(cls):
+            return real_datetime(2026, 6, 19)
+
+    class FakePro:
+        def moneyflow_ind_ths(self, trade_date):
+            import pandas as pd
+
+            if trade_date == "20260619":
+                return pd.DataFrame()
+            return pd.DataFrame([
+                {"industry": "半导体", "net_amount": 119.0},
+                {"industry": "通信设备", "net_amount": -8.5},
+            ])
+
+    with patch("app.data.market_context_fetcher.datetime", FakeDateTime), \
+         patch("tushare.set_token"), \
+         patch("tushare.pro_api", return_value=FakePro()), \
+         patch("app.config.TUSHARE_TOKEN", "token"):
+        rows, as_of = _sector_flow_rows_from_tushare(30)
+
+    assert rows == [("半导体", 11_900_000_000.0), ("通信设备", -850_000_000.0)]
+    assert as_of == "2026-06-18"
 
 
 def test_direct_eastmoney_sector_flow_retries_hosts():
