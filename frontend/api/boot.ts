@@ -113,6 +113,11 @@ app.use("/fund/assets/*", serveStatic({
   rewriteRequestPath: (p) => p.replace(/^\/fund/, "") || "/",
 }));
 
+app.use("/fund/favicon.svg", serveStatic({
+  root: distPath,
+  rewriteRequestPath: () => "/favicon.svg",
+}));
+
 const indexHtml = fs.existsSync(path.resolve(distPath, "index.html"))
   ? fs.readFileSync(path.resolve(distPath, "index.html"), "utf-8")
   : null;
