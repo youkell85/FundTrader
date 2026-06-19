@@ -1236,6 +1236,32 @@ class FundDetailCompletenessTest(unittest.TestCase):
                 f"{key} should NOT be available/stale when no data",
             )
 
+    def test_purchase_info_endpoint_overrides_metrics_when_snapshot_missing(self):
+        payload = {
+            "code": "000001",
+            "dataStatus": "available",
+            "source": "eastmoney:fundf10_fee_page",
+            "asOf": "2026-06-20T03:21:39",
+            "coverage": 1.0,
+            "missingReason": None,
+            "purchaseStatus": "场内交易",
+            "managementFeeRate": "0.15%",
+            "custodyFeeRate": "0.05%",
+        }
+        result = self._invoke(
+            snapshot={},
+            metrics_row={
+                "score": None,
+                "fee_manage": 0.0015,
+                "fee_custody": 0.0005,
+                "metrics_updated_at": "2020-01-01T00:00:00",
+            },
+            detail_payloads={"purchase": payload},
+        )
+        self.assertEqual(result["sections"]["purchaseInfo"]["dataStatus"], "available")
+        self.assertEqual(result["sections"]["purchaseInfo"]["source"], "eastmoney:fundf10_fee_page")
+        self.assertEqual(result["sections"]["purchaseInfo"]["coverage"], 1.0)
+
     # ---- 5. stale 计数与 coverage 权重 ----------------------------------------
     def test_stale_nav_marks_relevant_sections_stale(self):
         """nav_date 陈旧时，overview/performance/navDrawdown/yearReturns 标记 stale。"""
