@@ -249,9 +249,16 @@ def get_ranked_for_class(
     Dynamically refreshes fund metrics from real NAV data before scoring.
     Falls back to static metadata if refresh fails.
     """
-    # Refresh pool metadata (AUM, fees, staleness) before selecting
-    _refreshed_pool = refresh_pool_metadata(_FUND_POOL)
-    profiles = [p for p in _refreshed_pool.values() if p.asset_class == asset_class]
+    # Refresh only the candidates for this class. map_funds calls this once per
+    # non-zero asset class, so refreshing the whole pool here multiplies slow
+    # metadata work across the allocation request.
+    candidate_pool = {
+        code: profile
+        for code, profile in _FUND_POOL.items()
+        if profile.asset_class == asset_class
+    }
+    _refreshed_pool = refresh_pool_metadata(candidate_pool)
+    profiles = list(_refreshed_pool.values())
     if not profiles:
         return []
 

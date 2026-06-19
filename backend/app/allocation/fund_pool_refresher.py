@@ -10,6 +10,7 @@ Uses an in-memory cache (6h TTL) to avoid hitting efinance on every
 allocation request — metadata (name, fees, AUM) changes very slowly.
 """
 import logging
+import os
 import threading
 import time
 from datetime import datetime, timedelta
@@ -23,6 +24,9 @@ _STALE_THRESHOLD_DAYS = 7
 _meta_cache: Dict[str, tuple] = {}
 _meta_cache_lock = threading.Lock()
 _META_CACHE_TTL = 6 * 3600  # 6 hours
+_ENABLE_LIVE_PROVIDER_META = os.environ.get(
+    "FUNDTRADER_ENABLE_LIVE_PROVIDER_META", ""
+).lower() in {"1", "true", "yes"}
 
 
 def _profile_cache_signature(profile) -> tuple:
@@ -63,16 +67,24 @@ def refresh_pool_metadata(profiles: Dict) -> Dict:
 
 def _refresh_single(profile) -> object:
     """Refresh a single fund's metadata from live sources."""
-    # Try efinance first
-    meta = _fetch_efinance_meta(profile.code)
-    if meta is None:
+    # Allocation generation is latency-sensitive. Use the local cache first and
+    # keep direct provider calls opt-in because some SDK calls can block inside
+    # their own worker pools without honoring request timeouts.
+    meta = _fetch_sqlite_meta(profile.code)
+    if meta is None and _ENABLE_LIVE_PROVIDER_META:
+        meta = _fetch_efinance_meta(profile.code)
+    if meta is None and _ENABLE_LIVE_PROVIDER_META:
         meta = _fetch_tushare_meta(profile.code)
-    if meta is None:
-        meta = _fetch_sqlite_meta(profile.code)
 
     if meta is None:
         # No live data available — determine staleness from last known as_of
         if profile.metadata_as_of is None:
+            if getattr(profile, "metadata_source", None) == "static_fund_pool":
+                return _update_profile(profile, {
+                    "metadata_status": "assumption",
+                    "metadata_source": "static_fund_pool",
+                    "stale_days": None,
+                })
             # Never refreshed successfully — mark as missing
             return _update_profile(profile, {
                 "metadata_status": "missing",

@@ -8,6 +8,7 @@ fallback handling.
 from __future__ import annotations
 
 import logging
+import os
 from datetime import datetime
 from typing import Dict, Optional, Tuple
 
@@ -37,6 +38,9 @@ _LEGACY_LOADINGS_KEY = "factor_loadings"
 
 _cache_bundle: Optional[dict] = None
 _cache_ts: Optional[datetime] = None
+_ENABLE_LIVE_CALIBRATION = os.environ.get(
+    "FUNDTRADER_ENABLE_LIVE_FACTOR_CALIBRATION", ""
+).lower() in {"1", "true", "yes"}
 
 
 def calibrate() -> Dict[str, Dict[str, float]]:
@@ -57,22 +61,30 @@ def get_calibration_bundle(force_refresh: bool = False) -> dict:
     ):
         return _cache_bundle
 
-    try:
-        bundle = _run_calibration()
-        _cache_bundle = bundle
-        _cache_ts = now
-        _save_to_db(bundle)
-        return bundle
-    except Exception as exc:
-        logger.warning("Factor calibration failed, attempting cached bundle: %s", exc)
-
     cached = _load_from_db()
-    if cached is not None:
+    if cached is not None and not force_refresh:
         _cache_bundle = cached
         _cache_ts = now
         return cached
 
-    bundle = _fallback_bundle(source="static_assumption", reason="calibration_unavailable")
+    if _ENABLE_LIVE_CALIBRATION:
+        try:
+            bundle = _run_calibration()
+            _cache_bundle = bundle
+            _cache_ts = now
+            _save_to_db(bundle)
+            return bundle
+        except Exception as exc:
+            logger.warning("Factor calibration failed, attempting cached bundle: %s", exc)
+
+        cached = _load_from_db()
+        if cached is not None:
+            _cache_bundle = cached
+            _cache_ts = now
+            return cached
+
+    reason = "live_calibration_disabled" if not _ENABLE_LIVE_CALIBRATION else "calibration_unavailable"
+    bundle = _fallback_bundle(source="static_assumption", reason=reason)
     _cache_bundle = bundle
     _cache_ts = now
     return bundle

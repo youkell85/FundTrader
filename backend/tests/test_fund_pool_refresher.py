@@ -14,6 +14,16 @@ from app.allocation.fund_pool_refresher import (
 
 class FundPoolRefresherTest(unittest.TestCase):
 
+    def setUp(self):
+        from app.allocation import fund_pool_refresher
+        with fund_pool_refresher._meta_cache_lock:
+            fund_pool_refresher._meta_cache.clear()
+
+    def tearDown(self):
+        from app.allocation import fund_pool_refresher
+        with fund_pool_refresher._meta_cache_lock:
+            fund_pool_refresher._meta_cache.clear()
+
     def _make_profile(self, code="518880", stale_days=None, metadata_status="assumption",
                       metadata_as_of=None, aum=100.0) -> FundProfile:
         return FundProfile(
@@ -86,7 +96,8 @@ class FundPoolRefresherTest(unittest.TestCase):
         pool = {"518880": profile}
 
         live_meta = {"_source": "efinance", "aum": 250.0, "name": "Updated ETF"}
-        with patch("app.allocation.fund_pool_refresher._fetch_efinance_meta", return_value=live_meta), \
+        with patch("app.allocation.fund_pool_refresher._ENABLE_LIVE_PROVIDER_META", True), \
+             patch("app.allocation.fund_pool_refresher._fetch_efinance_meta", return_value=live_meta), \
              patch("app.allocation.fund_pool_refresher._fetch_tushare_meta", return_value=None), \
              patch("app.allocation.fund_pool_refresher._fetch_sqlite_meta", return_value=None):
             result = refresh_pool_metadata(pool)
@@ -97,8 +108,8 @@ class FundPoolRefresherTest(unittest.TestCase):
         self.assertEqual(result["518880"].stale_days, 0)
 
 
-    def test_refresh_pool_metadata_marks_missing_when_never_refreshed(self):
-        """When no live data and metadata_as_of is None, profile should be marked missing."""
+    def test_refresh_pool_metadata_preserves_static_assumption_when_never_refreshed(self):
+        """Built-in static pool entries should keep assumption provenance without live data."""
         profile = self._make_profile(metadata_as_of=None, metadata_status="assumption")
         pool = {"518880": profile}
 
@@ -107,8 +118,24 @@ class FundPoolRefresherTest(unittest.TestCase):
              patch("app.allocation.fund_pool_refresher._fetch_sqlite_meta", return_value=None):
             result = refresh_pool_metadata(pool)
 
-        self.assertEqual(result["518880"].metadata_status, "missing")
+        self.assertEqual(result["518880"].metadata_status, "assumption")
+        self.assertEqual(result["518880"].metadata_source, "static_fund_pool")
         self.assertIsNone(result["518880"].stale_days)
+
+    def test_refresh_pool_metadata_does_not_call_live_providers_by_default(self):
+        """Request-path metadata refresh should not synchronously call live provider SDKs."""
+        profile = self._make_profile(metadata_as_of=None, metadata_status="assumption")
+        pool = {"518880": profile}
+
+        with patch("app.allocation.fund_pool_refresher._ENABLE_LIVE_PROVIDER_META", False), \
+             patch("app.allocation.fund_pool_refresher._fetch_efinance_meta") as efinance, \
+             patch("app.allocation.fund_pool_refresher._fetch_tushare_meta") as tushare, \
+             patch("app.allocation.fund_pool_refresher._fetch_sqlite_meta", return_value=None):
+            result = refresh_pool_metadata(pool)
+
+        efinance.assert_not_called()
+        tushare.assert_not_called()
+        self.assertEqual(result["518880"].metadata_status, "assumption")
 
     def test_refresh_pool_metadata_marks_assumption_within_grace_period(self):
         """When no live data but as_of is recent, profile should be marked assumption."""

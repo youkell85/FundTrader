@@ -5,6 +5,7 @@ Sharpe ratio, tracking error), and updates FundProfile objects before scoring.
 Falls back to static values when data is unavailable.
 """
 import logging
+import os
 import threading
 from datetime import datetime, timedelta
 from typing import Dict, Optional
@@ -20,6 +21,9 @@ logger = logging.getLogger(__name__)
 _cache: Dict[str, tuple] = {}
 _cache_lock = threading.Lock()
 _CACHE_TTL_SECONDS = 3600 * 4  # 4 hours
+_ENABLE_LIVE_NAV_REFRESH = os.environ.get(
+    "FUNDTRADER_ENABLE_LIVE_NAV_REFRESH", ""
+).lower() in {"1", "true", "yes"}
 
 
 def refresh_fund_profile(profile: FundProfile) -> FundProfile:
@@ -34,7 +38,9 @@ def refresh_fund_profile(profile: FundProfile) -> FundProfile:
         return _build_updated_profile(profile, metrics)
 
     # 1. Try in-memory cache
-    metrics = _get_cached_metrics(profile.code)
+    metrics = _get_memory_metrics(profile.code)
+    if metrics is None and _ENABLE_LIVE_NAV_REFRESH:
+        metrics = _get_cached_metrics(profile.code)
     if metrics is None:
         return profile
 
@@ -42,6 +48,16 @@ def refresh_fund_profile(profile: FundProfile) -> FundProfile:
     _save_sqlite_metrics(profile.code, metrics)
 
     return _build_updated_profile(profile, metrics)
+
+
+def _get_memory_metrics(code: str) -> Optional[Dict]:
+    """Return fresh in-memory metrics without triggering provider fetches."""
+    with _cache_lock:
+        if code in _cache:
+            ts, metrics = _cache[code]
+            if (datetime.now() - ts).total_seconds() < _CACHE_TTL_SECONDS:
+                return metrics
+    return None
 
 
 def _build_updated_profile(profile: FundProfile, metrics: dict) -> FundProfile:

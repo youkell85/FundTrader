@@ -86,7 +86,9 @@ class FactorCalibratorTest(unittest.TestCase):
         series = _build_series()
         series["liquidity_proxy"] = _abnormal_liquidity_prices()
 
-        with patch("app.allocation.factor_calibrator._fetch_equity_proxy_prices", return_value=series["equity_proxy"]), patch(
+        with patch("app.allocation.factor_calibrator._ENABLE_LIVE_CALIBRATION", True), patch(
+            "app.allocation.factor_calibrator._fetch_equity_proxy_prices", return_value=series["equity_proxy"]
+        ), patch(
             "app.allocation.factor_calibrator._fetch_inflation_proxy_prices",
             return_value=(series["inflation_proxy"], "index:NHCI"),
         ), patch(
@@ -108,7 +110,9 @@ class FactorCalibratorTest(unittest.TestCase):
     def test_insufficient_samples_fall_back_to_static_expert_estimate(self):
         short_series = _build_series(price_len=120)
 
-        with patch("app.allocation.factor_calibrator._fetch_equity_proxy_prices", return_value=short_series["equity_proxy"]), patch(
+        with patch("app.allocation.factor_calibrator._ENABLE_LIVE_CALIBRATION", True), patch(
+            "app.allocation.factor_calibrator._fetch_equity_proxy_prices", return_value=short_series["equity_proxy"]
+        ), patch(
             "app.allocation.factor_calibrator._fetch_inflation_proxy_prices",
             return_value=(short_series["inflation_proxy"], "index:NHCI"),
         ), patch(
@@ -131,7 +135,9 @@ class FactorCalibratorTest(unittest.TestCase):
     def test_dynamic_result_includes_quality_metadata_fields(self):
         series = _build_series()
 
-        with patch("app.allocation.factor_calibrator._fetch_equity_proxy_prices", return_value=series["equity_proxy"]), patch(
+        with patch("app.allocation.factor_calibrator._ENABLE_LIVE_CALIBRATION", True), patch(
+            "app.allocation.factor_calibrator._fetch_equity_proxy_prices", return_value=series["equity_proxy"]
+        ), patch(
             "app.allocation.factor_calibrator._fetch_inflation_proxy_prices",
             return_value=(series["inflation_proxy"], "index:NHCI"),
         ), patch(
@@ -165,6 +171,19 @@ class FactorCalibratorTest(unittest.TestCase):
             exposures = factor_exposure.calculate_exposures(allocations)
 
         self.assertEqual(exposures, FACTOR_LOADINGS["a_share_large"])
+
+    def test_force_refresh_uses_static_when_live_calibration_disabled(self):
+        with patch("app.allocation.factor_calibrator._ENABLE_LIVE_CALIBRATION", False), patch(
+            "app.storage.database.StatsSnapshotCache.get",
+            return_value=None,
+        ), patch(
+            "app.allocation.factor_calibrator._run_calibration",
+            side_effect=AssertionError("live calibration should not run"),
+        ):
+            bundle = factor_calibrator.get_calibration_bundle(force_refresh=True)
+
+        self.assertEqual(bundle["summary"]["source"], "static_assumption")
+        self.assertIn("live_calibration_disabled", bundle["summary"]["assumptions_used"][0])
 
 
 if __name__ == "__main__":
