@@ -41,8 +41,8 @@ function StepBar({ current }: { current: number }) {
         const n = i + 1, active = n === current, done = n < current;
         return (
           <React.Fragment key={label}>
-            {i > 0 && <div className={`w-6 h-px ${done ? 'bg-[#3B6CFF]' : 'bg-white/10'}`} />}
-            <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs border transition-all ${active ? 'bg-[#3B6CFF]/15 border-[#3B6CFF]/30 text-[#5AA9FF]' : done ? 'bg-[#00F0FF]/10 border-[#00F0FF]/20 text-[#00F0FF]' : 'bg-white/[0.03] border-white/[0.06] text-white/55'}`}>
+            {i > 0 && <div className={`w-6 h-px ${done ? 'bg-primary' : 'bg-white/10'}`} />}
+            <div className={`flex items-center gap-1 px-2 py-1 rounded-full text-xs border transition-all ${active ? 'bg-primary/15 border-primary/30 text-primary' : done ? 'bg-accent/10 border-accent/25 text-accent' : 'bg-white/[0.03] border-white/[0.06] text-white/55'}`}>
               {done ? <Check className="w-3 h-3" /> : <span className="data-number w-4 text-center">{n}</span>}
               <span className="hidden sm:inline">{label}</span>
             </div>
@@ -185,37 +185,37 @@ export default function AllocationWizard() {
           {/* Step 1 */}
           {wizardStep === 1 && (
             <div className="space-y-6">
-              <h2 className="text-lg text-white font-medium flex items-center gap-2"><Wallet className="w-5 h-5" style={{color:"#3B6CFF"}} />投资目标</h2>
+              <h2 className="text-lg text-white font-medium flex items-center gap-2"><Wallet className="w-5 h-5 text-primary" />投资目标</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div><label className="text-xs text-white/40 mb-1 block">年龄</label><input type="number" min={18} max={80} value={config.age} onChange={e => update({ age: Number(e.target.value) })} className="w-full h-11 px-3 rounded-lg input-focus text-white data-number" /></div>
                 <div><label className="text-xs text-white/40 mb-1 block">投资金额 (元)</label><input type="number" min={1000} step={1000} value={config.amount} onChange={e => update({ amount: Number(e.target.value) })} className="w-full h-11 px-3 rounded-lg input-focus text-white data-number" /></div>
               </div>
-              <div><label className="text-xs text-white/40 mb-2 block">投资目标</label><div className="grid grid-cols-2 md:grid-cols-4 gap-2">{(Object.entries(GOAL_LABELS) as [GoalType, string][]).map(([k, v]) => (<button key={k} onClick={() => update({ goal_type: k })} className={`h-12 rounded-lg border text-sm transition-all ${config.goal_type===k ? 'bg-[#3B6CFF]/15 border-[#3B6CFF]/35 text-[#5AA9FF]' : 'bg-white/[0.03] border-white/[0.07] text-white/50 hover:text-white/75'}`}>{v}</button>))}</div></div>
-              <div><label className="text-xs text-white/40 mb-2 block">投资期限</label><div className="grid grid-cols-4 gap-2">{(Object.entries(HORIZON_LABELS) as [InvestmentHorizon, string][]).map(([k, v]) => (<button key={k} onClick={() => update({ investment_horizon: k })} className={`h-10 rounded-lg border text-xs transition-all ${config.investment_horizon===k ? 'bg-[#00F0FF]/12 border-[#00F0FF]/35 text-[#00F0FF]' : 'bg-white/[0.03] border-white/[0.07] text-white/45'}`}>{v}</button>))}</div></div>
+              <div><label className="text-xs text-white/40 mb-2 block">投资目标</label><div className="grid grid-cols-2 md:grid-cols-4 gap-2">{(Object.entries(GOAL_LABELS) as [GoalType, string][]).map(([k, v]) => (<button key={k} onClick={() => update({ goal_type: k })} className={`h-12 rounded-lg border text-sm transition-all ${config.goal_type===k ? 'bg-primary/15 border-primary/35 text-primary' : 'bg-white/[0.03] border-white/[0.07] text-white/50 hover:text-white/75'}`}>{v}</button>))}</div></div>
+              <div><label className="text-xs text-white/40 mb-2 block">投资期限</label><div className="grid grid-cols-4 gap-2">{(Object.entries(HORIZON_LABELS) as [InvestmentHorizon, string][]).map(([k, v]) => (<button key={k} onClick={() => update({ investment_horizon: k })} className={`h-10 rounded-lg border text-xs transition-all ${config.investment_horizon===k ? 'bg-accent/12 border-accent/35 text-accent' : 'bg-white/[0.03] border-white/[0.07] text-white/45'}`}>{v}</button>))}</div></div>
             </div>
           )}
 
           {/* Step 2 */}
           {wizardStep === 2 && (
             <div className="space-y-6">
-              <h2 className="text-lg text-white font-medium flex items-center gap-2"><Users className="w-5 h-5" style={{color:"#FAC858"}} />风险认知测试</h2>
+              <h2 className="text-lg text-white font-medium flex items-center gap-2"><Users className="w-5 h-5 text-warning" />风险认知测试</h2>
               <p className="text-sm text-white/45">以下问题帮助校准有效风险偏好（自报≠实际行为）</p>
               {BEHAVIOR_QUESTIONS.map(q => (
                 <div key={q.id} className="rounded-lg border border-white/[0.06] bg-white/[0.02] p-4">
                   <p className="text-sm text-white/75 mb-3">{q.text}</p>
-                  <div className="space-y-2">{q.options.map(opt => { const selected = config.behavior_answers?.[q.id] === opt.value; return (<button key={opt.value} onClick={() => update({ behavior_answers: { ...config.behavior_answers, [q.id]: opt.value } })} className={`w-full text-left px-3 py-2 rounded-lg border text-xs transition-all ${selected ? 'bg-[#3B6CFF]/12 border-[#3B6CFF]/30 text-[#5AA9FF]' : 'bg-white/[0.02] border-white/[0.05] text-white/50 hover:text-white/70'}`}>{opt.label}</button>); })}</div>
+                  <div className="space-y-2">{q.options.map(opt => { const selected = config.behavior_answers?.[q.id] === opt.value; return (<button key={opt.value} onClick={() => update({ behavior_answers: { ...config.behavior_answers, [q.id]: opt.value } })} className={`w-full text-left px-3 py-2 rounded-lg border text-xs transition-all ${selected ? 'bg-primary/12 border-primary/30 text-primary' : 'bg-white/[0.02] border-white/[0.05] text-white/50 hover:text-white/70'}`}>{opt.label}</button>); })}</div>
                 </div>
               ))}
-              {behaviorAvg !== null && (<div className={`rounded-lg p-3 border text-sm ${behaviorAvg < -0.5 ? 'bg-[#FFB800]/[0.06] border-[#FFB800]/20 text-[#FFB800]' : behaviorAvg > 1.5 ? 'bg-[#00F0FF]/[0.06] border-[#00F0FF]/20 text-[#00F0FF]' : 'bg-white/[0.03] border-white/[0.06] text-white/55'}`}>{behaviorAvg < -0.5 ? '行为倾向保守，有效风险偏好可能低于自报' : behaviorAvg > 1.5 ? '行为倾向积极，有效风险偏好可能高于自报' : '行为与自报基本一致'}</div>)}
+              {behaviorAvg !== null && (<div className={`rounded-lg p-3 border text-sm ${behaviorAvg < -0.5 ? 'bg-warning/10 border-warning/20 text-warning' : behaviorAvg > 1.5 ? 'bg-accent/10 border-accent/20 text-accent' : 'bg-white/[0.03] border-white/[0.06] text-white/55'}`}>{behaviorAvg < -0.5 ? '行为倾向保守，有效风险偏好可能低于自报' : behaviorAvg > 1.5 ? '行为倾向积极，有效风险偏好可能高于自报' : '行为与自报基本一致'}</div>)}
             </div>
           )}
 
           {/* Step 3 */}
           {wizardStep === 3 && (
             <div className="space-y-6">
-              <h2 className="text-lg text-white font-medium flex items-center gap-2"><Shield className="w-5 h-5" style={{color:"#EE6666"}} />风险偏好</h2>
-              <div className="space-y-3">{RISK_OPTIONS.map(rp => { const Icon = rp.icon; const active = config.risk_tolerance === rp.value; const calibrated = calibratedRisk === rp.value && calibratedRisk !== config.risk_tolerance; return (<button key={rp.value} onClick={() => update({ risk_tolerance: rp.value, max_drawdown: rp.dd })} className={`w-full rounded-lg border p-4 text-left transition-all ${active ? 'bg-[#3B6CFF]/18 border-[#3B6CFF]/35' : 'bg-white/[0.03] border-white/[0.07] hover:bg-white/[0.05]'}`}><div className="flex items-center justify-between gap-3"><div className="flex items-center gap-3"><Icon className="w-5 h-5" style={{color: active ? "#5AA9FF" : "rgba(255,255,255,0.5)"}} /><div><div className="text-sm text-white">{RISK_LABELS[rp.value]}{calibrated && <span className="ml-2 text-[10px] text-[#FAC858]">行为校准建议</span>}</div><div className="text-[11px] text-white/40 mt-0.5">{rp.desc}</div></div></div><div className="text-right text-[11px] text-white/55 data-number">回撤{rp.dd}% · 权益{rp.equity}</div></div></button>); })}</div>
-              <div><div className="flex justify-between text-xs mb-2"><span className="text-white/55">最大回撤约束</span><span className="data-number text-[#EE6666]">{config.max_drawdown}%</span></div><input type="range" min={5} max={45} step={1} value={config.max_drawdown || 24} onChange={e => update({ max_drawdown: Number(e.target.value) })} className="w-full accent-[#3B6CFF]" /></div>
+              <h2 className="text-lg text-white font-medium flex items-center gap-2"><Shield className="w-5 h-5 text-danger" />风险偏好</h2>
+              <div className="space-y-3">{RISK_OPTIONS.map(rp => { const Icon = rp.icon; const active = config.risk_tolerance === rp.value; const calibrated = calibratedRisk === rp.value && calibratedRisk !== config.risk_tolerance; return (<button key={rp.value} onClick={() => update({ risk_tolerance: rp.value, max_drawdown: rp.dd })} className={`w-full rounded-lg border p-4 text-left transition-all ${active ? 'bg-primary/15 border-primary/35' : 'bg-white/[0.03] border-white/[0.07] hover:bg-white/[0.05]'}`}><div className="flex items-center justify-between gap-3"><div className="flex items-center gap-3"><Icon className={`w-5 h-5 ${active ? "text-primary" : "text-white/50"}`} /><div><div className="text-sm text-white">{RISK_LABELS[rp.value]}{calibrated && <span className="ml-2 text-[10px] text-warning">行为校准建议</span>}</div><div className="text-[11px] text-white/40 mt-0.5">{rp.desc}</div></div></div><div className="text-right text-[11px] text-white/55 data-number">回撤{rp.dd}% · 权益{rp.equity}</div></div></button>); })}</div>
+              <div><div className="flex justify-between text-xs mb-2"><span className="text-white/55">最大回撤约束</span><span className="data-number text-danger">{config.max_drawdown}%</span></div><input type="range" min={5} max={45} step={1} value={config.max_drawdown || 24} onChange={e => update({ max_drawdown: Number(e.target.value) })} className="w-full accent-primary" /></div>
             </div>
           )}
 
@@ -224,7 +224,7 @@ export default function AllocationWizard() {
             <div className="space-y-6">
               <h2 className="text-lg text-white font-medium flex items-center gap-2"><Target className="w-5 h-5" style={{color:"#16C784"}} />资产偏好</h2>
               <p className="text-sm text-white/45">勾选希望纳入组合的资产</p>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">{TAG_OPTIONS.map(tag => { const active = config.preferred_tags.includes(tag.key); return (<button key={tag.key} onClick={() => update({ preferred_tags: active ? config.preferred_tags.filter(t => t !== tag.key) : [...config.preferred_tags, tag.key] })} className={`h-14 rounded-lg border transition-all flex items-center justify-center gap-2 ${active ? 'bg-[#3B6CFF]/12 border-[#3B6CFF]/30 text-[#5AA9FF]' : 'bg-white/[0.03] border-white/[0.07] text-white/45 hover:text-white/70'}`}>{active && <Check className="w-4 h-4" />}{tag.label}</button>); })}</div>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">{TAG_OPTIONS.map(tag => { const active = config.preferred_tags.includes(tag.key); return (<button key={tag.key} onClick={() => update({ preferred_tags: active ? config.preferred_tags.filter(t => t !== tag.key) : [...config.preferred_tags, tag.key] })} className={`h-14 rounded-lg border transition-all flex items-center justify-center gap-2 ${active ? 'bg-primary/12 border-primary/30 text-primary' : 'bg-white/[0.03] border-white/[0.07] text-white/45 hover:text-white/70'}`}>{active && <Check className="w-4 h-4" />}{tag.label}</button>); })}</div>
             </div>
           )}
 
@@ -244,18 +244,18 @@ export default function AllocationWizard() {
                   waitingNotice={waitingNotice ?? undefined}
                 />
               ) : (
-                <button onClick={handleGenerate} className="w-full h-12 rounded-lg bg-gradient-to-r from-[#3B6CFF] to-[#2A52CC] text-white font-medium text-sm flex items-center justify-center gap-2 hover:from-[#4B7CFF] hover:to-[#3A62DC] transition-all">
+                <button onClick={handleGenerate} className="w-full h-12 rounded-lg bg-gradient-to-r from-primary to-accent text-primary-foreground font-medium text-sm flex items-center justify-center gap-2 hover:brightness-110 transition-all">
                   <Zap className="w-4 h-4" /> 生成配置方案
                 </button>
               )}
 
-              {genError && <p className="text-xs text-[#EE6666] mt-2">生成失败: {genError}</p>}
+              {genError && <p className="text-xs text-danger mt-2">生成失败: {genError}</p>}
             </div>
           )}
 
           <div className="flex justify-between mt-8 pt-6 border-t border-white/[0.06]">
             <button onClick={prev} disabled={wizardStep===1} className="flex items-center gap-1.5 px-4 py-2 rounded-lg border border-white/[0.08] text-white/50 text-sm disabled:opacity-30 disabled:cursor-not-allowed hover:text-white/75"><ArrowLeft className="w-4 h-4" />上一步</button>
-            {wizardStep < 5 && <button onClick={next} className="flex items-center gap-1.5 px-5 py-2 rounded-lg bg-[#3B6CFF]/15 border border-[#3B6CFF]/30 text-[#5AA9FF] text-sm hover:bg-[#3B6CFF]/25">下一步<ArrowRight className="w-4 h-4" /></button>}
+            {wizardStep < 5 && <button onClick={next} className="flex items-center gap-1.5 px-5 py-2 rounded-lg bg-primary/15 border border-primary/30 text-primary text-sm hover:bg-primary/25">下一步<ArrowRight className="w-4 h-4" /></button>}
           </div>
         </div>
       </div>

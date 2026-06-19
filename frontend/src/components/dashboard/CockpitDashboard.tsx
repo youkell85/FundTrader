@@ -178,9 +178,9 @@ function normalizeKlineSeries(value: unknown) {
 
 function Panel({ title, children, action, className }: { title: string; children: React.ReactNode; action?: React.ReactNode; className?: string }) {
   return (
-    <section className={classNames('rounded-lg border border-slate-200 bg-white p-4', className)}>
-      <div className="mb-3 flex items-center justify-between border-b border-slate-100 pb-2">
-        <h3 className="text-sm font-semibold text-slate-800">{title}</h3>
+    <section className={classNames('workspace-panel p-4', className)}>
+      <div className="workspace-panel-header mb-3 flex items-center justify-between pb-2">
+        <h3 className="text-sm font-semibold text-[#fff8ea]">{title}</h3>
         {action}
       </div>
       {children}
@@ -371,18 +371,18 @@ export function CockpitDashboard({
   }
 
   return (
-    <section className="space-y-4 text-slate-700">
+    <section className="workspace-shell space-y-4">
       {/* Top bar: identity, source, freshness, user */}
-      <header className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3">
+      <header className="workspace-panel-strong flex flex-wrap items-center justify-between gap-3 px-4 py-3">
         <div className="flex flex-wrap items-baseline gap-3">
-          <h2 className="text-xl font-bold tracking-tight text-slate-800">决策桌面</h2>
-          <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-0.5 text-xs text-blue-600">{sourceLabel}</span>
-          <span className="text-xs text-slate-400">
+          <h2 className="text-xl font-bold tracking-tight text-[#fff8ea]">决策桌面</h2>
+          <span className="workspace-pill px-3 py-0.5 text-xs">{sourceLabel}</span>
+          <span className="text-xs text-white/42">
             {marketLoading ? '行情加载中…' : `数据截至 ${marketAsOf}`}
           </span>
         </div>
-        <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
-          <label className="flex h-8 min-w-[240px] items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3">
+        <div className="flex flex-wrap items-center gap-3 text-xs text-white/52">
+          <label className="workspace-input flex h-8 min-w-[240px] items-center gap-2 px-3">
             <Search size={14} />
             <input
               value={query}
@@ -394,7 +394,7 @@ export function CockpitDashboard({
                 }
               }}
               placeholder="搜索基金 / 代码 / 经理 / 公司"
-              className="min-w-0 flex-1 bg-transparent text-xs text-slate-700 outline-none placeholder:text-slate-400"
+              className="min-w-0 flex-1 bg-transparent text-xs text-white outline-none placeholder:text-white/30"
             />
           </label>
           <UserCircle size={18} />
@@ -403,14 +403,14 @@ export function CockpitDashboard({
       </header>
 
       {showNoMatches && (
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+        <div className="workspace-warning flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-sm">
           <span>没有匹配“{trimmedQuery}”的桌面候选基金。</span>
           <div className="flex items-center gap-2">
             {queryLooksLikeFundCode && (
               <button
                 type="button"
                 onClick={openQueryFund}
-                className="rounded-md border border-amber-300 bg-white px-3 py-1.5 text-xs font-medium text-amber-900 hover:bg-amber-100"
+                className="workspace-action px-3 py-1.5 text-xs font-medium"
               >
                 打开 {trimmedQuery}
               </button>
@@ -418,7 +418,7 @@ export function CockpitDashboard({
             <button
               type="button"
               onClick={() => setQuery('')}
-              className="rounded-md border border-amber-300 px-3 py-1.5 text-xs font-medium hover:bg-amber-100"
+              className="workspace-action px-3 py-1.5 text-xs font-medium"
             >
               清除搜索
             </button>
@@ -428,7 +428,7 @@ export function CockpitDashboard({
 
       {/* Loading / error banner */}
       {(loading || error) && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+        <div className="workspace-warning px-4 py-3 text-sm">
           {loading ? '正在加载基金数据…' : `数据加载异常：${error}`}
         </div>
       )}
@@ -438,10 +438,10 @@ export function CockpitDashboard({
         {/* Market state panel */}
         <Panel
           title="市场状态"
-          action={marketLoading ? <span className="text-xs text-slate-400">加载中…</span> : <span className="text-xs text-slate-400">截至 {marketAsOf}</span>}
+          action={marketLoading ? <span className="text-xs text-white/36">加载中…</span> : <span className="text-xs text-white/36">截至 {marketAsOf}</span>}
         >
           {(marketLoading || marketError || marketIndices.length === 0) && (
-            <div className="mb-3 rounded border border-amber-100 bg-amber-50/50 px-3 py-2 text-xs text-amber-700">
+            <div className="workspace-warning mb-3 px-3 py-2 text-xs">
               {marketLoading
                 ? '正在加载市场指数数据…'
                 : marketError
@@ -454,35 +454,35 @@ export function CockpitDashboard({
               {marketIndices.slice(0, 3).map((item) => (
                 <div key={item.code || item.name} className="flex items-center justify-between">
                   <div className="min-w-0">
-                    <div className="truncate text-sm font-medium text-slate-700">{item.name}</div>
-                    <div className="text-xs text-slate-400">{item.code}</div>
+                    <div className="truncate text-sm font-medium text-white/82">{item.name}</div>
+                    <div className="text-xs text-white/34">{item.code}</div>
                   </div>
                   <div className="text-right">
-                    <div className="text-sm font-semibold text-slate-800">{formatIndexValue(item.close)}</div>
-                    <span className={classNames('text-xs font-medium', (item.change || 0) >= 0 ? 'text-red-500' : 'text-emerald-500')}>
+                    <div className="data-number text-sm font-semibold text-[#fff8ea]">{formatIndexValue(item.close)}</div>
+                    <span className={classNames('data-number text-xs font-medium', (item.change || 0) >= 0 ? 'text-danger' : 'text-success')}>
                       {signedPct(item.change)}
                     </span>
                   </div>
                 </div>
               ))}
-              <div className="border-t border-slate-100 pt-2">
+              <div className="border-t border-white/[0.07] pt-2">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="text-slate-500">上涨 {risingCount} / 下跌 {fallingCount}</span>
-                  <span className="text-slate-500">数据健康：{healthLabel(marketStatus?.health)}</span>
+                  <span className="text-white/45">上涨 {risingCount} / 下跌 {fallingCount}</span>
+                  <span className="text-white/45">数据健康：{healthLabel(marketStatus?.health)}</span>
                 </div>
-                <div className="mt-2 rounded border border-slate-100 bg-slate-50 px-2 py-2">
-                  <div className="mb-1 flex items-center justify-between text-[11px] text-slate-500">
+                <div className="mt-2 rounded border border-white/[0.065] bg-white/[0.025] px-2 py-2">
+                  <div className="mb-1 flex items-center justify-between text-[11px] text-white/42">
                     <span>Macro data</span>
                     <span>{marketStatus?.macro_available ? `confidence ${(marketStatus.macro_confidence * 100).toFixed(0)}%` : 'missing'}</span>
                   </div>
                   <div className="grid grid-cols-3 gap-1">
                     {macroRows.map((item) => (
-                      <div key={item.key} className="rounded bg-white px-2 py-1 text-xs">
-                        <div className="font-medium text-slate-700">{item.label}</div>
-                        <div className={classNames('data-number text-sm font-semibold', item.data?.value != null ? 'text-slate-800' : 'text-slate-400')}>
+                      <div key={item.key} className="rounded border border-white/[0.045] bg-white/[0.035] px-2 py-1 text-xs">
+                        <div className="font-medium text-white/70">{item.label}</div>
+                        <div className={classNames('data-number text-sm font-semibold', item.data?.value != null ? 'text-[#fff8ea]' : 'text-white/35')}>
                           {formatMacroValue(item.data?.value)}
                         </div>
-                        <div className="truncate text-[10px] text-slate-400" title={item.data?.source || 'missing'}>
+                        <div className="truncate text-[10px] text-white/32" title={item.data?.source || 'missing'}>
                           {formatConfidence(item.data?.confidence)} · {item.data?.source || 'missing'}
                         </div>
                       </div>
@@ -491,24 +491,24 @@ export function CockpitDashboard({
                 </div>
                 {strongestIndustry && (
                   <div className="mt-1 flex items-center justify-between text-xs">
-                    <span className="text-slate-500">强势行业</span>
-                    <span className="font-medium text-slate-700">{strongestIndustry.name} {signedPct(strongestIndustry.change)}</span>
+                    <span className="text-white/45">强势行业</span>
+                    <span className="font-medium text-white/72">{strongestIndustry.name} {signedPct(strongestIndustry.change)}</span>
                   </div>
                 )}
               </div>
             </div>
           ) : (
-            <div className="py-4 text-sm text-slate-400">市场全景等待指数数据返回。</div>
+            <div className="py-4 text-sm text-white/38">市场全景等待指数数据返回。</div>
           )}
         </Panel>
 
         {/* Portfolio health panel */}
         <Panel
           title="组合健康"
-          action={<Link to="/analysis" className="text-xs text-blue-600 hover:text-blue-800">诊断 →</Link>}
+          action={<Link to="/analysis" className="text-xs text-[#8FD9BA] hover:text-white">诊断 →</Link>}
         >
           {funds.length === 0 ? (
-            <div className="py-4 text-sm text-slate-400">暂无基金数据。</div>
+            <div className="py-4 text-sm text-white/38">暂无基金数据。</div>
           ) : (
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
@@ -521,15 +521,15 @@ export function CockpitDashboard({
                   ['夏普比率', avgSharpe === null ? '—' : avgSharpe.toFixed(2)],
                 ].map(([label, value]) => (
                   <div key={label}>
-                    <div className="text-xs text-slate-400">{label}</div>
-                    <div className="text-lg font-semibold text-slate-800">{value}</div>
+                    <div className="text-xs text-white/36">{label}</div>
+                    <div className="data-number text-lg font-semibold text-[#fff8ea]">{value}</div>
                   </div>
                 ))}
               </div>
-              <div className="border-t border-slate-100 pt-2">
+              <div className="border-t border-white/[0.07] pt-2">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="text-slate-500">风险评级</span>
-                  <span className="font-medium text-slate-700">{riskScore >= 70 ? '偏低' : riskScore >= 50 ? '中等' : '偏高'} ({riskScore})</span>
+                  <span className="text-white/45">风险评级</span>
+                  <span className="font-medium text-white/72">{riskScore >= 70 ? '偏低' : riskScore >= 50 ? '中等' : '偏高'} ({riskScore})</span>
                 </div>
               </div>
             </div>
@@ -542,21 +542,21 @@ export function CockpitDashboard({
           action={null}
         >
           <div className="space-y-2">
-            <Link to="/analysis" className="flex items-center justify-between rounded border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50">
-              <span className="text-slate-700">组合诊断</span>
-              <ChevronRight size={14} className="text-slate-400" />
+            <Link to="/analysis" className="workspace-action flex items-center justify-between px-3 py-2 text-sm">
+              <span>组合诊断</span>
+              <ChevronRight size={14} className="text-white/36" />
             </Link>
-            <Link to="/recommend" className="flex items-center justify-between rounded border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50">
-              <span className="text-slate-700">推荐与对比</span>
-              <ChevronRight size={14} className="text-slate-400" />
+            <Link to="/recommend" className="workspace-action flex items-center justify-between px-3 py-2 text-sm">
+              <span>推荐与对比</span>
+              <ChevronRight size={14} className="text-white/36" />
             </Link>
             {funds.length > 0 && funds[0]?.fundCode && (
-              <Link to={`/${funds[0].fundCode}`} className="flex items-center justify-between rounded border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50">
-                <span className="text-slate-700">查看 {fundName(funds[0])}</span>
-                <ChevronRight size={14} className="text-slate-400" />
+              <Link to={`/${funds[0].fundCode}`} className="workspace-action flex items-center justify-between px-3 py-2 text-sm">
+                <span>查看 {fundName(funds[0])}</span>
+                <ChevronRight size={14} className="text-white/36" />
               </Link>
             )}
-            <div className="rounded border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+            <div className="rounded border border-white/[0.055] bg-white/[0.025] px-3 py-2 text-xs text-white/42">
               {mode === 'user'
                 ? '基于您的自选组合，检查高回撤低夏普持仓。'
                 : mode === 'userEmptyFallback'
@@ -570,7 +570,7 @@ export function CockpitDashboard({
       {/* Fund list section */}
       <Panel
         title={mode === 'user' ? '持仓基金' : '优选基金'}
-        action={<Link to="/funds" className="flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800">全部 <ChevronRight size={14} /></Link>}
+        action={<Link to="/analysis" className="flex items-center gap-1 text-xs text-[#8FD9BA] hover:text-white">研究 <ChevronRight size={14} /></Link>}
       >
         <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
           {fundTypeTabs.map((tabItem) => (
@@ -580,43 +580,43 @@ export function CockpitDashboard({
               onClick={() => setFundFilter(tabItem.key)}
               className={classNames(
                 'rounded-full px-3 py-1 transition',
-                fundFilter === tabItem.key ? 'bg-slate-800 text-white' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-700',
+                fundFilter === tabItem.key ? 'workspace-pill' : 'workspace-pill-muted hover:text-white',
               )}
             >
               {tabItem.label}
             </button>
           ))}
-          <span className="ml-auto text-slate-400">按夏普排序 · 真实指标</span>
+          <span className="ml-auto text-white/36">按夏普排序 · 真实指标</span>
         </div>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {visibleCards.map(({ fund, weight }) => {
             const returnRate = parseMetric(fund.performance?.return1y ?? fund.performance?.annualizedReturn)
             const detailPath = fund.fundCode ? `/${fund.fundCode}` : '/analysis'
             return (
-              <Link key={fund.fundCode || fundName(fund)} to={detailPath} className="block rounded-lg border border-slate-200 bg-white p-3 transition hover:border-blue-300 hover:shadow-sm">
+              <Link key={fund.fundCode || fundName(fund)} to={detailPath} className="block rounded-lg border border-white/[0.075] bg-white/[0.03] p-3 transition hover:border-primary/40 hover:bg-white/[0.05]">
                 <div className="flex items-center justify-between gap-2">
                   <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold text-slate-800">{fundName(fund)}</div>
-                    <div className="mt-0.5 text-xs text-slate-400">{managerName(fund)}</div>
+                    <div className="truncate text-sm font-semibold text-[#fff8ea]">{fundName(fund)}</div>
+                    <div className="mt-0.5 text-xs text-white/36">{managerName(fund)}</div>
                   </div>
-                  <span className="shrink-0 rounded-full border border-slate-200 px-2 py-0.5 text-[10px] text-slate-500">{typeLabel(fund)}</span>
+                  <span className="workspace-pill-muted shrink-0 px-2 py-0.5 text-[10px]">{typeLabel(fund)}</span>
                 </div>
                 <div className="mt-2 flex items-end justify-between">
                   <div>
-                    <div className={classNames('text-lg font-bold', (returnRate || 0) >= 0 ? 'text-red-500' : 'text-emerald-500')}>{signedPct(returnRate)}</div>
-                    <div className="text-xs text-slate-400">近一年/年化</div>
+                    <div className={classNames('data-number text-lg font-bold', (returnRate || 0) >= 0 ? 'text-danger' : 'text-success')}>{signedPct(returnRate)}</div>
+                    <div className="text-xs text-white/36">近一年/年化</div>
                   </div>
                   <Sparkline warm={(returnRate || 0) >= 0} className="h-8 w-20" />
                 </div>
                 <div className="mt-2 flex items-center justify-between text-xs">
-                  <span className="rounded bg-slate-100 px-2 py-0.5 text-slate-500">权重 {weight.toFixed(2)}%</span>
-                  <span className="text-slate-600">{metricText(fund.nav, 4)}<span className="ml-1 text-slate-400">净值</span></span>
+                  <span className="rounded bg-white/[0.055] px-2 py-0.5 text-white/45">权重 {weight.toFixed(2)}%</span>
+                  <span className="data-number text-white/70">{metricText(fund.nav, 4)}<span className="ml-1 text-white/35">净值</span></span>
                 </div>
               </Link>
             )
           })}
           {visibleCards.length === 0 && (
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-400 sm:col-span-2 lg:col-span-4">
+            <div className="rounded-lg border border-white/[0.075] bg-white/[0.025] p-4 text-sm text-white/38 sm:col-span-2 lg:col-span-4">
               {showNoMatches ? '没有匹配的基金，请清除搜索或直接打开代码详情。' : '没有匹配的基金，请调整搜索条件。'}
             </div>
           )}
@@ -630,8 +630,8 @@ export function CockpitDashboard({
             {assetMix.slice(0, 6).map((item) => (
               <div key={item.key} className="flex items-center gap-2 text-xs">
                 <i className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: item.color }} />
-                <span className="text-slate-600">{item.label}</span>
-                <span className="font-medium text-slate-800">{item.value.toFixed(1)}%</span>
+                <span className="text-white/55">{item.label}</span>
+                <span className="data-number font-medium text-[#fff8ea]">{item.value.toFixed(1)}%</span>
               </div>
             ))}
           </div>

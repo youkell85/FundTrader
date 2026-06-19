@@ -42,6 +42,18 @@
     --sidebar-accent-foreground: 210 40% 98%;
     --sidebar-border: 154 16% 12%;
     --sidebar-ring: 154 50% 49%;
+    --workspace-bg: #040706;
+    --workspace-surface: rgba(255, 255, 255, 0.035);
+    --workspace-surface-strong: rgba(255, 255, 255, 0.055);
+    --workspace-border: rgba(255, 255, 255, 0.085);
+    --workspace-border-strong: rgba(255, 255, 255, 0.13);
+    --workspace-text: rgba(255, 255, 255, 0.92);
+    --workspace-muted: rgba(225, 217, 203, 0.58);
+    --workspace-faint: rgba(225, 217, 203, 0.36);
+    --workspace-primary: #45B084;
+    --workspace-primary-soft: rgba(69, 176, 132, 0.13);
+    --workspace-accent: #D69D63;
+    --workspace-accent-soft: rgba(214, 157, 99, 0.13);
   }
 }
 
@@ -127,7 +139,7 @@
   }
 
   .liquid-glass-nav {
-    background: rgba(5, 7, 6, 0.88);
+    background: rgba(5, 7, 6, 0.92);
     backdrop-filter: blur(16px);
     -webkit-backdrop-filter: blur(16px);
     border-bottom: 1px solid rgba(255, 255, 255, 0.075);
@@ -136,14 +148,89 @@
 
   /* Unified content surface - use for all section cards & panels */
   .surface {
-    background: linear-gradient(135deg, rgba(255, 255, 255, 0.035), rgba(69, 176, 132, 0.025));
-    border: 1px solid rgba(255, 255, 255, 0.085);
+    background: linear-gradient(135deg, var(--workspace-surface), rgba(69, 176, 132, 0.025));
+    border: 1px solid var(--workspace-border);
     border-radius: 8px;
   }
 
   .surface-elevated {
-    background: linear-gradient(135deg, rgba(255, 255, 255, 0.055), rgba(69, 176, 132, 0.045));
+    background: linear-gradient(135deg, var(--workspace-surface-strong), rgba(69, 176, 132, 0.045));
     border: 1px solid rgba(255, 255, 255, 0.11);
+    border-radius: 8px;
+  }
+
+  .workspace-shell {
+    color: var(--workspace-text);
+  }
+
+  .workspace-panel {
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.026)),
+      rgba(5, 9, 7, 0.76);
+    border: 1px solid var(--workspace-border);
+    border-radius: 8px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.035);
+  }
+
+  .workspace-panel-strong {
+    background:
+      linear-gradient(180deg, rgba(69, 176, 132, 0.07), rgba(255, 255, 255, 0.03)),
+      rgba(6, 11, 8, 0.88);
+    border: 1px solid var(--workspace-border-strong);
+    border-radius: 8px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  }
+
+  .workspace-panel-header {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.075);
+  }
+
+  .workspace-input {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid var(--workspace-border);
+    border-radius: 8px;
+    color: var(--workspace-text);
+  }
+
+  .workspace-input:focus-within,
+  .workspace-input:focus {
+    border-color: rgba(69, 176, 132, 0.48);
+    box-shadow: 0 0 0 1px rgba(69, 176, 132, 0.22);
+    outline: none;
+  }
+
+  .workspace-pill {
+    border: 1px solid rgba(69, 176, 132, 0.28);
+    background: var(--workspace-primary-soft);
+    color: #8FD9BA;
+    border-radius: 999px;
+  }
+
+  .workspace-pill-muted {
+    border: 1px solid var(--workspace-border);
+    background: rgba(255, 255, 255, 0.035);
+    color: var(--workspace-muted);
+    border-radius: 999px;
+  }
+
+  .workspace-action {
+    border: 1px solid var(--workspace-border);
+    background: rgba(255, 255, 255, 0.035);
+    color: rgba(255, 255, 255, 0.74);
+    border-radius: 8px;
+    transition: background 150ms ease, border-color 150ms ease, color 150ms ease;
+  }
+
+  .workspace-action:hover {
+    background: rgba(69, 176, 132, 0.09);
+    border-color: rgba(69, 176, 132, 0.28);
+    color: white;
+  }
+
+  .workspace-warning {
+    border: 1px solid rgba(214, 157, 99, 0.24);
+    background: rgba(214, 157, 99, 0.08);
+    color: #f0c58b;
     border-radius: 8px;
   }
 

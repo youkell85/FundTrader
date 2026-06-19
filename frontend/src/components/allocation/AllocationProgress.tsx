@@ -49,7 +49,7 @@ function statusIcon(status: string) {
     case "error":
       return <XCircle className="w-4 h-4 text-red-400 shrink-0" />;
     default:
-      return <Loader2 className="w-4 h-4 text-[#3B6CFF] animate-spin shrink-0" />;
+      return <Loader2 className="w-4 h-4 text-primary animate-spin shrink-0" />;
   }
 }
 
@@ -66,11 +66,11 @@ export default function AllocationProgress({ steps, currentStep, totalSteps, ela
   const pct = totalSteps > 0 ? Math.round((safeCurrentStep / totalSteps) * 100) : 0;
 
   return (
-    <div className="rounded-xl border border-white/[0.06] bg-[#0B1021]/80 p-5 space-y-4">
+    <div className="workspace-panel p-5 space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Loader2 className="w-5 h-5 text-[#3B6CFF] animate-spin" />
+          <Loader2 className="w-5 h-5 text-primary animate-spin" />
           <span className="text-white text-sm font-medium">
             引擎计算中... {safeCurrentStep}/{totalSteps}
           </span>
@@ -93,14 +93,14 @@ export default function AllocationProgress({ steps, currentStep, totalSteps, ela
       {/* Progress bar */}
       <div className="w-full h-1.5 rounded-full bg-white/[0.04] overflow-hidden">
         <div
-          className="h-full rounded-full bg-gradient-to-r from-[#3B6CFF] to-[#00F0FF] transition-all duration-300"
+          className="h-full rounded-full bg-gradient-to-r from-primary to-accent transition-all duration-300"
           style={{ width: `${pct}%` }}
         />
       </div>
 
       {/* Waiting notice */}
       {waitingNotice && (
-        <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg border border-[#3B6CFF]/15 bg-[#3B6CFF]/[0.04] text-xs text-[#5AA9FF]">
+        <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg border border-primary/20 bg-primary/10 text-xs text-primary">
           <Loader2 className="w-3 h-3 animate-spin shrink-0" />
           <span>{waitingNotice}</span>
         </div>

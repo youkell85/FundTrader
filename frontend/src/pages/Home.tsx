@@ -118,7 +118,7 @@ export default function Home() {
   }, [listData, user])
 
   return (
-    <div className="min-h-screen bg-slate-50 px-3 pb-8 pt-16 sm:px-5 lg:px-8">
+    <div className="min-h-screen px-3 pb-28 pt-16 sm:px-5 md:pb-8 lg:px-8">
       <div className="mx-auto max-w-[1540px]">
         <CockpitDashboard
           funds={funds}
