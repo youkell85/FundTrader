@@ -118,6 +118,11 @@ export default function ShareSelectorPanel() {
               </div>
             )}
 
+            {data.recommendations.length === 0 ? (
+              <div className="rounded-lg border border-white/[0.06] bg-white/[0.03] px-4 py-6 text-center text-sm text-white/45">
+                {data.missing_reason || '缺少真实 A/C 份额费率档案，未生成默认假设测算。'}
+              </div>
+            ) : (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[760px] text-xs">
                 <thead>
@@ -158,6 +163,7 @@ export default function ShareSelectorPanel() {
                 </tbody>
               </table>
             </div>
+            )}
 
             {/* Summary stats */}
             <div className="grid grid-cols-3 gap-3">

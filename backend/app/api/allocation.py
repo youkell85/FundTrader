@@ -457,21 +457,23 @@ async def get_rebalance_history(user: dict | None = Depends(get_optional_user)):
 async def select_share_class(request: ShareSelectorRequest):
     """A/C份额智能选择 — 根据持有期限推荐A类或C类份额"""
     recs = batch_recommend(request.funds, request.holding_months, request.amount)
+    requested_count = len(request.funds)
 
     # Build summary
     a_count = sum(1 for r in recs if r.recommended_share == "A")
     c_count = len(recs) - a_count
     default_count = sum(1 for r in recs if r.fee_source == "default_assumption")
-    if not recs or default_count == len(recs):
+    missing_count = max(0, requested_count - len(recs)) + default_count
+    if requested_count == 0 or missing_count == requested_count:
         data_status = "missing"
-    elif default_count > 0:
+    elif missing_count > 0:
         data_status = "partial"
     else:
         data_status = "real"
     missing_reason = None
-    if default_count:
-        missing_reason = f"{default_count}/{len(recs)} 只基金缺少真实 A/C 份额费率档案，仅返回默认假设测算。"
-    summary = f"共 {len(recs)} 只基金：测算A类 {a_count} 只，C类 {c_count} 只（持有 {request.holding_months:.0f} 个月）"
+    if missing_count:
+        missing_reason = f"{missing_count}/{requested_count} 只基金缺少真实 A/C 份额费率档案，未生成默认假设测算。"
+    summary = f"共 {requested_count} 只基金：真实费率档案 {len(recs)} 只，测算A类 {a_count} 只，C类 {c_count} 只（持有 {request.holding_months:.0f} 个月）"
     if missing_reason:
         summary = f"{summary}；{missing_reason}"
 

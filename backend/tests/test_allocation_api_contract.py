@@ -56,8 +56,8 @@ class AllocationApiContractTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(response.data_status, "missing")
         self.assertIn("缺少真实 A/C 份额费率档案", response.missing_reason or "")
-        self.assertEqual(response.recommendations[0].fee_source, "default_assumption")
-        self.assertTrue(response.recommendations[0].missing_reason)
+        self.assertIn("未生成默认假设测算", response.missing_reason or "")
+        self.assertEqual(response.recommendations, [])
 
 
 if __name__ == "__main__":

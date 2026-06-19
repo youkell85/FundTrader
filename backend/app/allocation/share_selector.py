@@ -15,21 +15,21 @@ class ShareFeeProfile:
     fund_code: str
     fund_name: str
     # A-class fees
-    a_subscription_fee: float = 0.12  # 申购费率 (%)
-    a_management_fee: float = 0.50  # 管理费率 (%/year)
-    a_custody_fee: float = 0.10  # 托管费率 (%/year)
-    a_redemption_fee_short: float = 0.50  # 赎回费-短期 (<7天) (%)
-    a_redemption_fee_mid: float = 0.25  # 赎回费-中期 (7天-1年) (%)
-    a_redemption_fee_long: float = 0.0  # 赎回费-长期 (>1年) (%)
+    a_subscription_fee: float  # 申购费率 (%)
+    a_management_fee: float  # 管理费率 (%/year)
+    a_custody_fee: float  # 托管费率 (%/year)
+    a_redemption_fee_short: float  # 赎回费-短期 (<7天) (%)
+    a_redemption_fee_mid: float  # 赎回费-中期 (7天-1年) (%)
+    a_redemption_fee_long: float  # 赎回费-长期 (>1年) (%)
     # C-class fees
-    c_subscription_fee: float = 0.0  # 申购费率 (%)
-    c_management_fee: float = 0.50  # 管理费率 (%/year)
-    c_custody_fee: float = 0.10  # 托管费率 (%/year)
-    c_sales_service_fee: float = 0.40  # 销售服务费率 (%/year)
-    c_redemption_fee_short: float = 0.50  # 赎回费-短期 (%)
-    c_redemption_fee_long: float = 0.0  # 赎回费-长期 (%)
-    source: str = "default_assumption"
-    missing_reason: str = "缺少按基金代码匹配的真实 A/C 份额费率档案"
+    c_subscription_fee: float  # 申购费率 (%)
+    c_management_fee: float  # 管理费率 (%/year)
+    c_custody_fee: float  # 托管费率 (%/year)
+    c_sales_service_fee: float  # 销售服务费率 (%/year)
+    c_redemption_fee_short: float  # 赎回费-短期 (%)
+    c_redemption_fee_long: float  # 赎回费-长期 (%)
+    source: str = "verified_fee_profile"
+    missing_reason: str = ""
 
 
 @dataclass
@@ -43,7 +43,7 @@ class ShareRecommendation:
     total_cost_a: float  # total cost % for A-share over holding period
     total_cost_c: float  # total cost % for C-share over holding period
     savings: float  # savings % by choosing recommended share
-    fee_source: str = "default_assumption"
+    fee_source: str = "verified_fee_profile"
     missing_reason: str = ""
 
 
@@ -51,16 +51,11 @@ class ShareRecommendation:
 _DEFAULT_PROFILES: Dict[str, ShareFeeProfile] = {}
 
 
-def get_fee_profile(fund_code: str, fund_name: str = "") -> ShareFeeProfile:
-    """Get or create a fee profile for a fund."""
+def get_fee_profile(fund_code: str, fund_name: str = "") -> Optional[ShareFeeProfile]:
+    """Get a verified fee profile for a fund, if one is available."""
     if fund_code in _DEFAULT_PROFILES:
         return _DEFAULT_PROFILES[fund_code]
-
-    # Default profile based on fund type
-    return ShareFeeProfile(
-        fund_code=fund_code,
-        fund_name=fund_name,
-    )
+    return None
 
 
 def calculate_total_cost(
@@ -149,7 +144,7 @@ def recommend_share(
     holding_months: float,
     amount: float = 10000,
     fee_profile: Optional[ShareFeeProfile] = None,
-) -> ShareRecommendation:
+) -> Optional[ShareRecommendation]:
     """Recommend A or C share based on holding period.
 
     Args:
@@ -164,6 +159,8 @@ def recommend_share(
     """
     if fee_profile is None:
         fee_profile = get_fee_profile(fund_code, fund_name)
+    if fee_profile is None:
+        return None
 
     cost_a = calculate_total_cost(fee_profile, "A", holding_months, amount)
     cost_c = calculate_total_cost(fee_profile, "C", holding_months, amount)
@@ -215,7 +212,7 @@ def batch_recommend(
         amount: Investment amount
 
     Returns:
-        List of ShareRecommendations
+        List of recommendations backed by verified fee profiles.
     """
     results = []
     for fund in funds:
@@ -225,5 +222,6 @@ def batch_recommend(
             holding_months=holding_months,
             amount=amount,
         )
-        results.append(rec)
+        if rec is not None:
+            results.append(rec)
     return results
