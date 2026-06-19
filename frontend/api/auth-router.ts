@@ -3,7 +3,7 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { Session } from "@contracts/constants";
 import { createRouter, publicQuery } from "./middleware";
-import { loginViaBackend, registerViaBackend, syncSession, deleteSession } from "./lib/user-store";
+import { loginViaBackend, registerViaBackend, syncSession, deleteSession, getUserState, updateUserState } from "./lib/user-store";
 import { ftFetch } from "./lib/fundtrader-client";
 
 function cookieOptions(headers: Headers, maxAge?: number) {
@@ -99,14 +99,15 @@ export const authRouter = createRouter({
   }),
 
   state: publicQuery.query(({ ctx }) => {
-    requireUser(ctx);
-    return { watchlistCodes: [], backtestRecords: [], recommendationRecords: [], preferences: {}, recentFunds: [] };
+    const user = requireUser(ctx);
+    return getUserState(user.id);
   }),
 
   savePreferences: publicQuery
     .input(z.record(z.string(), z.unknown()))
     .mutation(({ input, ctx }) => {
-      requireUser(ctx);
-      return { preferences: input };
+      const user = requireUser(ctx);
+      const current = getUserState(user.id);
+      return updateUserState(user.id, { preferences: { ...current.preferences, ...input } });
     }),
 });

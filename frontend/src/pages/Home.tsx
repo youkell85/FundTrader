@@ -41,12 +41,59 @@ function wait(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms))
 }
 
+type SavedDashboardPlan = {
+  name?: string | null
+  createdAt?: string | null
+  funds: FundLike[]
+}
+
+function latestSavedRecommendationPlan(stateData: unknown): SavedDashboardPlan | null {
+  const records = (stateData as any)?.recommendationRecords
+  if (!Array.isArray(records) || records.length === 0) return null
+
+  for (const record of records) {
+    const plans = Array.isArray(record?.plans) ? record.plans : []
+    const plan = plans[0]
+    const allocations = Array.isArray(plan?.fundAllocations) ? plan.fundAllocations : []
+    const funds = allocations
+      .map((allocation: any) => {
+        const fund = allocation?.fund || {}
+        const code = String(fund.fundCode || fund.code || allocation?.code || '')
+        if (!/^\d{6}$/.test(code)) return null
+        return {
+          ...fund,
+          fundCode: code,
+          fundName: fund.fundName || fund.name || allocation?.name || code,
+          fundType: fund.fundType || fund.type || fund.category,
+          weight: allocation?.weight,
+          targetWeight: allocation?.weight,
+          source: 'recommendation',
+        } as FundLike
+      })
+      .filter((fund: FundLike | null): fund is FundLike => fund !== null)
+
+    if (funds.length > 0) {
+      return {
+        name: plan?.name || null,
+        createdAt: record?.createdAt || null,
+        funds,
+      }
+    }
+  }
+
+  return null
+}
+
 export default function Home() {
   const [marketOverview, setMarketOverview] = useState<MarketOverviewPayload | null>(null)
   const [marketStatus, setMarketStatus] = useState<MarketDataStatus | null>(null)
   const [marketLoading, setMarketLoading] = useState(true)
   const [marketError, setMarketError] = useState<string | null>(null)
   const { data: user } = trpc.auth.me.useQuery(undefined, { staleTime: 60_000 })
+  const { data: userState } = trpc.auth.state.useQuery(undefined, {
+    enabled: Boolean(user),
+    staleTime: 60_000,
+  })
   const {
     data: listData,
     isLoading,
@@ -106,17 +153,32 @@ export default function Home() {
     }
   }, [])
 
-  const { funds, mode } = useMemo<{ funds: FundLike[]; mode: DashboardMode }>(() => {
+  const { funds, mode, portfolioName, portfolioCreatedAt } = useMemo<{
+    funds: FundLike[]
+    mode: DashboardMode
+    portfolioName?: string | null
+    portfolioCreatedAt?: string | null
+  }>(() => {
+    const savedPlan = latestSavedRecommendationPlan(userState)
+    if (user && savedPlan) {
+      return {
+        funds: savedPlan.funds.slice(0, 8),
+        mode: 'savedRecommendation',
+        portfolioName: savedPlan.name,
+        portfolioCreatedAt: savedPlan.createdAt,
+      }
+    }
+
     const allFunds = ((listData as any)?.funds || []) as FundLike[]
     const sorted = [...allFunds].sort(bySharpeDesc)
     const reliableCandidates = sorted.filter(isReliableDashboardCandidate)
     if (user) {
       const userFunds = sorted.filter(isUserFund)
-      if (userFunds.length > 0) return { funds: userFunds.slice(0, 8), mode: 'user' }
+      if (userFunds.length > 0) return { funds: userFunds.slice(0, 8), mode: 'userWatchlist' }
       return { funds: reliableCandidates.slice(0, 8), mode: 'userEmptyFallback' }
     }
-    return { funds: reliableCandidates.slice(0, 8), mode: 'bestSharpe' }
-  }, [listData, user])
+    return { funds: reliableCandidates.slice(0, 8), mode: 'candidatePool' }
+  }, [listData, user, userState])
 
   return (
     <WorkspaceShell>
@@ -125,6 +187,8 @@ export default function Home() {
           funds={funds}
           mode={mode}
           userName={user?.name || user?.username}
+          portfolioName={portfolioName}
+          portfolioCreatedAt={portfolioCreatedAt}
           loading={isLoading}
           error={isError ? error?.message || '基金数据加载失败' : null}
           marketOverview={marketOverview}

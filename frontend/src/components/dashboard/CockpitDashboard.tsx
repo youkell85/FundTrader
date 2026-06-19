@@ -30,7 +30,7 @@ type FundLike = {
   } | null
 }
 
-type DashboardMode = 'user' | 'bestSharpe' | 'userEmptyFallback'
+type DashboardMode = 'savedRecommendation' | 'userWatchlist' | 'candidatePool' | 'userEmptyFallback'
 
 type MarketIndexItem = {
   code?: string | null
@@ -225,7 +225,7 @@ function fundWeight(fund: FundLike) {
   return parseMetric(fund.weight ?? fund.targetWeight ?? fund.currentWeight ?? fund.holdingWeight)
 }
 
-function buildEqualWeights(funds: FundLike[]) {
+function buildWeightedFunds(funds: FundLike[]) {
   if (funds.length === 0) return []
   const explicitWeights = funds.map(fundWeight)
   const hasExplicitWeights = explicitWeights.some((weight) => weight !== null && weight > 0)
@@ -240,17 +240,17 @@ function buildEqualWeights(funds: FundLike[]) {
     }))
   }
 
-  const sampleShare = Number((100 / funds.length).toFixed(2))
   return funds.map((fund) => ({
     fund,
-    weight: sampleShare,
-    weightSource: 'sample' as const,
+    weight: 0,
+    weightSource: 'missing' as const,
   }))
 }
 
-function distributionByType(weighted: Array<{ fund: FundLike; weight: number; weightSource: 'real' | 'sample' }>) {
+function distributionByType(weighted: Array<{ fund: FundLike; weight: number; weightSource: 'real' | 'missing' }>) {
   const rows = new Map<string, number>()
   for (const item of weighted) {
+    if (item.weightSource !== 'real' || item.weight <= 0) continue
     const key = typeKey(item.fund)
     rows.set(key, (rows.get(key) || 0) + item.weight)
   }
@@ -342,6 +342,8 @@ export function CockpitDashboard({
   funds,
   mode,
   userName,
+  portfolioName,
+  portfolioCreatedAt,
   loading,
   error,
   marketOverview,
@@ -352,6 +354,8 @@ export function CockpitDashboard({
   funds: FundLike[]
   mode: DashboardMode
   userName?: string | null
+  portfolioName?: string | null
+  portfolioCreatedAt?: string | null
   loading?: boolean
   error?: string | null
   marketOverview?: MarketOverviewPayload | null
@@ -362,8 +366,8 @@ export function CockpitDashboard({
   const navigate = useNavigate()
   const [query, setQuery] = useState('')
   const [fundFilter, setFundFilter] = useState('all')
-  const weighted = buildEqualWeights(funds)
-  const weightSource = weighted.some((item) => item.weightSource === 'real') ? 'real' : 'sample'
+  const weighted = buildWeightedFunds(funds)
+  const hasRealWeights = weighted.some((item) => item.weightSource === 'real')
   const assetMix = distributionByType(weighted)
   const avgDay = average(funds.map((fund) => parseMetric(fund.dailyChange)))
   const avgYear = average(funds.map((fund) => parseMetric(fund.performance?.return1y ?? fund.performance?.annualizedReturn)))
@@ -385,11 +389,13 @@ export function CockpitDashboard({
     { label: 'M2', key: 'M2增速' },
   ].map((item) => ({ ...item, data: macroIndicators[item.key] }))
   const strongestIndustry = marketIndustries[0]
-  const sourceLabel = mode === 'user'
-    ? '登录用户组合'
-    : mode === 'userEmptyFallback'
-      ? '用户暂无自选，暂展示最优夏普组合'
-      : '未登录：最优夏普组合'
+  const sourceLabel = mode === 'savedRecommendation'
+    ? `最近生成方案${portfolioName ? `：${portfolioName}` : ''}`
+    : mode === 'userWatchlist'
+      ? '自选基金池：未设置组合权重'
+      : mode === 'userEmptyFallback'
+        ? '用户暂无自选，展示真实候选池'
+        : '未登录：真实候选池'
   const fundTypeTabs = useMemo(() => {
     const typeOrder = ['all', 'equity', 'hybrid', 'bond', 'index', 'etf', 'qdii', 'fof']
     const available = new Set(weighted.map(({ fund }) => typeKey(fund)))
@@ -420,7 +426,7 @@ export function CockpitDashboard({
     if (queryLooksLikeFundCode) navigate(`/${trimmedQuery}`)
   }
   const dashboardMetrics = [
-    ['样本数量', `${funds.length}只`],
+    [hasRealWeights ? '持仓数量' : '候选数量', `${funds.length}只`],
     ['日涨跌均值', signedPct(avgDay)],
     ['近一年均值', signedPct(avgYear)],
     ['最大回撤均值', plainPct(avgDrawdown)],
@@ -436,7 +442,9 @@ export function CockpitDashboard({
           <h2 className="text-xl font-bold tracking-tight text-[#fff8ea]">决策桌面</h2>
           <span className="workspace-pill px-3 py-0.5 text-xs">{sourceLabel}</span>
           <span className="text-xs text-white/42">
-            {marketLoading ? '行情加载中…' : `数据截至 ${marketAsOf}`}
+            {portfolioCreatedAt
+              ? `方案生成于 ${formatDateTime(portfolioCreatedAt)}`
+              : marketLoading ? '行情加载中…' : `数据截至 ${marketAsOf}`}
           </span>
         </div>
         <div className="flex flex-wrap items-center gap-3 text-xs text-white/52">
@@ -565,9 +573,9 @@ export function CockpitDashboard({
           )}
         </Panel>
 
-        {/* Portfolio health panel */}
+        {/* Portfolio health / candidate quality panel */}
         <Panel
-          title="组合健康"
+          title={hasRealWeights ? '组合健康' : '候选池质量'}
           action={<Link to="/analysis" className="text-xs text-[#8FD9BA] hover:text-white">诊断 →</Link>}
         >
           {funds.length === 0 ? (
@@ -584,9 +592,11 @@ export function CockpitDashboard({
               </div>
               <div className="border-t border-white/[0.07] pt-2">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="text-white/45">风险评级</span>
+                  <span className="text-white/45">{hasRealWeights ? '风险评级' : '组合权重'}</span>
                   <span className="font-medium text-white/72">
-                    {riskScore === null ? 'missing（缺少夏普/回撤）' : `${riskScore >= 70 ? '偏低' : riskScore >= 50 ? '中等' : '偏高'} (${riskScore})`}
+                    {!hasRealWeights
+                      ? 'missing（尚未生成或导入真实权重）'
+                      : riskScore === null ? 'missing（缺少夏普/回撤）' : `${riskScore >= 70 ? '偏低' : riskScore >= 50 ? '中等' : '偏高'} (${riskScore})`}
                   </span>
                 </div>
               </div>
@@ -615,11 +625,13 @@ export function CockpitDashboard({
               </Link>
             )}
             <div className="rounded border border-white/[0.055] bg-white/[0.025] px-3 py-2 text-xs text-white/42">
-              {mode === 'user'
-                ? '基于您的自选组合，检查高回撤低夏普持仓。'
-                : mode === 'userEmptyFallback'
-                  ? '您暂无自选基金，当前展示最优夏普组合。'
-                  : '未登录，展示基金池中夏普靠前的候选组合。'}
+              {mode === 'savedRecommendation'
+                ? '使用最近一次生成的配置方案权重，展示真实方案层面的配置和诊断入口。'
+                : mode === 'userWatchlist'
+                  ? '当前自选池没有真实组合权重。生成配置方案后，这里会切换为组合视图。'
+                  : mode === 'userEmptyFallback'
+                    ? '您暂无自选基金，当前只展示真实候选池，不生成组合权重。'
+                    : '未登录，展示基金池中夏普靠前的真实候选，不生成组合权重。'}
             </div>
           </div>
         </Panel>
@@ -627,7 +639,7 @@ export function CockpitDashboard({
 
       {/* Fund list section */}
       <Panel
-        title={mode === 'user' ? '持仓基金' : '优选基金'}
+        title={hasRealWeights ? '方案基金' : mode === 'userWatchlist' ? '自选基金' : '优选基金'}
         action={<Link to="/analysis" className="flex items-center gap-1 text-xs text-[#8FD9BA] hover:text-white">研究 <ChevronRight size={14} /></Link>}
       >
         <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
@@ -644,7 +656,9 @@ export function CockpitDashboard({
               {tabItem.label}
             </button>
           ))}
-          <span className="ml-auto text-white/36">按夏普排序 · 真实指标</span>
+          <span className="ml-auto text-white/36">
+            {hasRealWeights ? '按方案权重 · 真实指标' : '按夏普排序 · 无组合权重'}
+          </span>
         </div>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {visibleCards.map(({ fund, weight, weightSource }) => {
@@ -667,9 +681,11 @@ export function CockpitDashboard({
                   <Sparkline points={[]} warm={(returnRate || 0) >= 0} className="h-8 w-20" />
                 </div>
                 <div className="mt-2 flex items-center justify-between text-xs">
-                  <span className="rounded bg-white/[0.055] px-2 py-0.5 text-white/45">
-                    {weightSource === 'real' ? '真实权重' : '样本占比'} {weight.toFixed(2)}%
-                  </span>
+                  {weightSource === 'real' ? (
+                    <span className="rounded bg-white/[0.055] px-2 py-0.5 text-white/45">权重 {weight.toFixed(2)}%</span>
+                  ) : (
+                    <span className="rounded bg-white/[0.055] px-2 py-0.5 text-white/45">权重 missing</span>
+                  )}
                   <span className="data-number text-white/70">{metricText(fund.nav, 4)}<span className="ml-1 text-white/35">净值</span></span>
                 </div>
               </Link>
@@ -685,9 +701,9 @@ export function CockpitDashboard({
 
       {/* Asset mix summary row */}
       {assetMix.length > 0 && (
-        <Panel title={weightSource === 'real' ? '资产配置概览' : '样本类型分布'}>
+        <Panel title="资产配置概览">
           <div className="mb-3 text-xs text-white/40">
-            {weightSource === 'real' ? '基于接口返回的基金权重字段汇总。' : '当前基金列表未返回持仓权重，仅按候选样本数量展示类型构成。'}
+            基于接口或最近生成方案返回的权重字段汇总；没有权重时不展示配置图。
           </div>
           <div className="flex flex-wrap gap-4">
             {assetMix.slice(0, 6).map((item) => (
