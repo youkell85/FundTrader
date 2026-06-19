@@ -15,7 +15,6 @@ const Backtest = lazy(() => import('./pages/Backtest'))
 const Recommend = lazy(() => import('./pages/Recommend'))
 const Analysis = lazy(() => import('./pages/Analysis'))
 const AllocationWizard = lazy(() => import('./pages/AllocationWizard'))
-const DesignPreview = lazy(() => import('./pages/DesignPreview'))
 
 // 资产配置结果页 — 侧边导航布局 + 子路由
 const AllocationLayout = lazy(() => import('./components/layout/AllocationLayout'))
@@ -76,7 +75,7 @@ export default function App() {
             <Route path="/" element={<Home />} />
             {/* /fund (no trailing slash) → redirect to /fund/ so basename routing resolves correctly */}
             <Route path="" element={<Navigate to="/" replace />} />
-            <Route path="/ui-preview" element={<DesignPreview />} />
+            <Route path="/ui-preview" element={<Navigate to="/" replace />} />
             <Route path="/login" element={<Login />} />
             <Route path="/:code" element={<FundDetail />} />
 
