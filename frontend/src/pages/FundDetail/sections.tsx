@@ -351,7 +351,15 @@ export function MetaSection({
   navPoints,
 }: {
   fund: any;
-  rating: { rating3y: number | null; rating5y: number | null; score: number | null; source: string | null } | null | undefined;
+  rating: {
+    rating3y: number | null;
+    rating5y: number | null;
+    score: number | null;
+    source: string | null;
+    asOf?: string | null;
+    dataStatus?: string | null;
+    missingReason?: string | null;
+  } | null | undefined;
   purchaseInfo: {
     purchaseStatus?: string | null;
     redeemStatus?: string | null;
@@ -362,10 +370,19 @@ export function MetaSection({
     custodyFeeRate?: string | null;
     serviceFeeRate?: string | null;
     totalFeeRate1y?: string | number | null;
+    source?: string | null;
+    asOf?: string | null;
+    dataStatus?: string | null;
+    missingReason?: string | null;
   } | null;
   completeness?: { coverage?: number; available?: number; partial?: number; total?: number } | null;
   navPoints: Array<{ d: string; nav: number }>;
 }) {
+  const purchaseMeta = [purchaseInfo?.source, purchaseInfo?.asOf].filter(Boolean).join(" · ");
+  const ratingMeta = [rating?.source, rating?.asOf].filter(Boolean).join(" · ");
+  const purchaseMissingReason = purchaseInfo?.missingReason || "购买信息接口未返回可展示的真实销售状态或费率数据。";
+  const ratingMissingReason = rating?.missingReason || "评级接口未返回可展示的真实 3 年或 5 年星级数据。";
+
   return (
     <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
       {/* 购买信息 */}
@@ -377,7 +394,10 @@ export function MetaSection({
         || purchaseInfo.custodyFeeRate
         || purchaseInfo.totalFeeRate1y != null
       ) ? (
-        <Panel title="购买信息">
+        <Panel
+          title="购买信息"
+          extra={purchaseMeta ? <span className="text-xs text-muted-foreground">{purchaseMeta}</span> : null}
+        >
           <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-sm">
             <dt className="text-muted-foreground">申购状态</dt>
             <dd className="text-right">{purchaseInfo.purchaseStatus || "—"}</dd>
@@ -394,11 +414,14 @@ export function MetaSection({
               {purchaseInfo.totalFeeRate1y != null ? `${purchaseInfo.totalFeeRate1y}%` : "—"}
             </dd>
           </dl>
+          {purchaseInfo.missingReason ? (
+            <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{purchaseInfo.missingReason}</p>
+          ) : null}
         </Panel>
       ) : (
         <MissingPanel
           title="购买信息"
-          reason="依赖 fund.purchaseInfo 接口（已实现但 fund_master 表缺 purchase_status / min_purchase / subscription_fee 等字段）"
+          reason={purchaseMissingReason}
           endpoint="trpc.fund.purchaseInfo"
           height={140}
         />
@@ -409,8 +432,8 @@ export function MetaSection({
         <Panel
           title="基金评级"
           extra={
-            rating.source ? (
-              <span className="text-xs text-muted-foreground">{rating.source}</span>
+            ratingMeta ? (
+              <span className="text-xs text-muted-foreground">{ratingMeta}</span>
             ) : null
           }
         >
@@ -436,7 +459,7 @@ export function MetaSection({
       ) : (
         <MissingPanel
           title="基金评级"
-          reason="依赖基金评级接口（3 年 / 5 年评级，1~5 颗星），后端接口已就绪但需数据库有基金评级数据"
+          reason={ratingMissingReason}
           endpoint="trpc.fund.rating"
           height={120}
         />
