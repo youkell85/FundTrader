@@ -8,7 +8,13 @@ import {
 import { trpc } from "@/providers/trpc";
 import { useAuth } from "@/hooks/useAuth";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { POSITIVE_METRIC_COLOR } from "@/lib/colors";
+import {
+  ACCENT_INFO,
+  ACCENT_PURPLE,
+  POSITIVE_METRIC_COLOR,
+  RISK_COLOR,
+  getChangeTextClass,
+} from "@/lib/colors";
 import { feePct, returnPct, drawdownPct, sharpeFmt } from "@/lib/fund-data";
 
 const typeLabels: Record<string, string> = {
@@ -18,10 +24,10 @@ const typeLabels: Record<string, string> = {
 };
 
 const dataStatusConfig: Record<string, { label: string; color: string; bg: string }> = {
-  available: { label: "完整", color: "#16C784", bg: "rgba(22,199,132,0.08)" },
-  partial: { label: "部分", color: "#FAC858", bg: "rgba(250,200,88,0.08)" },
-  stale: { label: "陈旧", color: "#5AA9FF", bg: "rgba(90,169,255,0.08)" },
-  missing: { label: "缺失", color: "#EE6666", bg: "rgba(238,102,102,0.08)" },
+  available: { label: "完整", color: "hsl(var(--success))", bg: "hsl(var(--success) / 0.08)" },
+  partial: { label: "部分", color: "hsl(var(--warning))", bg: "hsl(var(--warning) / 0.08)" },
+  stale: { label: "陈旧", color: "hsl(var(--primary))", bg: "hsl(var(--primary) / 0.08)" },
+  missing: { label: "缺失", color: "hsl(var(--danger))", bg: "hsl(var(--danger) / 0.08)" },
 };
 
 function fmtNum(v: unknown, digits = 2, suffix = ""): string {
@@ -218,7 +224,7 @@ export default function ResearchWorkbench({ funds }: Props) {
           else { setSortBy(key); setSortOrder("desc"); }
         }}
         className={`text-[10px] px-2 py-1 rounded border transition-colors flex items-center gap-0.5 ${
-          active ? "border-[#3B6CFF]/40 bg-[#3B6CFF]/10 text-[#5AA9FF]" : "border-white/[0.06] bg-white/[0.02] text-white/40 hover:text-white/60"
+          active ? "workspace-action-active" : "workspace-action text-white/40 hover:text-white/60"
         }`}
       >
         {label}
@@ -233,20 +239,20 @@ export default function ResearchWorkbench({ funds }: Props) {
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div>
           <h2 className="text-base font-medium text-white flex items-center gap-2">
-            <BarChart3 className="w-5 h-5" style={{ color: "#3B6CFF" }} />
+            <BarChart3 className="w-5 h-5" style={{ color: ACCENT_INFO }} />
             基金研究
           </h2>
           <p className="text-xs text-white/40 mt-1">
             共 {funds.length} 只产品 · 筛选后 {filtered.length} 只
             {compareCodes.length > 0 && (
-              <span className="ml-2 text-[#3B6CFF]">已选 {compareCodes.length}/4 只对比</span>
+              <span className="ml-2 text-primary">已选 {compareCodes.length}/4 只对比</span>
             )}
           </p>
         </div>
         {compareCodes.length > 0 && (
           <button
             onClick={() => setShowComparePanel((s) => !s)}
-            className="px-3 py-1.5 rounded-lg text-xs bg-[#3B6CFF]/15 text-[#3B6CFF] border border-[#3B6CFF]/25 hover:bg-[#3B6CFF]/25 transition-colors"
+            className="workspace-action-active px-3 py-1.5 text-xs transition-colors"
           >
             {showComparePanel ? "收起对比" : "展开对比"}
           </button>
@@ -282,13 +288,13 @@ export default function ResearchWorkbench({ funds }: Props) {
                   { label: "净值", get: (f: any) => fmtNum(f.nav) },
                   { label: "日涨跌", get: (f: any) => {
                     const v = parseNum(f.dailyChange);
-                    return v === null ? "—" : <span className={v >= 0 ? "text-[#16C784]" : "text-[#EE6666]"}>{v >= 0 ? "+" : ""}{fmtNum(v, 2, "%")}</span>;
+                    return v === null ? "—" : <span className={getChangeTextClass(v)}>{v >= 0 ? "+" : ""}{fmtNum(v, 2, "%")}</span>;
                   }},
                   { label: "近1年收益", get: (f: any) => {
                     const v = parseNum(f.performance?.return1y);
-                    return v === null ? "—" : <span className={v >= 0 ? "text-[#16C784]" : "text-[#EE6666]"}>{v >= 0 ? "+" : ""}{returnPct(f.performance?.return1y)}</span>;
+                    return v === null ? "—" : <span className={getChangeTextClass(v)}>{v >= 0 ? "+" : ""}{returnPct(f.performance?.return1y)}</span>;
                   }},
-                  { label: "最大回撤", get: (f: any) => <span className="text-[#EE6666]">{drawdownPct(f.performance?.maxDrawdown)}</span> },
+                  { label: "最大回撤", get: (f: any) => <span style={{ color: RISK_COLOR }}>{drawdownPct(f.performance?.maxDrawdown)}</span> },
                   { label: "夏普比率", get: (f: any) => sharpeFmt(f.performance?.sharpeRatio) },
                   { label: "波动率", get: (f: any) => returnPct(f.performance?.annualizedVolatility) },
                   { label: "规模", get: (f: any) => fmtNum(f.totalScale, 1, "亿") },
@@ -322,11 +328,11 @@ export default function ResearchWorkbench({ funds }: Props) {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="搜索代码/名称"
-              className="w-full pl-8 pr-3 py-1.5 rounded-lg bg-white/[0.03] border border-white/[0.06] text-white text-xs placeholder:text-white/25 focus:outline-none focus:border-[#3B6CFF]/30"
+              className="workspace-input w-full pl-8 pr-3 py-1.5 text-xs placeholder:text-white/25"
             />
           </div>
           <Select value={fundType} onValueChange={setFundType}>
-            <SelectTrigger className="h-8 rounded-lg bg-white/[0.03] border-white/[0.06] px-2 text-xs text-white">
+            <SelectTrigger className="workspace-input h-8 px-2 text-xs">
               <SelectValue />
             </SelectTrigger>
             <SelectContent className="bg-popover text-popover-foreground border-white/[0.08]">
@@ -337,7 +343,7 @@ export default function ResearchWorkbench({ funds }: Props) {
             </SelectContent>
           </Select>
           <Select value={company} onValueChange={setCompany}>
-            <SelectTrigger className="h-8 max-w-[160px] rounded-lg bg-white/[0.03] border-white/[0.06] px-2 text-xs text-white">
+            <SelectTrigger className="workspace-input h-8 max-w-[160px] px-2 text-xs">
               <SelectValue />
             </SelectTrigger>
             <SelectContent className="bg-popover text-popover-foreground border-white/[0.08]">
@@ -348,7 +354,7 @@ export default function ResearchWorkbench({ funds }: Props) {
             </SelectContent>
           </Select>
           <Select value={riskLevel} onValueChange={setRiskLevel}>
-            <SelectTrigger className="h-8 rounded-lg bg-white/[0.03] border-white/[0.06] px-2 text-xs text-white">
+            <SelectTrigger className="workspace-input h-8 px-2 text-xs">
               <SelectValue />
             </SelectTrigger>
             <SelectContent className="bg-popover text-popover-foreground border-white/[0.08]">
@@ -361,7 +367,7 @@ export default function ResearchWorkbench({ funds }: Props) {
             </SelectContent>
           </Select>
           <Select value={dataStatusFilter} onValueChange={setDataStatusFilter}>
-            <SelectTrigger className="h-8 rounded-lg bg-white/[0.03] border-white/[0.06] px-2 text-xs text-white">
+            <SelectTrigger className="workspace-input h-8 px-2 text-xs">
               <SelectValue />
             </SelectTrigger>
             <SelectContent className="bg-popover text-popover-foreground border-white/[0.08]">
@@ -387,21 +393,21 @@ export default function ResearchWorkbench({ funds }: Props) {
               value={minReturn1y}
               onChange={(e) => setMinReturn1y(e.target.value)}
               placeholder="最小收益%"
-              className="w-20 px-2 py-1 rounded bg-white/[0.03] border border-white/[0.06] text-white text-[10px] placeholder:text-white/20 focus:outline-none"
+              className="workspace-input w-20 px-2 py-1 text-[10px] placeholder:text-white/20"
             />
             <input
               type="number"
               value={maxDrawdown}
               onChange={(e) => setMaxDrawdown(e.target.value)}
               placeholder="最大回撤%"
-              className="w-20 px-2 py-1 rounded bg-white/[0.03] border border-white/[0.06] text-white text-[10px] placeholder:text-white/20 focus:outline-none"
+              className="workspace-input w-20 px-2 py-1 text-[10px] placeholder:text-white/20"
             />
             <input
               type="number"
               value={minSharpe}
               onChange={(e) => setMinSharpe(e.target.value)}
               placeholder="最小夏普比率"
-              className="w-20 px-2 py-1 rounded bg-white/[0.03] border border-white/[0.06] text-white text-[10px] placeholder:text-white/20 focus:outline-none"
+              className="workspace-input w-20 px-2 py-1 text-[10px] placeholder:text-white/20"
             />
           </div>
         </div>
@@ -442,7 +448,7 @@ export default function ResearchWorkbench({ funds }: Props) {
                 {/* Desktop row */}
                 <div className="hidden md:grid md:grid-cols-[minmax(220px,2fr)_repeat(6,minmax(72px,1fr))_minmax(160px,1fr)_minmax(100px,1fr)] gap-2 px-4 py-2.5 text-xs items-center">
                   <div className="min-w-0">
-                    <Link to={`/${fund.fundCode}`} className="text-white font-medium hover:text-[#3B6CFF] transition-colors truncate block">
+                    <Link to={`/${fund.fundCode}`} className="text-white font-medium hover:text-primary transition-colors truncate block">
                       {fund.fundAbbr || fund.fundName}
                     </Link>
                     <div className="flex items-center gap-1.5 mt-0.5">
@@ -452,10 +458,10 @@ export default function ResearchWorkbench({ funds }: Props) {
                     </div>
                   </div>
                   <div className="text-right data-number text-white/70">{fmtNum(fund.nav)}</div>
-                  <div className={`text-right data-number ${r1y !== null && r1y >= 0 ? "text-[#16C784]" : "text-[#EE6666]"}`}>
+                  <div className={`text-right data-number ${getChangeTextClass(r1y)}`}>
                     {r1y !== null ? `${r1y >= 0 ? "+" : ""}${returnPct(perf.return1y)}` : "—"}
                   </div>
-                  <div className="text-right data-number text-[#EE6666]">{drawdownPct(perf.maxDrawdown)}</div>
+                  <div className="text-right data-number" style={{ color: RISK_COLOR }}>{drawdownPct(perf.maxDrawdown)}</div>
                   <div className="text-right data-number" style={{ color: POSITIVE_METRIC_COLOR }}>{sharpeFmt(perf.sharpeRatio)}</div>
                   <div className="text-right data-number text-white/50">{fmtNum(fund.totalScale, 1, "亿")}</div>
                   <div className="text-right data-number text-white/50">{feePct(fund.feeManage)}</div>
@@ -467,7 +473,7 @@ export default function ResearchWorkbench({ funds }: Props) {
                   <div className="flex items-center justify-center gap-1">
                     <button
                       onClick={() => toggleCompare(fund.fundCode)}
-                      className={`p-1 rounded transition-colors ${isCompare ? "bg-[#3B6CFF]/20 text-[#3B6CFF]" : "text-white/30 hover:text-white/60 hover:bg-white/[0.06]"}`}
+                      className={`p-1 rounded transition-colors ${isCompare ? "workspace-action-active" : "text-white/30 hover:text-white/60 hover:bg-white/[0.06]"}`}
                       title={isCompare ? "取消对比" : "加入对比"}
                     >
                       {isCompare ? <Minus className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
@@ -480,7 +486,8 @@ export default function ResearchWorkbench({ funds }: Props) {
                         {candidateCodes.has(fund.fundCode) ? (
                           <button
                             onClick={() => removeResearchCandidate.mutate({ code: fund.fundCode })}
-                            className="p-1 rounded text-[#9D7BFF]/60 hover:text-[#9D7BFF] hover:bg-[#9D7BFF]/10"
+                            className="p-1 rounded"
+                            style={{ color: ACCENT_PURPLE }}
                             title="移出候选"
                           >
                             <Shield className="w-3.5 h-3.5" />
@@ -488,7 +495,7 @@ export default function ResearchWorkbench({ funds }: Props) {
                         ) : (
                           <button
                             onClick={() => addResearchCandidate.mutate({ code: fund.fundCode })}
-                            className="p-1 rounded text-white/30 hover:text-[#9D7BFF] hover:bg-[#9D7BFF]/10"
+                            className="p-1 rounded text-white/30 hover:bg-white/[0.06]"
                             title="加入配置候选"
                           >
                             <Shield className="w-3.5 h-3.5" />
@@ -497,7 +504,7 @@ export default function ResearchWorkbench({ funds }: Props) {
                         {isWatchlist ? (
                           <button
                             onClick={() => removeFund.mutate({ code: fund.fundCode })}
-                            className="p-1 rounded text-[#EE6666]/60 hover:text-[#EE6666] hover:bg-[#EE6666]/10"
+                            className="p-1 rounded text-danger/70 hover:text-danger hover:bg-danger/10"
                             title="移出自选"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -505,7 +512,7 @@ export default function ResearchWorkbench({ funds }: Props) {
                         ) : (
                           <button
                             onClick={() => addByCode.mutate({ code: fund.fundCode })}
-                            className="p-1 rounded text-[#16C784]/60 hover:text-[#16C784] hover:bg-[#16C784]/10"
+                            className="p-1 rounded text-success/70 hover:text-success hover:bg-success/10"
                             title="加入自选"
                           >
                             <Star className="w-3.5 h-3.5" />
@@ -520,7 +527,7 @@ export default function ResearchWorkbench({ funds }: Props) {
                 <div className="md:hidden px-4 py-3">
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0 flex-1">
-                      <Link to={`/${fund.fundCode}`} className="text-white text-sm font-medium hover:text-[#3B6CFF] truncate block">
+                      <Link to={`/${fund.fundCode}`} className="text-white text-sm font-medium hover:text-primary truncate block">
                         {fund.fundAbbr || fund.fundName}
                       </Link>
                       <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
@@ -530,13 +537,13 @@ export default function ResearchWorkbench({ funds }: Props) {
                       </div>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
-                      <button onClick={() => toggleCompare(fund.fundCode)} className={`p-1.5 rounded ${isCompare ? "bg-[#3B6CFF]/20 text-[#3B6CFF]" : "text-white/30"}`}>
+                      <button onClick={() => toggleCompare(fund.fundCode)} className={`p-1.5 ${isCompare ? "workspace-action-active" : "rounded text-white/30"}`}>
                         {isCompare ? <Minus className="w-3.5 h-3.5" /> : <Plus className="w-3.5 h-3.5" />}
                       </button>
                       {user && (
                         <>
                           {candidateCodes.has(fund.fundCode) ? (
-                            <button onClick={() => removeResearchCandidate.mutate({ code: fund.fundCode })} className="p-1.5 rounded text-[#9D7BFF]/60">
+                            <button onClick={() => removeResearchCandidate.mutate({ code: fund.fundCode })} className="p-1.5 rounded" style={{ color: ACCENT_PURPLE }}>
                               <Shield className="w-3.5 h-3.5" />
                             </button>
                           ) : (
@@ -545,11 +552,11 @@ export default function ResearchWorkbench({ funds }: Props) {
                             </button>
                           )}
                           {isWatchlist ? (
-                            <button onClick={() => removeFund.mutate({ code: fund.fundCode })} className="p-1.5 rounded text-[#EE6666]/60">
+                            <button onClick={() => removeFund.mutate({ code: fund.fundCode })} className="p-1.5 rounded text-danger/70">
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
                           ) : (
-                            <button onClick={() => addByCode.mutate({ code: fund.fundCode })} className="p-1.5 rounded text-[#16C784]/60">
+                            <button onClick={() => addByCode.mutate({ code: fund.fundCode })} className="p-1.5 rounded text-success/70">
                               <Star className="w-3.5 h-3.5" />
                             </button>
                           )}
@@ -564,13 +571,13 @@ export default function ResearchWorkbench({ funds }: Props) {
                     </div>
                     <div className="text-center">
                       <div className="text-[9px] text-white/30">近1年</div>
-                      <div className={`text-xs data-number ${r1y !== null && r1y >= 0 ? "text-[#16C784]" : "text-[#EE6666]"}`}>
+                      <div className={`text-xs data-number ${getChangeTextClass(r1y)}`}>
                         {r1y !== null ? `${r1y >= 0 ? "+" : ""}${returnPct(perf.return1y, 1)}` : "—"}
                       </div>
                     </div>
                     <div className="text-center">
                       <div className="text-[9px] text-white/30">回撤</div>
-                      <div className="text-xs data-number text-[#EE6666]">{drawdownPct(perf.maxDrawdown, 1)}</div>
+                      <div className="text-xs data-number" style={{ color: RISK_COLOR }}>{drawdownPct(perf.maxDrawdown, 1)}</div>
                     </div>
                     <div className="text-center">
                       <div className="text-[9px] text-white/30">夏普比率</div>

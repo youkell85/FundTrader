@@ -227,6 +227,20 @@
     color: white;
   }
 
+  .workspace-action-active {
+    border: 1px solid rgba(69, 176, 132, 0.34);
+    background: rgba(69, 176, 132, 0.14);
+    color: #8FD9BA;
+    border-radius: 8px;
+  }
+
+  .workspace-action-danger {
+    border: 1px solid rgba(245, 56, 75, 0.28);
+    background: rgba(245, 56, 75, 0.1);
+    color: #ff9aa6;
+    border-radius: 8px;
+  }
+
   .workspace-warning {
     border: 1px solid rgba(214, 157, 99, 0.24);
     background: rgba(214, 157, 99, 0.08);

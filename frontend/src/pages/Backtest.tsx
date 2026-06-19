@@ -44,6 +44,7 @@ import {
   ACCENT_HIGHLIGHT,
   ACCENT_INFO,
   ACCENT_PRIMARY,
+  ACCENT_PURPLE,
   DOWN_COLOR,
   POSITIVE_METRIC_COLOR,
   RISK_COLOR,
@@ -403,7 +404,7 @@ export default function Backtest() {
   const excessReturn = toNum(result?.totalReturn) - benchmarkReturn;
 
   return (
-    <div className="min-h-screen bg-[#000212] pt-14 pb-24 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] md:pb-12">
+    <div className="workspace-shell min-h-screen pt-14 pb-24 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)] md:pb-12">
       <div className="mx-auto max-w-7xl px-4 md:px-6">
         <div className="flex flex-col gap-3 py-6 md:flex-row md:items-end md:justify-between md:py-8">
           <div>
@@ -444,14 +445,14 @@ export default function Backtest() {
                   value={fundSearch}
                   onChange={(event) => setFundSearch(event.target.value)}
                   placeholder="输入代码、名称、类型筛选基金"
-                  className="h-10 w-full rounded-lg border border-white/[0.08] bg-[#0B1021] pl-9 pr-3 text-sm text-white outline-none placeholder:text-white/25 focus:border-[#3B6CFF]/50"
+                  className="workspace-input h-10 w-full pl-9 pr-3 text-sm placeholder:text-white/25"
                 />
               </div>
 
               <div className="mt-3 flex gap-1.5 overflow-x-auto pb-1">
-                <button onClick={() => setActiveType("all")} className={`h-8 rounded-lg border px-3 text-xs ${activeType === "all" ? "border-[#3B6CFF]/35 bg-[#3B6CFF]/18 text-[#00F0FF]" : "border-white/[0.06] bg-white/[0.03] text-white/45"}`}>全部</button>
+                <button onClick={() => setActiveType("all")} className={`h-8 px-3 text-xs ${activeType === "all" ? "workspace-action-active" : "workspace-action"}`}>全部</button>
                 {groupedFunds.map((group) => (
-                  <button key={group.type} onClick={() => setActiveType(group.type)} className={`h-8 whitespace-nowrap rounded-lg border px-3 text-xs ${activeType === group.type ? "border-[#3B6CFF]/35 bg-[#3B6CFF]/18 text-[#00F0FF]" : "border-white/[0.06] bg-white/[0.03] text-white/45"}`}>
+                  <button key={group.type} onClick={() => setActiveType(group.type)} className={`h-8 whitespace-nowrap px-3 text-xs ${activeType === group.type ? "workspace-action-active" : "workspace-action"}`}>
                     {group.label}
                   </button>
                 ))}
@@ -473,7 +474,7 @@ export default function Backtest() {
                         setSortOrder(item.key === "maxDrawdown" ? "asc" : "desc");
                       }
                     }}
-                    className={`h-7 rounded-lg border px-2.5 text-[11px] ${sortMetric === item.key ? "border-[#00F0FF]/30 bg-[#00F0FF]/12 text-[#00F0FF]" : "border-white/[0.06] bg-white/[0.03] text-white/40"}`}
+                    className={`h-7 px-2.5 text-[11px] ${sortMetric === item.key ? "workspace-action-active" : "workspace-action"}`}
                   >
                     {item.label}{sortMetric === item.key ? (sortOrder === "desc" ? " ↓" : " ↑") : ""}
                   </button>
@@ -482,7 +483,7 @@ export default function Backtest() {
 
               <div className="mt-3 max-h-[360px] space-y-3 overflow-y-auto pr-1">
                 {visibleGroups.map((group) => (
-                  <div key={group.type} className="overflow-hidden rounded-lg border border-white/[0.06] bg-[#070B18]/70">
+                  <div key={group.type} className="workspace-panel overflow-hidden">
                     <div className="flex justify-between bg-white/[0.03] px-3 py-2 text-xs text-white/55">
                       <span>{group.label}</span>
                       <span className="data-number">{group.funds.length}</span>
@@ -490,7 +491,7 @@ export default function Backtest() {
                     <div className="grid grid-cols-1 gap-1 p-1.5 sm:grid-cols-2 xl:grid-cols-1">
                       {group.funds.map((fund: any) => (
                         <button key={fund.id} type="button" onClick={() => handleAddFund(fund.id)} className="flex items-center gap-2 rounded-md px-2.5 py-2 text-left transition-colors hover:bg-white/[0.06]">
-                          <Plus className="h-3.5 w-3.5 shrink-0 text-[#5AA9FF]" />
+                          <Plus className="h-3.5 w-3.5 shrink-0 text-primary" />
                           <div className="min-w-0 flex-1">
                             <div className="truncate text-sm text-white/85">{fund.fundAbbr || fund.fundName}</div>
                             <div className="data-number text-xs text-white/55">{fund.fundCode} · {fund.category}</div>
@@ -511,12 +512,12 @@ export default function Backtest() {
                 <div className="mt-4 space-y-2">
                   <div className="flex items-center justify-between px-1 text-[11px] text-white/55">
                     <span>组合权重合计</span>
-                    <span className={`data-number ${weightTotal === 100 ? "text-[#00F0FF]" : "text-[#F5384B]"}`}>{weightTotal}%</span>
+                    <span className={`data-number ${weightTotal === 100 ? "text-primary" : "text-danger"}`}>{weightTotal}%</span>
                   </div>
                   {selectedFundDetails.map((fund: any, index: number) => (
                     <div key={fund.id} className="rounded-lg border border-white/[0.08] bg-white/[0.045] p-3">
                       <div className="flex items-center gap-2">
-                        <CheckCircle2 className="h-3.5 w-3.5 text-[#00F0FF]" />
+                        <CheckCircle2 className="h-3.5 w-3.5 text-primary" />
                         <span className="min-w-0 flex-1 truncate text-sm text-white">{fund.fundAbbr || fund.fundName}</span>
                         <button onClick={() => handleRemoveFund(index)} className="rounded-md p-1 text-white/55 hover:bg-white/[0.06] hover:text-white">
                           <X className="h-3.5 w-3.5" />
@@ -529,7 +530,7 @@ export default function Backtest() {
                           max={100}
                           value={weights[index] || 0}
                           onChange={(event) => setWeights(normalizeWeights(selectedFunds.length, weights, index, Number(event.target.value)))}
-                          className="w-full accent-[#3B6CFF]"
+                          className="w-full accent-primary"
                         />
                         <input
                           type="number"
@@ -537,7 +538,7 @@ export default function Backtest() {
                           max={100}
                           value={weights[index] || 0}
                           onChange={(event) => setWeights(normalizeWeights(selectedFunds.length, weights, index, Number(event.target.value)))}
-                          className="data-number h-8 w-16 rounded-lg border border-white/[0.08] bg-[#0B1021] px-2 text-xs text-white outline-none"
+                          className="workspace-input data-number h-8 w-16 px-2 text-xs"
                         />
                       </div>
                     </div>
@@ -556,7 +557,7 @@ export default function Backtest() {
                   <label className="mb-2 block text-xs text-white/40">定投策略</label>
                   <div className="space-y-1.5">
                     {strategies.map((item) => (
-                      <button key={item.value} onClick={() => setStrategy(item.value)} className={`w-full rounded-lg border px-3 py-2.5 text-left text-sm transition-all ${strategy === item.value ? "border-[#3B6CFF]/25 bg-[#3B6CFF]/15 text-[#5AA9FF]" : "border-transparent text-white/55 hover:bg-white/[0.03] hover:text-white/75"}`}>
+                      <button key={item.value} onClick={() => setStrategy(item.value)} className={`w-full px-3 py-2.5 text-left text-sm transition-all ${strategy === item.value ? "workspace-action-active" : "rounded-lg border border-transparent text-white/55 hover:bg-white/[0.03] hover:text-white/75"}`}>
                         <div className="font-medium">{item.label}</div>
                         <div className="mt-0.5 text-[11px] leading-relaxed text-white/55">{item.desc}</div>
                       </button>
@@ -567,12 +568,12 @@ export default function Backtest() {
                 <section className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="mb-1 block text-xs text-white/40">单期投入</label>
-                    <input type="number" value={amount} onChange={(event) => setAmount(event.target.value)} className="data-number h-10 w-full rounded-lg border border-white/[0.08] bg-[#0B1021] px-3 text-sm text-white outline-none focus:border-[#3B6CFF]/50" />
+                    <input type="number" value={amount} onChange={(event) => setAmount(event.target.value)} className="workspace-input data-number h-10 w-full px-3 text-sm" />
                   </div>
                   <div>
                     <label className="mb-1 block text-xs text-white/40">频率</label>
                     <Select value={frequency} onValueChange={setFrequency}>
-                      <SelectTrigger className="h-10 w-full rounded-lg border-white/[0.08] bg-[#0B1021] px-3 text-sm text-white focus:border-[#3B6CFF]/50">
+                      <SelectTrigger className="workspace-input h-10 w-full px-3 text-sm">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent className="bg-popover text-popover-foreground border-white/[0.08]">
@@ -586,11 +587,11 @@ export default function Backtest() {
                   </div>
                   <div>
                     <label className="mb-1 block text-xs text-white/40">起始日期</label>
-                    <input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} className="h-10 w-full rounded-lg border border-white/[0.08] bg-[#0B1021] px-3 text-sm text-white outline-none focus:border-[#3B6CFF]/50" />
+                    <input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} className="workspace-input h-10 w-full px-3 text-sm" />
                   </div>
                   <div>
                     <label className="mb-1 block text-xs text-white/40">结束日期</label>
-                    <input type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} className="h-10 w-full rounded-lg border border-white/[0.08] bg-[#0B1021] px-3 text-sm text-white outline-none focus:border-[#3B6CFF]/50" />
+                    <input type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} className="workspace-input h-10 w-full px-3 text-sm" />
                   </div>
                 </section>
 
@@ -598,7 +599,7 @@ export default function Backtest() {
                   <label className="mb-2 block text-xs text-white/40">风险档位</label>
                   <div className="grid grid-cols-3 gap-2">
                     {riskProfiles.map((profile) => (
-                      <button key={profile.value} onClick={() => handleRiskProfile(profile.value)} className={`h-9 rounded-lg border text-xs ${riskProfile === profile.value ? "border-[#00F0FF]/30 bg-[#00F0FF]/12 text-[#00F0FF]" : "border-white/[0.06] bg-white/[0.03] text-white/45"}`}>
+                      <button key={profile.value} onClick={() => handleRiskProfile(profile.value)} className={`h-9 text-xs ${riskProfile === profile.value ? "workspace-action-active" : "workspace-action"}`}>
                         {profile.label}
                       </button>
                     ))}
@@ -608,19 +609,19 @@ export default function Backtest() {
                 <section className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="mb-1 block text-xs text-white/40">最大回撤预算 %</label>
-                    <input type="number" value={maxDrawdownLimit} onChange={(event) => setMaxDrawdownLimit(event.target.value)} className="data-number h-10 w-full rounded-lg border border-white/[0.08] bg-[#0B1021] px-3 text-sm text-white outline-none" />
+                    <input type="number" value={maxDrawdownLimit} onChange={(event) => setMaxDrawdownLimit(event.target.value)} className="workspace-input data-number h-10 w-full px-3 text-sm" />
                   </div>
                   <div>
                     <label className="mb-1 block text-xs text-white/40">目标年化 %</label>
-                    <input type="number" value={targetAnnualReturn} onChange={(event) => setTargetAnnualReturn(event.target.value)} className="data-number h-10 w-full rounded-lg border border-white/[0.08] bg-[#0B1021] px-3 text-sm text-white outline-none" />
+                    <input type="number" value={targetAnnualReturn} onChange={(event) => setTargetAnnualReturn(event.target.value)} className="workspace-input data-number h-10 w-full px-3 text-sm" />
                   </div>
                   <div>
                     <label className="mb-1 block text-xs text-white/40">申购费率 %</label>
-                    <input type="number" value={feeRate} onChange={(event) => setFeeRate(event.target.value)} className="data-number h-10 w-full rounded-lg border border-white/[0.08] bg-[#0B1021] px-3 text-sm text-white outline-none" />
+                    <input type="number" value={feeRate} onChange={(event) => setFeeRate(event.target.value)} className="workspace-input data-number h-10 w-full px-3 text-sm" />
                   </div>
                   <div>
                     <label className="mb-1 block text-xs text-white/40">摩擦成本 %</label>
-                    <input type="number" value={slippageRate} onChange={(event) => setSlippageRate(event.target.value)} className="data-number h-10 w-full rounded-lg border border-white/[0.08] bg-[#0B1021] px-3 text-sm text-white outline-none" />
+                    <input type="number" value={slippageRate} onChange={(event) => setSlippageRate(event.target.value)} className="workspace-input data-number h-10 w-full px-3 text-sm" />
                   </div>
                 </section>
 
@@ -630,7 +631,7 @@ export default function Backtest() {
                     <span>{errorMsg}</span>
                   </div>
                 )}
-                <button onClick={handleRun} disabled={selectedFunds.length === 0 || isRunning} className="flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-[#3B6CFF] to-[#2A52CC] text-sm font-medium text-white transition-all hover:from-[#4A7CFF] hover:to-[#3A62CC] disabled:cursor-not-allowed disabled:opacity-40">
+                <button onClick={handleRun} disabled={selectedFunds.length === 0 || isRunning} className="workspace-action-active flex h-11 w-full items-center justify-center gap-2 text-sm font-medium transition-all disabled:cursor-not-allowed disabled:opacity-40">
                   {isRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
                   {isRunning ? "正在回测..." : "运行专业回测"}
                 </button>
@@ -716,7 +717,7 @@ export default function Backtest() {
                         <Legend wrapperStyle={{ fontSize: 11, color: "rgba(255,255,255,0.55)" }} />
                         <Area type="stepAfter" dataKey="invested" name="累计投入本金" stroke={ACCENT_PRIMARY} strokeWidth={1.5} fill="url(#investedValue)" />
                         <Area type="monotone" dataKey="value" name="定投账户市值" stroke={UP_COLOR} strokeWidth={2} fill="url(#dcaValue)" />
-                        <Area type="monotone" dataKey="benchmark" name="一次性买入市值" stroke="#FFD166" strokeWidth={2} fill="transparent" connectNulls />
+                        <Area type="monotone" dataKey="benchmark" name="一次性买入市值" stroke={ACCENT_HIGHLIGHT} strokeWidth={2} fill="transparent" connectNulls />
                       </AreaChart>
                     </ResponsiveContainer>
                   </div>
@@ -780,7 +781,7 @@ export default function Backtest() {
                         </div>
                         {advice.points.map((point) => (
                           <div key={point} className="flex gap-2 rounded-lg border border-white/[0.05] bg-white/[0.025] p-3 text-sm leading-relaxed text-white/65">
-                            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-[#00F0FF]" />
+                            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
                             <span>{point}</span>
                           </div>
                         ))}
@@ -848,8 +849,8 @@ export default function Backtest() {
                     <div className="space-y-3">
                       {llmReview.verdict && <div className="rounded-lg border border-white/[0.06] bg-white/[0.035] p-3"><div className="text-xs" style={{ color: ACCENT_INFO }}>综合评级</div><div className="mt-1 text-sm font-medium text-white">{llmReview.verdict}</div></div>}
                       {llmReview.analysis && <div className="rounded-lg border border-white/[0.06] bg-white/[0.035] p-3"><div className="text-xs" style={{ color: ACCENT_INFO }}>专业分析</div><div className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-white/70">{llmReview.analysis}</div></div>}
-                      {Array.isArray(llmReview.suggestions) && llmReview.suggestions.length > 0 && <div className="rounded-lg border border-white/[0.06] bg-white/[0.035] p-3"><div className="mb-2 text-xs" style={{ color: ACCENT_HIGHLIGHT }}>优化建议</div>{llmReview.suggestions.map((item: string) => <div key={item} className="mb-1.5 flex gap-2 text-sm text-white/70"><CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[#00F0FF]" /><span>{item}</span></div>)}</div>}
-                      {Array.isArray(llmReview.risk_notes) && llmReview.risk_notes.length > 0 && <div className="rounded-lg border border-[#FFB800]/20 bg-[#FFB800]/[0.06] p-3"><div className="mb-2 text-xs" style={{ color: RISK_COLOR }}>风险提示</div>{llmReview.risk_notes.map((item: string) => <div key={item} className="mb-1.5 flex gap-2 text-sm text-white/70"><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" style={{ color: RISK_COLOR }} /><span>{item}</span></div>)}</div>}
+                      {Array.isArray(llmReview.suggestions) && llmReview.suggestions.length > 0 && <div className="rounded-lg border border-white/[0.06] bg-white/[0.035] p-3"><div className="mb-2 text-xs" style={{ color: ACCENT_HIGHLIGHT }}>优化建议</div>{llmReview.suggestions.map((item: string) => <div key={item} className="mb-1.5 flex gap-2 text-sm text-white/70"><CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" /><span>{item}</span></div>)}</div>}
+                      {Array.isArray(llmReview.risk_notes) && llmReview.risk_notes.length > 0 && <div className="workspace-warning p-3"><div className="mb-2 text-xs" style={{ color: RISK_COLOR }}>风险提示</div>{llmReview.risk_notes.map((item: string) => <div key={item} className="mb-1.5 flex gap-2 text-sm text-white/70"><AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" style={{ color: RISK_COLOR }} /><span>{item}</span></div>)}</div>}
                       {llmReview.raw && <p className="whitespace-pre-wrap text-sm leading-relaxed text-white/65">{llmReview.raw}</p>}
                     </div>
                   )}
@@ -893,7 +894,7 @@ export default function Backtest() {
             ) : (
               <div className="liquid-glass flex min-h-[560px] flex-col items-center justify-center p-8 text-center">
                 <div className="mb-5 flex h-20 w-20 items-center justify-center rounded-lg border border-white/[0.06] bg-white/[0.035]">
-                  <Calculator className="h-10 w-10 text-[#3B6CFF]/70" />
+                  <Calculator className="h-10 w-10 text-primary/70" />
                 </div>
                 <h3 className="text-xl font-medium text-white/75">配置一套可执行的定投方案</h3>
                 <p className="mt-3 max-w-lg text-sm leading-relaxed text-white/38">
@@ -1002,13 +1003,13 @@ function RollingSharpeChart({ monthlyData }: { monthlyData: any[] }) {
         <Tooltip contentStyle={{ background: 'rgba(5,8,26,0.98)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 12 }}
           labelStyle={{ color: 'rgba(255,255,255,0.5)' }} formatter={(v: number) => [v.toFixed(3), '滚动夏普比率']} />
         <ReferenceLine y={0} stroke="rgba(255,255,255,0.2)" strokeDasharray="3 3" />
-        <Line type="monotone" dataKey="sharpe" stroke="#5AA9FF" strokeWidth={1.5} dot={false} />
+        <Line type="monotone" dataKey="sharpe" stroke={ACCENT_INFO} strokeWidth={1.5} dot={false} />
       </LineChart>
     </ResponsiveContainer>
   );
 }
 
-const RADAR_COLORS = ['#5470C6', '#EE6666', '#FAC858', '#91CC75', '#73C0DE'];
+const RADAR_COLORS = [ACCENT_PRIMARY, UP_COLOR, RISK_COLOR, DOWN_COLOR, ACCENT_PURPLE];
 
 function StrategyRadarChart({ strategyResults }: { strategyResults: any[] }) {
   const maxReturn = Math.max(0.01, ...strategyResults.map(s => Math.abs(toNum(s.annualizedReturn))));

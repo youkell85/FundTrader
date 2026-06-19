@@ -49,7 +49,7 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen pt-14 flex items-center justify-center px-4">
+    <div className="workspace-shell min-h-screen pt-14 flex items-center justify-center px-4">
       <div className="w-full max-w-sm liquid-glass p-5 md:p-6">
         <div className="mb-5">
           <h1 className="text-xl font-semibold text-white">
@@ -61,36 +61,36 @@ export default function Login() {
         </div>
 
         <div className="mb-4 grid grid-cols-3 gap-2">
-          <button onClick={() => { setMode("login"); setError(""); setSuccess(""); }} className={`h-9 rounded-lg border text-sm ${mode === "login" ? "border-[#00F0FF]/35 bg-[#00F0FF]/12 text-[#00F0FF]" : "border-white/[0.06] bg-white/[0.03] text-white/45"}`}>登录</button>
-          <button onClick={() => { setMode("register"); setError(""); setSuccess(""); }} className={`h-9 rounded-lg border text-sm ${mode === "register" ? "border-[#00F0FF]/35 bg-[#00F0FF]/12 text-[#00F0FF]" : "border-white/[0.06] bg-white/[0.03] text-white/45"}`}>注册</button>
-          <button onClick={() => { setMode("forgot"); setError(""); setSuccess(""); }} className={`h-9 rounded-lg border text-sm ${mode === "forgot" ? "border-[#00F0FF]/35 bg-[#00F0FF]/12 text-[#00F0FF]" : "border-white/[0.06] bg-white/[0.03] text-white/45"}`}>忘记密码</button>
+          <button onClick={() => { setMode("login"); setError(""); setSuccess(""); }} className={`h-9 text-sm ${mode === "login" ? "workspace-action-active" : "workspace-action"}`}>登录</button>
+          <button onClick={() => { setMode("register"); setError(""); setSuccess(""); }} className={`h-9 text-sm ${mode === "register" ? "workspace-action-active" : "workspace-action"}`}>注册</button>
+          <button onClick={() => { setMode("forgot"); setError(""); setSuccess(""); }} className={`h-9 text-sm ${mode === "forgot" ? "workspace-action-active" : "workspace-action"}`}>忘记密码</button>
         </div>
 
         <form onSubmit={submit} className="space-y-3">
           <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="用户名" autoComplete="username"
-            className="h-11 w-full rounded-lg border border-white/[0.08] bg-[#0B1021] px-3 text-sm text-white outline-none placeholder:text-white/25 focus:border-[#3B6CFF]/50" />
+            className="workspace-input h-11 w-full px-3 text-sm placeholder:text-white/25" />
 
           {(mode === "register" || mode === "forgot") && (
             <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="邮箱" type="email" autoComplete="email"
-              className="h-11 w-full rounded-lg border border-white/[0.08] bg-[#0B1021] px-3 text-sm text-white outline-none placeholder:text-white/25 focus:border-[#3B6CFF]/50" />
+              className="workspace-input h-11 w-full px-3 text-sm placeholder:text-white/25" />
           )}
 
           {mode === "register" && (
             <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="显示名称（可选）"
-              className="h-11 w-full rounded-lg border border-white/[0.08] bg-[#0B1021] px-3 text-sm text-white outline-none placeholder:text-white/25 focus:border-[#3B6CFF]/50" />
+              className="workspace-input h-11 w-full px-3 text-sm placeholder:text-white/25" />
           )}
 
           {mode !== "forgot" && (
             <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="密码"
               autoComplete={mode === "login" ? "current-password" : "new-password"}
-              className="h-11 w-full rounded-lg border border-white/[0.08] bg-[#0B1021] px-3 text-sm text-white outline-none placeholder:text-white/25 focus:border-[#3B6CFF]/50" />
+              className="workspace-input h-11 w-full px-3 text-sm placeholder:text-white/25" />
           )}
 
-          {error && <div className="text-xs text-[#FF3366]">{error}</div>}
-          {success && <div className="text-xs text-[#16C784]">{success}</div>}
+          {error && <div className="text-xs text-danger">{error}</div>}
+          {success && <div className="text-xs text-success">{success}</div>}
 
           <button type="submit" disabled={pending}
-            className="flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-gradient-to-r from-[#3B6CFF] to-[#2A52CC] text-sm font-medium text-white disabled:opacity-45">
+            className="workspace-action-active flex h-11 w-full items-center justify-center gap-2 text-sm font-medium disabled:opacity-45">
             {pending ? <Loader2 className="h-4 w-4 animate-spin" /> :
              mode === "login" ? <LogIn className="h-4 w-4" /> :
              mode === "register" ? <UserPlus className="h-4 w-4" /> : <Mail className="h-4 w-4" />}

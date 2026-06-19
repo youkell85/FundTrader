@@ -22,6 +22,8 @@ import {
   ACCENT_HIGHLIGHT,
   ACCENT_INFO,
   ACCENT_PRIMARY,
+  ACCENT_PURPLE,
+  DOWN_COLOR,
   POSITIVE_METRIC_COLOR,
   RISK_COLOR,
   UP_COLOR,
@@ -104,7 +106,7 @@ const defaultParams: RecommendParams = {
   manualFundCodes: [] as string[],
 };
 
-const barColors = [ACCENT_PRIMARY, ACCENT_INFO, POSITIVE_METRIC_COLOR, ACCENT_HIGHLIGHT, "#9D7BFF", "#16C784"];
+const barColors = [ACCENT_PRIMARY, ACCENT_INFO, POSITIVE_METRIC_COLOR, ACCENT_HIGHLIGHT, ACCENT_PURPLE, DOWN_COLOR];
 
 function LoadingScreen() {
   return (
@@ -233,7 +235,7 @@ export default function Recommend() {
   };
 
   return (
-    <div className="min-h-screen pt-14 pb-20 md:pb-12">
+    <div className="workspace-shell min-h-screen pt-14 pb-20 md:pb-12">
       <div className="max-w-7xl mx-auto px-4 md:px-6">
         <div className="pt-7 md:pt-10 pb-5 md:pb-6">
           <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-3">
@@ -243,7 +245,7 @@ export default function Recommend() {
                 先设定资金、产品池、风险档位和投资方向，再一次性生成组合，避免参数未定时反复刷新结果。
               </p>
             </div>
-            <div className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-xs ${pendingChanges ? "border-[#FFB800]/25 bg-[#FFB800]/[0.06] text-white/70" : "border-white/[0.07] bg-white/[0.03] text-white/45"}`}>
+            <div className={`flex items-center gap-2 px-3 py-2 text-xs ${pendingChanges ? "workspace-warning" : "workspace-action"}`}>
               <RefreshCw className="w-4 h-4" style={{ color: pendingChanges ? RISK_COLOR : ACCENT_INFO }} />
               {pendingChanges ? "设置有改动，点击生成后生效" : "当前结果已按设置生成"}
             </div>
@@ -268,7 +270,7 @@ export default function Recommend() {
                   step={1000}
                   value={draft.amount}
                   onChange={(event) => updateDraft({ amount: Number(event.target.value) || 0 })}
-                  className="w-full h-11 px-3 rounded-lg bg-[#0B1021] border border-white/[0.08] text-white text-base data-number focus:outline-none focus:border-[#3B6CFF]/50"
+                  className="workspace-input w-full h-11 px-3 text-base data-number"
                 />
               </section>
 
@@ -284,7 +286,7 @@ export default function Recommend() {
                         includeWatchlist: item.value === "watchlist",
                       })}
                       className={`min-h-14 rounded-lg border px-2 text-left transition-all ${
-                        draft.sourceMode === item.value ? "bg-[#3B6CFF]/16 border-[#3B6CFF]/35 text-white" : "bg-white/[0.03] border-white/[0.07] text-white/50 hover:text-white/75"
+                        draft.sourceMode === item.value ? "workspace-action-active text-white" : "workspace-action text-white/50 hover:text-white/75"
                       }`}
                     >
                       <div className="text-sm">{item.label}</div>
@@ -293,10 +295,10 @@ export default function Recommend() {
                   ))}
                 </div>
                 <div className="mt-2 grid grid-cols-2 gap-2">
-                  <button onClick={() => toggleSource("includeXinjihui")} className={`h-9 rounded-lg border text-xs ${draft.includeXinjihui ? "bg-[#00F0FF]/10 border-[#00F0FF]/30 text-[#00F0FF]" : "bg-white/[0.02] border-white/[0.06] text-white/40"}`}>
+                  <button onClick={() => toggleSource("includeXinjihui")} className={`h-9 text-xs ${draft.includeXinjihui ? "workspace-action-active" : "workspace-action"}`}>
                     {draft.includeXinjihui ? "已纳入" : "纳入"}鑫基荟
                   </button>
-                  <button onClick={() => toggleSource("includeWatchlist")} className={`h-9 rounded-lg border text-xs ${draft.includeWatchlist ? "bg-[#00F0FF]/10 border-[#00F0FF]/30 text-[#00F0FF]" : "bg-white/[0.02] border-white/[0.06] text-white/40"}`}>
+                  <button onClick={() => toggleSource("includeWatchlist")} className={`h-9 text-xs ${draft.includeWatchlist ? "workspace-action-active" : "workspace-action"}`}>
                     {draft.includeWatchlist ? "已纳入" : "纳入"}自选池
                   </button>
                 </div>
@@ -314,9 +316,9 @@ export default function Recommend() {
                       onChange={(event) => setManualCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
                       onKeyDown={(event) => { if (event.key === "Enter") addManualCode(); }}
                       placeholder="输入6位代码"
-                      className="min-w-0 flex-1 h-9 px-3 rounded-lg bg-[#0B1021] border border-white/[0.08] text-white text-sm placeholder:text-white/25 focus:outline-none focus:border-[#3B6CFF]/50"
+                      className="workspace-input min-w-0 flex-1 h-9 px-3 text-sm placeholder:text-white/25"
                     />
-                    <button onClick={addManualCode} disabled={!/^\d{6}$/.test(manualCode)} className="h-9 px-3 rounded-lg border border-[#3B6CFF]/35 bg-[#3B6CFF]/12 text-[#5AA9FF] text-xs disabled:opacity-35">
+                    <button onClick={addManualCode} disabled={!/^\d{6}$/.test(manualCode)} className="workspace-action-active h-9 px-3 text-xs disabled:opacity-35">
                       添加
                     </button>
                   </div>
@@ -326,18 +328,18 @@ export default function Recommend() {
                       value={fundSearch}
                       onChange={(event) => setFundSearch(event.target.value)}
                       placeholder="搜索代码、名称、类型"
-                      className="w-full h-9 pl-9 pr-3 rounded-lg bg-[#0B1021] border border-white/[0.08] text-white text-sm placeholder:text-white/25 focus:outline-none focus:border-[#3B6CFF]/50"
+                      className="workspace-input w-full h-9 pl-9 pr-3 text-sm placeholder:text-white/25"
                     />
                   </div>
                   {(selectedFunds.length > 0 || draft.manualFundCodes.length > 0) && (
                     <div className="flex flex-wrap gap-1.5 mb-2">
                       {draft.manualFundCodes.map((code) => (
-                        <button key={code} onClick={() => updateDraft({ manualFundCodes: draft.manualFundCodes.filter((item) => item !== code) })} className="rounded-md border border-[#00F0FF]/25 bg-[#00F0FF]/10 px-2 py-1 text-[11px] text-[#00F0FF] data-number">
+                        <button key={code} onClick={() => updateDraft({ manualFundCodes: draft.manualFundCodes.filter((item) => item !== code) })} className="workspace-pill px-2 py-1 text-[11px] data-number">
                           {code}
                         </button>
                       ))}
                       {selectedFunds.map((fund: any) => (
-                        <button key={fund.fundCode} onClick={() => toggleFundCode(String(fund.fundCode))} className="rounded-md border border-[#3B6CFF]/25 bg-[#3B6CFF]/10 px-2 py-1 text-[11px] text-[#5AA9FF]">
+                        <button key={fund.fundCode} onClick={() => toggleFundCode(String(fund.fundCode))} className="workspace-pill px-2 py-1 text-[11px]">
                           {fund.fundAbbr || fund.fundName}
                         </button>
                       ))}
@@ -350,7 +352,7 @@ export default function Recommend() {
                         <button
                           key={fund.fundCode}
                           onClick={() => toggleFundCode(String(fund.fundCode))}
-                          className={`w-full rounded-lg px-2.5 py-2 text-left border transition-all ${selected ? "border-[#00F0FF]/30 bg-[#00F0FF]/[0.08]" : "border-white/[0.05] bg-white/[0.025] hover:bg-white/[0.05]"}`}
+                          className={`w-full px-2.5 py-2 text-left transition-all ${selected ? "workspace-action-active" : "workspace-action"}`}
                         >
                           <div className="flex items-center justify-between gap-2">
                             <div className="min-w-0">
@@ -377,7 +379,7 @@ export default function Recommend() {
                         key={rp.value}
                         onClick={() => updateRiskProfile(rp.value)}
                         className={`w-full rounded-lg border p-3 text-left transition-all ${
-                          active ? "bg-[#3B6CFF]/18 border-[#3B6CFF]/35 text-white" : "bg-white/[0.03] border-white/[0.07] text-white/55 hover:text-white/80"
+                          active ? "workspace-action-active text-white" : "workspace-action text-white/55 hover:text-white/80"
                         }`}
                       >
                         <div className="flex items-center justify-between gap-3">
@@ -401,7 +403,7 @@ export default function Recommend() {
                       key={item}
                       onClick={() => updateDraft({ horizon: item })}
                       className={`h-9 rounded-lg text-xs border transition-all ${
-                        draft.horizon === item ? "bg-[#00F0FF]/12 border-[#00F0FF]/35 text-[#00F0FF]" : "bg-white/[0.03] border-white/[0.07] text-white/45 hover:text-white/70"
+                        draft.horizon === item ? "workspace-action-active" : "workspace-action text-white/45 hover:text-white/70"
                       }`}
                     >
                       {item}
@@ -422,7 +424,7 @@ export default function Recommend() {
                   step={1}
                   value={draft.maxDrawdown}
                   onChange={(event) => updateDraft({ maxDrawdown: Number(event.target.value) })}
-                  className="w-full accent-[#3B6CFF]"
+                  className="w-full accent-primary"
                 />
               </section>
 
@@ -435,7 +437,7 @@ export default function Recommend() {
                       title={item.desc}
                       onClick={() => updateDraft({ optimizationGoal: item.value })}
                       className={`h-10 rounded-lg text-xs border transition-all ${
-                        draft.optimizationGoal === item.value ? "bg-[#3B6CFF]/15 border-[#3B6CFF]/35 text-[#5AA9FF]" : "bg-white/[0.03] border-white/[0.07] text-white/45 hover:text-white/70"
+                        draft.optimizationGoal === item.value ? "workspace-action-active" : "workspace-action text-white/45 hover:text-white/70"
                       }`}
                     >
                       {item.label}
@@ -452,7 +454,7 @@ export default function Recommend() {
                       key={item.value}
                       onClick={() => updateDraft({ focusTheme: item.value })}
                       className={`h-8 px-3 rounded-lg text-xs border transition-all ${
-                        draft.focusTheme === item.value ? "bg-[#00F0FF]/12 border-[#00F0FF]/30 text-[#00F0FF]" : "bg-white/[0.03] border-white/[0.06] text-white/50 hover:text-white/70"
+                        draft.focusTheme === item.value ? "workspace-action-active" : "workspace-action text-white/50 hover:text-white/70"
                       }`}
                     >
                       {item.label}
@@ -484,11 +486,11 @@ export default function Recommend() {
               <button
                 onClick={applySettings}
                 disabled={!pendingChanges || !canGenerate}
-                className="w-full h-11 rounded-lg bg-gradient-to-r from-[#3B6CFF] to-[#2A52CC] text-white text-sm font-medium flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+                className="workspace-action-active w-full h-11 text-sm font-medium flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <RefreshCw className="w-4 h-4" />生成组合
               </button>
-              {!canGenerate && <div className="text-xs text-[#FFB800]">请至少纳入一个产品池，或手工添加一只基金。</div>}
+              {!canGenerate && <div className="text-xs text-warning">请至少纳入一个产品池，或手工添加一只基金。</div>}
             </div>
           </aside>
 
@@ -505,7 +507,7 @@ export default function Recommend() {
                         key={rec.id}
                         onClick={() => setActivePlanId(rec.id)}
                         className={`rounded-lg border p-4 text-left transition-all ${
-                          active ? "bg-[#3B6CFF]/14 border-[#3B6CFF]/35" : "bg-white/[0.025] border-white/[0.06] hover:bg-white/[0.05]"
+                          active ? "workspace-action-active" : "workspace-action hover:bg-white/[0.05]"
                         }`}
                       >
                         <div className="flex items-start justify-between gap-3">
@@ -596,7 +598,7 @@ export default function Recommend() {
                         {activePlan.constraints?.map((item: any) => (
                           <div key={item.label} className="rounded-lg border border-white/[0.06] bg-white/[0.025] px-3 py-2 flex items-center justify-between gap-3">
                             <div className="flex items-center gap-2 text-sm text-white/65">
-                              <span className={`w-2 h-2 rounded-full ${item.passed ? "bg-[#16C784]" : "bg-[#FFB800]"}`} />
+                              <span className={`w-2 h-2 rounded-full ${item.passed ? "bg-success" : "bg-warning"}`} />
                               {item.label}
                             </div>
                             <span className="data-number text-xs text-white/45">{item.value}</span>
