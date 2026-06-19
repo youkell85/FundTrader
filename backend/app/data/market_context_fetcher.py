@@ -60,15 +60,22 @@ def _snapshot_basic(code: str) -> dict[str, Any]:
 
 
 def _top_industries(code: str) -> tuple[list[dict[str, Any]], str | None, str | None]:
+    row = None
     try:
         with get_db_context() as conn:
-            row = conn.execute(
-                """SELECT holdings_json, asset_allocation_json, source, updated_at
-                   FROM fund_portfolio_snapshot
-                   WHERE code = ?
-                   ORDER BY updated_at DESC LIMIT 1""",
-                (code,),
-            ).fetchone()
+            for table in ("fund_holdings_snapshot", "fund_portfolio_snapshot"):
+                try:
+                    row = conn.execute(
+                        f"""SELECT holdings_json, asset_allocation_json, source, updated_at
+                            FROM {table}
+                            WHERE code = ?
+                            ORDER BY updated_at DESC LIMIT 1""",
+                        (code,),
+                    ).fetchone()
+                except Exception:
+                    continue
+                if row:
+                    break
     except Exception:
         row = None
     if not row:
@@ -118,6 +125,83 @@ def _pick_value(row: Any, keys: tuple[str, ...]) -> Any:
     return None
 
 
+def _sector_flow_rows_from_akshare(limit: int) -> list[tuple[str, float]]:
+    import akshare as ak
+
+    sector_df = ak.stock_sector_fund_flow_rank(indicator="今日", sector_type="行业资金流")
+    if sector_df is None or sector_df.empty:
+        return []
+
+    rows: list[tuple[str, float]] = []
+    for _, row in sector_df.head(max(1, min(limit, 100))).iterrows():
+        name = str(_pick_value(row, ("名称", "行业", "板块名称")) or "").strip()
+        amount = _to_float(_pick_value(row, ("今日主力净流入-净额", "主力净流入-净额", "净流入", "资金净流入")))
+        if name and amount is not None:
+            rows.append((name, amount))
+    return rows
+
+
+def _sector_flow_rows_from_eastmoney(limit: int) -> list[tuple[str, float]]:
+    import time
+
+    import requests
+
+    url = "https://push2.eastmoney.com/api/qt/clist/get"
+    params = {
+        "pn": "1",
+        "pz": str(max(1, min(limit, 100))),
+        "po": "1",
+        "np": "1",
+        "ut": "b2884a393a59ad64002292a3e90d46a5",
+        "fltt": "2",
+        "invt": "2",
+        "fid0": "f62",
+        "fs": "m:90 t:2",
+        "stat": "1",
+        "fields": "f12,f14,f2,f3,f62,f184,f66,f69,f72,f75,f78,f81,f84,f87,f204,f205,f124",
+        "rt": "52975239",
+        "_": str(int(time.time() * 1000)),
+    }
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/125.0 Safari/537.36",
+        "Referer": "https://data.eastmoney.com/bkzj/hy.html",
+    }
+    response = requests.get(url, params=params, headers=headers, timeout=15)
+    response.raise_for_status()
+    payload = response.json()
+    diff = ((payload or {}).get("data") or {}).get("diff") or []
+
+    rows: list[tuple[str, float]] = []
+    for item in diff[: max(1, min(limit, 100))]:
+        name = str(item.get("f14") or "").strip()
+        amount = _to_float(item.get("f62"))
+        if name and amount is not None:
+            rows.append((name, amount))
+    return rows
+
+
+def _fetch_sector_flow_rows(limit: int) -> tuple[list[tuple[str, float]], str, list[str]]:
+    warnings: list[str] = []
+    try:
+        rows = _sector_flow_rows_from_akshare(limit)
+        if rows:
+            return rows, "akshare:stock_sector_fund_flow_rank", warnings
+        warnings.append("akshare sector flow returned no rows")
+    except Exception as exc:  # pragma: no cover - live provider shape/network drift
+        warnings.append(f"akshare sector flow failed: {exc}")
+
+    try:
+        rows = _sector_flow_rows_from_eastmoney(limit)
+        if rows:
+            return rows, "eastmoney:qt_clist_sector_fund_flow", warnings
+        warnings.append("eastmoney sector flow returned no rows")
+    except Exception as exc:  # pragma: no cover - live provider shape/network drift
+        warnings.append(f"eastmoney sector flow failed: {exc}")
+
+    return [], "eastmoney:qt_clist_sector_fund_flow", warnings
+
+
 def refresh_market_context_cache(limit: int = 30) -> dict[str, Any]:
     """Best-effort live refresh for northbound and sector flow cache.
 
@@ -162,23 +246,17 @@ def refresh_market_context_cache(limit: int = 30) -> dict[str, Any]:
     except Exception as exc:  # pragma: no cover - live provider shape/network drift
         warnings.append(f"market flow refresh failed: {exc}")
 
-    try:
-        import akshare as ak
-
-        sector_df = ak.stock_sector_fund_flow_rank(indicator="今日", sector_type="行业资金流")
-        if sector_df is not None and not sector_df.empty:
-            rows = sector_df.head(max(1, min(limit, 100)))
-            batch = []
-            for _, row in rows.iterrows():
-                name = str(_pick_value(row, ("名称", "行业", "板块名称")) or "").strip()
-                amount = _to_float(_pick_value(row, ("今日主力净流入-净额", "主力净流入-净额", "净流入", "资金净流入")))
-                if name and amount is not None:
-                    batch.append((f"{SECTOR_FLOW_PREFIX}{name}", amount, now, "akshare:stock_sector_fund_flow_rank"))
-            if batch:
-                MacroCache.save_batch(batch)
-                saved.extend(row[0] for row in batch)
-    except Exception as exc:  # pragma: no cover - live provider shape/network drift
-        warnings.append(f"sector flow refresh failed: {exc}")
+    sector_rows, sector_source, sector_warnings = _fetch_sector_flow_rows(limit)
+    warnings.extend(sector_warnings)
+    if sector_rows:
+        batch = [
+            (f"{SECTOR_FLOW_PREFIX}{name}", amount, now, sector_source)
+            for name, amount in sector_rows
+        ]
+        MacroCache.save_batch(batch)
+        saved.extend(row[0] for row in batch)
+    elif sector_warnings:
+        warnings.append("sector flow refresh produced no cache rows")
 
     return {
         "status": "available" if saved else "partial",

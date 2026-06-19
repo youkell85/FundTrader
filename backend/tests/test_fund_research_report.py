@@ -1,6 +1,14 @@
+import json
+import sqlite3
+from contextlib import contextmanager
 from unittest.mock import patch
 
-from app.data.market_context_fetcher import MARKET_FLOW_INDICATOR, get_fund_market_context
+from app.data.market_context_fetcher import (
+    MARKET_FLOW_INDICATOR,
+    _fetch_sector_flow_rows,
+    _top_industries,
+    get_fund_market_context,
+)
 from app.data.providers.fusion import DataFusion
 from app.reports.fund_research_report import build_fund_evidence_pack, render_fund_research_report
 
@@ -279,3 +287,61 @@ def test_sectorflow_uses_market_flow_fallback_without_industries():
     assert sector["data"]["marketFlow"]["netInflow"] == 8800.0
     assert sector["data"]["marketFlow"]["trend"] == "inflow"
     assert "全市场资金流" in sector["missingReason"]
+
+
+def test_top_industries_reads_fund_holdings_snapshot():
+    conn = sqlite3.connect(":memory:")
+    conn.row_factory = sqlite3.Row
+    conn.execute(
+        """CREATE TABLE fund_holdings_snapshot (
+            code TEXT,
+            report_date TEXT,
+            holdings_json TEXT,
+            asset_allocation_json TEXT,
+            source TEXT,
+            data_quality TEXT,
+            updated_at TEXT
+        )"""
+    )
+    conn.execute(
+        """INSERT INTO fund_holdings_snapshot
+           (code, report_date, holdings_json, asset_allocation_json, source, data_quality, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?)""",
+        (
+            "000001",
+            "2026-03-31",
+            json.dumps([
+                {"name": "stock A", "ratio": 5.0, "industry": "半导体"},
+                {"name": "stock B", "ratio": 3.0, "industry": "通信设备"},
+                {"name": "stock C", "ratio": 2.0, "industry": "半导体"},
+            ], ensure_ascii=False),
+            "[]",
+            "Tushare fund_portfolio:000001.OF",
+            "available",
+            "2026-06-19T02:14:44",
+        ),
+    )
+
+    @contextmanager
+    def fake_db():
+        yield conn
+
+    with patch("app.data.market_context_fetcher.get_db_context", fake_db):
+        rows, source, as_of = _top_industries("000001")
+
+    assert rows == [
+        {"industry": "半导体", "weight": 7.0},
+        {"industry": "通信设备", "weight": 3.0},
+    ]
+    assert source == "Tushare fund_portfolio:000001.OF"
+    assert as_of == "2026-06-19T02:14:44"
+
+
+def test_sector_flow_fetch_falls_back_to_direct_eastmoney():
+    with patch("app.data.market_context_fetcher._sector_flow_rows_from_akshare", side_effect=ValueError("empty json")), \
+         patch("app.data.market_context_fetcher._sector_flow_rows_from_eastmoney", return_value=[("半导体", 123.0)]):
+        rows, source, warnings = _fetch_sector_flow_rows(30)
+
+    assert rows == [("半导体", 123.0)]
+    assert source == "eastmoney:qt_clist_sector_fund_flow"
+    assert any("akshare sector flow failed" in item for item in warnings)
