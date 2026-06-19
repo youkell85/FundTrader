@@ -364,10 +364,10 @@ async def get_fund_ranking(request: FundRankingRequest):
                 cost_score=s.cost_score, scale_score=s.scale_score,
                 performance_score=s.performance_score,
                 is_recommended=s.is_recommended, reasons=s.reasons,
-                management_fee=_get_fee(s.code, "management_fee"),
-                custody_fee=_get_fee(s.code, "custody_fee"),
-                aum=_get_fee(s.code, "aum"),
-                tracking_error=_get_fee(s.code, "tracking_error"),
+                management_fee=s.management_fee,
+                custody_fee=s.custody_fee,
+                aum=s.aum,
+                tracking_error=s.tracking_error,
                 metadata_status=s.metadata_status,
                 metadata_source=s.metadata_source,
                 metadata_as_of=s.metadata_as_of,
@@ -376,15 +376,6 @@ async def get_fund_ranking(request: FundRankingRequest):
             for s in scores
         ]
     return FundRankingResponse(rankings=rankings)
-
-
-def _get_fee(code: str, field: str) -> float:
-    """Helper to get fund profile field from pool."""
-    from ..allocation.fund_mapper import _FUND_POOL
-    profile = _FUND_POOL.get(code)
-    if profile:
-        return getattr(profile, field, 0.0)
-    return 0.0
 
 
 @router.post("/rebalance-check", response_model=RebalanceCheckResponse)

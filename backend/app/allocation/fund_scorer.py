@@ -66,6 +66,10 @@ class FundScore:
     is_recommended: bool = False
     # 评分理由
     reasons: List[str] = field(default_factory=list)
+    management_fee: float = 0.0
+    custody_fee: float = 0.0
+    aum: float = 0.0
+    tracking_error: float = 0.0
     metadata_status: str = "assumption"
     metadata_source: str = "static_fund_pool"
     metadata_as_of: Optional[str] = None
@@ -92,6 +96,10 @@ def score_fund(profile: FundProfile, peers: List[FundProfile]) -> FundScore:
         fund_type=profile.fund_type,
         asset_class=profile.asset_class,
         company=profile.company,
+        management_fee=profile.management_fee,
+        custody_fee=profile.custody_fee,
+        aum=profile.aum,
+        tracking_error=profile.tracking_error,
         metadata_status=profile.metadata_status,
         metadata_source=profile.metadata_source,
         metadata_as_of=profile.metadata_as_of,
