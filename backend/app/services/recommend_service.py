@@ -3,10 +3,12 @@ import re
 from typing import Dict, Any, List
 from ..data.akshare_fetcher import get_market_index, get_fund_industry_board
 from ..data.cache_manager import cache
-from ..constants.guoyuan_funds import GUOYUAN_FUND_LIST
-from ..constants.xinjihui_pool import XINJIHUI_POOL
 from ..config import CACHE_TTL_RANKING
+from ..storage.database import FundDataStore
 from ..utils import console_error
+
+
+SNAPSHOT_SOURCE = "fund_snapshot"
 
 
 def generate_recommendation(
@@ -44,9 +46,18 @@ def generate_recommendation(
     # 根据风险偏好配置方案
     allocation = _get_risk_allocation(risk_level, amount, preferences, investment_horizon)
 
-    # 计算预期收益和风险
-    expected_return = _estimate_return(allocation, risk_level)
-    expected_risk = _estimate_risk(allocation, risk_level)
+    expected_return = _estimate_return(allocation)
+    expected_risk = _estimate_risk(allocation)
+    missing_reasons = _recommendation_missing_reasons(allocation)
+    data_status = "real"
+    if not allocation:
+        data_status = "missing"
+        missing_reasons.insert(0, "基金快照为空或无可用真实指标，未生成静态推荐。")
+    elif missing_reasons:
+        data_status = "partial"
+    if data_status != "real":
+        expected_return = None
+        expected_risk = None
 
     return {
         "risk_level": risk_level,
@@ -55,6 +66,10 @@ def generate_recommendation(
         "funds": allocation,
         "expected_return": expected_return,
         "expected_risk": expected_risk,
+        "data_status": data_status,
+        "source": SNAPSHOT_SOURCE,
+        "missing_reason": "；".join(missing_reasons) if missing_reasons else None,
+        "metric_basis": "weighted_snapshot_metrics",
         "market_overview": market or [],
         "analysis_summary": _generate_summary(risk_level, allocation, market or []),
     }
@@ -74,7 +89,6 @@ def _get_risk_allocation(
 
     template = _adjust_template_by_horizon(templates.get(risk_level, templates["稳健"]), investment_horizon)
 
-    # 优先从鑫基荟优选池中按类型匹配，回退到国元名单
     allocation = []
     used_codes = set()
     used_families = set()
@@ -84,13 +98,18 @@ def _get_risk_allocation(
         "股票": ["股票型", "混合型"], "指数": ["指数型", "ETF"], "QDII": ["QDII"],
     }
 
-    # 合并优选池和国元名单，优选池优先
-    all_funds = XINJIHUI_POOL + [f for f in GUOYUAN_FUND_LIST if f["code"] not in {x["code"] for x in XINJIHUI_POOL}]
+    all_funds = _load_snapshot_candidates()
+    if not all_funds:
+        return []
 
     for asset_type, ratio in template.items():
         fund_types = type_to_fund_type.get(asset_type, [])
-        candidates = [f for f in all_funds
-                      if f["type"] in fund_types and f["code"] not in used_codes and _fund_family_key(f) not in used_families]
+        candidates = [
+            f for f in all_funds
+            if _matches_asset_type(f, fund_types)
+            and f["code"] not in used_codes
+            and _fund_family_key(f) not in used_families
+        ]
 
         # 如果有偏好，优先匹配
         if preferences:
@@ -108,12 +127,48 @@ def _get_risk_allocation(
                 "name": fund["name"],
                 "type": fund["type"],
                 "asset_type": asset_type,
-                "tags": fund["tags"],
+                "tags": fund.get("tags", []),
                 "ratio": ratio,
                 "amount": round(amount * ratio, 2),
+                "source": SNAPSHOT_SOURCE,
+                "as_of": fund.get("nav_date") or fund.get("updated_at"),
+                "return_1y": fund.get("near_1y"),
+                "annualized_return": fund.get("annualized_return"),
+                "max_drawdown": fund.get("max_drawdown"),
+                "volatility": fund.get("volatility"),
+                "metric_status": _fund_metric_status(fund),
             })
 
     return allocation
+
+
+def _load_snapshot_candidates(limit: int = 5000) -> List[Dict[str, Any]]:
+    try:
+        result = FundDataStore.list_snapshots(
+            xinjihui_only=True,
+            limit=limit,
+            offset=0,
+            sort_field="near_1y",
+            sort_order="desc",
+        )
+    except Exception as e:
+        console_error(f"Recommendation snapshot fetch failed: {e}")
+        return []
+
+    funds = result.get("funds") or []
+    return [
+        fund for fund in funds
+        if isinstance(fund, dict)
+        and fund.get("code")
+        and fund.get("name")
+        and _to_float(fund.get("nav")) is not None
+    ]
+
+
+def _matches_asset_type(fund: Dict[str, Any], accepted_types: List[str]) -> bool:
+    fund_type = str(fund.get("type") or "")
+    tags = " ".join(str(tag) for tag in fund.get("tags") or [])
+    return any(kind and (kind in fund_type or kind in tags) for kind in accepted_types)
 
 
 def _adjust_template_by_horizon(template: Dict[str, float], investment_horizon: str) -> Dict[str, float]:
@@ -141,22 +196,72 @@ def _fund_family_key(fund: Dict[str, Any]) -> str:
     return re.sub(r"(?:A|B|C|D|E|I)$", "", name, flags=re.I)
 
 
-def _estimate_return(allocation: List[Dict], risk_level: str) -> float:
-    """估算预期年化收益"""
-    if not allocation:
-        return {"保守": 4.0, "稳健": 8.0, "积极": 12.0, "激进": 18.0}.get(risk_level, 8.0)
-    return_map = {"货币": 2.0, "债券": 4.0, "混合": 7.5, "股票": 11.0, "指数": 9.0, "QDII": 8.5}
-    return round(sum(return_map.get(item.get("asset_type"), 7.0) * item.get("ratio", 0) for item in allocation), 2)
+def _estimate_return(allocation: List[Dict]) -> float | None:
+    """Compute expected return from available snapshot metrics only."""
+    values = []
+    for item in allocation:
+        value = _first_number(item.get("annualized_return"), item.get("return_1y"))
+        if value is not None:
+            values.append((value, float(item.get("ratio") or 0)))
+    if len(values) < len(allocation):
+        return None
+    return _weighted_average(values)
 
 
-def _estimate_risk(allocation: List[Dict], risk_level: str) -> float:
-    """估算预期风险（波动率）"""
+def _estimate_risk(allocation: List[Dict]) -> float | None:
+    """Compute risk from available snapshot volatility or drawdown metrics."""
+    values = []
+    for item in allocation:
+        value = _first_number(item.get("volatility"), item.get("max_drawdown"))
+        if value is not None:
+            values.append((abs(value), float(item.get("ratio") or 0)))
+    if len(values) < len(allocation):
+        return None
+    return _weighted_average(values)
+
+
+def _first_number(*values: Any) -> float | None:
+    for value in values:
+        number = _to_float(value)
+        if number is not None:
+            return number
+    return None
+
+
+def _to_float(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        number = float(str(value).replace("%", ""))
+    except (TypeError, ValueError):
+        return None
+    return number if number == number else None
+
+
+def _weighted_average(values: List[tuple[float, float]]) -> float | None:
+    total_weight = sum(weight for _, weight in values if weight > 0)
+    if total_weight <= 0:
+        return None
+    return round(sum(value * weight for value, weight in values) / total_weight, 2)
+
+
+def _fund_metric_status(fund: Dict[str, Any]) -> str:
+    has_return = _first_number(fund.get("annualized_return"), fund.get("near_1y")) is not None
+    has_risk = _first_number(fund.get("volatility"), fund.get("max_drawdown")) is not None
+    if has_return and has_risk:
+        return "real"
+    if has_return or has_risk:
+        return "partial"
+    return "missing"
+
+
+def _recommendation_missing_reasons(allocation: List[Dict[str, Any]]) -> List[str]:
     if not allocation:
-        return {"保守": 3.0, "稳健": 8.0, "积极": 15.0, "激进": 25.0}.get(risk_level, 8.0)
-    risk_map = {"货币": 1.0, "债券": 4.0, "混合": 12.0, "股票": 22.0, "指数": 18.0, "QDII": 20.0}
-    weighted = sum(risk_map.get(item.get("asset_type"), 10.0) * item.get("ratio", 0) for item in allocation)
-    diversification = 0.85 if len(allocation) >= 3 else 1.0
-    return round(weighted * diversification, 2)
+        return []
+    missing = [item["code"] for item in allocation if item.get("metric_status") != "real"]
+    if not missing:
+        return []
+    return [f"{len(missing)}/{len(allocation)} 只推荐基金缺少完整收益或风险快照指标: {', '.join(missing)}"]
 
 
 def _generate_summary(
