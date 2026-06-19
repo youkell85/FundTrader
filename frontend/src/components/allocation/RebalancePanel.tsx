@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, memo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { RefreshCw, AlertTriangle, CheckCircle, Clock, TrendingUp, TrendingDown, History } from 'lucide-react';
+import { RefreshCw, AlertTriangle, CheckCircle, Clock, TrendingUp, TrendingDown, History, Upload } from 'lucide-react';
 import { checkRebalance, getRebalanceHistory } from '@/lib/api';
 import { useAllocationStore } from '@/store/allocationStore';
 import { isMockOutput } from '@/lib/execution-plan';
@@ -12,15 +12,101 @@ import {
   TRIGGER_TYPE_LABELS, STATUS_LABELS, STATUS_COLORS,
 } from '@/types/allocation';
 
+const CURRENT_HOLDINGS_PLACEHOLDER = 'a_share_large=当前权重%\nrate_bond=当前权重%\nmoney_fund=当前权重%';
+
+function parseCurrentHoldings(input: string, allowedKeys: string[]): Record<string, number> {
+  const text = input.trim();
+  if (!text) {
+    throw new Error('请先粘贴真实当前持仓权重。');
+  }
+
+  let raw: Record<string, unknown>;
+  if (text.startsWith('{')) {
+    const parsed = JSON.parse(text);
+    if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {
+      throw new Error('当前持仓需要是资产类别到权重的对象。');
+    }
+    raw = parsed as Record<string, unknown>;
+  } else {
+    raw = {};
+    for (const line of text.split(/\r?\n/)) {
+      const normalized = line.trim();
+      if (!normalized) continue;
+      const [key, value] = normalized.split(/[:=,\s]+/).filter(Boolean);
+      if (!key || value === undefined) {
+        throw new Error(`无法解析持仓行: ${line}`);
+      }
+      raw[key] = value.replace('%', '');
+    }
+  }
+
+  const allowed = new Set(allowedKeys);
+  const unknownKeys = Object.keys(raw).filter(key => !allowed.has(key));
+  if (unknownKeys.length > 0) {
+    throw new Error(`当前方案不包含这些资产类别: ${unknownKeys.join(', ')}`);
+  }
+
+  const entries = Object.entries(raw)
+    .map(([key, value]) => [key, Number(String(value).replace('%', ''))] as const)
+    .filter(([, value]) => Number.isFinite(value) && value >= 0);
+
+  if (entries.length === 0) {
+    throw new Error('没有识别到有效的持仓权重。');
+  }
+
+  const ratioInput = entries.every(([, value]) => value <= 1) && entries.reduce((sum, [, value]) => sum + value, 0) <= 1.5;
+  const allocations = Object.fromEntries(entries.map(([key, value]) => [key, Number((ratioInput ? value * 100 : value).toFixed(4))]));
+  const total = Object.values(allocations).reduce((sum, value) => sum + value, 0);
+  if (total < 95 || total > 105) {
+    throw new Error(`当前持仓权重合计为 ${total.toFixed(2)}%，请导入完整组合，合计应接近 100%。`);
+  }
+
+  return allocations;
+}
+
+function formatCurrentSummary(current: Record<string, number> | null): string {
+  if (!current) return '未导入';
+  const total = Object.values(current).reduce((sum, value) => sum + value, 0);
+  const count = Object.keys(current).length;
+  return `${count} 类资产，合计 ${total.toFixed(2)}%`;
+}
+
 export default function RebalancePanel() {
   const [result, setResult] = useState<RebalanceCheckResponse | null>(null);
   const [history, setHistory] = useState<RebalanceHistoryResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<'check' | 'history'>('check');
+  const [currentInput, setCurrentInput] = useState('');
+  const [importedCurrent, setImportedCurrent] = useState<Record<string, number> | null>(null);
+  const [importStatus, setImportStatus] = useState<string | null>(null);
   let storeOutput: any = null;
   try { storeOutput = useAllocationStore().state.output; } catch {}
   const d = storeOutput;
+  const outputCurrent = (d?.current_allocations || d?.currentAllocations || null) as Record<string, number> | null;
+  const currentAllocations = importedCurrent || outputCurrent;
+  const currentSummary = useMemo(() => formatCurrentSummary(currentAllocations), [currentAllocations]);
+
+  const importCurrentHoldings = () => {
+    setError(null);
+    setImportStatus(null);
+    setResult(null);
+    try {
+      if (!d || isMockOutput(d)) {
+        throw new Error('当前没有真实配置方案，请先生成真实配置后再导入持仓。');
+      }
+      const target = d.saa?.allocations as Record<string, number> | undefined;
+      if (!target) {
+        throw new Error('当前方案缺少目标资产权重，不能校验持仓。');
+      }
+      const parsed = parseCurrentHoldings(currentInput, Object.keys(target));
+      setImportedCurrent(parsed);
+      setImportStatus(`已导入真实当前持仓: ${formatCurrentSummary(parsed)}`);
+    } catch (e: any) {
+      setImportedCurrent(null);
+      setError(e.message || '导入失败');
+    }
+  };
 
   const runCheck = async () => {
     setLoading(true);
@@ -31,11 +117,16 @@ export default function RebalancePanel() {
         setError('当前没有真实配置方案，请先生成真实配置后再检查调仓。');
         return;
       }
-      const target = d.saa.allocations as Record<string, number>;
-      const current = (d.current_allocations || d.currentAllocations || null) as Record<string, number> | null;
+      const target = d.saa?.allocations as Record<string, number> | undefined;
+      if (!target) {
+        setResult(null);
+        setError('当前方案缺少目标资产权重，不能检查调仓。');
+        return;
+      }
+      const current = currentAllocations;
       if (!current) {
         setResult(null);
-        setError('当前缺少真实持仓权重，不能用模拟漂移生成调仓建议。请先接入或导入当前持仓。');
+        setError('当前缺少真实持仓权重，请先导入当前持仓后再检查调仓。');
         return;
       }
       const res = await checkRebalance({
@@ -118,11 +209,41 @@ export default function RebalancePanel() {
             </div>
           )}
 
+          <div className="liquid-glass p-4 md:p-5">
+            <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+              <div>
+                <h3 className="text-sm font-medium text-white/80">真实当前持仓</h3>
+                <p className="text-white/45 text-xs mt-1">按资产类别导入当前权重，支持 JSON 或逐行 key=value，合计需接近 100%。</p>
+              </div>
+              <div className="text-left md:text-right">
+                <p className="text-[10px] text-white/40">当前状态</p>
+                <p className="text-xs text-white/70">{currentSummary}</p>
+              </div>
+            </div>
+            <textarea
+              value={currentInput}
+              onChange={event => setCurrentInput(event.target.value)}
+              placeholder={CURRENT_HOLDINGS_PLACEHOLDER}
+              className="mt-3 min-h-36 w-full rounded-lg border border-white/[0.08] bg-white/[0.03] px-3 py-2 text-xs text-white/75 outline-none transition-colors placeholder:text-white/30 focus:border-[#5470C6]/60"
+              spellCheck={false}
+            />
+            <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-[10px] text-white/40">资产类别必须来自当前 SAA 目标权重；输入 0-1 小数会自动换算为百分比。</p>
+              <button
+                onClick={importCurrentHoldings}
+                className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-white/[0.08] px-3 py-2 text-xs font-medium text-white/75 transition-colors hover:bg-white/[0.12]"
+              >
+                <Upload className="h-3.5 w-3.5" />导入当前持仓
+              </button>
+            </div>
+            {importStatus && <p className="mt-2 text-xs text-[#16C784]">{importStatus}</p>}
+          </div>
+
           {!result && !loading && (
             <div className="liquid-glass p-8 text-center">
               <RefreshCw className="w-10 h-10 text-white/40 mx-auto mb-3" />
-              <p className="text-white/45 text-sm">点击"执行检查"分析当前持仓偏离度</p>
-              <p className="text-white/50 text-xs mt-1">将模拟市场漂移后的持仓与SAA目标进行比较</p>
+              <p className="text-white/45 text-sm">导入当前持仓后，点击"执行检查"分析偏离度</p>
+              <p className="text-white/50 text-xs mt-1">将真实当前持仓与 SAA 目标权重进行比较</p>
             </div>
           )}
 
