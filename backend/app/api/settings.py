@@ -6,8 +6,11 @@ from ..services.watchlist_service import (
     get_watchlist, add_fund, add_funds_batch, remove_fund, clear_watchlist
 )
 from ..services.file_parser_service import parse_file
+from ..storage.database import FundDataStore
 
 router = APIRouter(prefix="/settings", tags=["设置与自选管理"])
+
+SNAPSHOT_POOL_SOURCE = "fund_snapshot"
 
 
 class AddFundRequest(BaseModel):
@@ -19,6 +22,55 @@ class AddFundRequest(BaseModel):
 
 class BatchAddRequest(BaseModel):
     funds: List[AddFundRequest]
+
+
+def _snapshot_pool(limit: int = 5000) -> dict:
+    result = FundDataStore.list_snapshots(
+        xinjihui_only=True,
+        limit=limit,
+        offset=0,
+        sort_field="near_1y",
+        sort_order="desc",
+    )
+    raw_funds = result.get("funds") or []
+    funds = []
+    as_of_values = []
+    for fund in raw_funds:
+        if not isinstance(fund, dict) or not fund.get("code"):
+            continue
+        as_of = fund.get("nav_date") or fund.get("updated_at") or fund.get("metrics_updated_at")
+        if as_of:
+            as_of_values.append(str(as_of))
+        funds.append({
+            "code": str(fund.get("code")),
+            "name": fund.get("name") or str(fund.get("code")),
+            "type": fund.get("type") or "",
+            "tags": fund.get("tags") or [],
+            "source": SNAPSHOT_POOL_SOURCE,
+            "as_of": as_of,
+        })
+    data_status = "real" if funds else "missing"
+    missing_reason = None if funds else "基金快照为空；未返回静态基金池，请先刷新 fund_quote_snapshot。"
+    return {
+        "funds": funds,
+        "total": len(funds),
+        "source": SNAPSHOT_POOL_SOURCE,
+        "data_status": data_status,
+        "missing_reason": missing_reason,
+        "as_of": max(as_of_values) if as_of_values else None,
+    }
+
+
+def _watchlist_import_payload(pool: dict) -> List[dict]:
+    return [
+        {
+            "code": fund["code"],
+            "name": fund.get("name", ""),
+            "type": fund.get("type", ""),
+            "tags": fund.get("tags", []),
+        }
+        for fund in pool.get("funds", [])
+    ]
 
 
 @router.get("/watchlist")
@@ -79,26 +131,46 @@ async def upload_fund_file(file: UploadFile = File(...)):
 @router.get("/guoyuan-funds")
 async def get_guoyuan_funds():
     """获取鑫基荟默认基金名单（保留旧路由兼容）"""
-    from ..constants.guoyuan_funds import GUOYUAN_FUND_LIST
-    return {"funds": GUOYUAN_FUND_LIST}
+    return _snapshot_pool()
 
 
 @router.post("/import-guoyuan")
 async def import_guoyuan_funds():
     """将鑫基荟默认名单导入自选（保留旧路由兼容）"""
-    from ..constants.guoyuan_funds import GUOYUAN_FUND_LIST
-    return add_funds_batch(GUOYUAN_FUND_LIST)
+    pool = _snapshot_pool()
+    if pool["data_status"] == "missing":
+        return {
+            "added": [],
+            "skipped": [],
+            "invalid": [],
+            "total": len(get_watchlist()),
+            "source": pool["source"],
+            "data_status": "missing",
+            "missing_reason": pool["missing_reason"],
+        }
+    result = add_funds_batch(_watchlist_import_payload(pool))
+    return {**result, "source": pool["source"], "data_status": pool["data_status"], "as_of": pool["as_of"]}
 
 
 @router.get("/xinjihui-pool")
 async def get_xinjihui_pool():
     """获取鑫基荟优选池产品名单"""
-    from ..constants.xinjihui_pool import XINJIHUI_POOL
-    return {"funds": XINJIHUI_POOL, "updated": "2026-04-10", "total": len(XINJIHUI_POOL)}
+    return _snapshot_pool()
 
 
 @router.post("/import-xinjihui")
 async def import_xinjihui_pool():
     """将鑫基荟优选池名单导入自选"""
-    from ..constants.xinjihui_pool import XINJIHUI_POOL
-    return add_funds_batch(XINJIHUI_POOL)
+    pool = _snapshot_pool()
+    if pool["data_status"] == "missing":
+        return {
+            "added": [],
+            "skipped": [],
+            "invalid": [],
+            "total": len(get_watchlist()),
+            "source": pool["source"],
+            "data_status": "missing",
+            "missing_reason": pool["missing_reason"],
+        }
+    result = add_funds_batch(_watchlist_import_payload(pool))
+    return {**result, "source": pool["source"], "data_status": pool["data_status"], "as_of": pool["as_of"]}
