@@ -443,20 +443,14 @@ export function CockpitDashboard({
     if (missingCodes.length === 0) return
 
     let active = true
-    Promise.all(missingCodes.map(async (code) => {
-      try {
-        const analysis = await getFundAnalysis(code)
-        return [code, normalizeNavTrend(analysis?.nav_data || analysis?.navHistory || analysis?.navHistoryFull)] as const
-      } catch {
-        return [code, null] as const
-      }
-    })).then((entries) => {
-      if (!active) return
-      setTrendByCode((current) => {
-        const next = { ...current }
-        for (const [code, trend] of entries) next[code] = trend
-        return next
-      })
+    missingCodes.forEach((code) => {
+      getFundAnalysis(code)
+        .then((analysis) => normalizeNavTrend(analysis?.nav_data || analysis?.navHistory || analysis?.navHistoryFull))
+        .catch(() => null)
+        .then((trend) => {
+          if (!active) return
+          setTrendByCode((current) => ({ ...current, [code]: trend }))
+        })
     })
 
     return () => {
