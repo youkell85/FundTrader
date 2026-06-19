@@ -6,6 +6,7 @@ from unittest.mock import patch
 from app.data.market_context_fetcher import (
     MARKET_FLOW_INDICATOR,
     _fetch_sector_flow_rows,
+    _sector_flow_rows_from_eastmoney,
     _top_industries,
     get_fund_market_context,
 )
@@ -345,3 +346,31 @@ def test_sector_flow_fetch_falls_back_to_direct_eastmoney():
     assert rows == [("半导体", 123.0)]
     assert source == "eastmoney:qt_clist_sector_fund_flow"
     assert any("akshare sector flow failed" in item for item in warnings)
+
+
+def test_direct_eastmoney_sector_flow_retries_hosts():
+    class FakeResponse:
+        def __init__(self, payload: dict | None = None, error: Exception | None = None):
+            self.payload = payload or {}
+            self.error = error
+
+        def raise_for_status(self):
+            if self.error:
+                raise self.error
+
+        def json(self):
+            return self.payload
+
+    calls = []
+
+    def fake_get(url, **kwargs):
+        calls.append(url)
+        if len(calls) == 1:
+            return FakeResponse(error=RuntimeError("bad gateway"))
+        return FakeResponse({"data": {"diff": [{"f14": "半导体", "f62": 1200.0}]}})
+
+    with patch("requests.get", side_effect=fake_get):
+        rows = _sector_flow_rows_from_eastmoney(10)
+
+    assert rows == [("半导体", 1200.0)]
+    assert len(calls) == 2

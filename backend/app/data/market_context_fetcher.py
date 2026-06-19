@@ -17,6 +17,15 @@ EXCHANGE_FUND_CODE_PREFIXES = ("15", "16", "18", "5")
 NORTHBOUND_INDICATOR = "北向资金净流入"
 MARKET_FLOW_INDICATOR = "市场主力净流入"
 SECTOR_FLOW_PREFIX = "行业资金流:"
+EASTMONEY_SECTOR_FLOW_HOSTS = (
+    "push2.eastmoney.com",
+    "80.push2.eastmoney.com",
+    "71.push2.eastmoney.com",
+    "33.push2.eastmoney.com",
+    "67.push2.eastmoney.com",
+    "25.push2.eastmoney.com",
+    "6.push2.eastmoney.com",
+)
 
 
 def _status_section(
@@ -146,7 +155,6 @@ def _sector_flow_rows_from_eastmoney(limit: int) -> list[tuple[str, float]]:
 
     import requests
 
-    url = "https://push2.eastmoney.com/api/qt/clist/get"
     params = {
         "pn": "1",
         "pz": str(max(1, min(limit, 100))),
@@ -167,10 +175,23 @@ def _sector_flow_rows_from_eastmoney(limit: int) -> list[tuple[str, float]]:
         "(KHTML, like Gecko) Chrome/125.0 Safari/537.36",
         "Referer": "https://data.eastmoney.com/bkzj/hy.html",
     }
-    response = requests.get(url, params=params, headers=headers, timeout=15)
-    response.raise_for_status()
-    payload = response.json()
-    diff = ((payload or {}).get("data") or {}).get("diff") or []
+    last_error: Exception | None = None
+    diff: list[dict[str, Any]] = []
+    for host in EASTMONEY_SECTOR_FLOW_HOSTS:
+        url = f"https://{host}/api/qt/clist/get"
+        try:
+            response = requests.get(url, params=params, headers=headers, timeout=15)
+            response.raise_for_status()
+            payload = response.json()
+            diff = ((payload or {}).get("data") or {}).get("diff") or []
+        except Exception as exc:
+            last_error = exc
+            continue
+        if diff:
+            break
+
+    if not diff and last_error is not None:
+        raise last_error
 
     rows: list[tuple[str, float]] = []
     for item in diff[: max(1, min(limit, 100))]:
