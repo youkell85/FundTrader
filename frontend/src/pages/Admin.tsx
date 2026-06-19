@@ -13,7 +13,6 @@ export default function AdminDashboard() {
   const [selectedUser, setSelectedUser] = useState<AdminUser | null>(null);
 
   useEffect(() => {
-    // Temporary: allow the admin page shell to run before re-enabling login restrictions.
     fetchData();
   }, []);
 

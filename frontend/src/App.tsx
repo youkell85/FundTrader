@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect } from 'react'
 import { AllocationProvider } from './store/allocationStore'
-import { Routes, Route, useLocation, Outlet, Navigate } from 'react-router'
+import { Routes, Route, useLocation, Outlet, Navigate, Link } from 'react-router'
 import Home from './pages/Home'
 import Login from './pages/Login'
 import NotFound from './pages/NotFound'
@@ -54,7 +54,23 @@ function ScrollToTop() {
   return null
 }
 
-function RequireAuth({ children }: { children: React.ReactNode }) {
+function AccessDenied() {
+  return (
+    <div className="workspace-shell min-h-screen pt-16 px-4">
+      <div className="workspace-panel-strong mx-auto mt-12 max-w-lg p-6 text-center">
+        <h1 className="text-xl font-semibold text-white">需要管理员权限</h1>
+        <p className="mt-2 text-sm leading-relaxed text-white/50">
+          当前账号没有访问管理控制台的权限。请切换管理员账号后再打开此页面。
+        </p>
+        <Link to="/" replace className="workspace-action-active mt-5 inline-flex h-10 items-center px-4 text-sm font-medium">
+          返回基金市场
+        </Link>
+      </div>
+    </div>
+  )
+}
+
+function RequireAuth({ children, roles }: { children: React.ReactNode; roles?: string[] }) {
   const location = useLocation()
   const { data: user, isLoading, isError } = trpc.auth.me.useQuery(undefined, {
     retry: false,
@@ -70,6 +86,10 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
         state={{ returnTo: `${location.pathname}${location.search}${location.hash}` }}
       />
     )
+  }
+
+  if (roles?.length && !roles.includes(user.role || 'user')) {
+    return <AccessDenied />
   }
 
   return <>{children}</>
@@ -97,7 +117,7 @@ export default function App() {
             <Route path="/:code" element={<FundDetail />} />
 
             {/* 管理员 */}
-            <Route path="/admin" element={<RequireAuth><AdminDashboard /></RequireAuth>} />
+            <Route path="/admin" element={<RequireAuth roles={['admin']}><AdminDashboard /></RequireAuth>} />
 
             {/* 需登录 */}
             <Route path="/backtest" element={<RequireAuth><Backtest /></RequireAuth>} />
