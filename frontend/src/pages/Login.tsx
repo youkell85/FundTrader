@@ -1,10 +1,11 @@
 import { useState } from "react";
-import { useNavigate } from "react-router";
+import { useLocation, useNavigate } from "react-router";
 import { Loader2, LogIn, UserPlus, Mail } from "lucide-react";
 import { trpc } from "@/providers/trpc";
 
 export default function Login() {
   const navigate = useNavigate();
+  const location = useLocation();
   const utils = trpc.useUtils();
   const [mode, setMode] = useState<"login" | "register" | "forgot">("login");
   const [username, setUsername] = useState("");
@@ -16,7 +17,11 @@ export default function Login() {
 
   const onSuccess = async () => {
     await utils.auth.me.invalidate();
-    navigate("/");
+    const state = location.state as { returnTo?: string } | null;
+    const returnTo = state?.returnTo && state.returnTo.startsWith("/") && state.returnTo !== "/login"
+      ? state.returnTo
+      : "/";
+    navigate(returnTo, { replace: true });
   };
   const login = trpc.auth.login.useMutation({ onSuccess });
   const register = trpc.auth.register.useMutation({

@@ -7,6 +7,7 @@ import NotFound from './pages/NotFound'
 import Navbar from './components/Navbar'
 import LuminousBackground from './components/LuminousBackground'
 import { ErrorBoundary } from './components/ErrorBoundary'
+import { trpc } from '@/providers/trpc'
 
 // 路由级代码分割：详情/回测/分析/推荐页依赖 recharts（charts-vendor 428KB），
 // 懒加载可避免首页首屏预加载这些重型图表库
@@ -54,8 +55,24 @@ function ScrollToTop() {
 }
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
-  // Temporary: allow protected pages to run before re-enabling login restrictions.
-  return <>{children}</>;
+  const location = useLocation()
+  const { data: user, isLoading, isError } = trpc.auth.me.useQuery(undefined, {
+    retry: false,
+    staleTime: 60 * 1000,
+  })
+
+  if (isLoading) return <PageLoader />
+  if (isError || !user) {
+    return (
+      <Navigate
+        to="/login"
+        replace
+        state={{ returnTo: `${location.pathname}${location.search}${location.hash}` }}
+      />
+    )
+  }
+
+  return <>{children}</>
 }
 
 export default function App() {
