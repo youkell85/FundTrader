@@ -5,7 +5,8 @@ import { ASSET_CLASS_LABELS, GROUP_COLORS, REGIME_LABELS, SIGNAL_COLORS } from '
 import type { MarketDataStatus } from '@/types/allocation';
 import { useAllocationStore } from '@/store/allocationStore';
 import { getMarketDataStatus } from '@/lib/api';
-import { MOCK_DATA } from './mockData';
+import { isMockOutput } from '@/lib/execution-plan';
+import RealAllocationRequired from '@/components/allocation/RealAllocationRequired';
 import DataFreshnessBar from '@/components/allocation/DataFreshnessBar';
 import MarketRegimeCard from '@/components/allocation/MarketRegimeCard';
 import CircuitBreakerGauge from '@/components/allocation/CircuitBreakerGauge';
@@ -37,8 +38,6 @@ export default function AllocationDashboard() {
 
   const storeState = useAllocationStore().state;
   const storeOutput = storeState?.output ?? null;
-  const d = storeOutput || MOCK_DATA;
-  const { saa, taa, funds, monte_carlo: mc, stress_tests: st, portfolio_metrics: pm, constraints } = d;
 
   // Poll market data status
   useEffect(() => {
@@ -50,6 +49,19 @@ export default function AllocationDashboard() {
     const timer = setInterval(fetchStatus, 60000);
     return () => { active = false; clearInterval(timer); };
   }, []);
+
+  if (!storeOutput || isMockOutput(storeOutput)) {
+    return (
+      <div className="workspace-shell min-h-screen pt-14 pb-20">
+        <div className="max-w-5xl mx-auto px-4 md:px-6">
+          <RealAllocationRequired />
+        </div>
+      </div>
+    );
+  }
+
+  const d = storeOutput;
+  const { saa, taa, funds, monte_carlo: mc, stress_tests: st, portfolio_metrics: pm, constraints } = d;
 
   const pieData = Object.entries(saa.group_allocations).filter(([,v]) => v > 0).map(([k,v]) => ({ name: GLABELS[k] || k, value: v }));
   const stressData = [...st].sort((a,b) => a.impact - b.impact);
