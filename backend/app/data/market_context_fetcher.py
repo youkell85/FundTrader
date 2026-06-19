@@ -344,7 +344,7 @@ def _resolve_northbound_section(now: str) -> dict[str, Any]:
     Priority:
       1. In-memory market_data_service MacroSnapshot (instant, no I/O)
       2. SQLite MacroCache.get_history / get (best-effort, non-fatal)
-      3. Fall back to partial placeholder
+      3. Explicit missing state when no real northbound flow is available
     """
     indicator_name = NORTHBOUND_INDICATOR
     net_inflow: float | None = None
@@ -384,7 +384,7 @@ def _resolve_northbound_section(now: str) -> dict[str, Any]:
         except Exception:
             logger.debug("northFlow: SQLite MacroCache unavailable", exc_info=True)
 
-    # 3. Build section from resolved data or placeholder
+    # 3. Build section from resolved data or explicit missing state
     if net_inflow is not None:
         trend = "inflow" if net_inflow > 0 else "outflow" if net_inflow < 0 else "flat"
         return _status_section(
@@ -395,13 +395,12 @@ def _resolve_northbound_section(now: str) -> dict[str, Any]:
             data={"trend": trend, "netInflow": net_inflow},
         )
 
-    # Placeholder: no cached northbound data available
     return _status_section(
-        "partial",
-        source="akshare/eastmoney",
-        as_of=now,
-        coverage=0.35,
-        missing_reason="当前未持久化北向资金行业映射；详情页保留结构化占位，不阻塞主链路。",
+        "missing",
+        source=None,
+        as_of=None,
+        coverage=0.0,
+        missing_reason="缺少真实北向资金缓存，当前不展示估算或占位资金流。",
         data={"trend": None, "netInflow": None},
     )
 
@@ -520,9 +519,9 @@ def _resolve_sector_flow_section(
     return _status_section(
         "partial",
         source=holdings_source or "fund_portfolio_snapshot",
-        as_of=holdings_as_of or now,
+        as_of=holdings_as_of,
         coverage=0.45,
-        missing_reason="已有真实持仓行业，但尚未刷新行业资金流缓存；可运行 market context cache refresh。",
+        missing_reason="已有真实持仓行业数据，但缺少真实行业资金流缓存。",
         data={"topIndustries": industries, "matchedFlows": []},
     )
 

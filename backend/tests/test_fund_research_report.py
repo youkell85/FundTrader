@@ -205,8 +205,8 @@ def test_northflow_populated_from_cached_macro_snapshot():
     assert north["coverage"] > 0.35  # upgraded from placeholder
 
 
-def test_northflow_falls_back_to_placeholder_when_cache_missing():
-    """When no cached northbound data exists, placeholder semantics are preserved."""
+def test_northflow_is_missing_when_cache_missing():
+    """When no cached northbound data exists, do not expose placeholder flow data."""
     with patch("app.data.market_context_fetcher._snapshot_basic", return_value={"name": "测试基金", "fund_type": "混合型"}), \
          patch("app.data.market_context_fetcher._top_industries", return_value=([], None, None)), \
          patch("app.allocation.data.market_data_service.MarketDataService.get_macro_snapshot", return_value=None), \
@@ -215,7 +215,10 @@ def test_northflow_falls_back_to_placeholder_when_cache_missing():
         payload = get_fund_market_context("000001")
 
     north = payload["sections"]["northFlow"]
-    assert north["dataStatus"] == "partial"
+    assert north["dataStatus"] == "missing"
+    assert north["coverage"] == 0.0
+    assert north["source"] is None
+    assert north["asOf"] is None
     assert north["data"]["netInflow"] is None
     assert north["data"]["trend"] is None
     assert north["missingReason"] is not None
