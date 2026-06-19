@@ -474,6 +474,8 @@ export interface ShareSelectorResponse {
   recommendations: ShareRecommendationItem[];
   holding_months: number;
   summary: string;
+  data_status?: "real" | "partial" | "missing";
+  missing_reason?: string | null;
 }
 
 export const SHARE_COLORS: Record<string, string> = {

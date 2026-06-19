@@ -544,6 +544,8 @@ class ShareSelectorResponse(BaseModel):
     recommendations: List[ShareRecommendationItem]
     holding_months: float
     summary: str
+    data_status: Literal["real", "partial", "missing"] = "missing"
+    missing_reason: Optional[str] = None
 
 
 # ─── Correlation Constraint Models ───

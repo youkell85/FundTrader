@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Coins } from 'lucide-react';
+import { AlertTriangle, Coins } from 'lucide-react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { SHARE_COLORS } from '@/types/allocation';
 import type { ShareSelectorResponse, AllocationRequest } from '@/types/allocation';
@@ -14,6 +14,24 @@ const HOLDING_OPTIONS = [
   { value: 36, label: '3年' },
   { value: 60, label: '5年' },
 ];
+
+const FEE_SOURCE_LABELS: Record<string, string> = {
+  default_assumption: '默认假设',
+  eastmoney: '东方财富',
+  tushare: 'Tushare',
+  sqlite_cache: '本地缓存',
+};
+
+function feeSourceLabel(source?: string): string {
+  if (!source) return '缺失';
+  return FEE_SOURCE_LABELS[source] || source;
+}
+
+function feeSourceTone(source?: string): string {
+  return source === 'default_assumption'
+    ? 'border-[#FFB800]/25 bg-[#FFB800]/10 text-[#FFB800]'
+    : 'border-[#16C784]/25 bg-[#16C784]/10 text-[#16C784]';
+}
 
 export default function ShareSelectorPanel() {
   const [loading, setLoading] = useState(false);
@@ -90,11 +108,21 @@ export default function ShareSelectorPanel() {
               <div className="text-xs text-white/55">{data.summary}</div>
             </div>
 
+            {data.data_status !== 'real' && (
+              <div className="flex items-start gap-2 rounded-lg border border-[#FFB800]/20 bg-[#FFB800]/[0.06] p-3 text-xs text-[#FFB800]">
+                <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <div>
+                  <div className="font-medium">A/C 份额费率数据不完整，当前结果仅为测算，不作为正式份额建议。</div>
+                  <div className="mt-1 text-[#FFB800]/75">{data.missing_reason || '缺少真实 A/C 份额费率档案。'}</div>
+                </div>
+              </div>
+            )}
+
             <div className="overflow-x-auto">
-              <table className="w-full text-xs">
+              <table className="w-full min-w-[760px] text-xs">
                 <thead>
                   <tr className="text-white/55 border-b border-white/[0.06]">
-                    {['代码', '名称', '推荐', '盈亏平衡', 'A类成本', 'C类成本', '节省', '原因'].map((h) => (
+                    {['代码', '名称', '测算', '费率来源', '盈亏平衡', 'A类成本', 'C类成本', '节省', '原因'].map((h) => (
                       <th key={h} className="text-left py-2 px-2 font-normal">{h}</th>
                     ))}
                   </tr>
@@ -115,6 +143,11 @@ export default function ShareSelectorPanel() {
                           {r.recommended_share}类
                         </span>
                       </td>
+                      <td className="py-2 px-2">
+                        <span className={`inline-flex rounded border px-1.5 py-0.5 text-[10px] ${feeSourceTone(r.fee_source)}`}>
+                          {feeSourceLabel(r.fee_source)}
+                        </span>
+                      </td>
                       <td className="py-2 px-2 data-number text-white/60">{r.breakeven_months.toFixed(0)}月</td>
                       <td className="py-2 px-2 data-number text-white/60">{r.total_cost_a.toFixed(2)}%</td>
                       <td className="py-2 px-2 data-number text-white/60">{r.total_cost_c.toFixed(2)}%</td>
@@ -129,13 +162,13 @@ export default function ShareSelectorPanel() {
             {/* Summary stats */}
             <div className="grid grid-cols-3 gap-3">
               <div className="rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-2 text-center">
-                <div className="text-xs text-white/55">推荐A类</div>
+                <div className="text-xs text-white/55">测算A类</div>
                 <div className="data-number text-lg font-medium" style={{ color: SHARE_COLORS.A }}>
                   {data.recommendations.filter((r) => r.recommended_share === 'A').length}
                 </div>
               </div>
               <div className="rounded-lg border border-white/[0.06] bg-white/[0.03] px-3 py-2 text-center">
-                <div className="text-xs text-white/55">推荐C类</div>
+                <div className="text-xs text-white/55">测算C类</div>
                 <div className="data-number text-lg font-medium" style={{ color: SHARE_COLORS.C }}>
                   {data.recommendations.filter((r) => r.recommended_share === 'C').length}
                 </div>

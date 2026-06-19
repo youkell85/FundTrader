@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 from fastapi import HTTPException
 
 from app.api import allocation as allocation_api
-from app.allocation.models import AllocationRequest
+from app.allocation.models import AllocationRequest, ShareSelectorRequest
 
 
 class AllocationApiContractTest(unittest.IsolatedAsyncioTestCase):
@@ -44,6 +44,20 @@ class AllocationApiContractTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("non_finite_response_value", caught.exception.detail["message"])
         self.assertIn("error_id", caught.exception.detail)
         self.assertNotIn("failed_steps", caught.exception.detail)
+
+    async def test_share_selector_exposes_missing_fee_source_state(self):
+        request = ShareSelectorRequest(
+            funds=[{"code": "510300", "name": "沪深300ETF"}],
+            holding_months=12,
+            amount=100000,
+        )
+
+        response = await allocation_api.select_share_class(request)
+
+        self.assertEqual(response.data_status, "missing")
+        self.assertIn("缺少真实 A/C 份额费率档案", response.missing_reason or "")
+        self.assertEqual(response.recommendations[0].fee_source, "default_assumption")
+        self.assertTrue(response.recommendations[0].missing_reason)
 
 
 if __name__ == "__main__":
