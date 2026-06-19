@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { ChevronRight, Search, UserCircle } from 'lucide-react'
 import type { MarketDataStatus } from '@/types/allocation'
+import { getFundAnalysis } from '@/lib/api'
 
 type FundLike = {
   fundCode?: string
@@ -18,6 +19,7 @@ type FundLike = {
   isXinjihui?: boolean
   nav?: string | number | null
   navDate?: string | null
+  navTrend?: number[] | null
   dailyChange?: string | number | null
   dataQuality?: string | null
   staleLevel?: string | null
@@ -209,6 +211,17 @@ function normalizeKlineSeries(value: unknown) {
     .filter((point): point is { date: string; open: number; high: number; low: number; close: number } => point !== null)
 }
 
+function normalizeNavTrend(value: unknown) {
+  if (!Array.isArray(value)) return []
+  return value
+    .map((point) => {
+      const record = point as Record<string, unknown>
+      return parseMetric(record.nav ?? record.unit_nav ?? record.navValue ?? record.value)
+    })
+    .filter((point): point is number => point !== null && point > 0)
+    .slice(-42)
+}
+
 function Panel({ title, children, action, className }: { title: string; children: React.ReactNode; action?: React.ReactNode; className?: string }) {
   return (
     <section className={classNames('workspace-panel p-4', className)}>
@@ -366,6 +379,7 @@ export function CockpitDashboard({
   const navigate = useNavigate()
   const [query, setQuery] = useState('')
   const [fundFilter, setFundFilter] = useState('all')
+  const [trendByCode, setTrendByCode] = useState<Record<string, number[] | null>>({})
   const weighted = buildWeightedFunds(funds)
   const hasRealWeights = weighted.some((item) => item.weightSource === 'real')
   const assetMix = distributionByType(weighted)
@@ -419,6 +433,37 @@ export function CockpitDashboard({
     })
   }, [fundFilter, query, weighted])
   const visibleCards = filteredWeighted.slice(0, 4)
+  const visibleCodes = useMemo(
+    () => visibleCards.map(({ fund }) => String(fund.fundCode || '')).filter((code) => /^\d{6}$/.test(code)),
+    [visibleCards],
+  )
+
+  useEffect(() => {
+    const missingCodes = visibleCodes.filter((code) => !(code in trendByCode))
+    if (missingCodes.length === 0) return
+
+    let active = true
+    Promise.all(missingCodes.map(async (code) => {
+      try {
+        const analysis = await getFundAnalysis(code)
+        return [code, normalizeNavTrend(analysis?.nav_data || analysis?.navHistory || analysis?.navHistoryFull)] as const
+      } catch {
+        return [code, null] as const
+      }
+    })).then((entries) => {
+      if (!active) return
+      setTrendByCode((current) => {
+        const next = { ...current }
+        for (const [code, trend] of entries) next[code] = trend
+        return next
+      })
+    })
+
+    return () => {
+      active = false
+    }
+  }, [trendByCode, visibleCodes])
+
   const trimmedQuery = query.trim()
   const queryLooksLikeFundCode = /^\d{6}$/.test(trimmedQuery)
   const showNoMatches = trimmedQuery.length > 0 && filteredWeighted.length === 0
@@ -664,6 +709,10 @@ export function CockpitDashboard({
           {visibleCards.map(({ fund, weight, weightSource }) => {
             const returnRate = parseMetric(fund.performance?.return1y ?? fund.performance?.annualizedReturn)
             const detailPath = fund.fundCode ? `/${fund.fundCode}` : '/analysis'
+            const code = String(fund.fundCode || '')
+            const trend = Array.isArray(fund.navTrend) && fund.navTrend.length > 1
+              ? fund.navTrend
+              : trendByCode[code] || []
             return (
               <Link key={fund.fundCode || fundName(fund)} to={detailPath} className="block rounded-lg border border-white/[0.075] bg-white/[0.03] p-3 transition hover:border-primary/40 hover:bg-white/[0.05]">
                 <div className="flex items-center justify-between gap-2">
@@ -678,7 +727,7 @@ export function CockpitDashboard({
                     <div className={classNames('data-number text-lg font-bold', (returnRate || 0) >= 0 ? 'text-danger' : 'text-success')}>{signedPct(returnRate)}</div>
                     <div className="text-xs text-white/36">近一年/年化</div>
                   </div>
-                  <Sparkline points={[]} warm={(returnRate || 0) >= 0} className="h-8 w-20" />
+                  <Sparkline points={trend} warm={(returnRate || 0) >= 0} className="h-8 w-20" />
                 </div>
                 <div className="mt-2 flex items-center justify-between text-xs">
                   {weightSource === 'real' ? (
