@@ -7,7 +7,9 @@ from unittest.mock import patch, MagicMock
 from app.allocation.fund_scorer import FundProfile, FundScore, score_fund, rank_funds_for_asset_class
 from app.allocation.fund_pool_refresher import (
     refresh_pool_metadata,
+    refresh_live_metadata_cache,
     _compute_stale_days,
+    _fetch_sqlite_meta,
     _update_profile,
 )
 
@@ -151,6 +153,74 @@ class FundPoolRefresherTest(unittest.TestCase):
 
         self.assertEqual(result["518880"].metadata_status, "assumption")
         self.assertEqual(result["518880"].stale_days, 3)
+
+    def test_fetch_sqlite_meta_uses_db_context_manager(self):
+        """SQLite metadata reads should use the get_db context manager correctly."""
+        from contextlib import contextmanager
+
+        class FakeResult:
+            def fetchone(self):
+                return ("Gold ETF", "ETF", "FundCo", 123.4, 0.005, 0.001, "2026-06-19", "efinance")
+
+        class FakeConnection:
+            def execute(self, sql, params):
+                self.sql = sql
+                self.params = params
+                return FakeResult()
+
+        fake_conn = FakeConnection()
+
+        @contextmanager
+        def fake_get_db():
+            yield fake_conn
+
+        with patch("app.storage.database.get_db", fake_get_db):
+            result = _fetch_sqlite_meta("518880")
+
+        self.assertEqual(fake_conn.params, ("518880",))
+        self.assertEqual(result["name"], "Gold ETF")
+        self.assertEqual(result["fund_type"], "ETF")
+        self.assertEqual(result["company"], "FundCo")
+        self.assertEqual(result["aum"], 123.4)
+        self.assertEqual(result["_source"], "sqlite_cache")
+        self.assertEqual(result["_provider_source"], "efinance")
+
+    def test_refresh_live_metadata_cache_persists_provider_rows_and_clears_memory_cache(self):
+        """Background refresh should persist bounded provider results and clear request cache."""
+        profile = self._make_profile(code="518880")
+        pool = {"518880": profile}
+        rows = [{"code": "518880", "name": "Gold ETF", "_source": "efinance"}]
+
+        from app.allocation import fund_pool_refresher
+        with fund_pool_refresher._meta_cache_lock:
+            fund_pool_refresher._meta_cache["518880"] = (0, profile, ("assumption", "static_fund_pool", None, None))
+
+        with patch("app.allocation.fund_pool_refresher._fetch_eastmoney_meta_batch", return_value=rows) as fetch, \
+             patch("app.allocation.fund_pool_refresher._save_metadata_cache", return_value=1) as save:
+            summary = refresh_live_metadata_cache(pool, timeout_s=5)
+
+        fetch.assert_called_once_with(["518880"], timeout_s=5)
+        save.assert_called_once_with(rows)
+        self.assertEqual(summary["status"], "ok")
+        self.assertEqual(summary["source"], "eastmoney")
+        self.assertEqual(summary["saved"], 1)
+        with fund_pool_refresher._meta_cache_lock:
+            self.assertNotIn("518880", fund_pool_refresher._meta_cache)
+
+    def test_refresh_live_metadata_cache_falls_back_to_efinance_when_eastmoney_empty(self):
+        profile = self._make_profile(code="518880")
+        pool = {"518880": profile}
+        rows = [{"code": "518880", "name": "Gold ETF", "_source": "efinance"}]
+
+        with patch("app.allocation.fund_pool_refresher._fetch_eastmoney_meta_batch", return_value=[]), \
+             patch("app.allocation.fund_pool_refresher._fetch_efinance_meta_batch", return_value=rows) as fetch, \
+             patch("app.allocation.fund_pool_refresher._save_metadata_cache", return_value=1):
+            summary = refresh_live_metadata_cache(pool, timeout_s=5)
+
+        fetch.assert_called_once_with(["518880"], timeout_s=5)
+        self.assertEqual(summary["status"], "ok")
+        self.assertEqual(summary["source"], "efinance")
+        self.assertEqual(summary["saved"], 1)
 
 if __name__ == "__main__":
     unittest.main()

@@ -122,10 +122,10 @@ _FUND_POOL: Dict[str, FundProfile] = {
         asset_class="convertible",
         company="博时基金", management_fee=0.004, custody_fee=0.001,
         aum=18.0, daily_turnover=12000.0, tracking_error=0.025, base_quality=85),
-    "123120": FundProfile(code="123120", name="中证转债ETF", fund_type="债券型-可转债",
+    "511180": FundProfile(code="511180", name="\u53ef\u8f6c\u503aETF\u6d77\u5bcc\u901a", fund_type="\u6307\u6570\u578b-\u56fa\u6536",
         asset_class="convertible",
-        company="中证指数", management_fee=0.004, custody_fee=0.001,
-        aum=12.0, daily_turnover=8000.0, tracking_error=0.028, base_quality=83),
+        company="\u6d77\u5bcc\u901a\u57fa\u91d1", management_fee=0.004, custody_fee=0.001,
+        aum=117.9, daily_turnover=8000.0, tracking_error=0.026, base_quality=86),
 
     # ═══ 货币基金 ═══
     "511880": FundProfile(code="511880", name="银华日利ETF", fund_type="货币型",

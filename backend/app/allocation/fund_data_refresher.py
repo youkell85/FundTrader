@@ -73,10 +73,10 @@ def _build_updated_profile(profile: FundProfile, metrics: dict) -> FundProfile:
         return_1y=metrics.get("return_1y", profile.return_1y),
         sharpe_1y=metrics.get("sharpe_1y", profile.sharpe_1y),
         base_quality=profile.base_quality,
-        metadata_status=metrics.get("metadata_status", "real"),
-        metadata_source=metrics.get("metadata_source", "computed_nav"),
-        metadata_as_of=metrics.get("metadata_as_of"),
-        stale_days=metrics.get("stale_days"),
+        metadata_status=profile.metadata_status,
+        metadata_source=profile.metadata_source,
+        metadata_as_of=profile.metadata_as_of,
+        stale_days=profile.stale_days,
     )
 
 

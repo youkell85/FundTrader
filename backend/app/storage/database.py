@@ -251,6 +251,22 @@ class Database:
                     PRIMARY KEY (code, metric)
                 );
 
+                -- Structural fund metadata cache populated by background jobs.
+                CREATE TABLE IF NOT EXISTS fund_metadata_cache (
+                    code TEXT NOT NULL,
+                    name TEXT DEFAULT '',
+                    fund_type TEXT DEFAULT '',
+                    company TEXT DEFAULT '',
+                    aum REAL,
+                    management_fee REAL,
+                    custody_fee REAL,
+                    metadata_as_of TEXT NOT NULL,
+                    source TEXT NOT NULL DEFAULT 'provider',
+                    raw_json TEXT DEFAULT '{}',
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (code, metadata_as_of, source)
+                );
+
                 -- 统计快照表 (rolling_stats/vol_snapshot/ic_decay)
                 CREATE TABLE IF NOT EXISTS stats_snapshot (
                     snapshot_type TEXT PRIMARY KEY,
@@ -302,6 +318,7 @@ class Database:
                 CREATE INDEX IF NOT EXISTS idx_macro_indicator ON macro_history(indicator, date DESC);
                 CREATE INDEX IF NOT EXISTS idx_etf_code_date ON etf_daily_prices(code, trade_date);
                 CREATE INDEX IF NOT EXISTS idx_fund_nav_code ON fund_nav_cache(code);
+                CREATE INDEX IF NOT EXISTS idx_fund_metadata_cache_code_date ON fund_metadata_cache(code, metadata_as_of DESC);
                 CREATE INDEX IF NOT EXISTS idx_regime_date ON regime_history(detected_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_fund_snapshot_type ON fund_snapshot(type);
                 CREATE INDEX IF NOT EXISTS idx_fund_snapshot_updated ON fund_snapshot(updated_at DESC);

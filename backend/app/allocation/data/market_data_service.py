@@ -108,6 +108,22 @@ class MarketDataService:
         except Exception as e:
             logger.debug(f"  Factor calibration failed: {e}")
 
+        # 6. Structural fund metadata cache for request-time fund mapping
+        try:
+            from ..fund_mapper import _FUND_POOL
+            from ..fund_pool_refresher import refresh_live_metadata_cache
+
+            summary = refresh_live_metadata_cache(_FUND_POOL)
+            logger.info(
+                "  Fund metadata: %s/%s saved via %s (status=%s)",
+                summary.get("saved", 0),
+                summary.get("total", 0),
+                summary.get("source") or "none",
+                summary.get("status"),
+            )
+        except Exception as e:
+            logger.warning(f"  Fund metadata refresh failed: {e}")
+
         self._last_refresh = datetime.now().isoformat()
         logger.info(f"MarketDataService: Refresh complete at {self._last_refresh}")
 
