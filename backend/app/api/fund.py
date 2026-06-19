@@ -648,10 +648,11 @@ async def fund_detail_completeness(code: str = Query(..., min_length=4, max_leng
         "purchaseInfo": build(
             purchase_count > 0,
             stale=purchase_count > 0 and metrics_stale,
-            partial=purchase_count == 0,
-            reason="缺真实销售文件，详情页用行业默认值",
+            partial=purchase_count > 0,
+            reason="缺少真实销售文件；仅有已入库管理费/托管费时不视为完整购买信息",
             source="fund_metrics_snapshot",
             as_of=metrics_updated,
+            coverage=0.35 if purchase_count > 0 else 0.0,
         ),
         # 12. rating
         "rating": build(

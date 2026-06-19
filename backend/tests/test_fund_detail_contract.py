@@ -1126,7 +1126,7 @@ class FundDetailCompletenessTest(unittest.TestCase):
         self.assertEqual(result["sections"]["yearReturns"]["dataStatus"], "available")
         # rating / purchaseInfo 有 metrics 行但底层数据是 partial 兜底
         self.assertEqual(result["sections"]["rating"]["dataStatus"], "available")
-        self.assertEqual(result["sections"]["purchaseInfo"]["dataStatus"], "available")
+        self.assertEqual(result["sections"]["purchaseInfo"]["dataStatus"], "partial")
         # peerPerformance 有 quote 行
         self.assertEqual(result["sections"]["peerPerformance"]["dataStatus"], "available")
         # riskSummary 有 max_drawdown
@@ -1440,7 +1440,7 @@ class FundDetailCompletenessTest(unittest.TestCase):
         self.assertEqual(result["sections"]["rating"]["dataStatus"], "stale")
 
     def test_metrics_stale_marks_purchaseInfo_stale(self):
-        """metrics_updated_at 很旧且 purchase_count>0 时，purchaseInfo 应 stale。"""
+        """Stale metric fee fragments remain stale, not available purchase info."""
         result = self._invoke(
             snapshot={
                 "nav_data": [{"date": "2026-01-01", "nav": 1.0}] * 300,
