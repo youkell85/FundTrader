@@ -10,6 +10,10 @@ type FundLike = {
   fundType?: string
   category?: string
   company?: string
+  weight?: string | number | null
+  targetWeight?: string | number | null
+  currentWeight?: string | number | null
+  holdingWeight?: string | number | null
   source?: string
   isXinjihui?: boolean
   nav?: string | number | null
@@ -145,12 +149,41 @@ function typeLabel(fund: FundLike) {
   return TYPE_LABELS[key] || String(fund.category || fund.fundType || '其他')
 }
 
-function Sparkline({ warm = false, className = 'h-12 w-full' }: { warm?: boolean; className?: string }) {
-  const stroke = warm ? '#c86f44' : '#59c993'
+function Sparkline({
+  points,
+  warm = false,
+  className = 'h-12 w-full',
+}: {
+  points: number[]
+  warm?: boolean
+  className?: string
+}) {
+  if (points.length < 2) {
+    return (
+      <div className={classNames(className, 'grid place-items-center rounded border border-white/[0.055] bg-white/[0.025] text-[10px] text-white/32')}>
+        走势缺失
+      </div>
+    )
+  }
+
+  const width = 120
+  const height = 42
+  const min = Math.min(...points)
+  const max = Math.max(...points)
+  const span = max - min || 1
+  const d = points
+    .map((point, index) => {
+      const x = (index / (points.length - 1)) * width
+      const y = height - ((point - min) / span) * (height - 6) - 3
+      return `${index === 0 ? 'M' : 'L'}${x.toFixed(2)} ${y.toFixed(2)}`
+    })
+    .join(' ')
+  const stroke = warm ? '#d69d63' : '#59c993'
+
   return (
     <svg viewBox="0 0 120 42" className={classNames(className, 'overflow-visible')}>
-      <path d="M2 30 L12 23 L22 26 L32 16 L43 21 L54 12 L66 18 L78 9 L90 13 L102 7 L118 11" fill="none" stroke={stroke} strokeWidth="2" />
-      <path d="M2 33 L12 26 L22 29 L32 19 L43 24 L54 15 L66 21 L78 12 L90 16 L102 10 L118 14" fill="none" stroke={stroke} strokeOpacity=".22" strokeWidth="5" />
+      <path d={d} fill="none" stroke={stroke} strokeWidth="2" />
+      <path d={d} fill="none" stroke={stroke} strokeOpacity=".2" strokeWidth="5" />
     </svg>
   )
 }
@@ -188,18 +221,34 @@ function Panel({ title, children, action, className }: { title: string; children
   )
 }
 
-function buildEqualWeights(funds: FundLike[]) {
-  if (funds.length === 0) return []
-  const base = Math.floor((100 / funds.length) * 100) / 100
-  let used = 0
-  return funds.map((fund, index) => {
-    const weight = index === funds.length - 1 ? Number((100 - used).toFixed(2)) : base
-    used += weight
-    return { fund, weight }
-  })
+function fundWeight(fund: FundLike) {
+  return parseMetric(fund.weight ?? fund.targetWeight ?? fund.currentWeight ?? fund.holdingWeight)
 }
 
-function distributionByType(weighted: Array<{ fund: FundLike; weight: number }>) {
+function buildEqualWeights(funds: FundLike[]) {
+  if (funds.length === 0) return []
+  const explicitWeights = funds.map(fundWeight)
+  const hasExplicitWeights = explicitWeights.some((weight) => weight !== null && weight > 0)
+
+  if (hasExplicitWeights) {
+    const rawTotal = explicitWeights.reduce<number>((sum, value) => sum + (value ?? 0), 0)
+    const scale = rawTotal > 0 && rawTotal <= 1.5 ? 100 : 1
+    return funds.map((fund, index) => ({
+      fund,
+      weight: Number(((explicitWeights[index] || 0) * scale).toFixed(2)),
+      weightSource: 'real' as const,
+    }))
+  }
+
+  const sampleShare = Number((100 / funds.length).toFixed(2))
+  return funds.map((fund) => ({
+    fund,
+    weight: sampleShare,
+    weightSource: 'sample' as const,
+  }))
+}
+
+function distributionByType(weighted: Array<{ fund: FundLike; weight: number; weightSource: 'real' | 'sample' }>) {
   const rows = new Map<string, number>()
   for (const item of weighted) {
     const key = typeKey(item.fund)
@@ -314,20 +363,21 @@ export function CockpitDashboard({
   const [query, setQuery] = useState('')
   const [fundFilter, setFundFilter] = useState('all')
   const weighted = buildEqualWeights(funds)
+  const weightSource = weighted.some((item) => item.weightSource === 'real') ? 'real' : 'sample'
   const assetMix = distributionByType(weighted)
   const avgDay = average(funds.map((fund) => parseMetric(fund.dailyChange)))
   const avgYear = average(funds.map((fund) => parseMetric(fund.performance?.return1y ?? fund.performance?.annualizedReturn)))
   const avgAnnual = average(funds.map((fund) => parseMetric(fund.performance?.annualizedReturn ?? fund.performance?.return1y)))
   const avgSharpe = average(funds.map((fund) => parseMetric(fund.performance?.sharpeRatio)))
   const avgDrawdown = average(funds.map((fund) => parseMetric(fund.performance?.maxDrawdown)))
-  const netValue = avgYear === null ? '—' : (1 + avgYear / 100).toFixed(4)
-  const riskScore = clamp(Math.round(58 + (avgSharpe || 0) * 8 - Math.abs(avgDrawdown || 0) * 0.45), 15, 92)
-  const latestDate = funds.map((fund) => fund.navDate).filter(Boolean).sort().at(-1) || new Date().toISOString().slice(0, 10)
+  const hasRiskInputs = avgSharpe !== null && avgDrawdown !== null
+  const riskScore = hasRiskInputs ? clamp(Math.round(62 + avgSharpe * 8 - Math.abs(avgDrawdown) * 0.45), 15, 92) : null
+  const latestDate = funds.map((fund) => fund.navDate).filter(Boolean).sort().at(-1) || null
   const marketIndices = useMemo(() => normalizeMarketIndices(marketOverview), [marketOverview])
   const marketIndustries = useMemo(() => normalizeIndustries(marketOverview), [marketOverview])
   const risingCount = marketIndices.filter((item) => (item.change || 0) > 0).length
   const fallingCount = marketIndices.filter((item) => (item.change || 0) < 0).length
-  const marketAsOf = marketStatus?.last_refresh ? formatDateTime(marketStatus.last_refresh) : (marketIndices.find((item) => item.date)?.date || latestDate)
+  const marketAsOf = marketStatus?.last_refresh ? formatDateTime(marketStatus.last_refresh) : (marketIndices.find((item) => item.date)?.date || latestDate || 'missing')
   const macroIndicators = marketStatus?.macro_indicators || {}
   const macroRows = [
     { label: 'PMI', key: 'PMI制造业' },
@@ -369,6 +419,14 @@ export function CockpitDashboard({
   const openQueryFund = () => {
     if (queryLooksLikeFundCode) navigate(`/${trimmedQuery}`)
   }
+  const dashboardMetrics = [
+    ['样本数量', `${funds.length}只`],
+    ['日涨跌均值', signedPct(avgDay)],
+    ['近一年均值', signedPct(avgYear)],
+    ['最大回撤均值', plainPct(avgDrawdown)],
+    ['年化收益均值', plainPct(avgAnnual)],
+    ['夏普均值', avgSharpe === null ? 'missing' : avgSharpe.toFixed(2)],
+  ]
 
   return (
     <section className="workspace-shell space-y-4">
@@ -452,11 +510,16 @@ export function CockpitDashboard({
           {marketIndices.length > 0 ? (
             <div className="space-y-3">
               {marketIndices.slice(0, 3).map((item) => (
-                <div key={item.code || item.name} className="flex items-center justify-between">
+                <div key={item.code || item.name} className="grid grid-cols-[minmax(0,1fr)_96px_auto] items-center gap-3">
                   <div className="min-w-0">
                     <div className="truncate text-sm font-medium text-white/82">{item.name}</div>
                     <div className="text-xs text-white/34">{item.code}</div>
                   </div>
+                  <Sparkline
+                    points={item.series.map((point) => point.close)}
+                    warm={(item.change || 0) >= 0}
+                    className="h-8 w-24"
+                  />
                   <div className="text-right">
                     <div className="data-number text-sm font-semibold text-[#fff8ea]">{formatIndexValue(item.close)}</div>
                     <span className={classNames('data-number text-xs font-medium', (item.change || 0) >= 0 ? 'text-danger' : 'text-success')}>
@@ -512,14 +575,7 @@ export function CockpitDashboard({
           ) : (
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
-                {[
-                  ['组合净值', netValue],
-                  ['日涨跌', signedPct(avgDay)],
-                  ['今年以来', signedPct(avgYear)],
-                  ['最大回撤', plainPct(avgDrawdown)],
-                  ['年化收益', plainPct(avgAnnual)],
-                  ['夏普比率', avgSharpe === null ? '—' : avgSharpe.toFixed(2)],
-                ].map(([label, value]) => (
+                {dashboardMetrics.map(([label, value]) => (
                   <div key={label}>
                     <div className="text-xs text-white/36">{label}</div>
                     <div className="data-number text-lg font-semibold text-[#fff8ea]">{value}</div>
@@ -529,7 +585,9 @@ export function CockpitDashboard({
               <div className="border-t border-white/[0.07] pt-2">
                 <div className="flex items-center justify-between text-xs">
                   <span className="text-white/45">风险评级</span>
-                  <span className="font-medium text-white/72">{riskScore >= 70 ? '偏低' : riskScore >= 50 ? '中等' : '偏高'} ({riskScore})</span>
+                  <span className="font-medium text-white/72">
+                    {riskScore === null ? 'missing（缺少夏普/回撤）' : `${riskScore >= 70 ? '偏低' : riskScore >= 50 ? '中等' : '偏高'} (${riskScore})`}
+                  </span>
                 </div>
               </div>
             </div>
@@ -589,7 +647,7 @@ export function CockpitDashboard({
           <span className="ml-auto text-white/36">按夏普排序 · 真实指标</span>
         </div>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {visibleCards.map(({ fund, weight }) => {
+          {visibleCards.map(({ fund, weight, weightSource }) => {
             const returnRate = parseMetric(fund.performance?.return1y ?? fund.performance?.annualizedReturn)
             const detailPath = fund.fundCode ? `/${fund.fundCode}` : '/analysis'
             return (
@@ -606,10 +664,12 @@ export function CockpitDashboard({
                     <div className={classNames('data-number text-lg font-bold', (returnRate || 0) >= 0 ? 'text-danger' : 'text-success')}>{signedPct(returnRate)}</div>
                     <div className="text-xs text-white/36">近一年/年化</div>
                   </div>
-                  <Sparkline warm={(returnRate || 0) >= 0} className="h-8 w-20" />
+                  <Sparkline points={[]} warm={(returnRate || 0) >= 0} className="h-8 w-20" />
                 </div>
                 <div className="mt-2 flex items-center justify-between text-xs">
-                  <span className="rounded bg-white/[0.055] px-2 py-0.5 text-white/45">权重 {weight.toFixed(2)}%</span>
+                  <span className="rounded bg-white/[0.055] px-2 py-0.5 text-white/45">
+                    {weightSource === 'real' ? '真实权重' : '样本占比'} {weight.toFixed(2)}%
+                  </span>
                   <span className="data-number text-white/70">{metricText(fund.nav, 4)}<span className="ml-1 text-white/35">净值</span></span>
                 </div>
               </Link>
@@ -625,7 +685,10 @@ export function CockpitDashboard({
 
       {/* Asset mix summary row */}
       {assetMix.length > 0 && (
-        <Panel title="资产配置概览">
+        <Panel title={weightSource === 'real' ? '资产配置概览' : '样本类型分布'}>
+          <div className="mb-3 text-xs text-white/40">
+            {weightSource === 'real' ? '基于接口返回的基金权重字段汇总。' : '当前基金列表未返回持仓权重，仅按候选样本数量展示类型构成。'}
+          </div>
           <div className="flex flex-wrap gap-4">
             {assetMix.slice(0, 6).map((item) => (
               <div key={item.key} className="flex items-center gap-2 text-xs">
