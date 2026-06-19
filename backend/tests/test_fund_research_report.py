@@ -1,6 +1,6 @@
 from unittest.mock import patch
 
-from app.data.market_context_fetcher import get_fund_market_context
+from app.data.market_context_fetcher import MARKET_FLOW_INDICATOR, get_fund_market_context
 from app.data.providers.fusion import DataFusion
 from app.reports.fund_research_report import build_fund_evidence_pack, render_fund_research_report
 
@@ -257,4 +257,25 @@ def test_sectorflow_uses_market_flow_fallback_when_industry_cache_missing():
     sector = payload["sections"]["sectorFlow"]
     assert sector["dataStatus"] == "partial"
     assert sector["data"]["marketFlow"]["trend"] == "outflow"
-    assert "大盘资金流" in sector["missingReason"]
+
+
+def test_sectorflow_uses_market_flow_fallback_without_industries():
+    def history(indicator, limit=1):
+        if indicator == MARKET_FLOW_INDICATOR:
+            return [("2026-06-19", 8800.0, "akshare:stock_market_fund_flow")]
+        return []
+
+    with patch("app.data.market_context_fetcher._snapshot_basic", return_value={"name": "test fund", "fund_type": "mixed"}), \
+         patch("app.data.market_context_fetcher._top_industries", return_value=([], None, None)), \
+         patch("app.allocation.data.market_data_service.MarketDataService.get_macro_snapshot", return_value=None), \
+         patch("app.storage.database.MacroCache.get_history", side_effect=history), \
+         patch("app.storage.database.MacroCache.get", return_value=None):
+        payload = get_fund_market_context("000001")
+
+    sector = payload["sections"]["sectorFlow"]
+    assert sector["dataStatus"] == "partial"
+    assert sector["coverage"] == 0.5
+    assert sector["data"]["topIndustries"] == []
+    assert sector["data"]["marketFlow"]["netInflow"] == 8800.0
+    assert sector["data"]["marketFlow"]["trend"] == "inflow"
+    assert "全市场资金流" in sector["missingReason"]

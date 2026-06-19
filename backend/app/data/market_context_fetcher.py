@@ -263,6 +263,37 @@ def _resolve_sector_flow_section(
     now: str,
 ) -> dict[str, Any]:
     if not industries:
+        market_flow: tuple[str, float, str] | None = None
+        try:
+            from ..storage.database import MacroCache
+
+            history = MacroCache.get_history(MARKET_FLOW_INDICATOR, limit=1)
+            if history:
+                date_str, value, source = history[0]
+                market_flow = (date_str, value, source)
+        except Exception:
+            logger.debug("sectorFlow: market flow cache unavailable", exc_info=True)
+
+        if market_flow:
+            date_str, value, source = market_flow
+            return _status_section(
+                "partial",
+                source=source,
+                as_of=date_str,
+                coverage=0.5,
+                missing_reason="缺少持仓行业数据，无法匹配行业/概念资金流；当前仅提供真实全市场资金流。",
+                data={
+                    "topIndustries": [],
+                    "matchedFlows": [],
+                    "marketFlow": {
+                        "netInflow": value,
+                        "trend": "inflow" if value > 0 else "outflow" if value < 0 else "flat",
+                        "asOf": date_str,
+                        "source": source,
+                    },
+                },
+            )
+
         return _status_section(
             "missing",
             source=holdings_source or "fund_portfolio_snapshot",
