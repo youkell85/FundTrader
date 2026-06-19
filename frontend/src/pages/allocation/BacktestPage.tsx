@@ -134,7 +134,7 @@ export default function BacktestPage() {
   // ─── 快速回测 handler ───
   const handleQuickBacktest = () => {
     if (!isReal) {
-      setBacktestError('当前为演示数据，请先生成真实配置方案');
+      setBacktestError('当前没有真实配置结果，请先生成真实配置方案');
       return;
     }
     const riskProfile = d?.user_profile?.risk_tolerance;
@@ -225,7 +225,7 @@ export default function BacktestPage() {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {isMock ? (
-              <StatusBadge status="demo" text="演示数据" />
+              <StatusBadge status="demo" text="非真实配置" />
             ) : (
               <StatusBadge status="real" text="真实配置" />
             )}
@@ -265,7 +265,7 @@ export default function BacktestPage() {
             <div>
               <p className="text-sm text-white/70">
                 {isMock
-                  ? '当前为演示数据，回测功能不可用。请先生成真实配置方案。'
+                  ? '当前没有真实配置结果，回测功能不可用。请先生成真实配置方案。'
                   : '配置方案已就绪，可运行快速回测或自定义参数回测。'}
               </p>
               {backtestError && (
@@ -674,11 +674,11 @@ export default function BacktestPage() {
             </div>
           )}
 
-          {/* 演示数据提示 */}
+          {/* Non-real data guard */}
           {isMock && (
             <div className="flex items-center gap-2 mt-3 pt-3 border-t border-white/[0.04]">
               <XCircle className="w-3.5 h-3.5 text-[#FFB800]" />
-              <span className="text-xs text-white/35">当前基于演示数据回测，结果仅供展示</span>
+              <span className="text-xs text-white/35">当前结果不是来自真实配置引擎，回测结果不可用于决策</span>
             </div>
           )}
         </section>
@@ -688,7 +688,7 @@ export default function BacktestPage() {
       {!hasAllocationBacktest && (
         <BacktestPanel
           disabled={!isReal}
-          disabledReason={!isReal ? '当前为演示数据，请先生成真实配置方案后再执行回测。' : undefined}
+          disabledReason={!isReal ? '当前没有真实配置结果，请先生成真实配置方案后再执行回测。' : undefined}
         />
       )}
 

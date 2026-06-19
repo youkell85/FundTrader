@@ -100,7 +100,7 @@ export default function ExecutePage() {
   }, [state.executionPlan, state.dcaConfig, state.dcaResult, plan, config, result]);
 
   const guard = useMemo(() => {
-    if (!isReal) return { blocked: true, message: '当前为演示数据，请先生成真实配置方案' };
+    if (!isReal) return { blocked: true, message: '当前没有真实配置结果，请先生成真实配置方案' };
     const v = validateExecutionPlan(plan);
     if (!v.valid) return { blocked: true, message: v.error || '执行计划无效' };
     return { blocked: false };

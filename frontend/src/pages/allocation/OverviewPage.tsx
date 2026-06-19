@@ -128,7 +128,7 @@ export default function OverviewPage() {
           <div className="flex items-center gap-2">
             {isMock ? (
               <span className="rounded border border-[#FFB800]/30 bg-[#FFB800]/10 px-2 py-0.5 text-xs text-[#FFB800]">
-                演示数据
+                非真实配置
               </span>
             ) : (
               <span className="rounded border border-[#16C784]/30 bg-[#16C784]/10 px-2 py-0.5 text-xs text-[#16C784]">
@@ -402,7 +402,7 @@ export default function OverviewPage() {
         <div className="space-y-2">
           {isMock && (
             <div className="rounded-lg border border-[#FFB800]/20 bg-[#FFB800]/[0.05] px-4 py-3 text-sm text-[#FFB800]">
-              当前展示为演示数据，未调用真实资产配置引擎。点击上方"生成配置"获取真实结果。
+              当前没有真实配置结果，未调用真实资产配置引擎。点击上方"生成配置"获取真实结果。
             </div>
           )}
           {d.warnings?.map((w, i) => (

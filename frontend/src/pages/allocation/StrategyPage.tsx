@@ -100,7 +100,7 @@ export default function StrategyPage() {
   // ─── 生成多方案对比 ───
   const handleGenerateVariants = async () => {
     if (isMock) {
-      setVariantsError('当前为演示数据，无法生成多方案对比');
+      setVariantsError('当前没有真实配置结果，无法生成多方案对比');
       return;
     }
     setVariantsLoading(true);
@@ -131,7 +131,7 @@ export default function StrategyPage() {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {isMock ? (
-              <StatusBadge status="demo" text="演示数据" />
+              <StatusBadge status="demo" text="非真实配置" />
             ) : (
               <StatusBadge status="real" text="真实配置" />
             )}
@@ -581,7 +581,7 @@ export default function StrategyPage() {
         <div className="space-y-2">
           {isMock && (
             <div className="rounded border border-[#FFB800]/20 bg-[#FFB800]/[0.05] px-3 py-2 text-xs text-[#FFB800]">
-              当前展示为演示数据，未调用真实资产配置引擎。
+              当前没有真实配置结果，未调用真实资产配置引擎。
             </div>
           )}
           {d.warnings?.map((w, i) => (

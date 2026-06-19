@@ -51,7 +51,7 @@ export default function PlanManager({ onSave, candidates = [] }: PlanManagerProp
       return;
     }
     if (isMockOutput(storeOutput)) {
-      setMessage({ type: 'error', text: '演示数据不可保存，请生成真实配置方案' });
+      setMessage({ type: 'error', text: '非真实配置不可保存，请生成真实配置方案' });
       return;
     }
     setSaving(true);
@@ -159,7 +159,7 @@ export default function PlanManager({ onSave, candidates = [] }: PlanManagerProp
       return;
     }
     if (isMockOutput(storeOutput)) {
-      setMessage({ type: 'error', text: '演示数据不可导出，请生成真实配置方案' });
+      setMessage({ type: 'error', text: '非真实配置不可导出，请生成真实配置方案' });
       return;
     }
     // Create a blob URL with the HTML content
