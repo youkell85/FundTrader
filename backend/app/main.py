@@ -51,6 +51,25 @@ async def _background_refresh_loop():
             logger.error(f"Background refresh failed: {e}")
 
 
+async def _startup_refresh_once():
+
+    """Run initial market refresh after the API has started accepting traffic."""
+
+    try:
+
+        from .allocation.data import market_data_service
+
+        logger.info("Initial market data refresh running in background...")
+
+        await asyncio.to_thread(market_data_service.refresh)
+
+        logger.info("Initial market data refresh completed")
+
+    except Exception as e:
+
+        logger.error(f"Initial market data refresh failed: {e}")
+
+
 
 
 
@@ -416,27 +435,14 @@ async def lifespan(app: FastAPI):
 
 
 
-    # Startup: initial data refresh (non-blocking via thread, 30s timeout)
+    # Startup: load cache synchronously, then refresh in background. Waiting for
+    # provider calls here can keep uvicorn out of LISTEN state during deploys.
 
     try:
 
-        from .allocation.data import market_data_service
-
-        logger.info("Initial market data refresh on startup (30s timeout)...")
-
-        await asyncio.wait_for(
-
-            asyncio.to_thread(market_data_service.refresh),
-
-            timeout=30.0,
-
-        )
-
-    except asyncio.TimeoutError:
-
-        logger.warning("Startup data refresh timed out, fallback loading from SQLite cache")
-
         from .allocation.data.market_data_service import market_data_service as mds
+
+        logger.info("Loading market data from SQLite cache on startup...")
 
         mds._load_macro_from_db()
 
@@ -444,16 +450,13 @@ async def lifespan(app: FastAPI):
 
     except Exception as e:
 
-        logger.warning(f"Startup data refresh failed, fallback loading from SQLite cache: {e}")
-        from .allocation.data.market_data_service import market_data_service as mds
-
-        mds._load_macro_from_db()
-
-        mds._load_stats_from_db()
+        logger.warning(f"Startup cache load failed: {e}")
 
 
 
     # Spawn background refresh tasks
+
+    startup_refresh_task = asyncio.create_task(_startup_refresh_once())
 
     task = asyncio.create_task(_background_refresh_loop())
 
@@ -467,6 +470,8 @@ async def lifespan(app: FastAPI):
 
     # Shutdown: cancel background tasks
 
+    startup_refresh_task.cancel()
+
     task.cancel()
 
     fund_task.cancel()
@@ -474,6 +479,14 @@ async def lifespan(app: FastAPI):
     cleanup_task.cancel()
 
     metrics_task.cancel()
+
+    try:
+
+        await startup_refresh_task
+
+    except asyncio.CancelledError:
+
+        pass
 
     try:
 
