@@ -96,11 +96,13 @@ export function DecisionSnapshot({
   risk,
   coverage,
   peerReturn1y,
+  onNavigateSection,
 }: {
   fund: any;
   risk: { maxDrawdown: number | null };
   coverage: CoverageSummaryType;
   peerReturn1y?: number | null;
+  onNavigateSection?: (sectionId: string) => void;
 }) {
   const perf = fund.performance || {};
   const return1y = num(perf.return1y);
@@ -168,9 +170,19 @@ export function DecisionSnapshot({
       <SnapshotMetric label="Data health" signal={dataSignal} />
       <div className="flex flex-col gap-0.5">
         <span className="text-[11px] text-white/40">Next</span>
-        <a href={`#${nextSection.id}`} className="font-semibold text-[#5AA9FF] hover:underline">
-          {nextSection.label}
-        </a>
+        {onNavigateSection ? (
+          <button
+            type="button"
+            onClick={() => onNavigateSection(nextSection.id)}
+            className="w-fit bg-transparent p-0 text-left font-semibold text-[#5AA9FF] hover:underline"
+          >
+            {nextSection.label}
+          </button>
+        ) : (
+          <a href={`#${nextSection.id}`} className="font-semibold text-[#5AA9FF] hover:underline">
+            {nextSection.label}
+          </a>
+        )}
       </div>
     </div>
   );

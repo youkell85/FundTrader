@@ -9,5 +9,5 @@ export type FundDetailTabKey =
 
 export type FundDetailTabProps = {
   detail: FundDetailViewModel;
-  onSelectTab: (tab: FundDetailTabKey) => void;
+  onSelectTab: (tab: FundDetailTabKey, sectionId?: string) => void;
 };

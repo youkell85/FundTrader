@@ -1,4 +1,4 @@
-import { Suspense, lazy } from "react";
+import { Suspense, lazy, useCallback } from "react";
 import { Link, useSearchParams } from "react-router";
 import { AlertCircle, ArrowLeft, RefreshCw } from "lucide-react";
 import { num } from "@/lib/fund-data";
@@ -36,13 +36,36 @@ export default function FundDetail() {
   const selectedTab = TABS.some((tab) => tab.key === requestedTab) ? requestedTab! : "overview";
   const SelectedTab = TAB_COMPONENTS[selectedTab];
 
-  const selectTab = (tab: FundDetailTabKey) => {
+  const scrollToSection = useCallback((sectionId: string, attempt = 0) => {
+    window.setTimeout(() => {
+      const target = document.getElementById(sectionId);
+      if (target) {
+        target.scrollIntoView({ behavior: "smooth", block: "start" });
+        return;
+      }
+      if (attempt < 8) scrollToSection(sectionId, attempt + 1);
+    }, attempt === 0 ? 80 : 120);
+  }, []);
+
+  const tabForSection = useCallback((sectionId: string): FundDetailTabKey => {
+    if (sectionId === "gaps" || sectionId === "risk" || sectionId === "report-export") return "diagnosis";
+    if (sectionId === "perf") return "performance";
+    if (sectionId === "peer") return "performance";
+    return selectedTab;
+  }, [selectedTab]);
+
+  const selectTab = useCallback((tab: FundDetailTabKey, sectionId?: string) => {
     setSearchParams((current) => {
       const next = new URLSearchParams(current);
       next.set("tab", tab);
       return next;
     }, { replace: true });
-  };
+    if (sectionId) scrollToSection(sectionId);
+  }, [scrollToSection, setSearchParams]);
+
+  const navigateToSection = useCallback((sectionId: string) => {
+    selectTab(tabForSection(sectionId), sectionId);
+  }, [selectTab, tabForSection]);
 
   if (detail.loading) {
     return <div className="min-h-screen pt-20 text-center text-muted-foreground">加载基金详情中...</div>;
@@ -117,6 +140,7 @@ export default function FundDetail() {
           risk={detail.risk}
           coverage={detail.coverage}
           peerReturn1y={num((detail.peerPerformanceQ.data as any)?.peer?.return1y)}
+          onNavigateSection={navigateToSection}
         />
         <CoverageSummary summary={detail.coverage} />
         <KpiStrip fund={detail.fund} risk={detail.risk} />

@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { Link } from 'react-router'
+import { Link, useNavigate } from 'react-router'
 import { ChevronRight, Search, UserCircle } from 'lucide-react'
 import type { MarketDataStatus } from '@/types/allocation'
 
@@ -310,6 +310,7 @@ export function CockpitDashboard({
   marketLoading?: boolean
   marketError?: string | null
 }) {
+  const navigate = useNavigate()
   const [query, setQuery] = useState('')
   const [fundFilter, setFundFilter] = useState('all')
   const weighted = buildEqualWeights(funds)
@@ -362,6 +363,12 @@ export function CockpitDashboard({
     })
   }, [fundFilter, query, weighted])
   const visibleCards = filteredWeighted.slice(0, 4)
+  const trimmedQuery = query.trim()
+  const queryLooksLikeFundCode = /^\d{6}$/.test(trimmedQuery)
+  const showNoMatches = trimmedQuery.length > 0 && filteredWeighted.length === 0
+  const openQueryFund = () => {
+    if (queryLooksLikeFundCode) navigate(`/${trimmedQuery}`)
+  }
 
   return (
     <section className="space-y-4 text-slate-700">
@@ -380,6 +387,12 @@ export function CockpitDashboard({
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && queryLooksLikeFundCode) {
+                  event.preventDefault()
+                  openQueryFund()
+                }
+              }}
               placeholder="搜索基金 / 代码 / 经理 / 公司"
               className="min-w-0 flex-1 bg-transparent text-xs text-slate-700 outline-none placeholder:text-slate-400"
             />
@@ -388,6 +401,30 @@ export function CockpitDashboard({
           <span>{userName || '访客'}</span>
         </div>
       </header>
+
+      {showNoMatches && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <span>没有匹配“{trimmedQuery}”的桌面候选基金。</span>
+          <div className="flex items-center gap-2">
+            {queryLooksLikeFundCode && (
+              <button
+                type="button"
+                onClick={openQueryFund}
+                className="rounded-md border border-amber-300 bg-white px-3 py-1.5 text-xs font-medium text-amber-900 hover:bg-amber-100"
+              >
+                打开 {trimmedQuery}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setQuery('')}
+              className="rounded-md border border-amber-300 px-3 py-1.5 text-xs font-medium hover:bg-amber-100"
+            >
+              清除搜索
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Loading / error banner */}
       {(loading || error) && (
@@ -580,7 +617,7 @@ export function CockpitDashboard({
           })}
           {visibleCards.length === 0 && (
             <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-400 sm:col-span-2 lg:col-span-4">
-              没有匹配的基金，请调整搜索条件。
+              {showNoMatches ? '没有匹配的基金，请清除搜索或直接打开代码详情。' : '没有匹配的基金，请调整搜索条件。'}
             </div>
           )}
         </div>

@@ -62,7 +62,7 @@ export default function OverviewTab({ detail, onSelectTab }: FundDetailTabProps)
 
         <Panel title="下一步动作">
           <div className="flex flex-wrap gap-2">
-            <ActionButton onClick={() => onSelectTab(actionTab)}>
+            <ActionButton onClick={() => onSelectTab(actionTab, actionTab === "diagnosis" ? "gaps" : undefined)}>
               {actionTab === "diagnosis" ? "查看数据缺口" : actionTab === "performance" ? "查看业绩" : "查看市场环境"}
             </ActionButton>
             <ActionButton onClick={() => onSelectTab("performance")}>业绩与回撤</ActionButton>
