@@ -381,6 +381,7 @@ export function CockpitDashboard({
   const [fundFilter, setFundFilter] = useState('all')
   const [trendByCode, setTrendByCode] = useState<Record<string, number[] | null>>({})
   const pendingTrendCodes = useRef(new Set<string>())
+  const loadedTrendCodes = useRef(new Set<string>())
   const weighted = buildWeightedFunds(funds)
   const hasRealWeights = weighted.some((item) => item.weightSource === 'real')
   const assetMix = distributionByType(weighted)
@@ -438,12 +439,13 @@ export function CockpitDashboard({
     () => visibleCards.map(({ fund }) => String(fund.fundCode || '')).filter((code) => /^\d{6}$/.test(code)),
     [visibleCards],
   )
+  const visibleCodeKey = visibleCodes.join('|')
 
   useEffect(() => {
-    const missingCodes = visibleCodes.filter((code) => !(code in trendByCode) && !pendingTrendCodes.current.has(code))
+    const codes = visibleCodeKey.split('|').filter(Boolean)
+    const missingCodes = codes.filter((code) => !loadedTrendCodes.current.has(code) && !pendingTrendCodes.current.has(code))
     if (missingCodes.length === 0) return
 
-    let active = true
     missingCodes.forEach((code) => {
       pendingTrendCodes.current.add(code)
       getFundAnalysis(code)
@@ -451,15 +453,11 @@ export function CockpitDashboard({
         .catch(() => null)
         .then((trend) => {
           pendingTrendCodes.current.delete(code)
-          if (!active) return
+          loadedTrendCodes.current.add(code)
           setTrendByCode((current) => ({ ...current, [code]: trend }))
         })
     })
-
-    return () => {
-      active = false
-    }
-  }, [trendByCode, visibleCodes])
+  }, [visibleCodeKey])
 
   const trimmedQuery = query.trim()
   const queryLooksLikeFundCode = /^\d{6}$/.test(trimmedQuery)
