@@ -187,8 +187,27 @@ class FundDetailContractTest(unittest.TestCase):
         self.assertEqual(payload["rows"][0]["bondName"], "26\u56fd\u503a01")
         self.assertEqual(payload["rows"][0]["bondCode"], "019801")
         self.assertEqual(payload["rows"][0]["bondType"], "\u56fd\u5bb6\u503a\u5238")
+        self.assertEqual(payload["rows"][0]["issuer"], "\u4e2d\u534e\u4eba\u6c11\u5171\u548c\u56fd\u8d22\u653f\u90e8")
         self.assertEqual(payload["rows"][0]["navRatio"], 12.34)
         self.assertEqual(payload["asOf"], "2026-03-31")
+
+    def test_bond_holdings_derives_market_value_from_real_scale(self):
+        fallback = {
+            "bond_holdings": [
+                {"name": "26\u519c\u53d101", "code": "260401", "ratio": 2.5, "quarter": "2026-03-31"}
+            ]
+        }
+        scale_row = [{"total_scale": 100.0, "report_date": "2026-03-31", "source": "tushare"}]
+        with patch.object(fund_service, "_safe_table_query", side_effect=[[], scale_row]), \
+            patch("app.data.akshare_fetcher.get_fund_bond_portfolio", return_value=fallback):
+            payload = fund_service.get_fund_bond_holdings("000001")
+
+        row = payload["rows"][0]
+        self.assertEqual(row["issuer"], "\u4e2d\u56fd\u519c\u4e1a\u53d1\u5c55\u94f6\u884c")
+        self.assertEqual(row["bondType"], "\u653f\u7b56\u6027\u91d1\u878d\u503a")
+        self.assertEqual(row["marketValue"], 2.5)
+        self.assertEqual(row["marketValueUnit"], "\u4ebf\u5143")
+        self.assertTrue(row["marketValueEstimated"])
 
     def test_bond_holdings_fallback_timeout_returns_missing(self):
         def slow_fetch(code):

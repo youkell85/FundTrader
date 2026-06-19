@@ -7,6 +7,7 @@ from typing import Any
 from ..data.fund_events import collect_fund_events
 from ..data.market_context_fetcher import get_fund_market_context
 from ..services.fund_service import (
+    get_fund_bond_holdings,
     get_fund_manager_report,
     get_fund_risk_summary,
 )
@@ -158,6 +159,49 @@ def _summarize_fund_events(fund_events: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _summarize_bond_holdings(payload: dict[str, Any]) -> dict[str, Any]:
+    rows = payload.get("rows") if isinstance(payload, dict) else []
+    rows = rows if isinstance(rows, list) else []
+    return {
+        "status": payload.get("dataStatus") or payload.get("status") or ("available" if rows else "missing"),
+        "count": len(rows),
+        "coverage": payload.get("coverage"),
+        "source": payload.get("source"),
+        "asOf": payload.get("asOf"),
+        "missingReason": payload.get("missingReason"),
+        "top": [
+            {
+                "name": row.get("bondName"),
+                "code": row.get("bondCode"),
+                "navRatio": row.get("navRatio"),
+                "bondType": row.get("bondType"),
+                "issuer": row.get("issuer"),
+                "marketValue": row.get("marketValue"),
+                "marketValueUnit": row.get("marketValueUnit"),
+            }
+            for row in rows[:5]
+            if isinstance(row, dict)
+        ],
+    }
+
+
+def _report_conclusion(pack: dict[str, Any]) -> str:
+    status = pack.get("data_quality", {}).get("status")
+    diagnosis = pack.get("diagnosis", {})
+    strength = diagnosis.get("conclusion_strength")
+    missing_count = diagnosis.get("missing_evidence_count")
+    market_status = pack.get("market_context", {}).get("dataStatus") or pack.get("market_context", {}).get("status")
+    backtest_status = pack.get("backtest", {}).get("status")
+    bond_status = pack.get("bond_summary", {}).get("status")
+    if status == "available" and strength == "normal":
+        return "核心数据、市场上下文和风险证据基本可用，报告结论可作为常规研究参考。"
+    return (
+        f"当前结论强度为 {strength or 'limited'}，数据质量为 {status}；"
+        f"市场上下文 {market_status or 'unknown'}，DCA 回测 {backtest_status or 'unknown'}，"
+        f"债券持仓 {bond_status or 'unknown'}。仍有 {missing_count or 0} 项关键/半关键证据需要关注。"
+    )
+
+
 def build_fund_evidence_pack(code: str) -> dict[str, Any]:
     snapshot = FundDataStore.get_snapshot(code) or {"code": code, "data_quality": "missing"}
     market_context = get_fund_market_context(code)
@@ -176,6 +220,8 @@ def build_fund_evidence_pack(code: str) -> dict[str, Any]:
     fund_events = collect_fund_events(code)
     backtest = _build_dca_backtest_summary(code)
     event_summary = _summarize_fund_events(fund_events)
+    bond_holdings = get_fund_bond_holdings(code)
+    bond_summary = _summarize_bond_holdings(bond_holdings)
 
     field_sources = {
         "name": _field("name", snapshot.get("name"), snapshot.get("source") or "fund_master", snapshot.get("updated_at"), "available" if snapshot.get("name") else "missing", "缺少基金名称"),
@@ -185,6 +231,7 @@ def build_fund_evidence_pack(code: str) -> dict[str, Any]:
         "nav_date": _field("nav_date", snapshot.get("nav_date"), "fund_quote_snapshot", snapshot.get("nav_date"), "available" if snapshot.get("nav_date") else "missing", "缺少净值日期"),
         "fund_scale": _field("fund_scale", snapshot.get("total_scale"), "tushare.fund_share*fund_nav/fund_metrics_snapshot", snapshot.get("metrics_updated_at") or snapshot.get("updated_at"), "available" if snapshot.get("total_scale") else "missing", "缺少规模快照"),
         "top_holdings": _field("top_holdings", len(snapshot.get("holdings") or []), "tushare.fund_portfolio/fund_portfolio_snapshot", snapshot.get("updated_at"), "available" if snapshot.get("holdings") else "missing", "缺少真实持仓"),
+        "bond_holdings": _field("bond_holdings", bond_summary["count"], bond_summary["source"], bond_summary["asOf"], bond_summary["status"], bond_summary["missingReason"] or "缺少真实重仓债券明细"),
         "rating": _field("rating", snapshot.get("score"), "tushare.fund_rating/fund_metrics_snapshot", snapshot.get("metrics_updated_at"), "partial" if snapshot.get("score") is not None else "missing", "缺少真实星级评级"),
         "risk": _field("risk", snapshot.get("max_drawdown"), "local_nav_metrics/ifind", snapshot.get("metrics_updated_at"), "available" if snapshot.get("max_drawdown") is not None else "missing", "缺少风险指标"),
     }
@@ -215,6 +262,8 @@ def build_fund_evidence_pack(code: str) -> dict[str, Any]:
             "fields": risk_summary,
         },
         "backtest": backtest,
+        "bond_holdings": bond_holdings,
+        "bond_summary": bond_summary,
         "manager_report": {
             "status": _section_status(manager_report),
             "text": manager_report.get("report"),
@@ -254,13 +303,25 @@ def render_fund_research_report(code: str) -> dict[str, Any]:
     event_summary = pack.get("event_summary") or {}
     warnings = pack.get("warnings") or ["无"]
     backtest_metrics = backtest.get("metrics") or {}
+    bond_summary = pack.get("bond_summary") or {}
+    bond_rows = [
+        [
+            item.get("name"),
+            item.get("code"),
+            item.get("navRatio"),
+            item.get("bondType"),
+            item.get("issuer") or "",
+            f"{item.get('marketValue')}{item.get('marketValueUnit') or ''}" if item.get("marketValue") is not None else "",
+        ]
+        for item in bond_summary.get("top") or []
+    ]
     event_rows = [
         [item.get("published_at"), item.get("event_type"), item.get("title"), item.get("source")]
         for item in event_summary.get("latest") or []
     ]
     markdown = "\n".join([
         f"# {subject['name']}（{subject['id']}）基金诊断报告",
-        section("核心结论", f"当前数据覆盖率为 {pack['data_quality']['coverage']:.0%}，状态为 {pack['data_quality']['status']}。本报告只基于 evidence pack 中已取得的数据生成。"),
+        section("核心结论", f"{_report_conclusion(pack)}\n\n当前数据覆盖率为 {pack['data_quality']['coverage']:.0%}，状态为 {pack['data_quality']['status']}。本报告只基于 evidence pack 中已取得的数据生成。"),
         section("数据源覆盖", table(["字段", "状态", "来源", "日期", "缺失说明"], source_rows)),
         section("市场上下文", table(
             ["section", "状态", "来源", "日期", "说明"],
@@ -279,10 +340,14 @@ def render_fund_research_report(code: str) -> dict[str, Any]:
                 ["缺失说明", backtest.get("missingReason") or ""],
             ],
         )),
+        section("债券持仓证据", table(
+            ["简称", "代码", "占净值比", "类型", "发行主体", "估算市值"],
+            bond_rows,
+        ) if bond_rows else (bond_summary.get("missingReason") or "暂无真实重仓债券明细。")),
         section("基金事件", table(["日期", "类型", "标题", "来源"], event_rows) if event_rows else (event_summary.get("missingReason") or "暂无基金公告/新闻事件。")),
         section("风险和不确定性", str(risk_fields.get("summary") or "缺少足量风险指标，暂不输出强结论。")),
         section("缺失字段说明", "\n".join(f"- {item}" for item in warnings)),
         section("使用参数", table(["参数", "值"], [["code", code], ["generated_at", pack["generated_at"]], ["report_format", "markdown"]])),
-        section("后续观察项", "- 补齐 Tushare 份额/持仓/分红/评级快照\n- 对 ETF 样本补充 TickFlow K 线状态\n- 将 partial 数据源的失败原因纳入 provider health"),
+        section("后续观察项", "- 继续补齐债券发行主体、票息、信用评级等真实细项\n- 定期刷新北向资金与行业资金流缓存\n- 将 provider health 与字段覆盖率纳入生产 smoke"),
     ])
     return {"code": code, "markdown": markdown, "evidencePack": pack, "dataStatus": pack["data_quality"]["status"]}

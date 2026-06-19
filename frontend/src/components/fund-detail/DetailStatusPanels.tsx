@@ -267,13 +267,21 @@ export function SourceCoveragePanel({ summary }: { summary: SourceCoverageSummar
       : summary.missingFields > 0
         ? "partial"
         : "available";
+  const nextOpsAction =
+    summary.missingFields > 0
+      ? "Backfill missing fields first"
+      : summary.partialFields > 0
+        ? "Review partial field sources"
+        : summary.availableProviders < summary.totalProviders
+          ? "Check provider health"
+          : "Monitor daily smoke";
 
   return (
     <Panel
-      title="Source coverage"
+      title="Operations coverage"
       extra={<span className={`rounded border px-2 py-0.5 text-xs ${statusTone(healthStatus)}`}>{statusLabel(healthStatus)}</span>}
     >
-      <div className="grid grid-cols-2 gap-2 text-sm">
+      <div className="grid grid-cols-1 gap-2 text-sm">
         <div className="rounded-md border border-white/[0.06] bg-white/[0.02] px-3 py-2">
           <div className="text-[11px] text-white/40">Fields</div>
           <div className="mt-1 data-number text-lg font-semibold text-white/85">
@@ -290,6 +298,13 @@ export function SourceCoveragePanel({ summary }: { summary: SourceCoverageSummar
           </div>
           <div className="mt-0.5 truncate text-xs text-white/45" title={summary.updatedAt || undefined}>
             {summary.providerStatus || "unknown"}
+          </div>
+        </div>
+        <div className="rounded-md border border-white/[0.06] bg-white/[0.02] px-3 py-2">
+          <div className="text-[11px] text-white/40">Next</div>
+          <div className="mt-1 text-sm font-semibold text-white/80">{nextOpsAction}</div>
+          <div className="mt-0.5 text-xs text-white/45">
+            {summary.partialFields} partial / {summary.missingFields} missing
           </div>
         </div>
       </div>
@@ -310,7 +325,7 @@ export function SourceCoveragePanel({ summary }: { summary: SourceCoverageSummar
       {summary.providers.length > 0 ? (
         <div className="mt-3 space-y-1.5">
           <div className="text-[11px] text-white/40">Provider health</div>
-          {summary.providers.slice(0, 4).map((provider) => (
+          {summary.providers.map((provider) => (
             <div key={provider.name || providerNote(provider)} className={`rounded border px-2.5 py-1.5 text-xs ${providerTone(provider)}`}>
               <div className="flex items-center justify-between gap-2">
                 <span className="font-medium">{provider.name || "unknown"}</span>
@@ -327,7 +342,7 @@ export function SourceCoveragePanel({ summary }: { summary: SourceCoverageSummar
       {summary.problemFields.length > 0 ? (
         <div className="mt-3 space-y-1.5">
           <div className="text-[11px] text-white/40">Field gaps</div>
-          {summary.problemFields.slice(0, 4).map((field) => (
+          {summary.problemFields.map((field) => (
             <div key={field.field} className={`rounded border px-2.5 py-1.5 text-xs ${statusTone(field.status)}`}>
               <div className="flex items-center justify-between gap-2">
                 <span className="truncate font-medium">{field.field}</span>

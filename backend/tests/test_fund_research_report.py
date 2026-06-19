@@ -56,6 +56,27 @@ def _fake_fund_events():
     }
 
 
+def _fake_bond_holdings():
+    return {
+        "dataStatus": "partial",
+        "source": "AkShare 东方财富F10 债券持仓",
+        "asOf": "2026-03-31",
+        "coverage": 0.75,
+        "missingReason": "票息和评级仍缺少真实来源",
+        "rows": [
+            {
+                "bondName": "26国债01",
+                "bondCode": "019827",
+                "navRatio": 2.4,
+                "bondType": "国家债券",
+                "issuer": "中华人民共和国财政部",
+                "marketValue": 1.2,
+                "marketValueUnit": "亿元",
+            }
+        ],
+    }
+
+
 def test_market_context_non_etf_has_structured_missing_reason():
     with patch("app.data.market_context_fetcher._snapshot_basic", return_value={"name": "主动权益基金", "fund_type": "混合型"}), \
          patch("app.data.market_context_fetcher._top_industries", return_value=([], None, None)):
@@ -98,6 +119,7 @@ def test_fund_research_report_markdown_is_deterministic_and_source_backed():
          patch("app.reports.fund_research_report.get_fund_market_context", return_value={"status": "partial", "sections": {}, "warnings": []}), \
          patch("app.reports.fund_research_report.get_fund_risk_summary", return_value={"dataStatus": "available", "summary": "风险摘要", "source": "rule-engine"}), \
          patch("app.reports.fund_research_report.get_fund_manager_report", return_value={"dataStatus": "missing", "report": None}), \
+         patch("app.reports.fund_research_report.get_fund_bond_holdings", return_value=_fake_bond_holdings()), \
          patch("app.reports.fund_research_report.run_dca_backtest", return_value=_fake_dca_backtest()), \
          patch("app.reports.fund_research_report.collect_fund_events", return_value=_fake_fund_events()):
         first = render_fund_research_report("000001")
@@ -107,12 +129,15 @@ def test_fund_research_report_markdown_is_deterministic_and_source_backed():
     assert "# 测试基金（000001）基金诊断报告" in first["markdown"]
     assert "数据源覆盖" in first["markdown"]
     assert "回测证据" in first["markdown"]
+    assert "债券持仓证据" in first["markdown"]
+    assert "26国债01" in first["markdown"]
     assert "基金事件" in first["markdown"]
     assert "基金经理发布季度观点" in first["markdown"]
     assert "fund_quote_snapshot" in first["markdown"]
     assert first["evidencePack"]["backtest"]["available"] is True
     assert first["evidencePack"]["backtest"]["metrics"]["benchmark_excess"] == 1.1
     assert first["evidencePack"]["event_summary"]["count"] == 1
+    assert first["evidencePack"]["bond_summary"]["count"] == 1
     assert first["evidencePack"]["data_quality"]["coverage"] > 0
 
 
@@ -125,6 +150,7 @@ def test_fund_evidence_pack_downgrades_when_critical_evidence_missing():
          patch("app.reports.fund_research_report.get_fund_market_context", return_value={"status": "missing", "sections": {}, "warnings": []}), \
          patch("app.reports.fund_research_report.get_fund_risk_summary", return_value={"dataStatus": "missing", "summary": None}), \
          patch("app.reports.fund_research_report.get_fund_manager_report", return_value={"dataStatus": "missing", "report": None}), \
+         patch("app.reports.fund_research_report.get_fund_bond_holdings", return_value={"dataStatus": "missing", "rows": [], "missingReason": "no bonds"}), \
          patch("app.reports.fund_research_report.run_dca_backtest", return_value={"individual": [{"error": "无法获取基金 000001 的净值数据"}]}), \
          patch("app.reports.fund_research_report.collect_fund_events", return_value={"events": [], "data_quality": {"status": "missing", "missing_reason": "no events returned"}}):
         pack = build_fund_evidence_pack("000001")
@@ -187,3 +213,48 @@ def test_northflow_falls_back_to_placeholder_when_cache_missing():
     assert payload["fundCode"] == "000001"
     assert "sections" in payload
     assert "warnings" in payload
+
+
+def test_sectorflow_uses_cached_industry_flow_when_available():
+    def history(indicator, limit=1):
+        if indicator == "行业资金流:银行":
+            return [("2026-06-19", 123456.0, "macro_history:sector_flow")]
+        if indicator == "行业资金流:电子":
+            return [("2026-06-19", -123.0, "macro_history:sector_flow")]
+        return []
+
+    with patch("app.data.market_context_fetcher._snapshot_basic", return_value={"name": "测试基金", "fund_type": "混合型"}), \
+         patch("app.data.market_context_fetcher._top_industries", return_value=([
+             {"industry": "银行", "weight": 20.0},
+             {"industry": "电子", "weight": 10.0},
+         ], "fund_portfolio_snapshot", "2026-06-18")), \
+         patch("app.allocation.data.market_data_service.MarketDataService.get_macro_snapshot", return_value=None), \
+         patch("app.storage.database.MacroCache.get_history", side_effect=history), \
+         patch("app.storage.database.MacroCache.get", return_value=None):
+        payload = get_fund_market_context("000001")
+
+    sector = payload["sections"]["sectorFlow"]
+    assert sector["dataStatus"] == "available"
+    assert len(sector["data"]["matchedFlows"]) == 2
+    assert sector["data"]["matchedFlows"][0]["trend"] == "inflow"
+
+
+def test_sectorflow_uses_market_flow_fallback_when_industry_cache_missing():
+    def history(indicator, limit=1):
+        if indicator == "市场主力净流入":
+            return [("2026-06-19", -5000.0, "akshare:stock_market_fund_flow")]
+        return []
+
+    with patch("app.data.market_context_fetcher._snapshot_basic", return_value={"name": "测试基金", "fund_type": "混合型"}), \
+         patch("app.data.market_context_fetcher._top_industries", return_value=([
+             {"industry": "银行", "weight": 20.0},
+         ], "fund_portfolio_snapshot", "2026-06-18")), \
+         patch("app.allocation.data.market_data_service.MarketDataService.get_macro_snapshot", return_value=None), \
+         patch("app.storage.database.MacroCache.get_history", side_effect=history), \
+         patch("app.storage.database.MacroCache.get", return_value=None):
+        payload = get_fund_market_context("000001")
+
+    sector = payload["sections"]["sectorFlow"]
+    assert sector["dataStatus"] == "partial"
+    assert sector["data"]["marketFlow"]["trend"] == "outflow"
+    assert "大盘资金流" in sector["missingReason"]

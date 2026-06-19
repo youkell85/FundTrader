@@ -31,7 +31,7 @@ jobs:
         env:
           PYTHONPATH: ${{ github.workspace }}/backend
         run: |
-          python -m py_compile app/reports/fund_research_report.py app/data/market_context_fetcher.py app/data/fund_events.py app/data/providers/fusion.py app/api/fund.py
+          python -m py_compile app/reports/fund_research_report.py app/data/market_context_fetcher.py app/data/fund_events.py app/data/providers/fusion.py app/services/fund_service.py app/api/fund.py
 
       - name: Run focused backend tests
         env:
@@ -44,6 +44,7 @@ jobs:
             tests/test_fund_job_status.py \
             tests/test_backtest_metrics.py \
             tests/test_fund_events.py \
+            tests/test_fund_detail_contract.py \
             -q
 
   frontend:

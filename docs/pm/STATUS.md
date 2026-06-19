@@ -23,12 +23,17 @@ No active running PM task.
 
 ## Current PM Track
 
-DSA/GPT technical-borrowing track opened on 2026-06-18.
+DSA/GPT technical-borrowing track opened on 2026-06-18 and has advanced beyond
+the initial field-provenance handoff.
 
-- Active handoff prepared: `docs/pm/outbox/FT-DSA-P0-FIELDS-PROVIDER-HEALTH-001.md`
+- Latest closeout: `docs/pm/reports/FT-DSA-CLOSEOUT-2026-06-19.md`
 - Source plan: `D:\Workspace\docs\0615\gpt\FundTrader_2026-06-15.md`
-- First slice: field-level provenance for fund detail plus provider health/status endpoint.
-- Boundary: keep `/fund/` and `/fund/api/*`, no commit, push, deploy, secret edit, or manual database mutation without PM approval.
+- Completed local scope: bond-holding enrichment, market-context cache contract,
+  provider/field operations visibility, report evidence narrative, CI coverage,
+  and production smoke tooling.
+- Current boundary: implementation is locally validated; final acceptance still
+  requires commit, push to GitHub/Gitee, production deploy, server-side market
+  cache refresh, and production smoke.
 
 P3 status: closed.
 

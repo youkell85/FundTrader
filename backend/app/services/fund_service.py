@@ -1515,6 +1515,77 @@ def _infer_bond_type(name: str | None) -> str | None:
     return None
 
 
+def _infer_bond_issuer(name: str | None, bond_type: str | None) -> str | None:
+    text = name or ""
+    kind = bond_type or ""
+    if not text and not kind:
+        return None
+    if "国债" in text or kind == "国家债券":
+        return "中华人民共和国财政部"
+    if "国开" in text:
+        return "国家开发银行"
+    if "农发" in text:
+        return "中国农业发展银行"
+    if "进出" in text or "口行" in text:
+        return "中国进出口银行"
+    return None
+
+
+def _latest_total_scale(code: str) -> tuple[float | None, str | None, str | None]:
+    rows = _safe_table_query(
+        """SELECT total_scale, report_date, source
+           FROM fund_detail_quarterly_snapshot
+           WHERE code = ? AND total_scale IS NOT NULL
+           ORDER BY report_date DESC LIMIT 1""",
+        (code,),
+    )
+    if rows:
+        value = _safe_float(rows[0]["total_scale"])
+        if value is not None and value > 0:
+            return value, str(rows[0]["report_date"]), rows[0]["source"] or "fund_detail_quarterly_snapshot"
+
+    rows = _safe_table_query(
+        """SELECT total_scale, updated_at, source
+           FROM fund_metrics_snapshot
+           WHERE code = ? AND total_scale IS NOT NULL
+           ORDER BY updated_at DESC LIMIT 1""",
+        (code,),
+    )
+    if rows:
+        value = _safe_float(rows[0]["total_scale"])
+        if value is not None and value > 0:
+            return value, str(rows[0]["updated_at"])[:10], rows[0]["source"] or "fund_metrics_snapshot"
+    return None, None, None
+
+
+def _enrich_bond_holdings(code: str, rows: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[str]]:
+    total_scale, scale_as_of, scale_source = _latest_total_scale(code)
+    notes: list[str] = []
+    if total_scale:
+        notes.append(f"marketValue derived from total_scale {total_scale}亿元 as of {scale_as_of} ({scale_source})")
+
+    enriched: list[dict[str, Any]] = []
+    for row in rows:
+        item = dict(row)
+        if not item.get("bondType"):
+            item["bondType"] = _infer_bond_type(item.get("bondName"))
+        if not item.get("issuer"):
+            item["issuer"] = _infer_bond_issuer(item.get("bondName"), item.get("bondType"))
+            if item.get("issuer"):
+                item["issuerSource"] = "rule:bond_name"
+        if item.get("marketValue") in (None, "") and total_scale and item.get("navRatio") is not None:
+            ratio = _safe_float(item.get("navRatio"))
+            if ratio is not None:
+                # total_scale is stored in 亿元; nav ratio is percent of NAV.
+                item["marketValue"] = round(total_scale * ratio / 100.0, 4)
+                item["marketValueUnit"] = "亿元"
+                item["marketValueSource"] = scale_source or "fund_scale"
+                item["marketValueAsOf"] = scale_as_of
+                item["marketValueEstimated"] = True
+        enriched.append(item)
+    return enriched, notes
+
+
 def _normalize_bond_holding_row(item: dict[str, Any]) -> dict[str, Any] | None:
     if not isinstance(item, dict):
         return None
@@ -1609,6 +1680,7 @@ def get_fund_bond_holdings(code: str) -> dict:
             normalized = _normalize_bond_holding_row(item)
             if normalized:
                 out.append(normalized)
+        out, _notes = _enrich_bond_holdings(code, out)
         quality = _bond_holdings_quality(out)
         return _rows_response(
             code,
@@ -1617,7 +1689,7 @@ def get_fund_bond_holdings(code: str) -> dict:
             source=row["source"] or "fund_detail_quarterly_snapshot",
             as_of=row["report_date"],
             coverage=quality["coverage"],
-            missing_reason=quality["missingReason"] or "债券持仓快照为空。",
+            missing_reason=quality["missingReason"],
         )
 
     try:
@@ -1639,7 +1711,11 @@ def get_fund_bond_holdings(code: str) -> dict:
             as_of = str(item.get("quarter") or item.get("updated_at") or as_of or "")
             out.append(normalized)
         if out:
+            out, notes = _enrich_bond_holdings(code, out)
             quality = _bond_holdings_quality(out)
+            missing_reason = quality["missingReason"]
+            if notes and missing_reason:
+                missing_reason = f"{missing_reason}；{'; '.join(notes)}"
             return _rows_response(
                 code,
                 out,
@@ -1647,7 +1723,7 @@ def get_fund_bond_holdings(code: str) -> dict:
                 source="AkShare 东方财富F10 债券持仓",
                 as_of=as_of or None,
                 coverage=quality["coverage"],
-                missing_reason=quality["missingReason"],
+                missing_reason=missing_reason,
             )
     except TimeoutError:
         console_error(f"bond holdings fetch timed out for {code}")

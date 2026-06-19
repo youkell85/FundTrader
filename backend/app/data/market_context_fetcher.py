@@ -14,6 +14,9 @@ from ..storage.database import get_db_context
 logger = logging.getLogger(__name__)
 
 EXCHANGE_FUND_CODE_PREFIXES = ("15", "16", "18", "5")
+NORTHBOUND_INDICATOR = "北向资金净流入"
+MARKET_FLOW_INDICATOR = "市场主力净流入"
+SECTOR_FLOW_PREFIX = "行业资金流:"
 
 
 def _status_section(
@@ -91,6 +94,100 @@ def _top_industries(code: str) -> tuple[list[dict[str, Any]], str | None, str | 
     return rows, row["source"], row["updated_at"]
 
 
+def _to_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        value = value.replace(",", "").replace("%", "").strip()
+        if not value or value in {"-", "--"}:
+            return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _pick_value(row: Any, keys: tuple[str, ...]) -> Any:
+    for key in keys:
+        try:
+            value = row.get(key)
+        except Exception:
+            value = None
+        if value not in (None, ""):
+            return value
+    return None
+
+
+def refresh_market_context_cache(limit: int = 30) -> dict[str, Any]:
+    """Best-effort live refresh for northbound and sector flow cache.
+
+    This function is intentionally explicit and callable from scripts/tests; the
+    detail endpoint reads the cache and does not block on live providers.
+    """
+    from ..storage.database import MacroCache
+
+    now = datetime.now().date().isoformat()
+    saved: list[str] = []
+    warnings: list[str] = []
+
+    try:
+        import akshare as ak
+
+        north_df = ak.stock_hsgt_fund_flow_summary_em()
+        if north_df is not None and not north_df.empty:
+            north_rows = north_df[north_df.get("资金方向") == "北向"] if "资金方向" in north_df.columns else north_df
+            value = 0.0
+            trade_date = now
+            for _, row in north_rows.iterrows():
+                amount = _to_float(_pick_value(row, ("资金净流入", "成交净买额")))
+                if amount is not None:
+                    value += amount
+                trade_date = str(_pick_value(row, ("交易日", "date")) or trade_date)
+            MacroCache.save(NORTHBOUND_INDICATOR, value, trade_date, "akshare:stock_hsgt_fund_flow_summary_em")
+            saved.append(NORTHBOUND_INDICATOR)
+    except Exception as exc:  # pragma: no cover - live provider shape/network drift
+        warnings.append(f"northbound refresh failed: {exc}")
+
+    try:
+        import akshare as ak
+
+        market_df = ak.stock_market_fund_flow()
+        if market_df is not None and not market_df.empty:
+            row = market_df.iloc[-1]
+            value = _to_float(_pick_value(row, ("主力净流入-净额", "资金净流入", "净流入")))
+            trade_date = str(_pick_value(row, ("日期", "date")) or now)
+            if value is not None:
+                MacroCache.save(MARKET_FLOW_INDICATOR, value, trade_date, "akshare:stock_market_fund_flow")
+                saved.append(MARKET_FLOW_INDICATOR)
+    except Exception as exc:  # pragma: no cover - live provider shape/network drift
+        warnings.append(f"market flow refresh failed: {exc}")
+
+    try:
+        import akshare as ak
+
+        sector_df = ak.stock_sector_fund_flow_rank(indicator="今日", sector_type="行业资金流")
+        if sector_df is not None and not sector_df.empty:
+            rows = sector_df.head(max(1, min(limit, 100)))
+            batch = []
+            for _, row in rows.iterrows():
+                name = str(_pick_value(row, ("名称", "行业", "板块名称")) or "").strip()
+                amount = _to_float(_pick_value(row, ("今日主力净流入-净额", "主力净流入-净额", "净流入", "资金净流入")))
+                if name and amount is not None:
+                    batch.append((f"{SECTOR_FLOW_PREFIX}{name}", amount, now, "akshare:stock_sector_fund_flow_rank"))
+            if batch:
+                MacroCache.save_batch(batch)
+                saved.extend(row[0] for row in batch)
+    except Exception as exc:  # pragma: no cover - live provider shape/network drift
+        warnings.append(f"sector flow refresh failed: {exc}")
+
+    return {
+        "status": "available" if saved else "partial",
+        "saved": saved,
+        "warnings": warnings,
+        "updatedAt": datetime.now().replace(microsecond=0).isoformat(),
+    }
+
+
 def _resolve_northbound_section(now: str) -> dict[str, Any]:
     """Build northFlow section from cached macro data.
 
@@ -99,7 +196,7 @@ def _resolve_northbound_section(now: str) -> dict[str, Any]:
       2. SQLite MacroCache.get_history / get (best-effort, non-fatal)
       3. Fall back to partial placeholder
     """
-    indicator_name = "北向资金净流入"
+    indicator_name = NORTHBOUND_INDICATOR
     net_inflow: float | None = None
     source: str | None = None
     as_of: str | None = None
@@ -159,6 +256,96 @@ def _resolve_northbound_section(now: str) -> dict[str, Any]:
     )
 
 
+def _resolve_sector_flow_section(
+    industries: list[dict[str, Any]],
+    holdings_source: str | None,
+    holdings_as_of: str | None,
+    now: str,
+) -> dict[str, Any]:
+    if not industries:
+        return _status_section(
+            "missing",
+            source=holdings_source or "fund_portfolio_snapshot",
+            as_of=holdings_as_of,
+            coverage=0.0,
+            missing_reason="缺少持仓行业数据，无法匹配行业/概念资金流。",
+            data={"topIndustries": []},
+        )
+
+    matched: list[dict[str, Any]] = []
+    try:
+        from ..storage.database import MacroCache
+
+        for item in industries:
+            industry = str(item.get("industry") or "").strip()
+            if not industry:
+                continue
+            history = MacroCache.get_history(f"{SECTOR_FLOW_PREFIX}{industry}", limit=1)
+            if not history:
+                continue
+            date_str, value, source = history[0]
+            matched.append({
+                "industry": industry,
+                "weight": item.get("weight"),
+                "netInflow": value,
+                "asOf": date_str,
+                "source": source,
+                "trend": "inflow" if value > 0 else "outflow" if value < 0 else "flat",
+            })
+    except Exception:
+        logger.debug("sectorFlow: MacroCache unavailable", exc_info=True)
+
+    if matched:
+        return _status_section(
+            "available" if len(matched) >= min(3, len(industries)) else "partial",
+            source="macro_history:sector_flow",
+            as_of=matched[0].get("asOf"),
+            coverage=round(len(matched) / max(1, len(industries)), 4),
+            missing_reason=None if len(matched) == len(industries) else "仅部分持仓行业有真实资金流缓存。",
+            data={"topIndustries": industries, "matchedFlows": matched},
+        )
+
+    market_flow: tuple[str, float, str] | None = None
+    try:
+        from ..storage.database import MacroCache
+
+        history = MacroCache.get_history(MARKET_FLOW_INDICATOR, limit=1)
+        if history:
+            date_str, value, source = history[0]
+            market_flow = (date_str, value, source)
+    except Exception:
+        logger.debug("sectorFlow: market flow cache unavailable", exc_info=True)
+
+    if market_flow:
+        date_str, value, source = market_flow
+        return _status_section(
+            "partial",
+            source=source,
+            as_of=date_str,
+            coverage=0.5,
+            missing_reason="已有真实大盘资金流缓存，但尚未匹配到持仓行业级资金流。",
+            data={
+                "topIndustries": industries,
+                "matchedFlows": [],
+                "marketFlow": {
+                    "netInflow": value,
+                    "trend": "inflow" if value > 0 else "outflow" if value < 0 else "flat",
+                    "asOf": date_str,
+                    "source": source,
+                },
+            },
+        )
+
+    return _status_section(
+        "partial",
+        source=holdings_source or "fund_portfolio_snapshot",
+        as_of=holdings_as_of or now,
+        coverage=0.45,
+        missing_reason="已有真实持仓行业，但尚未刷新行业资金流缓存；可运行 market context cache refresh。",
+        data={"topIndustries": industries, "matchedFlows": []},
+    )
+
+
 def get_fund_market_context(code: str) -> dict[str, Any]:
     code = str(code or "").strip()
     basic = _snapshot_basic(code)
@@ -180,14 +367,7 @@ def get_fund_market_context(code: str) -> dict[str, Any]:
             },
         ),
         "northFlow": _resolve_northbound_section(now),
-        "sectorFlow": _status_section(
-            "partial" if industries else "missing",
-            source=holdings_source or "fund_portfolio_snapshot",
-            as_of=holdings_as_of,
-            coverage=0.45 if industries else 0.0,
-            missing_reason=None if industries else "缺少持仓行业数据，无法匹配行业/概念资金流。",
-            data={"topIndustries": industries},
-        ),
+        "sectorFlow": _resolve_sector_flow_section(industries, holdings_source, holdings_as_of, now),
         "holdingsStyle": _status_section(
             "available" if industries else "missing",
             source=holdings_source or "fund_portfolio_snapshot",
