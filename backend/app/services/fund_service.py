@@ -21,7 +21,7 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 from ..config import CACHE_TTL_RANKING
-from ..constants.guoyuan_funds import FUND_CATEGORIES, FUND_TYPES, GUOYUAN_FUND_LIST
+from ..constants.guoyuan_funds import FUND_CATEGORIES, FUND_TYPES
 from ..data.cache_manager import cache
 from ..storage.database import FundDataStore, get_db_context
 from ..utils import console_error
@@ -700,8 +700,12 @@ def get_fund_list(
 ) -> dict[str, Any]:
     """Get fund list from local snapshots only."""
     funds = _get_snapshot_funds(guoyuan_only=guoyuan_only)
-    if not funds and guoyuan_only:
-        funds = _get_guoyuan_funds_with_performance()
+    source = "fund_snapshot"
+    data_status = "real"
+    missing_reason = None
+    if not funds:
+        data_status = "missing"
+        missing_reason = "基金快照为空；未返回静态基金池，请先刷新 fund_quote_snapshot。"
 
     # 筛选+排序
     funds = _apply_filters_and_sort(funds, category, tag, keyword, sort_by, sort_order)
@@ -719,6 +723,9 @@ def get_fund_list(
         "funds": _json_safe(page_funds),
         "categories": FUND_CATEGORIES,
         "types": FUND_TYPES,
+        "source": source,
+        "data_status": data_status,
+        "missing_reason": missing_reason,
     }
 
 
@@ -797,55 +804,6 @@ def _get_snapshot_funds(guoyuan_only: bool = True) -> list[dict[str, Any]]:
     except Exception:
         pass
     return []
-
-
-def _get_guoyuan_funds_with_performance() -> list[dict[str, Any]]:
-    """获取国元证券基金名单及业绩数据（SQLite优先，API回退）"""
-    snapshot = _get_snapshot_funds(guoyuan_only=True)
-    if snapshot:
-        return snapshot
-
-    # 2. Fallback to in-memory cache
-    cache_key = "guoyuan_funds_performance"
-    result = cache.get(cache_key, CACHE_TTL_RANKING)
-    if result is not None:
-        return result
-
-    # 3. Fast fallback. The home page must not wait for AkShare; snapshots are
-    # refreshed by the scheduler and this static pool is enough to render list.
-    result = _get_static_guoyuan_funds()
-    cache.set(cache_key, result)
-    return result
-
-
-def _get_static_guoyuan_funds() -> list[dict[str, Any]]:
-    """Return the local fund pool with JSON-safe default metrics."""
-    # 批量从 fund_master 表读取基金公司信息作为补充
-    master_companies = {}
-    try:
-        from app.storage.database import get_db
-        with get_db() as conn:
-            rows = conn.execute("SELECT code, company FROM fund_master WHERE company != ''").fetchall()
-            master_companies = {r["code"]: r["company"] for r in rows}
-    except Exception:
-        pass
-
-    result = []
-    for fund in GUOYUAN_FUND_LIST:
-        fund_data = dict(fund)
-        code = str(fund_data.get("code", ""))
-        fund_data.setdefault("nav", 0.0)
-        fund_data.setdefault("day_growth", 0.0)
-        fund_data.setdefault("near_1m", 0.0)
-        fund_data.setdefault("near_3m", 0.0)
-        fund_data.setdefault("near_6m", 0.0)
-        fund_data.setdefault("near_1y", 0.0)
-        fund_data.setdefault("near_3y", 0.0)
-        fund_data.setdefault("ytd", 0.0)
-        fund_data.setdefault("company", master_companies.get(code, ""))
-        fund_data["is_xinjihui"] = True
-        result.append(fund_data)
-    return _json_safe(result)
 
 
 def _fetch_all_fund_performance_with_timeout() -> dict[str, dict[str, Any]]:
