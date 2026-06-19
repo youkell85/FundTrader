@@ -21,7 +21,7 @@ from ..allocation.models import (
     FundRankingRequest, FundRankingResponse, FundRankingItem,
     RebalanceCheckRequest, RebalanceCheckResponse,
     RebalanceDeviationItem, RebalanceTriggerItem, TradeActionItem,
-    RebalanceHistoryResponse,
+    RebalanceHistoryItem, RebalanceHistoryResponse,
     VariantsResponse, ExplainReportModel, ExplainSectionModel,
     WhatIfRequest, WhatIfResponse,
     ShareSelectorRequest, ShareSelectorResponse, ShareRecommendationItem,
@@ -39,6 +39,7 @@ from ..allocation.fee_scorer import batch_analyze_fees, get_fee_recommendation
 from ..allocation.backtest import BacktestRequest, BacktestResponse, run_backtest
 from ..allocation.fund_mapper import get_all_rankings
 from ..allocation.rebalancer import run_rebalance_check
+from ..storage.database import Database
 
 router = APIRouter(prefix="/allocation", tags=["资产配置"])
 GENERIC_ALLOCATION_ERROR = "配置生成失败，请稍后重试或联系管理员。"
@@ -434,11 +435,31 @@ async def check_rebalance(request: RebalanceCheckRequest):
 
 
 @router.get("/rebalance-history", response_model=RebalanceHistoryResponse)
-async def get_rebalance_history():
+async def get_rebalance_history(user: dict | None = Depends(get_optional_user)):
     """获取历史调仓记录"""
-    # No persisted rebalance ledger exists yet. Return an empty real result
-    # instead of synthetic history records.
-    return RebalanceHistoryResponse(history=[])
+    if not user:
+        return RebalanceHistoryResponse(history=[])
+
+    def _list():
+        return Database.list_rebalance_history(owner_user_id=user["id"])
+
+    records = await run_in_threadpool(_list)
+    return RebalanceHistoryResponse(
+        history=[
+            RebalanceHistoryItem(
+                entry_id=r["id"],
+                executed_at=r["executed_at"],
+                risk_profile=r["risk_profile"],
+                trigger_type=r["trigger_type"],
+                actions_count=len(r["actions"]),
+                total_turnover=r["total_turnover"],
+                estimated_cost=r["estimated_cost"],
+                status=r["status"],
+                summary=r["summary"],
+            )
+            for r in records
+        ]
+    )
 
 
 @router.post("/share-selector", response_model=ShareSelectorResponse)

@@ -247,8 +247,9 @@ async def batch_archive_plans(request: Request, body: dict):
 # ─── Rebalance History ───
 
 @router.post("/rebalance", response_model=dict)
-async def add_rebalance_record(request: AddRebalanceRecordRequest):
+async def add_rebalance_record(request: AddRebalanceRecordRequest, http_request: Request):
     """添加调仓记录"""
+    user = _require_user(http_request)
     record_id = str(uuid.uuid4())[:8]
 
     def _add():
@@ -263,6 +264,7 @@ async def add_rebalance_record(request: AddRebalanceRecordRequest):
             summary=request.summary,
             notes=request.notes,
             plan_id=request.plan_id,
+            owner_user_id=user["id"],
             executed_at=request.executed_at,
         )
         return {"id": record_id}
@@ -272,15 +274,19 @@ async def add_rebalance_record(request: AddRebalanceRecordRequest):
 
 @router.get("/rebalance", response_model=RebalanceHistoryResponse)
 async def list_rebalance_history(
+    request: Request,
     plan_id: str | None = None,
     status: str | None = None,
     limit: int = 50,
 ):
     """获取调仓历史"""
+    user = _require_user(request)
+
     def _list():
         records = Database.list_rebalance_history(
             plan_id=plan_id,
             status=status,
+            owner_user_id=user["id"],
             limit=limit,
         )
         return records
@@ -305,9 +311,10 @@ async def list_rebalance_history(
 
 
 @router.get("/rebalance/stats", response_model=RebalanceStatsResponse)
-async def get_rebalance_stats():
+async def get_rebalance_stats(request: Request):
     """获取调仓统计"""
-    stats = await run_in_threadpool(Database.get_rebalance_stats)
+    user = _require_user(request)
+    stats = await run_in_threadpool(Database.get_rebalance_stats, user["id"])
     return RebalanceStatsResponse(**stats)
 
 
@@ -486,7 +493,7 @@ async def check_plan_alerts(plan_id: str, request: Request, body: dict = None):
                         for k, v in contributions.items()
                     }
 
-        records = Database.list_rebalance_history(plan_id=plan_id, limit=1)
+        records = Database.list_rebalance_history(plan_id=plan_id, owner_user_id=user["id"], limit=1)
         last_rebal = records[0]["executed_at"] if records else None
 
         alerts = check_alerts(

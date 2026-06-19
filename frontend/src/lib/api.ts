@@ -510,7 +510,7 @@ export async function checkRebalance(params: import("@/types/allocation").Rebala
 }
 
 export async function getRebalanceHistory() {
-  return fetchJson<import("@/types/allocation").RebalanceHistoryResponse>("/allocation/rebalance-history");
+  return fetchJson<import("@/types/allocation").RebalanceHistoryResponse>("/storage/rebalance");
 }
 
 // ==================== 鏁版嵁瀛樺偍 ====================

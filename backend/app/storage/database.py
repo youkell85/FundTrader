@@ -187,6 +187,7 @@ class Database:
                     id TEXT PRIMARY KEY,
                     executed_at TEXT NOT NULL,
                     plan_id TEXT,
+                    owner_user_id TEXT DEFAULT NULL,
                     risk_profile TEXT NOT NULL,
                     trigger_type TEXT NOT NULL,
                     actions_json TEXT NOT NULL,
@@ -308,6 +309,10 @@ class Database:
                 conn.execute("ALTER TABLE allocation_plans ADD COLUMN owner_user_id TEXT DEFAULT NULL")
             except sqlite3.OperationalError:
                 pass  # Column already exists
+            try:
+                conn.execute("ALTER TABLE rebalance_history ADD COLUMN owner_user_id TEXT DEFAULT NULL")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
             conn.executescript("""
                 -- 索引
                 CREATE INDEX IF NOT EXISTS idx_plans_created ON allocation_plans(created_at DESC);
@@ -315,6 +320,7 @@ class Database:
                 CREATE INDEX IF NOT EXISTS idx_plans_owner_created ON allocation_plans(owner_user_id, created_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_rebalance_date ON rebalance_history(executed_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_rebalance_plan ON rebalance_history(plan_id);
+                CREATE INDEX IF NOT EXISTS idx_rebalance_owner_date ON rebalance_history(owner_user_id, executed_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_macro_indicator ON macro_history(indicator, date DESC);
                 CREATE INDEX IF NOT EXISTS idx_etf_code_date ON etf_daily_prices(code, trade_date);
                 CREATE INDEX IF NOT EXISTS idx_fund_nav_code ON fund_nav_cache(code);
@@ -522,6 +528,7 @@ class Database:
         summary: str = "",
         notes: str = "",
         plan_id: str | None = None,
+        owner_user_id: str | None = None,
         executed_at: str | None = None,
     ) -> str:
         """Add a rebalance history record."""
@@ -530,10 +537,10 @@ class Database:
         with get_db() as conn:
             conn.execute(
                 """INSERT INTO rebalance_history
-                   (id, executed_at, plan_id, risk_profile, trigger_type,
+                   (id, executed_at, plan_id, owner_user_id, risk_profile, trigger_type,
                     actions_json, total_turnover, estimated_cost, status, summary, notes)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (record_id, executed_at, plan_id, risk_profile, trigger_type,
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (record_id, executed_at, plan_id, owner_user_id, risk_profile, trigger_type,
                  json.dumps(actions, ensure_ascii=False),
                  total_turnover, estimated_cost, status, summary, notes)
             )
@@ -543,6 +550,7 @@ class Database:
     def list_rebalance_history(
         plan_id: str | None = None,
         status: str | None = None,
+        owner_user_id: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> list[dict[str, Any]]:
@@ -553,6 +561,11 @@ class Database:
         if plan_id:
             query += " AND plan_id = ?"
             params.append(plan_id)
+        if owner_user_id:
+            query += " AND owner_user_id = ?"
+            params.append(owner_user_id)
+        else:
+            query += " AND owner_user_id IS NOT NULL"
         if status:
             query += " AND status = ?"
             params.append(status)
@@ -565,20 +578,26 @@ class Database:
             return [Database._rebalance_row_to_dict(row) for row in rows]
 
     @staticmethod
-    def get_rebalance_stats() -> dict[str, Any]:
+    def get_rebalance_stats(owner_user_id: str | None = None) -> dict[str, Any]:
         """Get rebalance statistics."""
         with get_db() as conn:
+            where_clause = "WHERE owner_user_id = ?" if owner_user_id else "WHERE owner_user_id IS NOT NULL"
+            params: list[Any] = [owner_user_id] if owner_user_id else []
             total = conn.execute(
-                "SELECT COUNT(*) as cnt FROM rebalance_history"
+                f"SELECT COUNT(*) as cnt FROM rebalance_history {where_clause}",
+                params,
             ).fetchone()["cnt"]
             executed = conn.execute(
-                "SELECT COUNT(*) as cnt FROM rebalance_history WHERE status = 'executed'"
+                f"SELECT COUNT(*) as cnt FROM rebalance_history {where_clause} AND status = 'executed'",
+                params,
             ).fetchone()["cnt"]
             total_cost = conn.execute(
-                "SELECT COALESCE(SUM(estimated_cost), 0) as total FROM rebalance_history WHERE status = 'executed'"
+                f"SELECT COALESCE(SUM(estimated_cost), 0) as total FROM rebalance_history {where_clause} AND status = 'executed'",
+                params,
             ).fetchone()["total"]
             last_date = conn.execute(
-                "SELECT MAX(executed_at) as last FROM rebalance_history"
+                f"SELECT MAX(executed_at) as last FROM rebalance_history {where_clause}",
+                params,
             ).fetchone()["last"]
             return {
                 "total_records": total,
@@ -594,6 +613,7 @@ class Database:
             "id": row["id"],
             "executed_at": row["executed_at"],
             "plan_id": row["plan_id"],
+            "owner_user_id": row["owner_user_id"],
             "risk_profile": row["risk_profile"],
             "trigger_type": row["trigger_type"],
             "actions": json.loads(row["actions_json"]),
