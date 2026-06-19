@@ -163,6 +163,38 @@
     color: var(--workspace-text);
   }
 
+  .workspace-page {
+    width: 100%;
+    max-width: 1540px;
+    margin: 0 auto;
+    padding: 1rem;
+  }
+
+  @media (min-width: 640px) {
+    .workspace-page {
+      padding: 1.25rem;
+    }
+  }
+
+  @media (min-width: 1024px) {
+    .workspace-page {
+      padding: 1.5rem 2rem;
+    }
+  }
+
+  .workspace-page-narrow {
+    width: 100%;
+    max-width: 1080px;
+    margin: 0 auto;
+    padding: 1rem;
+  }
+
+  @media (min-width: 768px) {
+    .workspace-page-narrow {
+      padding: 1.5rem;
+    }
+  }
+
   .workspace-panel {
     background:
       linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0.026)),
@@ -232,6 +264,24 @@
     background: rgba(69, 176, 132, 0.14);
     color: #8FD9BA;
     border-radius: 8px;
+  }
+
+  .workspace-nav-item {
+    color: rgba(255, 255, 255, 0.58);
+    border: 1px solid transparent;
+    border-radius: 8px;
+    transition: background 150ms ease, border-color 150ms ease, color 150ms ease;
+  }
+
+  .workspace-nav-item:hover {
+    color: rgba(255, 255, 255, 0.86);
+    background: rgba(255, 255, 255, 0.035);
+  }
+
+  .workspace-nav-item-active {
+    color: #8FD9BA;
+    background: rgba(69, 176, 132, 0.12);
+    border-color: rgba(69, 176, 132, 0.18);
   }
 
   .workspace-action-danger {

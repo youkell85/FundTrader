@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { CockpitDashboard, type DashboardMode, type FundLike, type MarketOverviewPayload } from '@/components/dashboard/CockpitDashboard'
+import WorkspaceShell from '@/components/layout/WorkspaceShell'
 import { getMarketDataStatus, getMarketOverview } from '@/lib/api'
 import { trpc } from '@/providers/trpc'
 import type { MarketDataStatus } from '@/types/allocation'
@@ -118,8 +119,8 @@ export default function Home() {
   }, [listData, user])
 
   return (
-    <div className="min-h-screen px-3 pb-28 pt-16 sm:px-5 md:pb-8 lg:px-8">
-      <div className="mx-auto max-w-[1540px]">
+    <WorkspaceShell>
+      <div className="workspace-page">
         <CockpitDashboard
           funds={funds}
           mode={mode}
@@ -132,6 +133,6 @@ export default function Home() {
           marketError={marketError}
         />
       </div>
-    </div>
+    </WorkspaceShell>
   )
 }
