@@ -147,7 +147,7 @@ class FundDetailContractTest(unittest.TestCase):
         self.assertNotEqual(payload["dataStatus"], "simulated")
         self.assertIn("不再使用", payload["missingReason"])
 
-    def test_rating_endpoint_uses_metrics_score_fallback_when_star_rating_missing(self):
+    def test_rating_endpoint_returns_metrics_score_without_star_rating(self):
         context = MagicMock()
         conn = MagicMock()
         context.__enter__.return_value = conn
@@ -166,7 +166,7 @@ class FundDetailContractTest(unittest.TestCase):
         self.assertIsNone(payload["rating3y"])
         self.assertIsNone(payload["rating5y"])
         self.assertEqual(payload["asOf"], "2026-06-09T14:29:41.211873")
-        self.assertIn("metrics score", payload["missingReason"])
+        self.assertIn("真实评级星级", payload["missingReason"])
 
     def test_empty_bond_holdings_snapshot_allows_akshare_fallback(self):
         fallback = {

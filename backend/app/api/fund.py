@@ -187,7 +187,7 @@ def _rating_score_fallback(code: str) -> dict | None:
         "dataStatus": "partial",
         "asOf": row["as_of"],
         "coverage": 0.5,
-        "missingReason": "missing Tushare star rating; using local metrics score fallback",
+        "missingReason": "缺少真实评级星级，仅返回本地指标分数。",
     }
 
 
@@ -658,7 +658,7 @@ async def fund_detail_completeness(code: str = Query(..., min_length=4, max_leng
             rating_count > 0,
             stale=rating_count > 0 and metrics_stale,
             partial=rating_count == 0 and nav_count > 0,
-            reason="缺 tushare fund_rating，详情页会用 score 兜底",
+            reason="缺少真实评级星级；本地指标分数不替代 3 年 / 5 年评级",
             source="fund_metrics_snapshot",
             as_of=metrics_updated,
         ),
@@ -1133,10 +1133,10 @@ async def fund_rating(code: str = Query(..., min_length=4, max_length=10, descri
             if not has_rating and has_score:
                 return {
                     **data,
-                    "dataStatus": "available",
+                    "dataStatus": "partial",
                     "asOf": data.get("asOf"),
-                    "coverage": 0.7,
-                    "missingReason": "using local metrics score fallback",
+                    "coverage": 0.5,
+                    "missingReason": "缺少真实评级星级，仅返回本地指标分数。",
                 }
             return {
                 **data,

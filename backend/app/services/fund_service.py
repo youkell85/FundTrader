@@ -1020,9 +1020,9 @@ def compute_and_save_metrics(
 def get_fund_rating(code: str) -> dict | None:
     """基金评级（3 年 / 5 年 1~5 颗星）。
 
-    数据源优先级：
+    数据源：
       1. tushare fund_rating（如有权限）
-      2. 用同行业（fund.fund_type 匹配 fund_category_metrics_snapshot）1y 平均收益 + 夏普推算
+      不用同类收益或夏普推算星级；缺少真实评级时由 API 层返回 missing/partial。
     """
     try:
         # 1) tushare 优先
@@ -1050,58 +1050,7 @@ def get_fund_rating(code: str) -> dict | None:
             except Exception:
                 pass
 
-        # 2) 从同类均值 + 本基金 1y 收益推算星级
-        with get_db_context() as conn:
-            # 拿本基金 fund_type
-            row = conn.execute(
-                "SELECT fund_type FROM fund_master WHERE code = ?",
-                (code,),
-            ).fetchone()
-            if not row:
-                return None
-            fund_type = row["fund_type"]
-            # 同类均值（最新一天）
-            cat = conn.execute(
-                """SELECT avg_annual_return_eq, avg_sharpe_eq
-                   FROM fund_category_metrics_snapshot
-                   WHERE category = ? AND window_days = 365
-                   ORDER BY as_of_date DESC LIMIT 1""",
-                (fund_type,),
-            ).fetchone()
-            # 本基金 1y
-            fund = conn.execute(
-                """SELECT near_1y FROM fund_quote_snapshot WHERE code = ?""",
-                (code,),
-            ).fetchone()
-        if not cat or not fund:
-            return None
-        # 规则：1y 收益 / 同类 1y 收益 ≥ 1.5 → 5★；1.2~1.5 → 4★；0.8~1.2 → 3★；0.5~0.8 → 2★；<0.5 → 1★
-        try:
-            fund_1y = float(fund["near_1y"] or 0)
-            cat_1y = float(cat["avg_annual_return_eq"] or 0)
-        except Exception:
-            return None
-        ratio = (fund_1y + 1) / (cat_1y + 1) if cat_1y > -1 else 1.0
-        if ratio >= 1.5:
-            r1y = 5
-        elif ratio >= 1.2:
-            r1y = 4
-        elif ratio >= 0.8:
-            r1y = 3
-        elif ratio >= 0.5:
-            r1y = 2
-        else:
-            r1y = 1
-        # 3y 评级：同类夏普 2.0+ 加分
-        cat_sharpe = float(cat["avg_sharpe_eq"] or 0)
-        r3y = 5 if cat_sharpe > 2 else 4 if cat_sharpe > 1 else 3 if cat_sharpe > 0 else 2
-        return {
-            "code": code,
-            "rating3y": r3y,
-            "rating5y": r1y,  # 5y 没数据，用 1y 替代
-            "score": round(ratio * 50, 1),
-            "source": "computed",
-        }
+        return None
     except Exception:
         return None
 
