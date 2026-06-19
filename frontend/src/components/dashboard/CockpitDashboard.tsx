@@ -318,12 +318,12 @@ function formatIndexValue(value: number | null) {
 
 function formatMacroValue(value: unknown) {
   const num = parseMetric(value)
-  return num === null ? 'missing' : num.toFixed(2)
+  return num === null ? '缺失' : num.toFixed(2)
 }
 
 function formatConfidence(value: unknown) {
   const num = parseMetric(value)
-  return num === null ? 'conf -' : `conf ${(num * 100).toFixed(0)}%`
+  return num === null ? '置信度 -' : `置信度 ${(num * 100).toFixed(0)}%`
 }
 
 function formatDateTime(value?: string | null) {
@@ -397,7 +397,7 @@ export function CockpitDashboard({
   const marketIndustries = useMemo(() => normalizeIndustries(marketOverview), [marketOverview])
   const risingCount = marketIndices.filter((item) => (item.change || 0) > 0).length
   const fallingCount = marketIndices.filter((item) => (item.change || 0) < 0).length
-  const marketAsOf = marketStatus?.last_refresh ? formatDateTime(marketStatus.last_refresh) : (marketIndices.find((item) => item.date)?.date || latestDate || 'missing')
+  const marketAsOf = marketStatus?.last_refresh ? formatDateTime(marketStatus.last_refresh) : (marketIndices.find((item) => item.date)?.date || latestDate || '缺失')
   const macroIndicators = marketStatus?.macro_indicators || {}
   const macroRows = [
     { label: 'PMI', key: 'PMI制造业' },
@@ -471,7 +471,7 @@ export function CockpitDashboard({
     ['近一年均值', signedPct(avgYear)],
     ['最大回撤均值', plainPct(avgDrawdown)],
     ['年化收益均值', plainPct(avgAnnual)],
-    ['夏普均值', avgSharpe === null ? 'missing' : avgSharpe.toFixed(2)],
+    ['夏普均值', avgSharpe === null ? '缺失' : avgSharpe.toFixed(2)],
   ]
 
   return (
@@ -583,8 +583,8 @@ export function CockpitDashboard({
                 </div>
                 <div className="mt-2 rounded border border-white/[0.065] bg-white/[0.025] px-2 py-2">
                   <div className="mb-1 flex items-center justify-between text-[11px] text-white/42">
-                    <span>Macro data</span>
-                    <span>{marketStatus?.macro_available ? `confidence ${(marketStatus.macro_confidence * 100).toFixed(0)}%` : 'missing'}</span>
+                    <span>宏观数据</span>
+                    <span>{marketStatus?.macro_available ? `置信度 ${(marketStatus.macro_confidence * 100).toFixed(0)}%` : '缺失'}</span>
                   </div>
                   <div className="grid grid-cols-3 gap-1">
                     {macroRows.map((item) => (
@@ -593,8 +593,8 @@ export function CockpitDashboard({
                         <div className={classNames('data-number text-sm font-semibold', item.data?.value != null ? 'text-[#fff8ea]' : 'text-white/35')}>
                           {formatMacroValue(item.data?.value)}
                         </div>
-                        <div className="truncate text-[10px] text-white/32" title={item.data?.source || 'missing'}>
-                          {formatConfidence(item.data?.confidence)} · {item.data?.source || 'missing'}
+                        <div className="truncate text-[10px] text-white/32" title={item.data?.source || '来源缺失'}>
+                          {formatConfidence(item.data?.confidence)} · {item.data?.source || '来源缺失'}
                         </div>
                       </div>
                     ))}
@@ -635,8 +635,8 @@ export function CockpitDashboard({
                   <span className="text-white/45">{hasRealWeights ? '风险评级' : '组合权重'}</span>
                   <span className="font-medium text-white/72">
                     {!hasRealWeights
-                      ? 'missing（尚未生成或导入真实权重）'
-                      : riskScore === null ? 'missing（缺少夏普/回撤）' : `${riskScore >= 70 ? '偏低' : riskScore >= 50 ? '中等' : '偏高'} (${riskScore})`}
+                      ? '缺失（尚未生成或导入真实权重）'
+                      : riskScore === null ? '缺失（缺少夏普/回撤）' : `${riskScore >= 70 ? '偏低' : riskScore >= 50 ? '中等' : '偏高'} (${riskScore})`}
                   </span>
                 </div>
               </div>
@@ -728,7 +728,7 @@ export function CockpitDashboard({
                   {weightSource === 'real' ? (
                     <span className="rounded bg-white/[0.055] px-2 py-0.5 text-white/45">权重 {weight.toFixed(2)}%</span>
                   ) : (
-                    <span className="rounded bg-white/[0.055] px-2 py-0.5 text-white/45">权重 missing</span>
+                    <span className="rounded bg-white/[0.055] px-2 py-0.5 text-white/45">权重缺失</span>
                   )}
                   <span className="data-number text-white/70">{metricText(fund.nav, 4)}<span className="ml-1 text-white/35">净值</span></span>
                 </div>
