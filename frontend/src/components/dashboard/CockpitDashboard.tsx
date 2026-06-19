@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { ChevronRight, Search, UserCircle } from 'lucide-react'
 import type { MarketDataStatus } from '@/types/allocation'
@@ -380,6 +380,7 @@ export function CockpitDashboard({
   const [query, setQuery] = useState('')
   const [fundFilter, setFundFilter] = useState('all')
   const [trendByCode, setTrendByCode] = useState<Record<string, number[] | null>>({})
+  const pendingTrendCodes = useRef(new Set<string>())
   const weighted = buildWeightedFunds(funds)
   const hasRealWeights = weighted.some((item) => item.weightSource === 'real')
   const assetMix = distributionByType(weighted)
@@ -439,15 +440,17 @@ export function CockpitDashboard({
   )
 
   useEffect(() => {
-    const missingCodes = visibleCodes.filter((code) => !(code in trendByCode))
+    const missingCodes = visibleCodes.filter((code) => !(code in trendByCode) && !pendingTrendCodes.current.has(code))
     if (missingCodes.length === 0) return
 
     let active = true
     missingCodes.forEach((code) => {
+      pendingTrendCodes.current.add(code)
       getFundAnalysis(code)
         .then((analysis) => normalizeNavTrend(analysis?.nav_data || analysis?.navHistory || analysis?.navHistoryFull))
         .catch(() => null)
         .then((trend) => {
+          pendingTrendCodes.current.delete(code)
           if (!active) return
           setTrendByCode((current) => ({ ...current, [code]: trend }))
         })
