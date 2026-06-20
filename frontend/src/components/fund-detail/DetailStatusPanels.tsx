@@ -207,6 +207,7 @@ export function MarketContextPanel({ context }: { context: any }) {
     { key: "etfKline", label: "ETF K-line", ...sections.etfKline },
     { key: "northFlow", label: "Northbound flow", ...sections.northFlow },
     { key: "sectorFlow", label: "Sector flow", ...sections.sectorFlow },
+    { key: "holdingsFlowMatch", label: "Holdings-flow match", ...sections.holdingsFlowMatch },
     { key: "holdingsStyle", label: "Holding style", ...sections.holdingsStyle },
   ];
 
@@ -223,6 +224,9 @@ export function MarketContextPanel({ context }: { context: any }) {
         {rows.map((row) => {
           const status = (row.status || row.dataStatus || "missing") as DetailDataStatus;
           const topIndustries = Array.isArray(row.data?.topIndustries) ? row.data.topIndustries : [];
+          const matchedFlowRows = Array.isArray(row.data?.matchedFlowRows) ? row.data.matchedFlowRows : [];
+          const signalDirection = row.data?.signalDirection;
+          const matchScore = row.data?.matchScore;
           return (
             <div key={row.key} className="rounded-md border border-white/[0.06] bg-white/[0.02] p-3">
               <div className="flex items-center justify-between gap-2">
@@ -234,7 +238,21 @@ export function MarketContextPanel({ context }: { context: any }) {
               <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
                 <span>Source {row.source || "-"}</span>
                 <span>Date {row.asOf || context?.asOf || "-"}</span>
+                {signalDirection ? <span>Signal {signalDirection}</span> : null}
+                {matchScore != null ? <span>Match {pctLabel(Number(matchScore))}</span> : null}
               </div>
+              {matchedFlowRows.length > 0 ? (
+                <div className="mt-2 flex flex-wrap gap-1">
+                  {matchedFlowRows.slice(0, 4).map((item: any) => (
+                    <span
+                      key={`${row.key}-flow-${item.industry}`}
+                      className="rounded border border-white/[0.08] px-2 py-0.5 text-xs text-white/55"
+                    >
+                      {item.industry} {item.trend || "unknown"}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
               {topIndustries.length > 0 ? (
                 <div className="mt-2 flex flex-wrap gap-1">
                   {topIndustries.slice(0, 4).map((item: any) => (

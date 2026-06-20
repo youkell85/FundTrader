@@ -52,9 +52,16 @@ def _source_rows(evidence_pack: dict[str, Any]) -> list[dict[str, Any]]:
 def _compact_evidence(evidence_pack: dict[str, Any]) -> dict[str, Any]:
     subject = evidence_pack.get("subject") or {}
     data_quality = evidence_pack.get("data_quality") or {}
+    readiness = evidence_pack.get("conclusionReadiness") or (evidence_pack.get("diagnosis") or {}).get("readiness") or {}
     return {
         "subject": subject,
+        "schemaVersion": evidence_pack.get("schemaVersion"),
+        "generatedAt": evidence_pack.get("generatedAt") or evidence_pack.get("generated_at"),
         "data_quality": data_quality,
+        "coverageSummary": evidence_pack.get("coverageSummary") or {},
+        "criticalMissingEvidence": evidence_pack.get("criticalMissingEvidence") or [],
+        "providerHealthSummary": evidence_pack.get("providerHealthSummary") or {},
+        "conclusionReadiness": readiness,
         "risk_status": (evidence_pack.get("risk_metrics") or {}).get("status"),
         "market_context_status": (evidence_pack.get("market_context") or {}).get("dataStatus")
             or (evidence_pack.get("market_context") or {}).get("status"),
@@ -65,6 +72,10 @@ def _compact_evidence(evidence_pack: dict[str, Any]) -> dict[str, Any]:
 
 
 def _conclusion_strength(evidence: dict[str, Any]) -> str:
+    readiness = evidence.get("conclusionReadiness") or {}
+    readiness_strength = readiness.get("conclusionStrength")
+    if readiness_strength in {"none", "limited", "normal"}:
+        return str(readiness_strength)
     quality = evidence.get("data_quality") or {}
     status = str(quality.get("status") or "missing")
     warnings = evidence.get("warnings") or []
@@ -92,7 +103,13 @@ def build_fund_agent_plan(template: str, code: str, context: dict[str, Any] | No
     template_spec = AGENT_TEMPLATES[template]
     compact = _compact_evidence(evidence_pack)
     conclusion_strength = _conclusion_strength(compact)
-    plan_status = "insufficient_data" if conclusion_strength == "none" else "limited" if conclusion_strength == "limited" else "available"
+    readiness = compact.get("conclusionReadiness") or {}
+    readiness_status = str(readiness.get("status") or "")
+    plan_status = (
+        "available" if readiness_status == "ready"
+        else "limited" if readiness_status == "partial"
+        else readiness_status or ("insufficient_data" if conclusion_strength == "none" else "limited" if conclusion_strength == "limited" else "available")
+    )
     prompt = "\n".join([
         f"任务: {template_spec['title']}",
         f"对象: {compact['subject'].get('name') or code} ({code})",
@@ -114,6 +131,8 @@ def build_fund_agent_plan(template: str, code: str, context: dict[str, Any] | No
         "sections": template_spec["sections"],
         "planStatus": plan_status,
         "conclusionStrength": conclusion_strength,
+        "conclusionReadiness": readiness,
+        "criticalMissingEvidence": compact.get("criticalMissingEvidence") or [],
         "prompt": prompt,
         "evidence": compact,
         "context": context or {},

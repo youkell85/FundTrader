@@ -11,6 +11,7 @@ class FundEventProvider(Protocol):
     name: str
     enabled: bool
     capabilities: list[str]
+    last_success_at: str | None
     last_error: str | None
     cooldown_until: str | None
 
@@ -26,6 +27,7 @@ class StaticFundEventProvider:
     name: str = "static_fund_events"
     enabled: bool = True
     capabilities: list[str] = field(default_factory=lambda: ["fund_news", "fund_announcement"])
+    last_success_at: str | None = None
     last_error: str | None = None
     cooldown_until: str | None = None
 
@@ -45,6 +47,7 @@ class EastmoneyFundAnnouncementProvider:
     limit: int = 10
     name: str = "eastmoney_fund_announcement"
     capabilities: list[str] = field(default_factory=lambda: ["fund_announcement"])
+    last_success_at: str | None = None
     last_error: str | None = None
     cooldown_until: str | None = None
 
@@ -84,6 +87,23 @@ class EastmoneyFundAnnouncementProvider:
         return rows
 
 
+@dataclass
+class IfindNewsPlaceholderProvider:
+    """Disabled-by-default placeholder for future licensed iFinD/news events."""
+
+    enabled: bool = field(default_factory=lambda: os.getenv("FUND_EVENTS_IFIND_ENABLED", "false").lower() in {"1", "true", "yes", "on"})
+    name: str = "ifind_fund_news"
+    capabilities: list[str] = field(default_factory=lambda: ["fund_news"])
+    last_success_at: str | None = None
+    last_error: str | None = None
+    cooldown_until: str | None = None
+
+    def fetch(self, fund_code: str) -> list[dict[str, Any]]:
+        if not self.enabled:
+            return []
+        raise RuntimeError("iFinD/news fund event provider is not configured")
+
+
 def _first(row: dict[str, Any], *keys: str) -> Any:
     for key in keys:
         value = row.get(key)
@@ -93,7 +113,7 @@ def _first(row: dict[str, Any], *keys: str) -> Any:
 
 
 def default_fund_event_providers() -> list[FundEventProvider]:
-    return [EastmoneyFundAnnouncementProvider()]
+    return [EastmoneyFundAnnouncementProvider(), IfindNewsPlaceholderProvider()]
 
 
 def _quality(status: str, source: str, reason: str | None = None) -> dict[str, Any]:
@@ -131,13 +151,20 @@ def _normalize_event(raw: dict[str, Any], fund_code: str, source: str) -> dict[s
 
 
 def _provider_health(provider: FundEventProvider, status: str) -> dict[str, Any]:
+    last_success_at = getattr(provider, "last_success_at", None)
+    last_error = getattr(provider, "last_error", None)
+    cooldown_until = getattr(provider, "cooldown_until", None)
     return {
         "name": provider.name,
         "enabled": bool(provider.enabled),
         "capabilities": list(provider.capabilities),
         "status": status,
-        "last_error": provider.last_error,
-        "cooldown_until": provider.cooldown_until,
+        "last_success_at": last_success_at,
+        "lastSuccessAt": last_success_at,
+        "last_error": last_error,
+        "lastError": last_error,
+        "cooldown_until": cooldown_until,
+        "cooldownUntil": cooldown_until,
     }
 
 
@@ -166,6 +193,8 @@ def collect_fund_events(
             health.append(_provider_health(provider, "failed"))
             warnings.append(f"{provider.name} failed: {exc}")
             continue
+        if fetched:
+            provider.last_success_at = clock.replace(microsecond=0).isoformat() + "Z"
         for item in fetched:
             events.append(_normalize_event(item, fund_code, provider.name))
         health.append(_provider_health(provider, "available" if fetched else "empty"))
@@ -186,9 +215,14 @@ def collect_fund_events(
 
     return {
         "status": status,
+        "dataStatus": status,
         "fund_code": str(fund_code),
+        "fundCode": str(fund_code),
         "events": events,
         "provider_health": health,
+        "providerHealth": health,
         "data_quality": _quality(status, "fund_events", reason),
+        "source": "fund_events",
+        "missingReason": reason,
         "warnings": warnings,
     }

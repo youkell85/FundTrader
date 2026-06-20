@@ -1,0 +1,37 @@
+{
+    "taskId":  "FT-FUND-EVENTS-LIVE-001",
+    "mode":  "list",
+    "generatedAt":  "2026-06-21T00:58:54.4588532+08:00",
+    "taskPath":  "docs\\pm\\outbox\\FT-FUND-EVENTS-LIVE-001.md",
+    "summary":  {
+                    "totalBlocks":  2,
+                    "safe":  2,
+                    "skipped_unsafe":  0,
+                    "unsupported":  0,
+                    "passed":  0,
+                    "failed":  0
+                },
+    "recommendedNext":  "Review listed blocks. Use -Run to execute safe blocks.",
+    "blocks":  [
+                   {
+                       "number":  1,
+                       "language":  "powershell",
+                       "classification":  "safe",
+                       "reason":  "Passed safety checks",
+                       "command":  "cd D:\\Workspace\\Fundtrader\\backend\n$env:PYTHONPATH = (Get-Location).Path\npython -m pytest tests\\test_fund_events.py tests\\test_fund_research_report.py -q\ncd D:\\Workspace\\Fundtrader\\frontend\nnpm.cmd run check\nnpm.cmd run build",
+                       "exitCode":  null,
+                       "stdout":  null,
+                       "stderr":  null
+                   },
+                   {
+                       "number":  2,
+                       "language":  "powershell",
+                       "classification":  "safe",
+                       "reason":  "Passed safety checks",
+                       "command":  "npx gitnexus detect-changes --repo FundTrader --scope all",
+                       "exitCode":  null,
+                       "stdout":  null,
+                       "stderr":  null
+                   }
+               ]
+}

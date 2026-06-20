@@ -1,7 +1,13 @@
 import sys
 from types import SimpleNamespace
 
-from app.data.fund_events import EastmoneyFundAnnouncementProvider, StaticFundEventProvider, collect_fund_events
+from app.data.fund_events import (
+    EastmoneyFundAnnouncementProvider,
+    IfindNewsPlaceholderProvider,
+    StaticFundEventProvider,
+    collect_fund_events,
+    default_fund_event_providers,
+)
 
 
 class FailingProvider:
@@ -37,6 +43,8 @@ def test_collect_fund_events_normalizes_static_provider_events():
     payload = collect_fund_events("000001", [provider])
 
     assert payload["status"] == "available"
+    assert payload["dataStatus"] == "available"
+    assert payload["fundCode"] == "000001"
     assert len(payload["events"]) == 1
     event = payload["events"][0]
     assert event["title"] == "Quarterly report released"
@@ -45,6 +53,7 @@ def test_collect_fund_events_normalizes_static_provider_events():
     assert event["data_quality"]["status"] == "available"
     assert event["field_sources"]["title"]["source"] == "static_fund_events"
     assert payload["provider_health"][0]["status"] == "available"
+    assert payload["provider_health"][0]["lastSuccessAt"]
 
 
 def test_collect_fund_events_downgrades_provider_failure():
@@ -55,6 +64,7 @@ def test_collect_fund_events_downgrades_provider_failure():
     assert payload["data_quality"]["missing_reason"] == "provider failure"
     assert payload["provider_health"][0]["status"] == "failed"
     assert payload["provider_health"][0]["last_error"] == "provider unavailable"
+    assert payload["provider_health"][0]["lastError"] == "provider unavailable"
 
 
 def test_collect_fund_events_marks_disabled_provider():
@@ -65,6 +75,17 @@ def test_collect_fund_events_marks_disabled_provider():
     assert payload["status"] == "missing"
     assert payload["provider_health"][0]["status"] == "disabled"
     assert payload["data_quality"]["missing_reason"] == "no events returned"
+    assert payload["missingReason"] == "no events returned"
+
+
+def test_default_fund_event_providers_include_disabled_ifind_placeholder():
+    providers = default_fund_event_providers()
+
+    assert any(isinstance(item, EastmoneyFundAnnouncementProvider) for item in providers)
+    assert any(isinstance(item, IfindNewsPlaceholderProvider) for item in providers)
+    ifind = next(item for item in providers if isinstance(item, IfindNewsPlaceholderProvider))
+    assert ifind.enabled is False
+    assert ifind.capabilities == ["fund_news"]
 
 
 def test_eastmoney_fund_announcement_provider_normalizes_akshare_rows(monkeypatch):

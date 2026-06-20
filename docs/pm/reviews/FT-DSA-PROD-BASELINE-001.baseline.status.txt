@@ -1,0 +1,6 @@
+﻿?? docs/pm/outbox/FT-DSA-PROD-BASELINE-001.md
+?? docs/pm/outbox/FT-EVIDENCE-PACK-V2-001.md
+?? docs/pm/outbox/FT-FUND-EVENTS-LIVE-001.md
+?? docs/pm/outbox/FT-MARKET-CONTEXT-V2-001.md
+?? docs/pm/outbox/FT-REPORT-PANEL-V2-001.md
+?? docs/pm/reviews/FT-DSA-PROD-BASELINE-001.baseline.status.txt

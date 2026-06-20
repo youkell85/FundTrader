@@ -1,0 +1,37 @@
+{
+    "taskId":  "FT-DSA-PROD-BASELINE-001",
+    "mode":  "list",
+    "generatedAt":  "2026-06-21T00:40:59.2325364+08:00",
+    "taskPath":  "docs\\pm\\outbox\\FT-DSA-PROD-BASELINE-001.md",
+    "summary":  {
+                    "totalBlocks":  2,
+                    "safe":  2,
+                    "skipped_unsafe":  0,
+                    "unsupported":  0,
+                    "passed":  0,
+                    "failed":  0
+                },
+    "recommendedNext":  "Review listed blocks. Use -Run to execute safe blocks.",
+    "blocks":  [
+                   {
+                       "number":  1,
+                       "language":  "powershell",
+                       "classification":  "safe",
+                       "reason":  "Passed safety checks",
+                       "command":  "cd D:\\Workspace\\Fundtrader\npowershell -ExecutionPolicy Bypass -File .\\scripts\\refresh-market-context-cache.ps1 -Limit 10\npowershell -ExecutionPolicy Bypass -File .\\scripts\\check-production-fund-dsa.ps1 -Code 000001",
+                       "exitCode":  null,
+                       "stdout":  null,
+                       "stderr":  null
+                   },
+                   {
+                       "number":  2,
+                       "language":  "powershell",
+                       "classification":  "safe",
+                       "reason":  "Passed safety checks",
+                       "command":  "git diff --check -- scripts\\check-production-fund-dsa.ps1 scripts\\refresh-market-context-cache.ps1 scripts\\refresh-market-context-cache.sh",
+                       "exitCode":  null,
+                       "stdout":  null,
+                       "stderr":  null
+                   }
+               ]
+}

@@ -98,6 +98,28 @@ describe('fund detail contract fallbacks', () => {
     expect(result.missingReason).toBeTruthy();
   });
 
+  test('fundResearchReport preserves evidence pack v2 fields', async () => {
+    const ftFetchMock = vi.mocked(fundClient.ftFetch);
+    ftFetchMock.mockResolvedValueOnce({
+      code: '000001',
+      markdown: '# report',
+      dataStatus: 'partial',
+      evidencePack: {
+        schemaVersion: 'fund-evidence-pack.v2',
+        coverageSummary: { status: 'partial', coverage: 0.75 },
+        criticalMissingEvidence: [{ category: 'risk_metrics', status: 'missing', blocking: true }],
+        conclusionReadiness: { status: 'insufficient_data', conclusionStrength: 'none' },
+      },
+    });
+
+    const result = await caller.fundResearchReport({ code: '000001' }) as any;
+
+    expect(result.evidencePack.schemaVersion).toBe('fund-evidence-pack.v2');
+    expect(result.evidencePack.conclusionReadiness.status).toBe('insufficient_data');
+    expect(result.evidencePack.criticalMissingEvidence[0].blocking).toBe(true);
+    expect(ftFetchMock).toHaveBeenLastCalledWith('/fund/000001/research-report');
+  });
+
   test('dataSourcesStatus requests unified provider health route', async () => {
     const ftFetchMock = vi.mocked(fundClient.ftFetch);
     ftFetchMock.mockResolvedValueOnce({ status: 'available', providers: [], availableCount: 0, totalCount: 0 });

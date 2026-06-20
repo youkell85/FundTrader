@@ -1,0 +1,62 @@
+{
+    "taskId":  "FT-MARKET-CONTEXT-V2-001",
+    "status":  "pass",
+    "reviewedAt":  "2026-06-21T01:02:59.7493479+08:00",
+    "taskPath":  "docs\\pm\\outbox\\FT-MARKET-CONTEXT-V2-001.md",
+    "reportPath":  "docs\\pm\\reports\\FT-MARKET-CONTEXT-V2-001.md",
+    "logPath":  "FT-MARKET-CONTEXT-V2-001.jsonl (not found)",
+    "lockPath":  "FT-MARKET-CONTEXT-V2-001.lock.json (not found)",
+    "reportExists":  true,
+    "pmDigest":  {
+                     "found":  true,
+                     "values":  {
+                                    "status":  "complete",
+                                    "changed":  "backend/app/data/market_context_fetcher.py, backend/tests/test_fund_research_report.py, frontend/src/components/fund-detail/DetailStatusPanels.tsx, docs/pm/reports/FT-MARKET-CONTEXT-V2-001.md",
+                                    "validation":  "passed - pytest test_fund_research_report.py; npm run check; npm run build; gitnexus detect-changes; git diff --check",
+                                    "risk":  "high detect-changes cumulative impact, market-context impact precheck was low and edits stayed in approved surfaces",
+                                    "decision":  "none",
+                                    "next":  "accept"
+                                },
+                     "raw":  [
+                                 "Status: complete",
+                                 "Changed: backend/app/data/market_context_fetcher.py, backend/tests/test_fund_research_report.py, frontend/src/components/fund-detail/DetailStatusPanels.tsx, docs/pm/reports/FT-MARKET-CONTEXT-V2-001.md",
+                                 "Validation: passed - pytest test_fund_research_report.py; npm run check; npm run build; gitnexus detect-changes; git diff --check",
+                                 "Risk: high detect-changes cumulative impact, market-context impact precheck was low and edits stayed in approved surfaces",
+                                 "Decision: none",
+                                 "Next: accept",
+                                 "# FT-MARKET-CONTEXT-V2-001 Report"
+                             ]
+                 },
+    "lockExists":  false,
+    "diffCheckPassed":  true,
+    "diffCheckOutput":  "warning: in the working copy of \u0027backend/app/agents/fund_agent.py\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027backend/app/data/fund_events.py\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027backend/app/data/market_context_fetcher.py\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027backend/app/reports/fund_research_report.py\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027backend/tests/test_fund_agent.py\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027backend/tests/test_fund_events.py\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027backend/tests/test_fund_research_report.py\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/api/fund-router.contract.test.ts\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/components/allocation/ResearchReportExportPanel.tsx\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/components/fund-detail/DetailStatusPanels.tsx\u0027, LF will be replaced by CRLF the next time Git touches it\r\nwarning: in the working copy of \u0027frontend/src/pages/FundDetail/tabs/DiagnosisTab.tsx\u0027, LF will be replaced by CRLF the next time Git touches it",
+    "allowedFiles":  [
+                         "backend/app/data/market_context_fetcher.py",
+                         "backend/app/services/fund_service.py",
+                         "backend/app/reports/fund_research_report.py",
+                         "backend/app/api/fund.py",
+                         "backend/tests/test_fund_research_report.py",
+                         "backend/tests/test_market_context_fetcher.py",
+                         "scripts/refresh-market-context-cache.ps1",
+                         "scripts/refresh-market-context-cache.sh",
+                         "scripts/check-production-fund-dsa.ps1",
+                         "frontend/api/fund-router.ts",
+                         "frontend/src/pages/FundDetail/useFundDetailData.ts",
+                         "frontend/src/pages/FundDetail/tabs/MarketContextTab.tsx",
+                         "frontend/src/pages/FundDetail/components/*",
+                         "frontend/src/components/fund-detail/DetailStatusPanels.tsx",
+                         "docs/pm/reports/FT-MARKET-CONTEXT-V2-001.md",
+                         "docs/pm/reviews/FT-MARKET-CONTEXT-V2-001.review.md",
+                         "docs/pm/reviews/FT-MARKET-CONTEXT-V2-001.review.json",
+                         "docs/pm/reviews/FT-MARKET-CONTEXT-V2-001.acceptance.md",
+                         "docs/pm/reviews/FT-MARKET-CONTEXT-V2-001.acceptance.json"
+                     ],
+    "allowedFound":  true,
+    "newlyChanged":  [
+
+                     ],
+    "issues":  [
+
+               ],
+    "recommendedNext":  "Ready for next task or archive."
+}

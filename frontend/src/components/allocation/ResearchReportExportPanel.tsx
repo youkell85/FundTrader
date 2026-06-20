@@ -59,8 +59,13 @@ export default function ResearchReportExportPanel({ portfolioFunds, candidates, 
   const backendMarkdown = typeof backendReportQ.data?.markdown === "string" ? backendReportQ.data.markdown.trim() : "";
   const backendStatus = backendReportQ.data?.dataStatus || (backendReportQ.isError ? "missing" : null);
   const backendMissingReason = backendReportQ.data?.missingReason || (backendReportQ.isError ? "后端研究报告读取失败" : "");
+  const evidencePack = backendReportQ.data?.evidencePack as EvidencePackV2 | undefined;
+  const readiness = evidencePack?.conclusionReadiness;
+  const coverage = evidencePack?.coverageSummary;
+  const criticalMissing = evidencePack?.criticalMissingEvidence || [];
   const hasBackendReport = backendMarkdown.length > 0 && backendStatus !== "missing";
   const reportLoading = hasPrimaryCode && backendReportQ.isLoading;
+  const backendExportsEnabled = hasPrimaryCode && hasBackendReport && !reportLoading;
   const reportSource = hasBackendReport
     ? "backend"
     : hasPrimaryCode
@@ -142,6 +147,43 @@ export default function ResearchReportExportPanel({ portfolioFunds, candidates, 
       </div>
 
       {/* 按钮组 */}
+      <div className="grid gap-2 md:grid-cols-3">
+        <StatusPill
+          label="Readiness"
+          value={readiness?.status || (reportLoading ? "loading" : backendStatus || "unknown")}
+          tone={readiness?.status === "ready" ? "good" : readiness?.status === "insufficient_data" || backendStatus === "missing" ? "bad" : "warn"}
+        />
+        <StatusPill
+          label="Coverage"
+          value={typeof coverage?.coverage === "number" ? `${Math.round(coverage.coverage * 100)}%` : "unknown"}
+          tone={(coverage?.coverage || 0) >= 0.9 ? "good" : (coverage?.coverage || 0) > 0 ? "warn" : "bad"}
+        />
+        <StatusPill
+          label="Critical gaps"
+          value={String(readiness?.missingCriticalCount ?? criticalMissing.length)}
+          tone={criticalMissing.length === 0 ? "good" : criticalMissing.some((item) => item.blocking) ? "bad" : "warn"}
+        />
+      </div>
+
+      {readiness?.reason && (
+        <div className="rounded-md border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-[10px] text-white/45">
+          {readiness.reason}
+        </div>
+      )}
+
+      {criticalMissing.length > 0 && (
+        <div className="space-y-1">
+          {criticalMissing.slice(0, 3).map((item) => (
+            <div key={`${item.category}-${item.status}`} className="flex flex-wrap items-center gap-2 rounded-md border border-white/[0.06] bg-white/[0.02] px-3 py-2 text-[10px] text-white/45">
+              <span className="text-white/65">{item.label || item.category}</span>
+              <span className="uppercase">{item.status}</span>
+              {item.blocking && <span className="text-red-200">blocking</span>}
+              {item.missingReason && <span className="basis-full">{item.missingReason}</span>}
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center gap-2">
         <button
           onClick={handleCopy}
@@ -165,6 +207,17 @@ export default function ResearchReportExportPanel({ portfolioFunds, candidates, 
       </div>
 
       {/* 预览区域 */}
+      <div className="flex flex-wrap items-center gap-2">
+        <BackendExportLink code={primaryCode} format="md" label="Backend MD" enabled={backendExportsEnabled} />
+        <BackendExportLink code={primaryCode} format="docx" label="Backend DOCX" enabled={backendExportsEnabled} />
+        <BackendExportLink code={primaryCode} format="pdf" label="Backend PDF" enabled={backendExportsEnabled} />
+        {!backendExportsEnabled && (
+          <span className="text-[10px] text-white/35">
+            Backend exports are disabled until report evidence is available.
+          </span>
+        )}
+      </div>
+
       <div className="rounded-lg border border-white/[0.06] bg-white/[0.02]">
         <button
           onClick={() => setExpanded(!expanded)}
@@ -182,5 +235,67 @@ export default function ResearchReportExportPanel({ portfolioFunds, candidates, 
         </div>
       </div>
     </div>
+  );
+}
+
+type EvidencePackV2 = {
+  conclusionReadiness?: {
+    status?: string;
+    conclusionStrength?: string;
+    missingCriticalCount?: number;
+    blockingMissingCount?: number;
+    reason?: string | null;
+  };
+  coverageSummary?: {
+    status?: string;
+    coverage?: number;
+  };
+  criticalMissingEvidence?: Array<{
+    category?: string;
+    label?: string;
+    status?: string;
+    blocking?: boolean;
+    missingReason?: string;
+  }>;
+};
+
+function StatusPill({ label, value, tone }: { label: string; value: string; tone: "good" | "warn" | "bad" }) {
+  const toneClass =
+    tone === "good"
+      ? "border-emerald-400/20 bg-emerald-500/10 text-emerald-100"
+      : tone === "bad"
+        ? "border-red-400/20 bg-red-500/10 text-red-100"
+        : "border-amber-400/20 bg-amber-500/10 text-amber-100";
+  return (
+    <div className={`rounded-md border px-3 py-2 ${toneClass}`}>
+      <div className="text-[10px] uppercase tracking-normal opacity-70">{label}</div>
+      <div className="mt-1 text-xs font-semibold">{value}</div>
+    </div>
+  );
+}
+
+function BackendExportLink({ code, format, label, enabled }: { code: string; format: "md" | "docx" | "pdf"; label: string; enabled: boolean }) {
+  const href = `/fund/api/fund/${encodeURIComponent(code)}/research-report?format=${format}`;
+  if (!enabled) {
+    return (
+      <button
+        type="button"
+        disabled
+        className="inline-flex items-center gap-1.5 rounded-md border border-white/[0.06] bg-white/[0.02] px-3 py-1.5 text-xs text-white/25"
+      >
+        <Download className="w-3.5 h-3.5" />
+        {label}
+      </button>
+    );
+  }
+  return (
+    <a
+      href={href}
+      download
+      className="inline-flex items-center gap-1.5 rounded-md border border-white/[0.08] bg-white/[0.04] px-3 py-1.5 text-xs text-white/65 transition-colors hover:bg-white/[0.07] hover:text-white/85"
+    >
+      <Download className="w-3.5 h-3.5" />
+      {label}
+    </a>
   );
 }

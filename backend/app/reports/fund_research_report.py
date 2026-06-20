@@ -16,6 +16,9 @@ from ..storage.database import FundDataStore
 from .markdown_renderer import section, table
 
 
+EVIDENCE_PACK_SCHEMA_VERSION = "fund-evidence-pack.v2"
+
+
 def _section_status(payload: dict[str, Any] | None) -> str:
     if not payload:
         return "missing"
@@ -56,6 +59,180 @@ def _diagnosis_status(missing: list[dict[str, Any]]) -> str:
     if critical & missing_critical:
         return "insufficient_data"
     return "partial" if missing else "available"
+
+
+def _worst_status(statuses: list[str]) -> str:
+    rank = {"missing": 0, "error": 0, "stale": 1, "partial": 2, "pending": 2, "available": 3, "ready": 3}
+    normalized = [str(item or "missing") for item in statuses]
+    if not normalized:
+        return "missing"
+    return min(normalized, key=lambda item: rank.get(item, 0))
+
+
+def _critical_evidence_categories(
+    field_sources: dict[str, dict[str, Any]],
+    market_context: dict[str, Any],
+    event_summary: dict[str, Any],
+) -> list[dict[str, Any]]:
+    def field_status(name: str) -> str:
+        return str((field_sources.get(name) or {}).get("status") or "missing")
+
+    def field_reason(name: str) -> str | None:
+        return (field_sources.get(name) or {}).get("missingReason")
+
+    return [
+        {
+            "id": "identity",
+            "label": "identity / basic profile",
+            "status": _worst_status([field_status("name"), field_status("type"), field_status("company")]),
+            "required": True,
+            "blocking": False,
+            "missingReason": field_reason("name") or field_reason("type") or field_reason("company"),
+            "fields": ["name", "type", "company"],
+        },
+        {
+            "id": "nav_performance",
+            "label": "NAV or performance data",
+            "status": _worst_status([field_status("nav"), field_status("nav_date")]),
+            "required": True,
+            "blocking": True,
+            "missingReason": field_reason("nav") or field_reason("nav_date"),
+            "fields": ["nav", "nav_date"],
+        },
+        {
+            "id": "risk_metrics",
+            "label": "risk metrics",
+            "status": field_status("risk"),
+            "required": True,
+            "blocking": True,
+            "missingReason": field_reason("risk"),
+            "fields": ["risk"],
+        },
+        {
+            "id": "holdings_allocation",
+            "label": "holdings or allocation evidence",
+            "status": _worst_status([field_status("top_holdings"), field_status("bond_holdings")]),
+            "required": True,
+            "blocking": False,
+            "missingReason": field_reason("top_holdings") or field_reason("bond_holdings"),
+            "fields": ["top_holdings", "bond_holdings"],
+        },
+        {
+            "id": "market_context",
+            "label": "market context",
+            "status": _section_status(market_context),
+            "required": False,
+            "blocking": False,
+            "missingReason": market_context.get("missingReason"),
+            "fields": ["market_context"],
+        },
+        {
+            "id": "event_context",
+            "label": "event context",
+            "status": str(event_summary.get("status") or "missing"),
+            "required": False,
+            "blocking": False,
+            "missingReason": event_summary.get("missingReason"),
+            "fields": ["fund_events"],
+        },
+    ]
+
+
+def _critical_missing_evidence(categories: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    missing: list[dict[str, Any]] = []
+    for item in categories:
+        status = str(item.get("status") or "missing")
+        if status != "missing" or not item.get("required"):
+            continue
+        missing.append({
+            "category": item.get("id"),
+            "label": item.get("label"),
+            "status": status,
+            "blocking": bool(item.get("blocking")),
+            "missingReason": item.get("missingReason") or "evidence is not fully available",
+            "fields": item.get("fields") or [],
+        })
+    return missing
+
+
+def _coverage_summary(field_sources: dict[str, dict[str, Any]], categories: list[dict[str, Any]], coverage: float) -> dict[str, Any]:
+    fields = list(field_sources.values())
+    available = sum(1 for item in fields if item.get("status") == "available")
+    partial = sum(1 for item in fields if item.get("status") == "partial")
+    missing = sum(1 for item in fields if item.get("status") == "missing")
+    return {
+        "status": "available" if coverage >= 0.9 else "partial" if coverage > 0 else "missing",
+        "coverage": coverage,
+        "availableFields": available,
+        "partialFields": partial,
+        "missingFields": missing,
+        "totalFields": len(fields),
+        "categories": categories,
+    }
+
+
+def _provider_health_summary(
+    field_sources: dict[str, dict[str, Any]],
+    market_context: dict[str, Any],
+    risk_summary: dict[str, Any],
+    manager_report: dict[str, Any],
+    fund_events: dict[str, Any],
+) -> dict[str, Any]:
+    sources: dict[str, dict[str, Any]] = {}
+
+    def add(source: Any, status: Any, field: str, reason: Any = None) -> None:
+        if not source:
+            return
+        key = str(source)
+        row = sources.setdefault(key, {"source": key, "status": "available", "fields": [], "lastError": None})
+        row["fields"].append(field)
+        row["status"] = _worst_status([row["status"], str(status or "missing")])
+        if reason and not row.get("lastError"):
+            row["lastError"] = str(reason)
+
+    for name, item in field_sources.items():
+        add(item.get("source"), item.get("status"), name, item.get("missingReason"))
+    add("market_context", _section_status(market_context), "market_context", market_context.get("missingReason"))
+    add("risk_metrics", _section_status(risk_summary), "risk_metrics", risk_summary.get("missingReason"))
+    add("manager_report", _section_status(manager_report), "manager_report", manager_report.get("missingReason"))
+    add("fund_events", fund_events.get("dataStatus") or (fund_events.get("data_quality") or {}).get("status"), "fund_events", fund_events.get("missingReason"))
+
+    rows = list(sources.values())
+    return {
+        "status": _worst_status([row["status"] for row in rows]) if rows else "missing",
+        "providers": rows,
+    }
+
+
+def _conclusion_readiness(
+    coverage_summary: dict[str, Any],
+    critical_missing: list[dict[str, Any]],
+) -> dict[str, Any]:
+    blocking = [item for item in critical_missing if item.get("blocking")]
+    category_gaps = [
+        item
+        for item in coverage_summary.get("categories") or []
+        if str(item.get("status") or "missing") != "available"
+    ]
+    if blocking:
+        status = "insufficient_data"
+        strength = "none"
+        reason = "Missing NAV or risk evidence blocks a reliable conclusion."
+    elif critical_missing or category_gaps or coverage_summary.get("status") != "available":
+        status = "partial"
+        strength = "limited"
+        reason = "Conclusion is limited by partial or missing evidence."
+    else:
+        status = "ready"
+        strength = "normal"
+        reason = None
+    return {
+        "status": status,
+        "conclusionStrength": strength,
+        "missingCriticalCount": len(critical_missing),
+        "blockingMissingCount": len(blocking),
+        "reason": reason,
+    }
 
 
 def _select_backtest_metrics(result: dict[str, Any]) -> dict[str, Any]:
@@ -245,8 +422,21 @@ def build_fund_evidence_pack(code: str) -> dict[str, Any]:
     ] + list(market_context.get("warnings") or [])
     missing_evidence = _missing_evidence(field_sources)
     diagnosis_status = _diagnosis_status(missing_evidence)
+    categories = _critical_evidence_categories(field_sources, market_context, event_summary)
+    critical_missing = _critical_missing_evidence(categories)
+    coverage_summary = _coverage_summary(field_sources, categories, coverage)
+    provider_health_summary = _provider_health_summary(
+        field_sources,
+        market_context,
+        risk_summary,
+        manager_report,
+        fund_events,
+    )
+    conclusion_readiness = _conclusion_readiness(coverage_summary, critical_missing)
+    generated_at = datetime.now().replace(microsecond=0).isoformat()
 
     return {
+        "schemaVersion": EVIDENCE_PACK_SCHEMA_VERSION,
         "subject": {
             "type": "etf" if str(snapshot.get("type") or "").upper().find("ETF") >= 0 else "fund",
             "id": code,
@@ -279,14 +469,20 @@ def build_fund_evidence_pack(code: str) -> dict[str, Any]:
         },
         "diagnosis": {
             "status": diagnosis_status,
-            "conclusion_strength": "none" if diagnosis_status == "insufficient_data" else "limited" if diagnosis_status == "partial" else "normal",
+            "conclusion_strength": conclusion_readiness["conclusionStrength"],
             "llm_input_contract": "evidence_pack_only",
             "missing_evidence_count": len(missing_evidence),
+            "readiness": conclusion_readiness,
         },
+        "coverageSummary": coverage_summary,
+        "criticalMissingEvidence": critical_missing,
+        "providerHealthSummary": provider_health_summary,
+        "conclusionReadiness": conclusion_readiness,
         "missing_evidence": missing_evidence,
         "field_sources": field_sources,
         "warnings": warnings,
-        "generated_at": datetime.now().replace(microsecond=0).isoformat(),
+        "generated_at": generated_at,
+        "generatedAt": generated_at,
     }
 
 

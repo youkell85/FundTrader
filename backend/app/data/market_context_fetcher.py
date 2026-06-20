@@ -526,12 +526,85 @@ def _resolve_sector_flow_section(
     )
 
 
+def _build_holdings_flow_match(
+    sector_section: dict[str, Any],
+    industries: list[dict[str, Any]],
+    holdings_source: str | None,
+    holdings_as_of: str | None,
+) -> dict[str, Any]:
+    sector_data = sector_section.get("data") or {}
+    matched = sector_data.get("matchedFlows") if isinstance(sector_data, dict) else []
+    matched = matched if isinstance(matched, list) else []
+    matched_industries = {str(item.get("industry") or "") for item in matched if isinstance(item, dict)}
+    unsupported = [
+        item
+        for item in industries
+        if str(item.get("industry") or "") not in matched_industries
+    ]
+
+    weighted_flow = 0.0
+    weighted_count = 0
+    for item in matched:
+        if not isinstance(item, dict):
+            continue
+        try:
+            weight = float(item.get("weight") or 0)
+            net_inflow = float(item.get("netInflow") or 0)
+        except Exception:
+            continue
+        weighted_flow += weight * net_inflow
+        weighted_count += 1
+
+    if not industries:
+        direction = "unknown"
+        status = "missing"
+        reason = "missing holdings industry exposure"
+    elif not matched:
+        direction = "unknown"
+        status = "partial" if sector_section.get("dataStatus") != "missing" else "missing"
+        reason = sector_section.get("missingReason") or "no matched industry flow rows"
+    elif abs(weighted_flow) < 1e-9:
+        direction = "neutral"
+        status = "available"
+        reason = None
+    elif weighted_flow > 0:
+        direction = "supportive"
+        status = "available"
+        reason = None
+    else:
+        direction = "conflicting"
+        status = "available"
+        reason = None
+
+    coverage = round(len(matched) / max(1, len(industries)), 4) if industries else 0.0
+    source = sector_section.get("source") or holdings_source
+    as_of = sector_section.get("asOf") or holdings_as_of
+    return _status_section(
+        status,
+        source=source,
+        as_of=as_of,
+        coverage=coverage,
+        missing_reason=reason,
+        data={
+            "holdingsIndustryExposure": industries,
+            "matchedFlowRows": matched,
+            "unsupportedRows": unsupported,
+            "matchScore": coverage,
+            "signalDirection": direction,
+            "weightedFlow": weighted_flow if weighted_count else None,
+            "source": source,
+            "asOf": as_of,
+        },
+    )
+
+
 def get_fund_market_context(code: str) -> dict[str, Any]:
     code = str(code or "").strip()
     basic = _snapshot_basic(code)
     is_etf = _is_exchange_fund(code, basic.get("fund_type"), basic.get("name"))
     now = datetime.now().date().isoformat()
     industries, holdings_source, holdings_as_of = _top_industries(code)
+    sector_flow = _resolve_sector_flow_section(industries, holdings_source, holdings_as_of, now)
 
     sections: dict[str, dict[str, Any]] = {
         "etfKline": _status_section(
@@ -547,7 +620,8 @@ def get_fund_market_context(code: str) -> dict[str, Any]:
             },
         ),
         "northFlow": _resolve_northbound_section(now),
-        "sectorFlow": _resolve_sector_flow_section(industries, holdings_source, holdings_as_of, now),
+        "sectorFlow": sector_flow,
+        "holdingsFlowMatch": _build_holdings_flow_match(sector_flow, industries, holdings_source, holdings_as_of),
         "holdingsStyle": _status_section(
             "available" if industries else "missing",
             source=holdings_source or "fund_portfolio_snapshot",

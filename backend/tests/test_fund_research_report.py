@@ -150,6 +150,12 @@ def test_fund_research_report_markdown_is_deterministic_and_source_backed():
     assert first["evidencePack"]["event_summary"]["count"] == 1
     assert first["evidencePack"]["bond_summary"]["count"] == 1
     assert first["evidencePack"]["data_quality"]["coverage"] > 0
+    assert first["evidencePack"]["schemaVersion"] == "fund-evidence-pack.v2"
+    assert first["evidencePack"]["generatedAt"] == first["evidencePack"]["generated_at"]
+    assert first["evidencePack"]["coverageSummary"]["totalFields"] >= 10
+    assert first["evidencePack"]["providerHealthSummary"]["providers"]
+    assert first["evidencePack"]["conclusionReadiness"]["status"] == "partial"
+    assert first["evidencePack"]["criticalMissingEvidence"] == []
 
 
 def test_fund_evidence_pack_downgrades_when_critical_evidence_missing():
@@ -171,8 +177,41 @@ def test_fund_evidence_pack_downgrades_when_critical_evidence_missing():
     assert pack["diagnosis"]["llm_input_contract"] == "evidence_pack_only"
     assert any(item["field"] == "nav" for item in pack["missing_evidence"])
     assert any(item["field"] == "risk" for item in pack["missing_evidence"])
+    assert pack["coverageSummary"]["status"] == "partial"
+    assert pack["conclusionReadiness"]["status"] == "insufficient_data"
+    assert pack["conclusionReadiness"]["conclusionStrength"] == "none"
+    assert {item["category"] for item in pack["criticalMissingEvidence"]} >= {"nav_performance", "risk_metrics"}
     assert pack["backtest"]["available"] is False
     assert "净值数据" in pack["backtest"]["missingReason"]
+
+
+def test_fund_evidence_pack_ready_when_critical_evidence_available():
+    snapshot = {
+        "code": "000001",
+        "name": "ready fund",
+        "type": "mixed",
+        "company": "ready asset",
+        "nav": 1.23,
+        "nav_date": "2026-06-15",
+        "total_scale": 12.3,
+        "holdings": [{"name": "stock", "ratio": 10.0}],
+        "score": 80,
+        "max_drawdown": -0.12,
+        "updated_at": "2026-06-15T00:00:00",
+        "metrics_updated_at": "2026-06-15T00:00:00",
+    }
+    with patch("app.reports.fund_research_report.FundDataStore.get_snapshot", return_value=snapshot), \
+         patch("app.reports.fund_research_report.get_fund_market_context", return_value={"dataStatus": "available", "sections": {}, "warnings": []}), \
+         patch("app.reports.fund_research_report.get_fund_risk_summary", return_value={"dataStatus": "available", "summary": "risk", "source": "rule-engine"}), \
+         patch("app.reports.fund_research_report.get_fund_manager_report", return_value={"dataStatus": "available", "report": "manager"}), \
+         patch("app.reports.fund_research_report.get_fund_bond_holdings", return_value={"dataStatus": "available", "rows": [{"bondName": "bond"}], "source": "test", "asOf": "2026-06-15"}), \
+         patch("app.reports.fund_research_report.run_dca_backtest", return_value=_fake_dca_backtest()), \
+         patch("app.reports.fund_research_report.collect_fund_events", return_value=_fake_fund_events()):
+        pack = build_fund_evidence_pack("000001")
+
+    assert pack["conclusionReadiness"]["status"] == "ready"
+    assert pack["conclusionReadiness"]["conclusionStrength"] == "normal"
+    assert pack["criticalMissingEvidence"] == []
 
 
 def test_northflow_populated_from_cached_macro_snapshot():
@@ -251,6 +290,11 @@ def test_sectorflow_uses_cached_industry_flow_when_available():
     assert sector["dataStatus"] == "available"
     assert len(sector["data"]["matchedFlows"]) == 2
     assert sector["data"]["matchedFlows"][0]["trend"] == "inflow"
+    match = payload["sections"]["holdingsFlowMatch"]
+    assert match["dataStatus"] == "available"
+    assert match["data"]["signalDirection"] == "supportive"
+    assert match["data"]["matchScore"] == 1.0
+    assert len(match["data"]["matchedFlowRows"]) == 2
 
 
 def test_sectorflow_uses_market_flow_fallback_when_industry_cache_missing():
@@ -292,6 +336,9 @@ def test_sectorflow_uses_market_flow_fallback_without_industries():
     assert sector["data"]["topIndustries"] == []
     assert sector["data"]["marketFlow"]["netInflow"] == 8800.0
     assert sector["data"]["marketFlow"]["trend"] == "inflow"
+    match = payload["sections"]["holdingsFlowMatch"]
+    assert match["dataStatus"] == "missing"
+    assert match["data"]["signalDirection"] == "unknown"
     assert "全市场资金流" in sector["missingReason"]
 
 
