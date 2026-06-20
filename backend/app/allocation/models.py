@@ -166,6 +166,7 @@ class MonteCarloResult(BaseModel):
     jump_as_of: Optional[str] = None
     jump_sample_size: Optional[int] = None
     calibration_version: Optional[str] = None
+    jump_missing_reason: Optional[str] = None
 
 
 class ScenarioItem(BaseModel):

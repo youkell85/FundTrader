@@ -94,6 +94,54 @@ class StressMonteCarloCalibrationTest(unittest.TestCase):
         self.assertEqual(result.jump_source, "historical_market_data")
         self.assertEqual(result.jump_sample_size, 120)
         self.assertEqual(result.calibration_version, "historical-calibrator-v1")
+        self.assertIsNone(result.jump_missing_reason)
+
+    def test_monte_carlo_missing_jump_params_disables_jump_without_static_fallback(self):
+        with patch("app.storage.database.StatsSnapshotCache.get", return_value=None):
+            result = simulate({"a_share_large": 1.0}, _cma(), horizon_months=6, n_paths=50)
+
+        self.assertEqual(result.jump_source, "missing")
+        self.assertIsNone(result.calibration_version)
+        self.assertIsNotNone(result.jump_missing_reason)
+
+    def test_monte_carlo_rejects_static_jump_params(self):
+        snapshot = {
+            "jump_params": {
+                "source": "static_assumption",
+                "status": "assumption",
+                "calibration_version": "static-jump-params",
+                "params": {
+                    "jump_probability": 0.02,
+                    "jump_mean": -0.03,
+                    "jump_vol": 0.025,
+                },
+            }
+        }
+
+        with patch("app.storage.database.StatsSnapshotCache.get", return_value=snapshot):
+            result = simulate({"a_share_large": 1.0}, _cma(), horizon_months=6, n_paths=50)
+
+        self.assertEqual(result.jump_source, "missing")
+        self.assertIsNone(result.calibration_version)
+        self.assertIn("static assumption", result.jump_missing_reason)
+
+    def test_monte_carlo_invalid_jump_params_do_not_use_defaults(self):
+        snapshot = {
+            "jump_params": {
+                "source": "historical_market_data",
+                "params": {
+                    "jump_probability": 1.5,
+                    "jump_mean": -0.03,
+                    "jump_vol": 0.025,
+                },
+            }
+        }
+
+        with patch("app.storage.database.StatsSnapshotCache.get", return_value=snapshot):
+            result = simulate({"a_share_large": 1.0}, _cma(), horizon_months=6, n_paths=50)
+
+        self.assertEqual(result.jump_source, "missing")
+        self.assertIn("invalid", result.jump_missing_reason)
 
 
 if __name__ == "__main__":

@@ -82,7 +82,7 @@ export interface MonteCarloResult {
   percentile_75: number; percentile_90: number; max_drawdown_95: number;
   var_95: number; cvar_95: number; prob_positive: number;
   var_95_annual?: number | null; cvar_95_annual?: number | null;
-  jump_source?: string | null; jump_as_of?: string | null; jump_sample_size?: number | null; calibration_version?: string | null;
+  jump_source?: string | null; jump_as_of?: string | null; jump_sample_size?: number | null; calibration_version?: string | null; jump_missing_reason?: string | null;
 }
 export interface ScenarioAnalysis {
   weighted_return: number;
