@@ -35,7 +35,15 @@ def _get_portfolio_fusion(code: str) -> Optional[Dict[str, Any]]:
         if holdings:
             return {
                 "stock_holdings": [
-                    {"name": h.name, "code": h.code, "ratio": h.ratio}
+                    {
+                        "name": h.name,
+                        "code": h.code,
+                        "ratio": h.ratio,
+                        "industry": h.industry,
+                        "quarter": h.quarter,
+                        "source": h.source,
+                        "updated_at": h.updated_at,
+                    }
                     for h in holdings
                 ]
             }
@@ -146,28 +154,88 @@ def _calc_sortino_ratio(returns: np.ndarray, risk_free: float = 0.02 / 252) -> f
 def _analyze_asset_allocation(portfolio: Optional[Dict]) -> Dict[str, Any]:
     """资产配置分析"""
     if not portfolio:
-        return {"stocks": 0, "bonds": 0, "cash": 0, "other": 0}
+        return {
+            "stocks": None,
+            "bonds": None,
+            "cash": None,
+            "other": None,
+            "dataStatus": "missing",
+            "source": None,
+            "missingReason": "缺少真实持仓数据，未生成资产配置估算。",
+        }
     holdings = portfolio.get("stock_holdings", [])
+    if not holdings:
+        return {
+            "stocks": None,
+            "bonds": None,
+            "cash": None,
+            "other": None,
+            "dataStatus": "missing",
+            "source": None,
+            "missingReason": "缺少真实股票持仓数据，未生成资产配置估算。",
+        }
     stock_ratio = sum(h.get("ratio", 0) for h in holdings)
     return {
         "stocks": round(stock_ratio, 2),
-        "bonds": round(max(0, 80 - stock_ratio), 2),
-        "cash": round(max(0, 20 - stock_ratio * 0.1), 2),
-        "other": 0,
+        "bonds": None,
+        "cash": None,
+        "other": None,
+        "dataStatus": "partial",
+        "source": "portfolio_stock_holdings",
+        "missingReason": "仅有真实股票重仓占比，债券/现金/其他资产未做默认估算。",
     }
 
 
 def _analyze_industry_distribution(portfolio: Optional[Dict]) -> Dict[str, Any]:
     """行业分布分析"""
     if not portfolio:
-        return {}
-    return {"待完善": 100}
+        return {
+            "items": {},
+            "dataStatus": "missing",
+            "source": None,
+            "missingReason": "缺少真实持仓数据，无法计算行业分布。",
+        }
+
+    industries: Dict[str, float] = {}
+    for holding in portfolio.get("stock_holdings", []):
+        industry = str(holding.get("industry") or "").strip()
+        if not industry:
+            continue
+        try:
+            ratio = float(holding.get("ratio") or 0)
+        except (TypeError, ValueError):
+            continue
+        if ratio <= 0:
+            continue
+        industries[industry] = industries.get(industry, 0.0) + ratio
+
+    if not industries:
+        return {
+            "items": {},
+            "dataStatus": "missing",
+            "source": None,
+            "missingReason": "真实重仓数据缺少行业字段，未生成行业分布。",
+        }
+
+    return {
+        "items": {k: round(v, 2) for k, v in sorted(industries.items(), key=lambda item: item[1], reverse=True)},
+        "dataStatus": "available",
+        "source": "portfolio_stock_holdings",
+        "missingReason": None,
+    }
 
 
 def _analyze_style_box(returns: np.ndarray, navs: List[float]) -> Dict[str, Any]:
     """风格九宫格分析"""
     if len(returns) < 60:
-        return {"size": "中盘", "style": "均衡", "box": [1, 1]}
+        return {
+            "size": None,
+            "style": None,
+            "box": None,
+            "dataStatus": "missing",
+            "source": None,
+            "missingReason": "净值样本不足，未生成默认风格九宫格。",
+        }
 
     # 简化判断
     vol = np.std(returns) * np.sqrt(252) * 100
@@ -195,7 +263,14 @@ def _analyze_style_box(returns: np.ndarray, navs: List[float]) -> Dict[str, Any]
         style = "价值"
         style_idx = 0
 
-    return {"size": size, "style": style, "box": [size_idx, style_idx]}
+    return {
+        "size": size,
+        "style": style,
+        "box": [size_idx, style_idx],
+        "dataStatus": "partial",
+        "source": "nav_derived_vol_return",
+        "missingReason": "风格九宫格由净值波动与区间收益推导，非持仓风格标签。",
+    }
 
 
 def calc_correlation_matrix(codes: List[str]) -> Dict[str, Any]:
