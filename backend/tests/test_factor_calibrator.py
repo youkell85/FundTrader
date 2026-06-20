@@ -5,6 +5,8 @@ import numpy as np
 
 from app.allocation import factor_calibrator, factor_exposure
 from app.allocation.config import FACTOR_LOADINGS
+from app.allocation.models import AllocationRequest
+from app.allocation.orchestrator import run
 
 
 def _prices_from_returns(returns: np.ndarray, start: float = 100.0) -> np.ndarray:
@@ -161,16 +163,86 @@ class FactorCalibratorTest(unittest.TestCase):
         self.assertTrue(metadata["proxy_sources"])
         self.assertIn("invalid_proxies", metadata)
 
-    def test_factor_exposure_falls_back_to_static_when_dynamic_bundle_unavailable(self):
+    def test_factor_exposure_rejects_static_when_dynamic_bundle_unavailable(self):
         allocations = {"a_share_large": 1.0}
 
         with patch(
             "app.allocation.factor_calibrator.get_calibration_bundle",
             side_effect=RuntimeError("boom"),
         ):
+            with self.assertRaises(factor_exposure.FactorCalibrationUnavailable):
+                factor_exposure.calculate_exposures(allocations)
+
+    def test_factor_metadata_reports_missing_instead_of_static_method(self):
+        bundle = {
+            "loadings": {},
+            "metadata": {},
+            "summary": {
+                "source": "static_assumption",
+                "coverage": 0.0,
+                "valid_assets": [],
+            },
+        }
+
+        with patch("app.allocation.factor_calibrator.get_calibration_bundle", return_value=bundle):
+            metadata = factor_exposure.get_calibration_metadata()
+
+        self.assertEqual(metadata["source"], "missing")
+        self.assertIsNone(metadata["method"])
+        self.assertIn("missing_reason", metadata)
+
+    def test_factor_exposure_uses_only_calibrated_weighted_assets(self):
+        allocations = {"a_share_large": 1.0}
+        bundle = {
+            "loadings": {
+                "a_share_large": {
+                    "equity_beta": 1.1,
+                    "term_premium": 0.2,
+                    "credit_premium": 0.3,
+                    "inflation": -0.1,
+                    "liquidity": 0.05,
+                }
+            },
+            "metadata": {
+                "a_share_large": {"source": "latest_window_regression"},
+            },
+            "summary": {
+                "source": "historical_market_data",
+                "coverage": 0.1,
+                "valid_assets": ["a_share_large"],
+            },
+        }
+
+        with patch("app.allocation.factor_calibrator.get_calibration_bundle", return_value=bundle):
             exposures = factor_exposure.calculate_exposures(allocations)
 
-        self.assertEqual(exposures, FACTOR_LOADINGS["a_share_large"])
+        self.assertEqual(exposures["equity_beta"], 1.1)
+        self.assertEqual(exposures["term_premium"], 0.2)
+
+    def test_factor_exposure_rejects_unweighted_static_asset_but_weighted_static_fails(self):
+        bundle = {
+            "loadings": {
+                "a_share_large": {
+                    "equity_beta": 1.1,
+                    "term_premium": 0.2,
+                    "credit_premium": 0.3,
+                    "inflation": -0.1,
+                    "liquidity": 0.05,
+                }
+            },
+            "metadata": {
+                "a_share_large": {"source": "static_expert_estimate"},
+            },
+            "summary": {
+                "source": "historical_market_data",
+                "coverage": 0.1,
+                "valid_assets": [],
+            },
+        }
+
+        with patch("app.allocation.factor_calibrator.get_calibration_bundle", return_value=bundle):
+            with self.assertRaises(factor_exposure.FactorCalibrationUnavailable):
+                factor_exposure.calculate_exposures({"a_share_large": 1.0})
 
     def test_force_refresh_uses_static_when_live_calibration_disabled(self):
         with patch("app.allocation.factor_calibrator._ENABLE_LIVE_CALIBRATION", False), patch(
@@ -184,6 +256,24 @@ class FactorCalibratorTest(unittest.TestCase):
 
         self.assertEqual(bundle["summary"]["source"], "static_assumption")
         self.assertIn("live_calibration_disabled", bundle["summary"]["assumptions_used"][0])
+
+    def test_orchestrator_skips_factor_exposure_without_real_calibration(self):
+        request = AllocationRequest(
+            risk_tolerance="balanced",
+            age=40,
+            amount=100000,
+            horizon="3-5y",
+            goal_type="wealth",
+        )
+
+        with patch(
+            "app.allocation.factor_calibrator.get_calibration_bundle",
+            side_effect=RuntimeError("boom"),
+        ):
+            result = run(request)
+
+        self.assertEqual(result.factor_exposures, {})
+        self.assertTrue(any("因子暴露缺少真实校准数据" in item for item in result.warnings))
 
 
 if __name__ == "__main__":

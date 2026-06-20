@@ -10,7 +10,7 @@ from .circuit_breaker import evaluate_breaker, get_breaker_status
 from .cma_manager import estimate_cma
 from .config import ASSET_CLASSES, ASSET_TO_GROUP, GROUP_MAP
 from .constraint_checker import check_constraints
-from .factor_exposure import calculate_exposures
+from .factor_exposure import FactorCalibrationUnavailable, calculate_exposures
 from .fund_mapper import map_funds
 from .models import (
     AllocationDataQuality,
@@ -334,6 +334,12 @@ def run(
     try:
         factor_exposures = calculate_exposures(final_alloc)
         d.elapsed_ms = (time.monotonic() - t0) * 1000
+    except FactorCalibrationUnavailable as e:
+        factor_exposures = {}
+        d.status = "degraded"
+        d.detail = str(e)[:100]
+        d.elapsed_ms = (time.monotonic() - t0) * 1000
+        warnings.append(f"因子暴露缺少真实校准数据，已跳过: {str(e)[:50]}")
     except Exception as e:
         d.status = "error"
         d.detail = str(e)[:100]
