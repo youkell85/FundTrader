@@ -4,8 +4,9 @@ API requests NEVER trigger network calls. They read pre-computed cached values.
 Background refresh populates the cache periodically.
 """
 import logging
+import math
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
 
 from .models import MacroSnapshot, VolatilitySnapshot
@@ -47,6 +48,16 @@ class MarketDataService:
                 self._macro_snapshot = snapshot
             # Save to SQLite for persistence across restarts
             self._save_macro_to_db(snapshot)
+            try:
+                backfill = self._backfill_macro_history()
+                if backfill.get("saved", 0) > 0:
+                    logger.info(
+                        "  Macro history backfill: %s rows across %s indicators",
+                        backfill.get("saved", 0),
+                        backfill.get("indicators", 0),
+                    )
+            except Exception as exc:
+                logger.debug("  Macro history backfill skipped: %s", exc)
             valid_count = sum(1 for ind in snapshot.indicators.values() if ind.value is not None)
             logger.info(f"  Macro: {valid_count}/13 indicators fetched (confidence={snapshot.overall_confidence:.2f})")
         except Exception as e:
@@ -472,6 +483,81 @@ class MarketDataService:
                 logger.debug(f"Saved {len(rows)} macro indicators to SQLite")
         except Exception as e:
             logger.debug(f"Failed to save macro to SQLite: {e}")
+
+    def _backfill_macro_history(self) -> dict:
+        """Populate enough macro history for regime threshold calibration.
+
+        This runs only inside refresh(), never from request handlers. It first
+        checks the local SQLite history and skips provider calls when the cache
+        already covers the minimum calibration windows.
+        """
+        requirements = {
+            "PMI制造业": 12,
+            "GDP同比": 8,
+            "CPI同比": 12,
+            "PPI同比": 12,
+            "M2增速": 12,
+            "10Y国债收益率": 60,
+        }
+        try:
+            from app.storage.database import MacroCache
+        except Exception:
+            return {"saved": 0, "indicators": 0, "reason": "macro_cache_unavailable"}
+
+        needs_backfill = False
+        for indicator, min_count in requirements.items():
+            try:
+                rows = MacroCache.get_history(indicator, limit=min_count)
+            except Exception:
+                rows = []
+            if len(rows or []) < min_count:
+                needs_backfill = True
+                break
+        if not needs_backfill:
+            return {"saved": 0, "indicators": len(requirements), "reason": "history_sufficient"}
+
+        from ..backtest.historical_data import load_macro_history
+
+        end_date = datetime.now().date()
+        start_date = end_date - timedelta(days=365 * 10)
+        histories = load_macro_history(
+            start_date.isoformat(),
+            end_date.isoformat(),
+            allow_network=True,
+        )
+
+        rows = []
+        source = "macro_history_provider"
+        for indicator, min_count in requirements.items():
+            series = histories.get(indicator)
+            if series is None or len(series) <= 0:
+                continue
+            saved_for_indicator = 0
+            for dt, value in series.dropna().items():
+                try:
+                    numeric = float(value)
+                except (TypeError, ValueError):
+                    continue
+                if not math.isfinite(numeric):
+                    continue
+                date_str = dt.strftime("%Y-%m-%d") if hasattr(dt, "strftime") else str(dt)
+                rows.append((indicator, numeric, date_str, source))
+                saved_for_indicator += 1
+            if saved_for_indicator < min_count:
+                logger.debug(
+                    "  Macro history backfill short for %s: %s/%s",
+                    indicator,
+                    saved_for_indicator,
+                    min_count,
+                )
+
+        if rows:
+            MacroCache.save_batch(rows)
+        return {
+            "saved": len(rows),
+            "indicators": len({row[0] for row in rows}),
+            "reason": "backfilled" if rows else "provider_returned_empty",
+        }
 
     def _load_macro_from_db(self) -> None:
         """Load macro indicators from SQLite cache (used when API fetch fails)."""

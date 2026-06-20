@@ -227,6 +227,43 @@ class HistoricalCalibratorTest(unittest.TestCase):
         self.assertAlmostEqual(destination["params"]["money_fund"], 1 / 3, places=5)
         self.assertAlmostEqual(destination["params"]["cash"], 2 / 3, places=5)
 
+    def test_p2_defaults_calibrate_regime_thresholds_from_macro_history(self):
+        history = {
+            "PMI制造业": [49.0, 49.5, 50.0, 50.5, 51.0, 51.5, 52.0, 48.5, 50.2, 50.7, 51.1, 49.8],
+            "GDP同比": [3.8, 4.0, 4.4, 4.6, 4.9, 5.1, 5.4, 5.6],
+            "CPI同比": [0.8, 1.0, 1.4, 1.8, 2.0, 2.1, 2.3, 2.5, 2.7, 1.6, 1.2, 2.2],
+            "PPI同比": [-2.0, -1.5, -1.0, -0.4, 0.0, 0.5, 1.0, 1.4, 1.8, -0.8, 0.2, 0.9],
+            "M2增速": [7.4, 7.8, 8.0, 8.2, 8.4, 8.8, 9.0, 9.4, 9.8, 8.6, 8.1, 9.1],
+            "10Y国债收益率": [2.1 + i * 0.01 for i in range(60)],
+        }
+
+        def fake_get_history(indicator, limit=240):
+            return [
+                (f"2024-{(idx % 12) + 1:02d}-01", value, "macro_history_provider")
+                for idx, value in enumerate(history.get(indicator, []))
+            ]
+
+        with patch("app.storage.database.MacroCache.get_history", side_effect=fake_get_history):
+            result = HistoricalCalibrator(stats_snapshot=_make_long_window_stats()).calibrate_all()
+
+        regime = result["regime_thresholds"]
+        self.assertEqual(regime["source"], "macro_history_distribution")
+        self.assertEqual(regime["status"], "real")
+        self.assertEqual(regime["coverage"], 1.0)
+        self.assertEqual(regime["params"]["pmi_neutral"], 50.35)
+        self.assertGreater(regime["params"]["pmi_scale"], 0)
+        self.assertGreaterEqual(regime["params"]["quadrant"], 0.1)
+        self.assertEqual(regime["observation_counts"]["10Y国债收益率"], 60)
+
+    def test_p2_defaults_mark_regime_thresholds_not_calibrated_when_history_short(self):
+        with patch("app.storage.database.MacroCache.get_history", return_value=[]):
+            result = HistoricalCalibrator(stats_snapshot=_make_long_window_stats()).calibrate_all()
+
+        regime = result["regime_thresholds"]
+        self.assertEqual(regime["source"], "not_calibrated")
+        self.assertEqual(regime["status"], "missing")
+        self.assertEqual(regime["observation_counts"]["PMI制造业"], 0)
+
     def test_p2_defaults_mark_risk_questionnaire_not_calibrated(self):
         result = HistoricalCalibrator(stats_snapshot=_make_long_window_stats()).calibrate_all()
         risk = result["risk_questionnaire"]

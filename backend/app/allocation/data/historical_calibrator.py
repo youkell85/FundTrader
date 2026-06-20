@@ -125,13 +125,10 @@ class HistoricalCalibrator:
             vols = long_window.get("vols") or stats.get("vols_long") or stats.get("vols") or {}
             quality = stats.get("quality") or {}
             dest_weights, dest_meta = _calibrate_circuit_breaker_destination(vols, quality, cash_assets)
+            regime_thresholds = _calibrate_regime_thresholds(rt_defaults)
 
             return {
-                "regime_thresholds": _not_calibrated_params(
-                    "regime_thresholds",
-                    rt_defaults,
-                    "insufficient_macro_history_for_regime_thresholds",
-                ),
+                "regime_thresholds": regime_thresholds,
                 "circuit_breaker_destination": {
                     "params": dest_weights,
                     "source": dest_meta["source"],
@@ -497,6 +494,102 @@ def _not_calibrated_params(name: str, params: dict, reason: str) -> dict:
         "missing_reason": reason,
         "calibration_version": CALIBRATION_VERSION,
     }
+
+
+def _calibrate_regime_thresholds(defaults: Dict[str, float]) -> dict:
+    specs = [
+        ("PMI制造业", "pmi_neutral", "pmi_scale", 12),
+        ("GDP同比", "gdp_neutral", "gdp_scale", 8),
+        ("CPI同比", "cpi_neutral", "cpi_scale", 12),
+        ("PPI同比", "ppi_neutral", "ppi_scale", 12),
+        ("M2增速", "m2_neutral", "m2_scale", 12),
+        ("10Y国债收益率", "yield_10y_neutral", "yield_10y_scale", 60),
+    ]
+    histories = _load_regime_macro_histories([item[0] for item in specs])
+    params: Dict[str, float] = {}
+    valid_assets: List[str] = []
+    invalid_assets: Dict[str, str] = {}
+    score_samples: List[float] = []
+    observation_counts: Dict[str, int] = {}
+
+    for indicator, neutral_key, scale_key, min_obs in specs:
+        values = [
+            float(value)
+            for value in histories.get(indicator, [])
+            if _is_finite_number(value)
+        ]
+        observation_counts[indicator] = len(values)
+        if len(values) < min_obs:
+            invalid_assets[indicator] = f"insufficient_history:{len(values)}/{min_obs}"
+            continue
+
+        arr = np.asarray(values, dtype=np.float64)
+        neutral = float(np.median(arr))
+        q25, q75 = np.percentile(arr, [25, 75])
+        iqr = float(q75 - q25)
+        std = float(np.std(arr, ddof=1)) if len(arr) > 1 else 0.0
+        scale = max(iqr, std)
+        if not _is_finite_number(scale) or scale <= 0:
+            invalid_assets[indicator] = "zero_dispersion"
+            continue
+
+        params[neutral_key] = round(neutral, 4)
+        params[scale_key] = round(scale, 4)
+        valid_assets.append(indicator)
+        score_samples.extend([abs(float(value - neutral) / scale) for value in arr])
+
+    if valid_assets and score_samples:
+        quadrant = float(np.percentile(np.asarray(score_samples, dtype=np.float64), 35))
+        params["quadrant"] = round(_clamp(quadrant, 0.1, 0.5), 4)
+
+    coverage = round(len(valid_assets) / len(specs), 4) if specs else 0.0
+    if coverage <= 0:
+        result = _not_calibrated_params(
+            "regime_thresholds",
+            defaults,
+            "insufficient_macro_history_for_regime_thresholds",
+        )
+        result["observation_counts"] = observation_counts
+        return result
+
+    merged = dict(defaults)
+    merged.update(params)
+    status = "real" if coverage >= 1.0 and not invalid_assets else "partial"
+    return {
+        "params": merged,
+        "source": "macro_history_distribution",
+        "status": status,
+        "data_status": status,
+        "as_of": _today(),
+        "coverage": coverage,
+        "valid_assets": valid_assets,
+        "invalid_assets": invalid_assets,
+        "assumptions_used": [],
+        "observation_counts": observation_counts,
+        "calibration_version": CALIBRATION_VERSION,
+    }
+
+
+def _load_regime_macro_histories(indicators: List[str], limit: int = 240) -> Dict[str, List[float]]:
+    try:
+        from app.storage.database import MacroCache
+    except Exception:
+        logger.debug("_load_regime_macro_histories: MacroCache unavailable", exc_info=True)
+        return {}
+
+    histories: Dict[str, List[float]] = {}
+    for indicator in indicators:
+        try:
+            rows = MacroCache.get_history(indicator, limit=limit)
+        except Exception:
+            logger.debug("regime macro history read failed for %s", indicator, exc_info=True)
+            rows = []
+        values: List[float] = []
+        for _date, value, _source in rows or []:
+            if _is_finite_number(value):
+                values.append(float(value))
+        histories[indicator] = values
+    return histories
 
 
 def _calibrate_circuit_breaker_destination(

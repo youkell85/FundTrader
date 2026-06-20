@@ -3,6 +3,7 @@ import unittest
 from unittest.mock import patch
 
 import numpy as np
+import pandas as pd
 
 
 class MarketDataServiceICDecayTest(unittest.TestCase):
@@ -185,6 +186,51 @@ class MarketDataServiceICDecayTest(unittest.TestCase):
         svc._compute_ic_decay()
 
         self.assertIsNone(svc.get_ic_decay())
+
+    def test_backfill_macro_history_skips_when_history_sufficient(self):
+        from app.allocation.data.market_data_service import MarketDataService
+
+        svc = MarketDataService()
+        sufficient = [("2024-01-01", 1.0, "macro_history_provider")] * 60
+
+        with patch("app.storage.database.MacroCache") as mock_macro, patch(
+            "app.allocation.backtest.historical_data.load_macro_history"
+        ) as mock_loader:
+            mock_macro.get_history.return_value = sufficient
+            result = svc._backfill_macro_history()
+
+        self.assertEqual(result["reason"], "history_sufficient")
+        mock_loader.assert_not_called()
+        mock_macro.save_batch.assert_not_called()
+
+    def test_backfill_macro_history_saves_provider_rows_when_short(self):
+        from app.allocation.data.market_data_service import MarketDataService
+
+        svc = MarketDataService()
+        dates = pd.date_range("2024-01-01", periods=12, freq="MS")
+        ten_y_dates = pd.date_range("2024-01-01", periods=60, freq="D")
+        histories = {
+            "PMI制造业": pd.Series(range(12), index=dates, dtype=float),
+            "GDP同比": pd.Series(range(8), index=dates[:8], dtype=float),
+            "CPI同比": pd.Series(range(12), index=dates, dtype=float),
+            "PPI同比": pd.Series(range(12), index=dates, dtype=float),
+            "M2增速": pd.Series(range(12), index=dates, dtype=float),
+            "10Y国债收益率": pd.Series([2.0 + i * 0.01 for i in range(60)], index=ten_y_dates),
+        }
+
+        with patch("app.storage.database.MacroCache") as mock_macro, patch(
+            "app.allocation.backtest.historical_data.load_macro_history",
+            return_value=histories,
+        ) as mock_loader:
+            mock_macro.get_history.return_value = []
+            result = svc._backfill_macro_history()
+
+        self.assertEqual(result["reason"], "backfilled")
+        self.assertEqual(result["indicators"], 6)
+        self.assertEqual(result["saved"], 116)
+        mock_loader.assert_called_once()
+        saved_rows = mock_macro.save_batch.call_args.args[0]
+        self.assertIn(("PMI制造业", 0.0, "2024-01-01", "macro_history_provider"), saved_rows)
 
     def test_adaptive_weights_fallback_on_insufficient_history(self):
         """_get_adaptive_weights falls back to static weights when IC data is insufficient."""
