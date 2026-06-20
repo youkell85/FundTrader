@@ -16,6 +16,28 @@ def test_asset_allocation_does_not_estimate_missing_bonds_or_cash():
     assert "未做默认估算" in result["missingReason"]
 
 
+def test_asset_allocation_accepts_numeric_ratio_strings():
+    result = service._analyze_asset_allocation(
+        {"stock_holdings": [{"name": "A", "ratio": "12.5"}, {"name": "B", "ratio": "7.5"}]}
+    )
+
+    assert result["stocks"] == 20.0
+    assert result["bonds"] is None
+    assert result["cash"] is None
+    assert result["dataStatus"] == "partial"
+
+
+def test_asset_allocation_missing_without_valid_ratios():
+    result = service._analyze_asset_allocation(
+        {"stock_holdings": [{"name": "A", "ratio": None}, {"name": "B", "ratio": "bad"}]}
+    )
+
+    assert result["stocks"] is None
+    assert result["dataStatus"] == "missing"
+    assert result["bonds"] is None
+    assert result["cash"] is None
+
+
 def test_asset_allocation_missing_without_real_holdings():
     result = service._analyze_asset_allocation({"stock_holdings": []})
 

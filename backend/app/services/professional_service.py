@@ -151,6 +151,17 @@ def _calc_sortino_ratio(returns: np.ndarray, risk_free: float = 0.02 / 252) -> f
     return (np.mean(returns) - risk_free) / downside_std * np.sqrt(252)
 
 
+def _parse_holding_ratio(holding: Dict[str, Any]) -> Optional[float]:
+    """Parse a holding ratio from live data without inventing a default."""
+    try:
+        ratio = float(holding.get("ratio"))
+    except (TypeError, ValueError):
+        return None
+    if ratio <= 0:
+        return None
+    return ratio
+
+
 def _analyze_asset_allocation(portfolio: Optional[Dict]) -> Dict[str, Any]:
     """资产配置分析"""
     if not portfolio:
@@ -174,7 +185,18 @@ def _analyze_asset_allocation(portfolio: Optional[Dict]) -> Dict[str, Any]:
             "source": None,
             "missingReason": "缺少真实股票持仓数据，未生成资产配置估算。",
         }
-    stock_ratio = sum(h.get("ratio", 0) for h in holdings)
+    ratios = [ratio for holding in holdings if (ratio := _parse_holding_ratio(holding)) is not None]
+    if not ratios:
+        return {
+            "stocks": None,
+            "bonds": None,
+            "cash": None,
+            "other": None,
+            "dataStatus": "missing",
+            "source": None,
+            "missingReason": "缺少真实股票持仓占比，未生成资产配置估算。",
+        }
+    stock_ratio = sum(ratios)
     return {
         "stocks": round(stock_ratio, 2),
         "bonds": None,
@@ -201,11 +223,8 @@ def _analyze_industry_distribution(portfolio: Optional[Dict]) -> Dict[str, Any]:
         industry = str(holding.get("industry") or "").strip()
         if not industry:
             continue
-        try:
-            ratio = float(holding.get("ratio") or 0)
-        except (TypeError, ValueError):
-            continue
-        if ratio <= 0:
+        ratio = _parse_holding_ratio(holding)
+        if ratio is None:
             continue
         industries[industry] = industries.get(industry, 0.0) + ratio
 
