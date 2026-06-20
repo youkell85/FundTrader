@@ -481,6 +481,11 @@ class JumpDriftTest(unittest.TestCase):
         warnings = _check_jump_drift(None)
         self.assertEqual(warnings, [])
 
+    def test_missing_jump_prob_reports_missing_without_default(self):
+        params = {"params": {"jump_mean": -0.04, "jump_vol": 0.08}}
+        warnings = _check_jump_drift(params)
+        self.assertEqual(warnings, ["jump_params/jump_probability: missing"])
+
     def test_handles_unreadable_jump_prob(self):
         params = {"params": {"jump_probability": "unknown"}}
         warnings = _check_jump_drift(params)
@@ -577,6 +582,43 @@ class AuditCalibrationTest(unittest.TestCase):
         sections_by_key = {s["key"]: s for s in result["sections"]}
         eq = sections_by_key["equilibrium_returns"]
         self.assertEqual(eq["status"], "assumption")
+
+    def test_static_jump_params_do_not_use_default_probability(self):
+        cache = {
+            "jump_params": {
+                "params": {"jump_mean": -0.04, "jump_vol": 0.08},
+                "source": "static_assumption",
+                "coverage": 0.0,
+                "invalid_assets": {},
+                "assumptions_used": [],
+            },
+        }
+        with patch("app.storage.database.StatsSnapshotCache") as mock_cache:
+            mock_cache.get.return_value = cache
+            result = audit_calibration()
+        sections_by_key = {s["key"]: s for s in result["sections"]}
+        jp = sections_by_key["jump_params"]
+        self.assertEqual(jp["status"], "assumption")
+        self.assertEqual(jp["warnings"], [])
+
+    def test_real_jump_params_missing_probability_warns_missing(self):
+        cache = {
+            "jump_params": {
+                "params": {"jump_mean": -0.04, "jump_vol": 0.08},
+                "source": "historical_market_data",
+                "coverage": 1.0,
+                "valid_assets": ["a_share_large"],
+                "invalid_assets": {},
+                "assumptions_used": [],
+            },
+        }
+        with patch("app.storage.database.StatsSnapshotCache") as mock_cache:
+            mock_cache.get.return_value = cache
+            result = audit_calibration()
+        sections_by_key = {s["key"]: s for s in result["sections"]}
+        jp = sections_by_key["jump_params"]
+        self.assertEqual(jp["status"], "real")
+        self.assertIn("jump_params/jump_probability: missing", jp["warnings"])
 
     def test_drift_warning_on_large_return_deviation(self):
         cache = {

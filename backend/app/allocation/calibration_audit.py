@@ -180,14 +180,6 @@ class CalibrationSectionItem:
         return d
 
 
-# --- Static defaults for sections that are always assumption-backed ---
-_STATIC_JUMP_PARAMS = {
-    "jump_probability": 0.03,
-    "jump_mean": -0.04,
-    "jump_vol": 0.08,
-}
-
-
 def _today() -> str:
     return _date.today().isoformat()
 
@@ -247,7 +239,11 @@ def _check_jump_drift(params: Optional[dict], jump_prob_range: Tuple[float, floa
         return []
     warnings: List[str] = []
     jp = params.get("params") or params
-    jp_val = jp.get("jump_probability", _STATIC_JUMP_PARAMS["jump_probability"])
+    if not isinstance(jp, dict):
+        return []
+    if "jump_probability" not in jp:
+        return ["jump_params/jump_probability: missing"]
+    jp_val = jp.get("jump_probability")
     try:
         jp_val = float(jp_val)
     except (TypeError, ValueError):
@@ -372,7 +368,7 @@ def audit_calibration() -> dict:
 
     # jump_params drift
     jp_section = _find_section(sections, "jump_params")
-    if jp_section and jp_section.status not in ("missing",):
+    if jp_section and jp_section.status not in ("missing", "assumption"):
         j_w = _check_jump_drift(jump_raw, (policy.jump_probability_min, policy.jump_probability_max))
         jp_section.warnings.extend(j_w)
 
