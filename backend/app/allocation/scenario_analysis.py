@@ -1,11 +1,13 @@
 """Scenario Analysis — probability-weighted return projection."""
 from typing import Dict, Optional, Tuple
 
-from .config import ASSET_CLASSES, EQUILIBRIUM_RETURNS
+from .config import ASSET_CLASSES
 from .models import RegimeState, ScenarioAnalysis, ScenarioItem
 
 
-# ─── Static defaults (preserved for backward compatibility) ───
+class ScenarioCalibrationUnavailable(RuntimeError):
+    """Raised when scenario analysis lacks real calibrated inputs."""
+
 
 _DEFAULT_SCENARIOS = [
     {
@@ -27,15 +29,6 @@ _DEFAULT_SCENARIOS = [
         "multiplier": {"equity": 0.5, "fixed_income": 1.2, "alternative": 0.8, "cash_equiv": 1.0},
     },
 ]
-
-_DEFAULT_PROVENANCE = {
-    "source": "static_assumption",
-    "calibration_version": "static-scenario-params",
-    "as_of_date": None,
-    "probability_source": "static_assumption",
-    "baseline_source": "static_assumption",
-}
-
 
 def _validate_probabilities(probs: list) -> bool:
     """Probabilities must all be positive and sum to 1 (within tolerance)."""
@@ -59,19 +52,32 @@ def _validate_baseline_returns(returns: dict) -> bool:
     return True
 
 
+def _validate_multiplier_overrides(overrides: dict) -> bool:
+    """Multiplier overrides must cover all 3 scenarios with numeric group values."""
+    if not isinstance(overrides, dict):
+        return False
+    required_groups = {"equity", "fixed_income", "alternative", "cash_equiv"}
+    for idx, scenario in enumerate(_DEFAULT_SCENARIOS):
+        raw = overrides.get(str(idx)) or overrides.get(scenario["name"])
+        if not isinstance(raw, dict):
+            return False
+        for group in required_groups:
+            value = raw.get(group)
+            if not isinstance(value, (int, float)):
+                return False
+            if value < 0:
+                return False
+    return True
+
+
 def _load_scenario_params() -> Tuple[dict, dict]:
     """Load calibrated scenario params from cache when available.
 
     Returns (params, provenance) where params may contain:
-      - baseline_returns: per-asset baseline returns overriding EQUILIBRIUM_RETURNS
+      - baseline_returns: per-asset calibrated baseline returns
       - probabilities: [optimistic, baseline, pessimistic] probabilities
-      - multiplier_overrides: optional per-scenario/group multiplier overrides
+      - multiplier_overrides: per-scenario/group multipliers
     """
-    fallback = {
-        "baseline_returns": dict(EQUILIBRIUM_RETURNS),
-        "probabilities": [0.25, 0.50, 0.25],
-        "multiplier_overrides": None,
-    }
     try:
         from app.storage.database import StatsSnapshotCache
 
@@ -80,30 +86,23 @@ def _load_scenario_params() -> Tuple[dict, dict]:
         params = section.get("params") or {}
 
         if not isinstance(params, dict) or not params:
-            return fallback, dict(_DEFAULT_PROVENANCE)
+            raise ScenarioCalibrationUnavailable("missing scenario_analysis calibration params")
 
-        # Extract with per-field fallback
+        source = section.get("source") or "sqlite_cache"
+        status = section.get("status")
+        if source == "static_assumption" or status == "assumption":
+            raise ScenarioCalibrationUnavailable("scenario_analysis calibration is static assumption")
+
         baseline_returns = params.get("baseline_returns")
         probabilities = params.get("probabilities")
         multiplier_overrides = params.get("multiplier_overrides")
 
-        # Validate probabilities
-        if probabilities is not None:
-            if not _validate_probabilities(probabilities):
-                probabilities = [0.25, 0.50, 0.25]
-        else:
-            probabilities = [0.25, 0.50, 0.25]
-
-        # Validate baseline returns
-        if baseline_returns is not None:
-            if not _validate_baseline_returns(baseline_returns):
-                baseline_returns = dict(EQUILIBRIUM_RETURNS)
-        else:
-            baseline_returns = dict(EQUILIBRIUM_RETURNS)
-
-        # Multiplier overrides are optional and low-risk
-        if multiplier_overrides is not None and not isinstance(multiplier_overrides, dict):
-            multiplier_overrides = None
+        if not _validate_baseline_returns(baseline_returns):
+            raise ScenarioCalibrationUnavailable("missing valid calibrated baseline returns")
+        if not _validate_probabilities(probabilities):
+            raise ScenarioCalibrationUnavailable("missing valid calibrated scenario probabilities")
+        if not _validate_multiplier_overrides(multiplier_overrides):
+            raise ScenarioCalibrationUnavailable("missing valid calibrated scenario multipliers")
 
         result = {
             "baseline_returns": baseline_returns,
@@ -112,15 +111,18 @@ def _load_scenario_params() -> Tuple[dict, dict]:
         }
 
         provenance = {
-            "source": section.get("source") or "sqlite_cache",
+            "source": source,
             "calibration_version": section.get("calibration_version"),
             "as_of_date": section.get("as_of"),
-            "probability_source": "sqlite_cache" if probabilities != [0.25, 0.50, 0.25] else "static_assumption",
-            "baseline_source": "sqlite_cache" if baseline_returns != dict(EQUILIBRIUM_RETURNS) else "static_assumption",
+            "probability_source": source,
+            "baseline_source": source,
+            "multiplier_source": source,
         }
         return result, provenance
+    except ScenarioCalibrationUnavailable:
+        raise
     except Exception:
-        return fallback, dict(_DEFAULT_PROVENANCE)
+        raise ScenarioCalibrationUnavailable("scenario_analysis calibration cache unavailable")
 
 
 def analyze_scenarios(
@@ -133,10 +135,11 @@ def analyze_scenarios(
       - Baseline: Equilibrium returns
       - Pessimistic: Below equilibrium, especially equities
 
-    When calibration cache is available, baseline returns and scenario
-    probabilities are loaded from StatsSnapshotCache("historical_calibration")
-    -> scenario_analysis.params.  Invalid or missing values fall back
-    per-field to static defaults.
+    Baseline returns, probabilities, and multipliers must all come from
+    StatsSnapshotCache("historical_calibration") -> scenario_analysis.params.
+    Invalid or missing calibration raises ScenarioCalibrationUnavailable
+    so the orchestrator can expose scenario_analysis as missing instead of
+    fabricating static projections.
     """
     params, provenance = _load_scenario_params()
     baseline_returns = params["baseline_returns"]

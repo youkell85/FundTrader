@@ -29,7 +29,7 @@ from .monte_carlo import simulate
 from .regime_detector import detect_regime, get_regime_status
 from .risk_profiler import RISK_LABELS, profile_user
 from .saa_engine import optimize_saa
-from .scenario_analysis import analyze_scenarios
+from .scenario_analysis import ScenarioCalibrationUnavailable, analyze_scenarios
 from .stress_test import run_stress_tests
 from .taa_engine import adjust_taa
 
@@ -346,6 +346,12 @@ def run(
         scenario_result.weighted_return = round(scenario_result.weighted_return * 100, 2)
         for s in scenario_result.scenarios:
             s.impact = round(s.impact * 100, 2)
+    except ScenarioCalibrationUnavailable as e:
+        scenario_result = None
+        d.status = "degraded"
+        d.detail = str(e)[:100]
+        d.elapsed_ms = (time.monotonic() - t0) * 1000
+        warnings.append(f"情景分析缺少真实校准数据，已跳过: {str(e)[:50]}")
     except Exception as e:
         d.status = "error"
         d.detail = str(e)[:100]
