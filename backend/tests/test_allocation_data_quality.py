@@ -46,6 +46,35 @@ class AllocationMarketDataQualityTest(unittest.TestCase):
         self.assertTrue(np.all(np.isfinite(corr)))
         self.assertTrue(np.all(np.isfinite(cov)))
 
+    def test_compute_rolling_stats_uses_reits_candidate_when_primary_missing(self):
+        normal_prices = np.linspace(1.0, 1.2, market_data_fetcher.MIN_DAYS + 60)
+
+        def fake_fetch(code):
+            if code == "508088":
+                return None
+            return normal_prices
+
+        with patch.object(market_data_fetcher, "_fetch_etf_nav", side_effect=fake_fetch):
+            result = market_data_fetcher.compute_rolling_stats_ex()
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertIsNotNone(result["returns_long"]["reits"])
+        self.assertEqual(result["quality"]["reits"]["status"], "available")
+        self.assertEqual(result["quality"]["reits"]["source"], "representative_etf:508006")
+
+    def test_compute_rolling_stats_uses_money_fund_proxy_for_cash(self):
+        normal_prices = np.linspace(1.0, 1.2, market_data_fetcher.MIN_DAYS + 60)
+
+        with patch.object(market_data_fetcher, "_fetch_etf_nav", return_value=normal_prices):
+            result = market_data_fetcher.compute_rolling_stats_ex()
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertIsNotNone(result["returns_long"]["cash"])
+        self.assertEqual(result["quality"]["cash"]["status"], "available")
+        self.assertEqual(result["quality"]["cash"]["source"], "representative_etf:511880")
+
     def test_market_data_status_exposes_invalid_assets_and_health(self):
         service = MarketDataService()
         service._rolling_stats = ({}, {}, [])

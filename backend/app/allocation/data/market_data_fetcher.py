@@ -35,6 +35,11 @@ REPRESENTATIVE_ETFS: Dict[str, str] = {
     "cash": None,  # Static, no ETF
 }
 
+ASSET_PRICE_CANDIDATES: Dict[str, List[str]] = {
+    "reits": ["508088", "508006", "508027", "180101"],
+    "cash": ["511880"],
+}
+
 # Asset class order (must match config.ASSET_CLASSES)
 ASSET_ORDER = [
     "a_share_large", "a_share_small", "a_share_value", "a_share_growth",
@@ -92,31 +97,21 @@ def compute_rolling_stats_ex() -> Optional[Dict]:
 
     for asset_class in ASSET_ORDER:
         etf_code = REPRESENTATIVE_ETFS.get(asset_class)
-        if etf_code is None:
-            returns_matrix[asset_class] = None
-            quality[asset_class] = {
-                "status": "assumption",
-                "source": "static",
-                "reason": "no_representative_etf",
-            }
-            continue
-
-        nav_series = _fetch_etf_nav(etf_code)
-        is_valid, reason = _validate_price_series(asset_class, etf_code, nav_series)
-        if is_valid:
+        nav_series, actual_code, reason = _fetch_asset_nav(asset_class, etf_code)
+        if nav_series is not None:
             log_returns = np.diff(np.log(nav_series))
             returns_matrix[asset_class] = log_returns
             quality[asset_class] = {
                 "status": "available",
-                "source": f"representative_etf:{etf_code}",
+                "source": f"representative_etf:{actual_code}",
                 "reason": None,
             }
         else:
-            logger.warning(f"Rejected NAV data for {asset_class} (ETF: {etf_code}): {reason}")
+            logger.warning(f"Rejected NAV data for {asset_class} (ETF: {actual_code}): {reason}")
             returns_matrix[asset_class] = None
             quality[asset_class] = {
                 "status": "rejected",
-                "source": f"representative_etf:{etf_code}",
+                "source": f"representative_etf:{actual_code or 'none'}",
                 "reason": reason,
             }
 
@@ -165,6 +160,30 @@ def compute_rolling_stats_ex() -> Optional[Dict]:
     result["quality"] = quality
 
     return result
+
+
+def _fetch_asset_nav(
+    asset_class: str,
+    primary_code: Optional[str],
+) -> Tuple[Optional[np.ndarray], Optional[str], str | None]:
+    """Fetch a validated representative price series, trying real same-class proxies."""
+    candidates = [primary_code, *ASSET_PRICE_CANDIDATES.get(asset_class, [])]
+    failures: list[str] = []
+    seen: set[str] = set()
+    for code in candidates:
+        if not code or code in seen:
+            continue
+        seen.add(code)
+        prices = _fetch_etf_nav(code)
+        is_valid, reason = _validate_price_series(asset_class, code, prices)
+        if is_valid:
+            return prices, code, None
+        failures.append(f"{code}:{reason or 'invalid_price_series'}")
+    if not failures and primary_code is None:
+        return None, None, "no_representative_etf"
+    if len(failures) == 1 and ":" in failures[0]:
+        return None, primary_code, failures[0].split(":", 1)[1]
+    return None, primary_code, ";".join(failures) or "invalid_price_series"
 
 
 def _validate_price_series(
