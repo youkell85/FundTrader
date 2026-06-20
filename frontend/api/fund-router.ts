@@ -1763,13 +1763,12 @@ export const fundRouter = createRouter({
         const label = String(fund.type || "other");
         typeMap.set(label, (typeMap.get(label) || 0) + 1);
       });
-      const total = rawFunds.length || 1;
+      const total = rawFunds.length;
       const result = Array.from(typeMap.entries())
         .map(([industry, count]) => ({ industry, totalRatio: ((count / total) * 100).toFixed(2) }))
         .sort((a, b) => parseFloat(b.totalRatio) - parseFloat(a.totalRatio))
         .slice(0, 10);
-      if (result.length === 0) return [{ industry: "暂无数据", totalRatio: "100.00" }];
-      setCache(cacheKey, result, HOLDINGS_TTL);
+      if (result.length > 0) setCache(cacheKey, result, HOLDINGS_TTL);
       return result;
     } catch (err) {
       wrapError(err, "获取行业统计失败");

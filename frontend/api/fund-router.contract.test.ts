@@ -139,6 +139,32 @@ describe('fund detail contract fallbacks', () => {
     expect(ftFetchMock).toHaveBeenLastCalledWith('/fund/jobs/job-1');
   });
 
+  test('industryStats does not create a fake 100 percent no-data bucket', async () => {
+    vi.mocked(fundClient.getFundSnapshotList).mockResolvedValueOnce({ total: 0, funds: [] });
+
+    const result = await caller.industryStats();
+
+    expect(result).toEqual([]);
+  });
+
+  test('industryStats computes ratios only from returned fund snapshots', async () => {
+    vi.mocked(fundClient.getFundSnapshotList).mockResolvedValueOnce({
+      total: 3,
+      funds: [
+        { code: '000001', type: '股票型' },
+        { code: '000002', type: '股票型' },
+        { code: '000003', type: '债券型' },
+      ],
+    });
+
+    const result = await caller.industryStats();
+
+    expect(result).toEqual([
+      { industry: '股票型', totalRatio: '66.67' },
+      { industry: '债券型', totalRatio: '33.33' },
+    ]);
+  });
+
   test('detailByCode preserves snapshot holdings in fast fallback', async () => {
     vi.mocked(fundClient.getFundSnapshot).mockResolvedValueOnce({
       code: '000003',
