@@ -1451,6 +1451,9 @@ def _clean_bond_text(value: Any) -> str | None:
 
 _CHINAMONEY_BOND_INFO_CACHE: dict[str, dict[str, Any] | None] = {}
 _CHINAMONEY_BOND_INFO_CACHE_LOCK = threading.Lock()
+_TREASURY_EXCHANGE_CODE_MAP = {
+    "019785": "250013",
+}
 
 
 def _clean_chinamoney_value(value: Any) -> str | None:
@@ -1543,6 +1546,49 @@ def _first_chinamoney_detail(payload: dict[str, Any] | None) -> dict[str, Any]:
     return {}
 
 
+def _derive_chinamoney_treasury_code(bond_code: str | None, bond_name: str | None) -> str | None:
+    code = _clean_bond_text(bond_code)
+    name = _clean_bond_text(bond_name) or ""
+    if code in _TREASURY_EXCHANGE_CODE_MAP:
+        return _TREASURY_EXCHANGE_CODE_MAP[code]
+    if not name or "国债" not in name:
+        return None
+    match = re.search(r"(?P<year>\d{2})国债(?P<issue>\d{1,2})", name)
+    if not match:
+        match = re.search(r"(?P<year>\d{4})年.*?(?P<issue>[一二三四五六七八九十\d]{1,4})期.*?国债", name)
+    if not match:
+        return None
+    year = match.group("year")[-2:]
+    issue_text = match.group("issue")
+    cn_digit_map = {
+        "一": 1,
+        "二": 2,
+        "三": 3,
+        "四": 4,
+        "五": 5,
+        "六": 6,
+        "七": 7,
+        "八": 8,
+        "九": 9,
+        "十": 10,
+    }
+    if issue_text.isdigit():
+        issue = int(issue_text)
+    elif issue_text == "十":
+        issue = 10
+    elif issue_text.startswith("十"):
+        issue = 10 + cn_digit_map.get(issue_text[-1], 0)
+    elif "十" in issue_text:
+        left, _, right = issue_text.partition("十")
+        issue = cn_digit_map.get(left, 0) * 10 + cn_digit_map.get(right, 0)
+    else:
+        issue = cn_digit_map.get(issue_text)
+    if not issue:
+        return None
+    derived = f"{year}{issue:04d}"
+    return derived if derived != code else None
+
+
 def _fetch_chinamoney_bond_info(bond_code: str | None, bond_name: str | None = None) -> dict[str, Any] | None:
     code = _clean_bond_text(bond_code)
     name = _clean_bond_text(bond_name)
@@ -1553,12 +1599,13 @@ def _fetch_chinamoney_bond_info(bond_code: str | None, bond_name: str | None = N
         if cache_key in _CHINAMONEY_BOND_INFO_CACHE:
             return _CHINAMONEY_BOND_INFO_CACHE[cache_key]
 
+    query_code = _derive_chinamoney_treasury_code(code, name) or code
     list_payload = {
         "pageNo": "1",
         "pageSize": "10",
         "isin": "",
-        "bondCode": code or "",
-        "bondName": "" if code else (name or ""),
+        "bondCode": query_code or "",
+        "bondName": "" if query_code else (name or ""),
         "bondType": "",
         "couponType": "",
         "issueYear": "",
@@ -1570,11 +1617,21 @@ def _fetch_chinamoney_bond_info(bond_code: str | None, bond_name: str | None = N
         list_payload,
     )
     rows = _extract_chinamoney_rows(list_result)
+    if not rows:
+        treasury_code = _derive_chinamoney_treasury_code(code, name)
+        if treasury_code:
+            list_payload["bondCode"] = treasury_code
+            list_payload["bondName"] = ""
+            list_result = _chinamoney_post_json(
+                "https://www.chinamoney.com.cn/ags/ms/cm-u-bond-md/BondMarketInfoList2",
+                list_payload,
+            )
+            rows = _extract_chinamoney_rows(list_result)
     selected = None
     for row in rows:
         row_code = _clean_chinamoney_value(row.get("bondCode"))
         row_name = _clean_chinamoney_value(row.get("bondName"))
-        if (code and row_code == code) or (name and row_name == name):
+        if (query_code and row_code == query_code) or (name and row_name == name):
             selected = row
             break
     if not selected and rows:
@@ -1685,6 +1742,13 @@ def _infer_bond_issuer(name: str | None, bond_type: str | None) -> str | None:
     return None
 
 
+def _is_treasury_bond(item: dict[str, Any]) -> bool:
+    bond_type = str(item.get("bondType") or "")
+    issuer = str(item.get("issuer") or "")
+    name = str(item.get("bondName") or "")
+    return "国债" in bond_type or "国债" in name or "财政部" in issuer
+
+
 def _latest_total_scale(code: str) -> tuple[float | None, str | None, str | None]:
     rows = _safe_table_query(
         """SELECT total_scale, report_date, source
@@ -1741,6 +1805,9 @@ def _enrich_bond_holdings(code: str, rows: list[dict[str, Any]]) -> tuple[list[d
                 item["creditRatingSource"] = official_info.get("source")
             elif official_info.get("creditRatingStatus"):
                 item["creditRatingStatus"] = official_info["creditRatingStatus"]
+        if _is_treasury_bond(item) and not item.get("creditRating"):
+            item["creditRatingStatus"] = "not_applicable"
+            item["creditRatingSource"] = item.get("bondInfoSource") or "rule:treasury_bond"
         if not item.get("bondType"):
             item["bondType"] = _infer_bond_type(item.get("bondName"))
         if not item.get("issuer"):
@@ -1825,6 +1892,8 @@ def _bond_holdings_quality(rows: list[dict[str, Any]]) -> dict[str, Any]:
             value = row.get(field)
             if field == "couponRate" and row.get("couponRateStatus") == "not_applicable":
                 present += 1
+            elif field == "creditRating" and row.get("creditRatingStatus") == "not_applicable":
+                present += 1
             elif value not in (None, "", []):
                 present += 1
             else:
@@ -1833,7 +1902,7 @@ def _bond_holdings_quality(rows: list[dict[str, Any]]) -> dict[str, Any]:
                 else:
                     missing_fields.add(field)
     coverage = round(present / total, 4) if total else 0.0
-    critical_missing = bool({"creditRating", "creditRatingUnavailable"} & missing_fields)
+    critical_missing = bool({"couponRate", "creditRating", "creditRatingUnavailable"} & missing_fields)
     status = DETAIL_STATUS_AVAILABLE if coverage >= 0.85 and not critical_missing else DETAIL_STATUS_PARTIAL
     labels = {
         "bondCode": "债券代码",

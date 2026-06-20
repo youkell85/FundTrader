@@ -779,6 +779,75 @@ class FundDetailContractTest(unittest.TestCase):
         self.assertEqual(quality["coverage"], 0.875)
         self.assertIn("\u4fe1\u7528\u8bc4\u7ea7\u672a\u62ab\u9732", quality["missingReason"])
 
+    def test_treasury_bond_code_derives_chinamoney_code_and_closes_rating_gap(self):
+        self.assertEqual(
+            fund_service._derive_chinamoney_treasury_code("019785", "25\u56fd\u503a13"),
+            "250013",
+        )
+        fund_service._CHINAMONEY_BOND_INFO_CACHE.clear()
+
+        def fake_post(url, payload):
+            if "BondMarketInfoList2" in url and payload.get("bondCode") == "019785":
+                return {"data": {"resultList": []}}
+            if "BondMarketInfoList2" in url and payload.get("bondCode") == "250013":
+                return {
+                    "data": {
+                        "resultList": [{
+                            "bondDefinedCode": "treasury250013",
+                            "bondName": "25\u56fd\u503a13",
+                            "bondCode": "250013",
+                            "bondType": "\u56fd\u503a",
+                            "entyFullName": "\u4e2d\u534e\u4eba\u6c11\u5171\u548c\u56fd\u8d22\u653f\u90e8",
+                            "debtRtng": "---",
+                        }]
+                    }
+                }
+            if "BondDetailInfo" in url:
+                return {
+                    "data": {
+                        "bondBaseInfo": {
+                            "bondFullName": "2025\u5e74\u8bb0\u8d26\u5f0f\u9644\u606f(\u5341\u4e09\u671f)\u56fd\u503a",
+                            "bondType": "\u56fd\u503a",
+                            "entyFullName": "\u4e2d\u534e\u4eba\u6c11\u5171\u548c\u56fd\u8d22\u653f\u90e8",
+                            "couponType": "\u9644\u606f\u5f0f\u56fa\u5b9a\u5229\u7387",
+                            "parCouponRate": "1.3300",
+                            "creditRateEntyList": [{"creditSubjectRating": "---/---"}],
+                        }
+                    }
+                }
+            return {}
+
+        with patch.object(fund_service, "_chinamoney_post_json", side_effect=fake_post):
+            info = fund_service._fetch_chinamoney_bond_info("019785", "25\u56fd\u503a13")
+
+        self.assertEqual(info["bondType"], "\u56fd\u503a")
+        self.assertEqual(info["couponRate"], 1.33)
+
+        rows = [{"bondName": "25\u56fd\u503a13", "bondCode": "019785", "navRatio": 2.03}]
+
+        def fake_chinamoney(bond_code, bond_name=None):
+            if bond_code == "019785":
+                return {
+                    "source": "chinamoney:bond_detail",
+                    "issuer": "\u4e2d\u534e\u4eba\u6c11\u5171\u548c\u56fd\u8d22\u653f\u90e8",
+                    "bondType": "\u56fd\u503a",
+                    "couponType": "\u9644\u606f\u5f0f\u56fa\u5b9a\u5229\u7387",
+                    "couponRate": 1.33,
+                    "creditRatingStatus": "unavailable",
+                }
+            return None
+
+        with patch.object(fund_service, "_latest_total_scale", return_value=(0.0176, "20250630", "tushare:fund_share")), \
+            patch.object(fund_service, "_fetch_chinamoney_bond_info", side_effect=fake_chinamoney):
+            enriched, _notes = fund_service._enrich_bond_holdings("020983", rows)
+
+        self.assertEqual(enriched[0]["couponRate"], 1.33)
+        self.assertEqual(enriched[0]["creditRatingStatus"], "not_applicable")
+        quality = fund_service._bond_holdings_quality(enriched)
+        self.assertEqual(quality["status"], "available")
+        self.assertEqual(quality["coverage"], 1.0)
+        self.assertIsNone(quality["missingReason"])
+
     def test_cached_analysis_persists_cached_holdings_snapshot(self):
         cached = {
             "code": "000001",
