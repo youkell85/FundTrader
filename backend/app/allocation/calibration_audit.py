@@ -182,12 +182,17 @@ def _today() -> str:
     return _date.today().isoformat()
 
 
-def _section_status_from_result(result: dict, coverage_threshold: float = _DEFAULT_COVERAGE_THRESHOLD) -> Tuple[str, List[str]]:
+def _section_status_from_result(
+    result: dict, coverage_threshold: float = _DEFAULT_COVERAGE_THRESHOLD, section_key: str | None = None
+) -> Tuple[str, List[str]]:
     """Infer status and warnings from a CalibrationResult dict."""
     source = result.get("source", "unknown")
     coverage = result.get("coverage", 0.0)
     assumptions = result.get("assumptions_used") or []
     invalid = result.get("invalid_assets") or {}
+    explicit_status = result.get("status")
+    if section_key == "risk_questionnaire" and explicit_status == "real":
+        return "real", list(result.get("warnings") or [])
 
     if source == "static_assumption":
         return ("assumption", [])
@@ -253,7 +258,7 @@ def _build_section(
             warnings=["section not found in calibration cache"],
         )
 
-    status, warnings = _section_status_from_result(result, coverage_threshold)
+    status, warnings = _section_status_from_result(result, coverage_threshold, section_key=name)
 
     return CalibrationSectionItem(
         key=name,

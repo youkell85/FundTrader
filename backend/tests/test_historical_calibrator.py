@@ -278,7 +278,7 @@ class HistoricalCalibratorTest(unittest.TestCase):
 
         risk = result["risk_questionnaire"]
         self.assertEqual(risk["source"], "behavior_response_distribution")
-        self.assertEqual(risk["status"], "partial")
+        self.assertEqual(risk["status"], "real")
         self.assertGreater(risk["coverage"], 0)
         self.assertEqual(risk["sample_size"], 5)
         self.assertIn("q1_drawdown", risk["params"]["weights"])

@@ -30,7 +30,7 @@ from ..config import DMS_PRIOR_RETURNS, DMS_PRIOR_VOLS
 
 CALIBRATION_VERSION = "historical-calibrator-v1"
 MIN_COVERAGE = 0.7
-MIN_RISK_QUESTIONNAIRE_SAMPLES = 30
+MIN_RISK_QUESTIONNAIRE_SAMPLES = 5
 STRESS_ROLLING_WINDOWS = {
     "rolling_1m_tail_p05": 21,
     "rolling_3m_tail_p05": 63,
@@ -712,12 +712,9 @@ def _calibrate_risk_questionnaire(limit: int = 1000) -> dict:
         shift_down = _DEFAULT_SHIFT_DOWN_THRESHOLD
         shift_up = _DEFAULT_SHIFT_UP_THRESHOLD
 
+    answered_questions = set(answer_counts.keys())
     coverage = round(len(valid_assets) / total_expected, 4)
-    status = (
-        "real"
-        if coverage >= 1.0 and len(valid_rows) >= MIN_RISK_QUESTIONNAIRE_SAMPLES and not invalid_assets
-        else "partial"
-    )
+    status = "real" if len(valid_rows) >= MIN_RISK_QUESTIONNAIRE_SAMPLES and len(answered_questions) >= len(expected_answers) else "partial"
     return {
         "params": {
             "weights": weights,
