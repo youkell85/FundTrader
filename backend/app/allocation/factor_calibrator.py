@@ -15,7 +15,7 @@ from typing import Dict, Optional, Tuple
 import numpy as np
 import pandas as pd
 
-from .config import ASSET_CLASSES, FACTOR_LOADINGS
+from .config import ASSET_CLASSES, ASSET_INDEX, FACTOR_LOADINGS
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +28,7 @@ FACTOR_PROXIES = {
 }
 
 CALIBRATION_VERSION = "factor-calibration-v1"
+LONG_WINDOW_FACTOR_SOURCE = "long_window_factor_proxy"
 WINDOW_DAYS = 252
 MIN_PROXY_COUNT = 3
 MIN_OBSERVATIONS = 120
@@ -62,7 +63,7 @@ def get_calibration_bundle(force_refresh: bool = False) -> dict:
         return _cache_bundle
 
     cached = _load_from_db()
-    if cached is not None and not force_refresh:
+    if cached is not None and not force_refresh and _bundle_has_real_coverage(cached):
         _cache_bundle = cached
         _cache_ts = now
         return cached
@@ -78,10 +79,19 @@ def get_calibration_bundle(force_refresh: bool = False) -> dict:
             logger.warning("Factor calibration failed, attempting cached bundle: %s", exc)
 
         cached = _load_from_db()
-        if cached is not None:
+        if cached is not None and _bundle_has_real_coverage(cached):
             _cache_bundle = cached
             _cache_ts = now
             return cached
+
+    try:
+        bundle = _run_long_window_proxy_calibration()
+        _cache_bundle = bundle
+        _cache_ts = now
+        _save_to_db(bundle)
+        return bundle
+    except Exception as exc:
+        logger.warning("Long-window factor calibration unavailable: %s", exc)
 
     reason = "live_calibration_disabled" if not _ENABLE_LIVE_CALIBRATION else "calibration_unavailable"
     bundle = _fallback_bundle(source="static_assumption", reason=reason)
@@ -127,6 +137,127 @@ def _run_calibration() -> dict:
             "assumptions_used": sorted(set(assumptions_used)),
             "calibration_version": CALIBRATION_VERSION,
         },
+    }
+
+
+def _run_long_window_proxy_calibration() -> dict:
+    snapshot = _load_long_window_stats()
+    if not isinstance(snapshot, dict):
+        raise RuntimeError("long_window_stats_missing")
+
+    long_window = snapshot.get("long_window") if isinstance(snapshot.get("long_window"), dict) else {}
+    vols = long_window.get("vols") or snapshot.get("vols_long") or snapshot.get("vols") or {}
+    corr = long_window.get("correlation_matrix") or snapshot.get("correlation_matrix")
+    quality = snapshot.get("quality") if isinstance(snapshot.get("quality"), dict) else {}
+    matrix = np.asarray(corr, dtype=float)
+    if matrix.shape != (len(ASSET_CLASSES), len(ASSET_CLASSES)):
+        raise RuntimeError("invalid_long_window_correlation_matrix")
+
+    loadings: Dict[str, Dict[str, float]] = {}
+    metadata: Dict[str, dict] = {}
+    valid_assets: list[str] = []
+    invalid_assets: Dict[str, str] = {}
+    proxy_assets = {factor: details["asset_class"] for factor, details in FACTOR_PROXIES.items()}
+    proxy_sources = {
+        factor: _quality_source(quality.get(asset) or {}, asset)
+        for factor, asset in proxy_assets.items()
+    }
+
+    for asset in ASSET_CLASSES:
+        asset_loadings, reason = _derive_long_window_loadings(asset, vols, matrix, proxy_assets)
+        asset_quality = quality.get(asset) or {}
+        if asset_loadings is None:
+            loadings[asset] = _static_loadings_for(asset)
+            invalid_assets[asset] = reason
+            metadata[asset] = _long_window_metadata(
+                source="static_expert_estimate",
+                reason=reason,
+                proxy_sources=proxy_sources,
+                quality=asset_quality,
+                snapshot=snapshot,
+            )
+            continue
+
+        loadings[asset] = asset_loadings
+        valid_assets.append(asset)
+        metadata[asset] = _long_window_metadata(
+            source=LONG_WINDOW_FACTOR_SOURCE,
+            reason=None,
+            proxy_sources=proxy_sources,
+            quality=asset_quality,
+            snapshot=snapshot,
+        )
+
+    if not valid_assets:
+        raise RuntimeError("no_valid_long_window_factor_loadings")
+
+    assumptions_used = [f"{asset}:{reason}" for asset, reason in invalid_assets.items()]
+    return {
+        "loadings": loadings,
+        "metadata": metadata,
+        "summary": {
+            "source": LONG_WINDOW_FACTOR_SOURCE,
+            "as_of": datetime.now().date().isoformat(),
+            "coverage": round(len(valid_assets) / len(ASSET_CLASSES), 4) if ASSET_CLASSES else 0.0,
+            "valid_assets": valid_assets,
+            "invalid_assets": invalid_assets,
+            "assumptions_used": assumptions_used,
+            "calibration_version": CALIBRATION_VERSION,
+            "window_start": long_window.get("window_start") or snapshot.get("window_start"),
+            "window_end": long_window.get("window_end") or snapshot.get("window_end"),
+            "n_observations": long_window.get("n_observations") or snapshot.get("n_observations"),
+            "confidence_score": long_window.get("confidence_score") or snapshot.get("confidence_score"),
+        },
+    }
+
+
+def _derive_long_window_loadings(
+    asset: str,
+    vols: dict,
+    matrix: np.ndarray,
+    proxy_assets: Dict[str, str],
+) -> Tuple[Optional[Dict[str, float]], str]:
+    asset_vol = _finite_positive(vols.get(asset))
+    if asset_vol is None:
+        return None, "missing_long_window_asset_vol"
+
+    asset_index = ASSET_INDEX[asset]
+    loadings: Dict[str, float] = {}
+    for factor, proxy_asset in proxy_assets.items():
+        proxy_vol = _finite_positive(vols.get(proxy_asset))
+        if proxy_vol is None:
+            return None, f"missing_long_window_proxy_vol:{factor}"
+        proxy_index = ASSET_INDEX[proxy_asset]
+        corr = float(matrix[asset_index, proxy_index])
+        if not np.isfinite(corr):
+            return None, f"invalid_long_window_proxy_correlation:{factor}"
+        beta = corr * asset_vol / max(proxy_vol, 1e-9)
+        loadings[factor] = round(float(np.clip(beta, -3.0, 3.0)), 4)
+    return loadings, ""
+
+
+def _long_window_metadata(
+    *,
+    source: str,
+    reason: Optional[str],
+    proxy_sources: Dict[str, str],
+    quality: dict,
+    snapshot: dict,
+) -> dict:
+    long_window = snapshot.get("long_window") if isinstance(snapshot.get("long_window"), dict) else {}
+    return {
+        "source": source,
+        "n_obs": long_window.get("n_observations") or snapshot.get("n_observations") or 0,
+        "r_squared": None,
+        "window_start": long_window.get("window_start") or snapshot.get("window_start"),
+        "window_end": long_window.get("window_end") or snapshot.get("window_end"),
+        "proxy_sources": proxy_sources,
+        "invalid_proxies": [],
+        "as_of": datetime.now().date().isoformat(),
+        "assumption_reason": reason,
+        "quality_status": quality.get("status"),
+        "quality_source": quality.get("source"),
+        "method": "long_window_beta_from_correlation_volatility",
     }
 
 
@@ -483,6 +614,40 @@ def _load_from_db() -> Optional[dict]:
     except Exception as exc:
         logger.debug("Failed to load factor calibration bundle from DB: %s", exc)
     return None
+
+
+def _load_long_window_stats() -> Optional[dict]:
+    try:
+        from app.storage.database import StatsSnapshotCache
+
+        cached = StatsSnapshotCache.get("long_window_stats")
+        if isinstance(cached, dict) and cached:
+            return cached
+    except Exception as exc:
+        logger.debug("Failed to load long-window stats: %s", exc)
+    return None
+
+
+def _bundle_has_real_coverage(bundle: dict) -> bool:
+    summary = bundle.get("summary") or {}
+    return (
+        summary.get("source") != "static_assumption"
+        and float(summary.get("coverage") or 0.0) > 0.0
+    )
+
+
+def _finite_positive(value: object) -> Optional[float]:
+    try:
+        result = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not np.isfinite(result) or result <= 0.0:
+        return None
+    return result
+
+
+def _quality_source(quality: dict, asset: str) -> str:
+    return str(quality.get("source") or quality.get("reason") or f"long_window:{asset}")
 
 
 def _fallback_loadings() -> Dict[str, Dict[str, float]]:

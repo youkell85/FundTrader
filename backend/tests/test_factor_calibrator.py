@@ -4,7 +4,7 @@ from unittest.mock import patch
 import numpy as np
 
 from app.allocation import factor_calibrator, factor_exposure
-from app.allocation.config import FACTOR_LOADINGS
+from app.allocation.config import ASSET_CLASSES, DEFAULT_CORR, FACTOR_LOADINGS
 from app.allocation.models import AllocationRequest
 from app.allocation.orchestrator import run
 
@@ -75,6 +75,28 @@ def _nav_side_effect(series: dict):
         return mapping.get(code, series["generic"])
 
     return _fetch
+
+
+def _long_window_snapshot() -> dict:
+    vols = {asset: 0.05 + index * 0.01 for index, asset in enumerate(ASSET_CLASSES)}
+    vols["money_fund"] = 0.005
+    vols["cash"] = 0.003
+    return {
+        "vols_long": vols,
+        "correlation_matrix": DEFAULT_CORR,
+        "quality": {
+            asset: {"status": "available", "source": f"etf_cache:{asset}"}
+            for asset in ASSET_CLASSES
+        },
+        "long_window": {
+            "vols": vols,
+            "correlation_matrix": DEFAULT_CORR,
+            "window_start": "2023-06-01",
+            "window_end": "2026-06-01",
+            "n_observations": 720,
+            "confidence_score": 0.86,
+        },
+    }
 
 
 class FactorCalibratorTest(unittest.TestCase):
@@ -219,6 +241,33 @@ class FactorCalibratorTest(unittest.TestCase):
         self.assertEqual(exposures["equity_beta"], 1.1)
         self.assertEqual(exposures["term_premium"], 0.2)
 
+    def test_factor_exposure_accepts_long_window_factor_proxy_source(self):
+        bundle = {
+            "loadings": {
+                "a_share_large": {
+                    "equity_beta": 1.0,
+                    "term_premium": -0.2,
+                    "credit_premium": 0.05,
+                    "inflation": 0.1,
+                    "liquidity": 0.0,
+                }
+            },
+            "metadata": {
+                "a_share_large": {"source": "long_window_factor_proxy"},
+            },
+            "summary": {
+                "source": "long_window_factor_proxy",
+                "coverage": 0.1,
+                "valid_assets": ["a_share_large"],
+            },
+        }
+
+        with patch("app.allocation.factor_calibrator.get_calibration_bundle", return_value=bundle):
+            exposures = factor_exposure.calculate_exposures({"a_share_large": 1.0})
+
+        self.assertEqual(exposures["equity_beta"], 1.0)
+        self.assertEqual(exposures["term_premium"], -0.2)
+
     def test_factor_exposure_rejects_unweighted_static_asset_but_weighted_static_fails(self):
         bundle = {
             "loadings": {
@@ -256,6 +305,23 @@ class FactorCalibratorTest(unittest.TestCase):
 
         self.assertEqual(bundle["summary"]["source"], "static_assumption")
         self.assertIn("live_calibration_disabled", bundle["summary"]["assumptions_used"][0])
+
+    def test_live_disabled_uses_long_window_factor_proxy_before_static(self):
+        def fake_get(key: str):
+            return _long_window_snapshot() if key == "long_window_stats" else None
+
+        with patch("app.allocation.factor_calibrator._ENABLE_LIVE_CALIBRATION", False), patch(
+            "app.storage.database.StatsSnapshotCache.get",
+            side_effect=fake_get,
+        ), patch(
+            "app.storage.database.StatsSnapshotCache.save",
+            return_value=None,
+        ):
+            bundle = factor_calibrator.get_calibration_bundle(force_refresh=True)
+
+        self.assertEqual(bundle["summary"]["source"], "long_window_factor_proxy")
+        self.assertEqual(bundle["metadata"]["a_share_large"]["source"], "long_window_factor_proxy")
+        self.assertGreater(bundle["summary"]["coverage"], 0.0)
 
     def test_orchestrator_skips_factor_exposure_without_real_calibration(self):
         request = AllocationRequest(

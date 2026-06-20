@@ -8,6 +8,7 @@ from .config import ASSET_CLASSES
 logger = logging.getLogger(__name__)
 
 FACTOR_NAMES = ["equity_beta", "term_premium", "credit_premium", "inflation", "liquidity"]
+REAL_FACTOR_SOURCES = {"latest_window_regression", "long_window_factor_proxy"}
 
 
 class FactorCalibrationUnavailable(RuntimeError):
@@ -56,8 +57,12 @@ def get_calibration_metadata() -> dict:
     if summary.get("source") == "static_assumption" or float(summary.get("coverage") or 0.0) <= 0.0:
         return _missing_metadata("factor calibration has no real asset coverage")
     summary["assets_calibrated"] = len(summary.get("valid_assets") or [])
-    summary["method"] = "latest_window_ols"
-    summary["window"] = "252d_latest"
+    summary["method"] = (
+        "latest_window_ols"
+        if summary.get("source") == "historical_market_data"
+        else "long_window_beta_from_correlation_volatility"
+    )
+    summary["window"] = "252d_latest" if summary.get("source") == "historical_market_data" else "long_window"
     if bundle.get("metadata"):
         summary["asset_metadata"] = bundle["metadata"]
     return summary
@@ -77,7 +82,7 @@ def _validate_bundle_for_allocations(bundle: dict, allocations: Dict[str, float]
             continue
         asset_loadings = loadings.get(asset)
         asset_meta = metadata.get(asset) or {}
-        if asset_meta.get("source") != "latest_window_regression":
+        if asset_meta.get("source") not in REAL_FACTOR_SOURCES:
             raise FactorCalibrationUnavailable(f"missing calibrated factor loadings for {asset}")
         if not isinstance(asset_loadings, dict):
             raise FactorCalibrationUnavailable(f"missing factor loadings for {asset}")
