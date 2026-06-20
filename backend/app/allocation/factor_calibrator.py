@@ -510,11 +510,19 @@ def _build_proxy_series(
 
 def _fetch_equity_proxy_prices() -> Optional[np.ndarray]:
     try:
-        from .volatility_monitor import _fetch_csi300_prices
+        from .data.volatility_monitor import _fetch_csi300_prices
 
-        return _fetch_csi300_prices(days=WINDOW_DAYS + 80)
+        prices = _fetch_csi300_prices(days=WINDOW_DAYS + 80)
+        if prices is not None:
+            return prices
     except Exception as exc:
         logger.debug("equity_beta proxy fetch failed: %s", exc)
+    try:
+        from .data import market_data_fetcher
+
+        return market_data_fetcher._fetch_etf_nav("510300")
+    except Exception as exc:
+        logger.debug("equity_beta ETF proxy fallback failed: %s", exc)
         return None
 
 

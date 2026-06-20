@@ -217,6 +217,18 @@ class FactorCalibratorTest(unittest.TestCase):
         self.assertEqual(metadata["source"], "latest_window_regression")
         self.assertEqual(metadata["asset_source"], "etf:508006")
 
+    def test_equity_proxy_falls_back_to_csi300_etf(self):
+        series = _build_series()
+
+        with patch("app.allocation.data.volatility_monitor._fetch_csi300_prices", return_value=None), patch(
+            "app.allocation.data.market_data_fetcher._fetch_etf_nav",
+            return_value=series["equity_proxy"],
+        ) as fetch:
+            prices = factor_calibrator._fetch_equity_proxy_prices()
+
+        fetch.assert_called_once_with("510300")
+        self.assertIsNotNone(prices)
+
     def test_factor_exposure_rejects_static_when_dynamic_bundle_unavailable(self):
         allocations = {"a_share_large": 1.0}
 
