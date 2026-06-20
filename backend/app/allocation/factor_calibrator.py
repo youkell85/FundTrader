@@ -27,6 +27,10 @@ FACTOR_PROXIES = {
     "liquidity": {"asset_class": "money_fund", "code": "511880"},
 }
 
+ASSET_PRICE_CANDIDATES = {
+    "reits": ["508088", "508006", "508027", "180101"],
+}
+
 CALIBRATION_VERSION = "factor-calibration-v1"
 LONG_WINDOW_FACTOR_SOURCE = "long_window_factor_proxy"
 WINDOW_DAYS = 252
@@ -157,6 +161,7 @@ def _run_long_window_proxy_calibration() -> dict:
     metadata: Dict[str, dict] = {}
     valid_assets: list[str] = []
     invalid_assets: Dict[str, str] = {}
+    live_proxy_bundle: Optional[dict] = None
     proxy_assets = {factor: details["asset_class"] for factor, details in FACTOR_PROXIES.items()}
     proxy_sources = {
         factor: _quality_source(quality.get(asset) or {}, asset)
@@ -167,6 +172,18 @@ def _run_long_window_proxy_calibration() -> dict:
         asset_loadings, reason = _derive_long_window_loadings(asset, vols, matrix, proxy_assets)
         asset_quality = quality.get(asset) or {}
         if asset_loadings is None:
+            try:
+                if live_proxy_bundle is None:
+                    live_proxy_bundle = _fetch_factor_proxy_series()
+                live_loadings, live_metadata = _calibrate_asset(asset, live_proxy_bundle)
+                if live_metadata.get("source") == "latest_window_regression":
+                    loadings[asset] = live_loadings
+                    metadata[asset] = live_metadata
+                    valid_assets.append(asset)
+                    continue
+            except Exception as exc:
+                logger.debug("Live supplement for %s factor loading failed: %s", asset, exc)
+
             loadings[asset] = _static_loadings_for(asset)
             invalid_assets[asset] = reason
             metadata[asset] = _long_window_metadata(
@@ -289,9 +306,12 @@ def _calibrate_asset(asset: str, proxy_bundle: dict) -> Tuple[Dict[str, float], 
         base_metadata["assumption_reason"] = "no_representative_etf"
         return static_loadings, base_metadata
 
-    asset_prices = market_data_fetcher._fetch_etf_nav(representative_code)
-    is_valid, invalid_reason = market_data_fetcher._validate_price_series(asset, representative_code, asset_prices)
-    if not is_valid:
+    asset_prices, representative_code, invalid_reason = _fetch_valid_asset_prices(
+        asset,
+        representative_code,
+    )
+    base_metadata["asset_source"] = f"etf:{representative_code}" if representative_code else None
+    if asset_prices is None:
         base_metadata["assumption_reason"] = invalid_reason or "invalid_asset_price_series"
         return static_loadings, base_metadata
 
@@ -342,6 +362,24 @@ def _calibrate_asset(asset: str, proxy_bundle: dict) -> Tuple[Dict[str, float], 
         "window_end": window_end,
         "assumption_reason": None,
     }
+
+
+def _fetch_valid_asset_prices(asset: str, primary_code: str) -> Tuple[Optional[np.ndarray], Optional[str], Optional[str]]:
+    from .data import market_data_fetcher
+
+    candidates = [primary_code, *ASSET_PRICE_CANDIDATES.get(asset, [])]
+    failures: list[str] = []
+    seen: set[str] = set()
+    for code in candidates:
+        if not code or code in seen:
+            continue
+        seen.add(code)
+        prices = market_data_fetcher._fetch_etf_nav(code)
+        is_valid, invalid_reason = market_data_fetcher._validate_price_series(asset, code, prices)
+        if is_valid:
+            return prices, code, None
+        failures.append(f"{code}:{invalid_reason or 'invalid_asset_price_series'}")
+    return None, primary_code, ";".join(failures) or "invalid_asset_price_series"
 
 
 def _fetch_factor_proxy_series() -> dict:

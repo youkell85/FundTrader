@@ -185,6 +185,38 @@ class FactorCalibratorTest(unittest.TestCase):
         self.assertTrue(metadata["proxy_sources"])
         self.assertIn("invalid_proxies", metadata)
 
+    def test_reits_uses_live_candidate_when_primary_has_no_prices(self):
+        series = _build_series()
+        default_fetch = _nav_side_effect(series)
+
+        def fetch_with_reits_candidate(code: str):
+            if code == "508088":
+                return None
+            if code == "508006":
+                return series["generic"]
+            return default_fetch(code)
+
+        with patch("app.allocation.factor_calibrator._ENABLE_LIVE_CALIBRATION", True), patch(
+            "app.allocation.factor_calibrator._fetch_equity_proxy_prices", return_value=series["equity_proxy"]
+        ), patch(
+            "app.allocation.factor_calibrator._fetch_inflation_proxy_prices",
+            return_value=(series["inflation_proxy"], "index:NHCI"),
+        ), patch(
+            "app.allocation.data.market_data_fetcher._fetch_etf_nav",
+            side_effect=fetch_with_reits_candidate,
+        ), patch(
+            "app.storage.database.StatsSnapshotCache.save",
+            return_value=None,
+        ), patch(
+            "app.storage.database.StatsSnapshotCache.get",
+            return_value=None,
+        ):
+            bundle = factor_calibrator.get_calibration_bundle(force_refresh=True)
+
+        metadata = bundle["metadata"]["reits"]
+        self.assertEqual(metadata["source"], "latest_window_regression")
+        self.assertEqual(metadata["asset_source"], "etf:508006")
+
     def test_factor_exposure_rejects_static_when_dynamic_bundle_unavailable(self):
         allocations = {"a_share_large": 1.0}
 
