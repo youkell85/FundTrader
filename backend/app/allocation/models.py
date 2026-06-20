@@ -139,6 +139,11 @@ class FundItem(BaseModel):
     metadata_source: str = "static_fund_pool"
     metadata_as_of: Optional[str] = None
     stale_days: Optional[int] = None
+    management_fee: Optional[float] = None
+    custody_fee: Optional[float] = None
+    sales_service_fee: Optional[float] = None
+    subscription_fee: Optional[float] = None
+    fee_source: Optional[str] = None
 
 
 class StressScenarioItem(BaseModel):
@@ -563,6 +568,7 @@ class CorrelationCheckRequest(BaseModel):
     """相关性约束检查请求"""
     allocations: Dict[str, float]
     threshold: float = 0.85
+    material_weight: float = 0.20
 
 
 class CorrelationCheckResponse(BaseModel):

@@ -160,6 +160,7 @@ def check_correlation_constraints(
     allocations: Dict[str, float],
     threshold: float = 0.85,
     min_weight: float = 0.01,
+    material_weight: float = 0.20,
 ) -> CorrelationCheckResult:
     """Check correlation constraints for a portfolio.
 
@@ -167,6 +168,7 @@ def check_correlation_constraints(
         allocations: Asset class -> weight (fraction, e.g. 0.15 for 15%)
         threshold: Maximum allowed correlation (default 0.85)
         min_weight: Minimum weight to consider an asset (default 1% as fraction)
+        material_weight: Combined pair weight required for a hard violation.
 
     Returns:
         CorrelationCheckResult with violations and warnings
@@ -192,22 +194,32 @@ def check_correlation_constraints(
 
     # Find all pairs and check for violations
     violations = []
+    watch_warnings = []
     max_corr = 0.0
     max_pair = ("", "")
 
     for i, a in enumerate(active_assets):
         for b in active_assets[i + 1:]:
             corr = get_correlation(a, b)
+            pair_weight = allocations.get(a, 0.0) + allocations.get(b, 0.0)
             if corr > max_corr:
                 max_corr = corr
                 max_pair = (a, b)
             if corr > threshold:
-                violations.append(CorrelationPair(
-                    asset_a=a,
-                    asset_b=b,
-                    correlation=corr,
-                    exceeds_threshold=True,
-                ))
+                if pair_weight >= material_weight:
+                    violations.append(CorrelationPair(
+                        asset_a=a,
+                        asset_b=b,
+                        correlation=corr,
+                        exceeds_threshold=True,
+                    ))
+                else:
+                    label_a = _ASSET_LABELS.get(a, a)
+                    label_b = _ASSET_LABELS.get(b, b)
+                    watch_warnings.append(
+                        f"观察项：{label_a}与{label_b}相关性 {corr:.2f} 超过阈值 {threshold}，"
+                        f"但合计权重 {pair_weight * 100:.1f}% 低于重大暴露阈值 {material_weight * 100:.0f}%"
+                    )
 
     # Sort violations by correlation (highest first)
     violations.sort(key=lambda v: v.correlation, reverse=True)
@@ -221,8 +233,10 @@ def check_correlation_constraints(
             warnings.append(
                 f"⚠ {label_a}与{label_b}相关性 {v.correlation:.2f} 超过阈值 {threshold}"
             )
-    else:
+    elif not watch_warnings:
         warnings.append(f"✓ 所有资产对相关性均低于 {threshold}")
+
+    warnings.extend(watch_warnings)
 
     passed = len(violations) == 0
 
@@ -240,12 +254,13 @@ def check_correlation_constraints(
 def suggest_diversification(
     allocations: Dict[str, float],
     threshold: float = 0.85,
+    material_weight: float = 0.20,
 ) -> List[str]:
     """Suggest ways to improve diversification.
 
     Returns a list of suggestions for reducing correlation.
     """
-    result = check_correlation_constraints(allocations, threshold)
+    result = check_correlation_constraints(allocations, threshold, material_weight=material_weight)
     suggestions = []
 
     if not result.passed:

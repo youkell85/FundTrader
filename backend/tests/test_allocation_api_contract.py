@@ -1,10 +1,12 @@
 import math
 import unittest
+from contextlib import contextmanager
 from unittest.mock import AsyncMock, patch
 
 from fastapi import HTTPException
 
 from app.api import allocation as allocation_api
+from app.allocation.correlation_checker import check_correlation_constraints
 from app.allocation.models import AllocationRequest, FeeAnalysisRequest, ShareSelectorRequest
 
 
@@ -61,7 +63,7 @@ class AllocationApiContractTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_fee_analysis_does_not_use_default_fee_assumptions(self):
         request = FeeAnalysisRequest(
-            funds=[{"code": "510300", "name": "沪深300ETF"}],
+            funds=[{"code": "NOFEE", "name": "沪深300ETF"}],
             asset_class="all",
         )
 
@@ -70,6 +72,52 @@ class AllocationApiContractTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.analyses, [])
         self.assertIn("缺少真实管理费/托管费字段", response.recommendation)
         self.assertIn("未生成默认费率评分", response.recommendation)
+
+    async def test_fee_analysis_enriches_verified_sqlite_fee_fields(self):
+        class FakeCursor:
+            def fetchall(self):
+                return [
+                    {
+                        "code": "510300",
+                        "management_fee": 0.0015,
+                        "custody_fee": 0.0005,
+                        "metadata_as_of": "2026-06-21",
+                        "source": "tushare",
+                    }
+                ]
+
+        class FakeConnection:
+            def execute(self, query, params):
+                return FakeCursor()
+
+        @contextmanager
+        def fake_get_db():
+            yield FakeConnection()
+
+        request = FeeAnalysisRequest(
+            funds=[{"code": "510300", "name": "沪深300ETF"}],
+            asset_class="all",
+        )
+
+        with patch.object(allocation_api, "get_db", fake_get_db):
+            response = await allocation_api.analyze_fund_fees(request)
+
+        self.assertEqual(len(response.analyses), 1)
+        self.assertAlmostEqual(response.analyses[0].management_fee, 0.15)
+        self.assertAlmostEqual(response.analyses[0].custody_fee, 0.05)
+        self.assertIn("真实管理费/托管费字段", response.recommendation)
+
+    def test_correlation_warning_is_not_hard_failure_below_material_weight(self):
+        result = check_correlation_constraints(
+            {"a_share_large": 0.0663, "a_share_value": 0.0954},
+            threshold=0.85,
+            material_weight=0.20,
+        )
+
+        self.assertTrue(result.passed)
+        self.assertEqual(result.violations, [])
+        self.assertAlmostEqual(result.max_correlation, 0.88)
+        self.assertTrue(any("观察项" in warning for warning in result.warnings))
 
     async def test_fee_analysis_uses_verified_sample_average(self):
         request = FeeAnalysisRequest(

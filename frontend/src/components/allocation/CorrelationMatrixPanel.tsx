@@ -22,7 +22,7 @@ export default function CorrelationMatrixPanel() {
       for (const [k, v] of Object.entries(storeOutput.saa.allocations)) {
         allocations[k] = (v as number) / 100;
       }
-      const resp = await checkCorrelation({ allocations, threshold: 0.85 });
+      const resp = await checkCorrelation({ allocations, threshold: 0.85, material_weight: 0.20 });
       setData(resp);
     } catch (e: any) {
       setError(e.message || '检查失败');
@@ -84,6 +84,14 @@ export default function CorrelationMatrixPanel() {
                     <span>{ASSET_CLASS_LABELS[v.asset_b] || v.asset_b}</span>
                     <span className="data-number">{v.correlation.toFixed(2)}</span>
                   </div>
+                ))}
+              </div>
+            )}
+
+            {data.warnings.length > 0 && (
+              <div className="rounded-lg bg-[#FAC858]/[0.06] border border-[#FAC858]/15 p-3 space-y-1">
+                {data.warnings.map((warning, index) => (
+                  <div key={index} className="text-xs text-[#FAC858]">{warning}</div>
                 ))}
               </div>
             )}

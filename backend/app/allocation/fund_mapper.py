@@ -1,5 +1,6 @@
 """Fund Mapper — map allocation weights to real fund codes using multi-dimensional scoring."""
 import logging
+import math
 from typing import Dict, List, Optional
 
 from .config import ASSET_CLASSES, ASSET_TO_GROUP, FUND_ASSET_MAP
@@ -185,6 +186,31 @@ _ROLE_MAP = {
 }
 
 
+def _verified_fee_fields(score: FundScore) -> dict:
+    """Expose fee fields only when they came from verified metadata."""
+    if score.metadata_status != "real" or score.metadata_source == "static_fund_pool":
+        return {}
+
+    def fee_value(value: float) -> Optional[float]:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(number) or number < 0:
+            return None
+        return number
+
+    management_fee = fee_value(score.management_fee)
+    custody_fee = fee_value(score.custody_fee)
+    if management_fee is None or custody_fee is None:
+        return {}
+    return {
+        "management_fee": management_fee,
+        "custody_fee": custody_fee,
+        "fee_source": score.metadata_source,
+    }
+
+
 def map_funds(
     allocations: Dict[str, float],
     amount: float,
@@ -235,6 +261,7 @@ def map_funds(
             metadata_source=best.metadata_source,
             metadata_as_of=best.metadata_as_of,
             stale_days=best.stale_days,
+            **_verified_fee_fields(best),
         ))
 
     return funds

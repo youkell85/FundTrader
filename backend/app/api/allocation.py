@@ -39,7 +39,7 @@ from ..allocation.fee_scorer import batch_analyze_fees
 from ..allocation.backtest import BacktestRequest, BacktestResponse, run_backtest
 from ..allocation.fund_mapper import get_all_rankings
 from ..allocation.rebalancer import run_rebalance_check
-from ..storage.database import Database, RiskBehaviorObservationStore
+from ..storage.database import Database, RiskBehaviorObservationStore, get_db
 
 router = APIRouter(prefix="/allocation", tags=["资产配置"])
 GENERIC_ALLOCATION_ERROR = "配置生成失败，请稍后重试或联系管理员。"
@@ -64,6 +64,65 @@ def _response_payload(result: Any) -> Any:
     if hasattr(result, "model_dump"):
         return result.model_dump()
     return result
+
+
+def _has_fee_fields(fund: dict) -> bool:
+    for key in ("management_fee", "custody_fee"):
+        try:
+            value = float(fund.get(key))
+        except (TypeError, ValueError):
+            return False
+        if not math.isfinite(value) or value < 0:
+            return False
+    return True
+
+
+def _enrich_fee_fields_from_metadata(funds: list[dict]) -> list[dict]:
+    enriched = [dict(fund) for fund in funds]
+    missing_codes = sorted({
+        str(fund.get("code") or "").strip()
+        for fund in enriched
+        if str(fund.get("code") or "").strip() and not _has_fee_fields(fund)
+    })
+    if not missing_codes:
+        return enriched
+
+    placeholders = ",".join("?" for _ in missing_codes)
+    query = (
+        "SELECT code, management_fee, custody_fee, metadata_as_of, source "
+        "FROM fund_metadata_cache "
+        f"WHERE code IN ({placeholders}) "
+        "AND management_fee IS NOT NULL AND custody_fee IS NOT NULL "
+        "ORDER BY metadata_as_of DESC, updated_at DESC"
+    )
+    try:
+        with get_db() as conn:
+            rows = conn.execute(query, missing_codes).fetchall()
+    except Exception as exc:
+        logger.debug("Fee metadata enrichment skipped: %s", exc)
+        return enriched
+
+    by_code: dict[str, Any] = {}
+    for row in rows:
+        code = str(row["code"])
+        if code not in by_code:
+            by_code[code] = row
+
+    for fund in enriched:
+        code = str(fund.get("code") or "").strip()
+        row = by_code.get(code)
+        if row is None or _has_fee_fields(fund):
+            continue
+        fund["management_fee"] = float(row["management_fee"])
+        fund["custody_fee"] = float(row["custody_fee"])
+        fund["fee_source"] = "sqlite_cache"
+        fund.setdefault("metadata_status", "real")
+        fund.setdefault("metadata_source", "sqlite_cache")
+        if row["metadata_as_of"]:
+            fund.setdefault("metadata_as_of", str(row["metadata_as_of"]))
+        if row["source"]:
+            fund.setdefault("fee_provider_source", str(row["source"]))
+    return enriched
 
 
 def _record_behavior_observation(request: AllocationRequest, result: Any, source: str) -> None:
@@ -537,8 +596,16 @@ async def select_share_class(request: ShareSelectorRequest):
 @router.post("/correlation-check", response_model=CorrelationCheckResponse)
 async def check_correlation(request: CorrelationCheckRequest):
     """相关性约束检查 — 检测资产对相关性是否超过阈值"""
-    result = check_correlation_constraints(request.allocations, request.threshold)
-    suggestions = suggest_diversification(request.allocations, request.threshold)
+    result = check_correlation_constraints(
+        request.allocations,
+        request.threshold,
+        material_weight=request.material_weight,
+    )
+    suggestions = suggest_diversification(
+        request.allocations,
+        request.threshold,
+        material_weight=request.material_weight,
+    )
 
     return CorrelationCheckResponse(
         max_correlation=result.max_correlation,
@@ -562,8 +629,9 @@ async def check_correlation(request: CorrelationCheckRequest):
 @router.post("/fee-analysis", response_model=FeeAnalysisResponse)
 async def analyze_fund_fees(request: FeeAnalysisRequest):
     """费率评分分析 — 基金费率对比和效率评分"""
-    analyses = batch_analyze_fees(request.funds, request.asset_class)
-    missing_count = max(0, len(request.funds) - len(analyses))
+    funds = _enrich_fee_fields_from_metadata(request.funds)
+    analyses = batch_analyze_fees(funds, request.asset_class)
+    missing_count = max(0, len(funds) - len(analyses))
     recommendation = (
         f"{missing_count}/{len(request.funds)} 只基金缺少真实管理费/托管费字段，未生成默认费率评分。"
         if missing_count

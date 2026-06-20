@@ -31,7 +31,7 @@ export default function RiskPage() {
       const normalized = Object.fromEntries(
         Object.entries(allocations).map(([k, v]) => [k, (v as number) / 100])
       );
-      const res = await checkCorrelation({ allocations: normalized, threshold: 0.85 });
+      const res = await checkCorrelation({ allocations: normalized, threshold: 0.85, material_weight: 0.20 });
       setCorrData(res);
     } catch (e: any) {
       setCorrError(e?.message || '相关性检查失败');
@@ -126,6 +126,13 @@ export default function RiskPage() {
             {corrData.violations.length > 0 && (
               <div className="text-[10px] text-[#EE6666]">
                 超阈值资产对: {corrData.violations.map((v) => `${ASSET_CLASS_LABELS[v.asset_a] || v.asset_a}↔${ASSET_CLASS_LABELS[v.asset_b] || v.asset_b}(${v.correlation.toFixed(2)})`).join('、')}
+              </div>
+            )}
+            {corrData.warnings.length > 0 && (
+              <div className="space-y-1">
+                {corrData.warnings.map((warning, index) => (
+                  <div key={index} className="text-[10px] text-[#FAC858]">{warning}</div>
+                ))}
               </div>
             )}
           </div>

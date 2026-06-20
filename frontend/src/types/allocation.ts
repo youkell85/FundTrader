@@ -72,6 +72,11 @@ export interface FundItem {
   metadata_source?: string;
   metadata_as_of?: string | null;
   stale_days?: number | null;
+  management_fee?: number | null;
+  custody_fee?: number | null;
+  sales_service_fee?: number | null;
+  subscription_fee?: number | null;
+  fee_source?: string | null;
 }
 export interface StressScenarioItem {
   scenario: string; impact: number; max_loss: number;
@@ -486,6 +491,7 @@ export const SHARE_COLORS: Record<string, string> = {
 export interface CorrelationCheckRequest {
   allocations: Record<string, number>;
   threshold?: number;
+  material_weight?: number;
 }
 
 export interface CorrelationPairItem {
