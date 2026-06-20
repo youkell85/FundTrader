@@ -8,7 +8,7 @@ When coverage is insufficient it returns config.py assumptions with explicit
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List
 
 import numpy as np
@@ -31,6 +31,14 @@ from ..config import DMS_PRIOR_RETURNS, DMS_PRIOR_VOLS
 CALIBRATION_VERSION = "historical-calibrator-v1"
 MIN_COVERAGE = 0.7
 MIN_RISK_QUESTIONNAIRE_SAMPLES = 30
+STRESS_ROLLING_WINDOWS = {
+    "rolling_1m_tail_p05": 21,
+    "rolling_3m_tail_p05": 63,
+    "rolling_6m_tail_p05": 126,
+    "rolling_12m_tail_p05": 252,
+}
+STRESS_TAIL_PERCENTILE = 5.0
+STRESS_MIN_PRICE_POINTS = max(STRESS_ROLLING_WINDOWS.values()) + 1
 
 
 @dataclass
@@ -306,33 +314,37 @@ class HistoricalCalibrator:
         ).to_dict()
 
     def calibrate_stress_scenarios(self) -> dict:
-        """Calibrate stress scenarios with historical severity scaling when available.
-
-        Base scenarios come from STRESS_SCENARIOS config. When long-window data is
-        available, each scenario is scaled by the ratio of current vol to long-term vol,
-        making stress tests reflect actual market conditions rather than pure static
-        assumptions.
-        """
+        """Calibrate stress scenarios from cached representative ETF tail returns."""
         stats = self._load_stats()
-        base_scenarios = dict(STRESS_SCENARIOS)
-        # Scale stress scenarios by current vs long-term vol ratio
-        scaled_scenarios = _scale_stress_scenarios_from_stats(stats, base_scenarios)
-        source = self._stats_source if scaled_scenarios != base_scenarios else "static_assumption"
-        coverage = 0.0 if source == "static_assumption" else 0.5
-        data_status = "assumption" if source == "static_assumption" else "partial"
+        rolling = _calibrate_stress_scenarios_from_cache(stats)
+        if rolling is None:
+            return _static_params_result(
+                "stress_scenarios",
+                dict(STRESS_SCENARIOS),
+                "insufficient_cached_stress_price_data",
+            )
+
+        scenarios = rolling["scenarios"]
+        coverage = rolling["coverage"]
+        invalid_assets = rolling["invalid_assets"]
         return CalibrationResult(
-            source=source,
+            source="etf_cache_rolling_tail",
             as_of=_today(),
             coverage=coverage,
-            valid_assets=["stress_scenarios"] if source != "static_assumption" else [],
-            invalid_assets={"stress_scenarios": source} if source == "static_assumption" else {},
-            assumptions_used=["stress_scenarios:static_defaults"] if source == "static_assumption" else [],
-            data_status=data_status,
-            params=scaled_scenarios,
-            window_start=(self._long_window_meta or {}).get("window_start"),
-            window_end=(self._long_window_meta or {}).get("window_end"),
-            n_observations=(self._long_window_meta or {}).get("n_observations"),
-            confidence_score=(self._long_window_meta or {}).get("confidence_score"),
+            valid_assets=rolling["valid_assets"],
+            invalid_assets=invalid_assets,
+            assumptions_used=[],
+            data_status=_calibration_data_status(
+                "etf_cache_rolling_tail",
+                coverage,
+                invalid_assets,
+                [],
+            ),
+            params=scenarios,
+            window_start=rolling.get("window_start"),
+            window_end=rolling.get("window_end"),
+            n_observations=rolling.get("n_observations"),
+            confidence_score=rolling.get("confidence_score"),
         ).to_dict()
 
     def calibrate_scenario_analysis(self) -> dict:
@@ -1043,6 +1055,102 @@ def _group_average(values: Dict[str, Any]) -> Dict[str, float]:
         if nums:
             result[group] = float(np.mean(nums))
     return result
+
+
+def _calibrate_stress_scenarios_from_cache(stats: dict | None) -> dict | None:
+    """Build stress drawdown vectors from cached ETF rolling tail returns."""
+    try:
+        from app.allocation.data.long_window_producer import REPRESENTATIVE_ETFS
+        from app.storage.database import ETFPriceCache
+    except Exception:
+        logger.debug("stress scenario cache imports unavailable", exc_info=True)
+        return None
+
+    long_window = _extract_long_window(stats)
+    end_s = long_window.get("window_end") or (stats or {}).get("window_end") or _today()
+    start_s = long_window.get("window_start") or (stats or {}).get("window_start")
+    if not start_s:
+        start_s = (datetime.strptime(end_s, "%Y-%m-%d") - timedelta(days=365 * 5)).date().isoformat()
+
+    series_by_asset: dict[str, np.ndarray] = {}
+    valid_assets: list[str] = []
+    invalid_assets: dict[str, str] = {}
+    starts: list[str] = []
+    ends: list[str] = []
+    n_observations = 0
+
+    for asset in ASSET_CLASSES:
+        code = REPRESENTATIVE_ETFS.get(asset)
+        if asset == "cash" and not code:
+            code = REPRESENTATIVE_ETFS.get("money_fund") or "511880"
+        if not code:
+            invalid_assets[asset] = "no_representative_etf"
+            continue
+
+        try:
+            raw = ETFPriceCache.get_range(code, start_s, end_s)
+        except Exception:
+            logger.debug("stress scenario price cache read failed for %s", asset, exc_info=True)
+            raw = {}
+        prices = _clean_price_values(raw)
+        if len(prices) < STRESS_MIN_PRICE_POINTS:
+            invalid_assets[asset] = f"insufficient_cache_data:{len(prices)}"
+            continue
+
+        series_by_asset[asset] = np.asarray(prices, dtype=float)
+        valid_assets.append(asset)
+        n_observations = max(n_observations, len(prices))
+        sorted_days = sorted(raw)
+        if sorted_days:
+            starts.append(str(sorted_days[0]))
+            ends.append(str(sorted_days[-1]))
+
+    coverage = round(len(valid_assets) / len(ASSET_CLASSES), 4) if ASSET_CLASSES else 0.0
+    if coverage < MIN_COVERAGE:
+        return None
+
+    scenarios: dict[str, dict[str, float]] = {}
+    for scenario_name, window in STRESS_ROLLING_WINDOWS.items():
+        impacts: dict[str, float] = {}
+        for asset in ASSET_CLASSES:
+            values = series_by_asset.get(asset)
+            if values is None or len(values) <= window:
+                continue
+            rolling_returns = (values[window:] / values[:-window] - 1.0) * 100.0
+            rolling_returns = rolling_returns[np.isfinite(rolling_returns)]
+            if len(rolling_returns) == 0:
+                continue
+            impacts[asset] = round(float(np.percentile(rolling_returns, STRESS_TAIL_PERCENTILE)), 2)
+        if set(impacts) == set(ASSET_CLASSES):
+            scenarios[scenario_name] = impacts
+
+    if not scenarios:
+        return None
+
+    return {
+        "scenarios": scenarios,
+        "coverage": coverage,
+        "valid_assets": valid_assets,
+        "invalid_assets": invalid_assets,
+        "window_start": min(starts) if starts else start_s,
+        "window_end": max(ends) if ends else end_s,
+        "n_observations": n_observations,
+        "confidence_score": (long_window or {}).get("confidence_score") or (stats or {}).get("confidence_score"),
+    }
+
+
+def _clean_price_values(raw: object) -> list[float]:
+    if not isinstance(raw, dict):
+        return []
+    values: list[float] = []
+    for day in sorted(raw):
+        try:
+            value = float(raw[day])
+        except (TypeError, ValueError):
+            continue
+        if np.isfinite(value) and value > 0:
+            values.append(value)
+    return values
 
 
 def _clamp(value: float, lower: float, upper: float) -> float:

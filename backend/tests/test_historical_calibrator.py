@@ -565,6 +565,57 @@ class ScenarioAnalysisCalibrationTest(unittest.TestCase):
         self.assertEqual(result["invalid_assets"]["scenario_analysis"], "insufficient_scenario_calibration_data")
 
 
+class StressScenarioCacheCalibrationTest(unittest.TestCase):
+    def _stress_prices(self, count: int = 320, start: float = 10.0) -> dict[str, float]:
+        values: dict[str, float] = {}
+        price = start
+        first_day = __import__("datetime").date(2024, 1, 1)
+        for index in range(count):
+            shock = -0.015 if index > 0 and index % 53 == 0 else 0.0004
+            price *= 1.0 + shock
+            values[(first_day + __import__("datetime").timedelta(days=index)).isoformat()] = round(price, 6)
+        return values
+
+    def test_calibrate_stress_scenarios_uses_cached_tail_returns(self):
+        from app.allocation.data.long_window_producer import REPRESENTATIVE_ETFS
+
+        cache = {}
+        for index, asset in enumerate(ASSET_CLASSES):
+            code = REPRESENTATIVE_ETFS.get(asset)
+            if asset == "cash" and not code:
+                code = REPRESENTATIVE_ETFS.get("money_fund")
+            if code:
+                cache[code] = self._stress_prices(start=10.0 + index)
+
+        def fake_get_range(code: str, _start: str, _end: str) -> dict[str, float]:
+            return cache.get(code, {})
+
+        snapshot = {
+            "long_window": {
+                "window_start": "2024-01-01",
+                "window_end": "2024-12-31",
+                "confidence_score": 0.9,
+            }
+        }
+        with patch("app.storage.database.ETFPriceCache.get_range", side_effect=fake_get_range):
+            result = HistoricalCalibrator(stats_snapshot=snapshot).calibrate_stress_scenarios()
+
+        self.assertEqual(result["source"], "etf_cache_rolling_tail")
+        self.assertEqual(result["data_status"], "real")
+        self.assertEqual(result["coverage"], 1.0)
+        self.assertEqual(set(result["params"]["rolling_1m_tail_p05"]), set(ASSET_CLASSES))
+        self.assertFalse(result["assumptions_used"])
+
+    def test_calibrate_stress_scenarios_falls_back_when_cache_insufficient(self):
+        snapshot = {"long_window": {"window_start": "2024-01-01", "window_end": "2024-12-31"}}
+        with patch("app.storage.database.ETFPriceCache.get_range", return_value={}):
+            result = HistoricalCalibrator(stats_snapshot=snapshot).calibrate_stress_scenarios()
+
+        self.assertEqual(result["source"], "static_assumption")
+        self.assertEqual(result["data_status"], "assumption")
+        self.assertEqual(result["invalid_assets"]["stress_scenarios"], "insufficient_cached_stress_price_data")
+
+
 class StressScenarioScalingTest(unittest.TestCase):
     """Tests for _scale_stress_scenarios_from_stats config-driven scaling."""
 

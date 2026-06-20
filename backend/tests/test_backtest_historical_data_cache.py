@@ -116,3 +116,31 @@ def test_load_macro_history_uses_cache_when_network_disabled(monkeypatch):
 
     assert list(macro["PMI制造业"].round(1)) == [50.1, 50.3]
     assert macro["GDP同比"].empty
+
+
+def test_tushare_full_supports_csi_index_daily(monkeypatch):
+    calls = []
+
+    class Row:
+        def __init__(self, date: str, close: float):
+            self.date = date
+            self.close = close
+
+    class FakeProvider:
+        def get_index_daily(self, ts_code: str, start_date: str, end_date: str):
+            calls.append(("index", ts_code, start_date, end_date))
+            return [Row(f"2024-01-{day:02d}", 100.0 + day) for day in range(1, 25)]
+
+        def get_fund_nav(self, *_args):
+            raise AssertionError("CSI index should not call fund NAV")
+
+    monkeypatch.setattr(
+        "app.data.providers.tushare_provider.TushareProvider",
+        lambda: FakeProvider(),
+    )
+
+    series = h._try_tushare_full("932047.CSI")
+
+    assert series is not None
+    assert len(series) == 24
+    assert calls and calls[0][0] == "index"

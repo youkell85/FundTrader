@@ -23,7 +23,7 @@ REPRESENTATIVE_ETFS: Dict[str, Optional[str]] = {
     "money_fund": "511880",
     "gold": "518880",
     "commodity": "161815",
-    "reits": "508088",
+    "reits": "932047.CSI",
     "cash": None,
 }
 
@@ -349,6 +349,22 @@ def _try_tushare_full(code: str) -> Optional[pd.Series]:
         # Fetch long history
         start = "20180101"
         end = datetime.now().strftime("%Y%m%d")
+
+        if "." in code and code.rsplit(".", 1)[-1].upper() in {"CSI", "SH", "SZ"}:
+            rows = provider.get_index_daily(ts_code=code, start_date=start, end_date=end)
+            dates = []
+            values = []
+            for row in rows:
+                try:
+                    val = getattr(row, "close", None)
+                    if val is not None:
+                        dates.append(pd.Timestamp(getattr(row, "date")))
+                        values.append(float(val))
+                except (ValueError, TypeError):
+                    continue
+            if len(dates) < 20:
+                return None
+            return pd.Series(values, index=pd.DatetimeIndex(dates)).sort_index()
 
         navs = provider.get_fund_nav(code, start, end)
         if not navs:

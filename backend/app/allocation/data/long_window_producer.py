@@ -39,8 +39,12 @@ REPRESENTATIVE_ETFS: dict[str, str | None] = {
     "money_fund": "511880",
     "gold": "518880",
     "commodity": "161815",
-    "reits": "508088",
+    "reits": "932047.CSI",
     "cash": None,
+}
+
+ASSET_PRICE_CANDIDATES: dict[str, list[str]] = {
+    "reits": ["932047.CSI", "932006.CSI", "508006", "508088", "508027", "180101"],
 }
 
 
@@ -68,12 +72,18 @@ def build_long_window_stats(as_of_date: str | None = None, years: int = 3) -> di
             quality[asset] = {"status": "synthesized", "reason": "no_representative_etf"}
             continue
 
-        raw_prices = _load_cached_prices(code, start_s, end_s)
+        raw_prices = {}
+        actual_code = code
+        for candidate in _candidate_codes(asset, code):
+            raw_prices = _load_cached_prices(candidate, start_s, end_s)
+            actual_code = candidate
+            if len(raw_prices) >= MIN_OBSERVATIONS:
+                break
         if len(raw_prices) < MIN_OBSERVATIONS:
             quality[asset] = {
                 "status": "missing",
                 "reason": f"insufficient_cache_data:{len(raw_prices)}",
-                "source": f"etf_cache:{code}",
+                "source": f"etf_cache:{actual_code}",
             }
             continue
 
@@ -83,7 +93,7 @@ def build_long_window_stats(as_of_date: str | None = None, years: int = 3) -> di
             quality[asset] = {
                 "status": "rejected",
                 "reason": "invalid_cached_prices",
-                "source": f"etf_cache:{code}",
+                "source": f"etf_cache:{actual_code}",
             }
             continue
 
@@ -92,7 +102,7 @@ def build_long_window_stats(as_of_date: str | None = None, years: int = 3) -> di
             quality[asset] = {
                 "status": "rejected",
                 "reason": "invalid_log_returns",
-                "source": f"etf_cache:{code}",
+                "source": f"etf_cache:{actual_code}",
             }
             continue
 
@@ -104,7 +114,7 @@ def build_long_window_stats(as_of_date: str | None = None, years: int = 3) -> di
         last_dates.append(dates[-1])
         quality[asset] = {
             "status": "available",
-            "source": f"etf_cache:{code}",
+            "source": f"etf_cache:{actual_code}",
             "coverage": round(len(values) / max(MIN_OBSERVATIONS, 1), 4),
             "data_points": len(values),
         }
@@ -157,6 +167,16 @@ def persist_long_window_stats(snapshot: dict[str, Any]) -> None:
 
 def _parse_date(value: str) -> date:
     return datetime.strptime(value, "%Y-%m-%d").date()
+
+
+def _candidate_codes(asset: str, primary_code: str) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for code in [primary_code, *ASSET_PRICE_CANDIDATES.get(asset, [])]:
+        if code and code not in seen:
+            seen.add(code)
+            result.append(code)
+    return result
 
 
 def _load_cached_prices(code: str, start: str, end: str) -> dict[str, float]:
