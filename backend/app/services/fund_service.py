@@ -2643,8 +2643,11 @@ def get_fund_manager_history(code: str) -> dict:
         snapshot_response = _rows_response(
             code,
             out,
+            status=DETAIL_STATUS_AVAILABLE if has_rank_snapshot else DETAIL_STATUS_PARTIAL,
             source=source,
             as_of=rows[-1]["updated_at"],
+            coverage=1.0 if has_rank_snapshot else 0.75 if len(out) > 1 else 0.45,
+            missing_reason=None if has_rank_snapshot else "基金经理变动和任职回报已入库，同类排名待补快照表。",
         )
         if not has_report_source and (len(out) > 1 or has_rank_snapshot):
             return snapshot_response
