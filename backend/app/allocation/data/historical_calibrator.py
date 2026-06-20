@@ -30,6 +30,7 @@ from ..config import DMS_PRIOR_RETURNS, DMS_PRIOR_VOLS
 
 CALIBRATION_VERSION = "historical-calibrator-v1"
 MIN_COVERAGE = 0.7
+MIN_RISK_QUESTIONNAIRE_SAMPLES = 30
 
 
 @dataclass
@@ -126,6 +127,7 @@ class HistoricalCalibrator:
             quality = stats.get("quality") or {}
             dest_weights, dest_meta = _calibrate_circuit_breaker_destination(vols, quality, cash_assets)
             regime_thresholds = _calibrate_regime_thresholds(rt_defaults)
+            risk_questionnaire = _calibrate_risk_questionnaire()
 
             return {
                 "regime_thresholds": regime_thresholds,
@@ -141,13 +143,7 @@ class HistoricalCalibrator:
                     "assumptions_used": dest_meta["assumptions_used"],
                     "calibration_version": CALIBRATION_VERSION,
                 },
-                "risk_questionnaire": {
-                    **_not_calibrated_params(
-                        "risk_questionnaire",
-                        {"weights": None, "shift_down_threshold": -0.5, "shift_up_threshold": 1.5},
-                        "insufficient_behavior_response_history",
-                    )
-                }
+                "risk_questionnaire": risk_questionnaire,
             }
         except Exception:
             logger.warning("_p2_defaults failed", exc_info=True)
@@ -590,6 +586,141 @@ def _load_regime_macro_histories(indicators: List[str], limit: int = 240) -> Dic
                 values.append(float(value))
         histories[indicator] = values
     return histories
+
+
+def _calibrate_risk_questionnaire(limit: int = 1000) -> dict:
+    from ..risk_profiler import (
+        _BEHAVIOR_ADJUSTMENTS,
+        _DEFAULT_SHIFT_DOWN_THRESHOLD,
+        _DEFAULT_SHIFT_UP_THRESHOLD,
+        _RISK_LEVELS,
+    )
+
+    defaults = {
+        "weights": None,
+        "shift_down_threshold": _DEFAULT_SHIFT_DOWN_THRESHOLD,
+        "shift_up_threshold": _DEFAULT_SHIFT_UP_THRESHOLD,
+    }
+    try:
+        from app.storage.database import RiskBehaviorObservationStore
+
+        rows = RiskBehaviorObservationStore.recent(limit=limit)
+    except Exception:
+        logger.debug("risk behavior observations unavailable", exc_info=True)
+        rows = []
+
+    if not rows:
+        result = _not_calibrated_params(
+            "risk_questionnaire",
+            defaults,
+            "insufficient_behavior_response_history",
+        )
+        result["sample_size"] = 0
+        return result
+
+    risk_index = {name: idx for idx, name in enumerate(_RISK_LEVELS)}
+    expected_answers = {
+        qid: set(answers.keys())
+        for qid, answers in _BEHAVIOR_ADJUSTMENTS.items()
+        if isinstance(answers, dict)
+    }
+    total_expected = sum(len(answers) for answers in expected_answers.values()) or 1
+    valid_rows = [
+        row for row in rows
+        if row.get("risk_tolerance") in risk_index
+        and isinstance(row.get("behavior_answers"), dict)
+        and row.get("behavior_answers")
+    ]
+    if not valid_rows:
+        result = _not_calibrated_params(
+            "risk_questionnaire",
+            defaults,
+            "insufficient_behavior_response_history",
+        )
+        result["sample_size"] = 0
+        return result
+
+    declared_scores = [float(risk_index[row["risk_tolerance"]]) for row in valid_rows]
+    center = float(np.mean(declared_scores))
+    dispersion = float(np.std(declared_scores, ddof=1)) if len(declared_scores) > 1 else 1.0
+    if not _is_finite_number(dispersion) or dispersion <= 0:
+        dispersion = 1.0
+
+    answer_samples: Dict[str, Dict[str, List[float]]] = {}
+    answer_counts: Dict[str, Dict[str, int]] = {}
+    row_scores: List[float] = []
+    for row in valid_rows:
+        answers = row.get("behavior_answers") or {}
+        declared = float(risk_index[row["risk_tolerance"]])
+        normalized = (declared - center) / dispersion
+        row_values: List[float] = []
+        for qid, expected in expected_answers.items():
+            answer = answers.get(qid)
+            if answer not in expected:
+                continue
+            answer_samples.setdefault(qid, {}).setdefault(answer, []).append(normalized)
+            answer_counts.setdefault(qid, {})[answer] = answer_counts.setdefault(qid, {}).get(answer, 0) + 1
+            row_values.append(normalized)
+        if row_values:
+            row_scores.append(float(np.mean(row_values)))
+
+    weights: Dict[str, Dict[str, float]] = {}
+    valid_assets: List[str] = []
+    invalid_assets: Dict[str, str] = {}
+    for qid, expected in expected_answers.items():
+        for answer in sorted(expected):
+            samples = (answer_samples.get(qid) or {}).get(answer) or []
+            key = f"{qid}:{answer}"
+            if not samples:
+                invalid_assets[key] = "no_behavior_response_samples"
+                continue
+            weights.setdefault(qid, {})[answer] = round(float(np.mean(samples)), 4)
+            valid_assets.append(key)
+
+    if not weights:
+        result = _not_calibrated_params(
+            "risk_questionnaire",
+            defaults,
+            "insufficient_behavior_response_history",
+        )
+        result["sample_size"] = len(valid_rows)
+        result["answer_counts"] = answer_counts
+        return result
+
+    if row_scores:
+        shift_down = round(float(np.percentile(np.asarray(row_scores), 25)), 4)
+        shift_up = round(float(np.percentile(np.asarray(row_scores), 75)), 4)
+        if shift_down >= shift_up:
+            shift_down = _DEFAULT_SHIFT_DOWN_THRESHOLD
+            shift_up = _DEFAULT_SHIFT_UP_THRESHOLD
+    else:
+        shift_down = _DEFAULT_SHIFT_DOWN_THRESHOLD
+        shift_up = _DEFAULT_SHIFT_UP_THRESHOLD
+
+    coverage = round(len(valid_assets) / total_expected, 4)
+    status = (
+        "real"
+        if coverage >= 1.0 and len(valid_rows) >= MIN_RISK_QUESTIONNAIRE_SAMPLES and not invalid_assets
+        else "partial"
+    )
+    return {
+        "params": {
+            "weights": weights,
+            "shift_down_threshold": shift_down,
+            "shift_up_threshold": shift_up,
+        },
+        "source": "behavior_response_distribution",
+        "status": status,
+        "data_status": status,
+        "as_of": _today(),
+        "coverage": coverage,
+        "valid_assets": valid_assets,
+        "invalid_assets": invalid_assets,
+        "assumptions_used": [],
+        "sample_size": len(valid_rows),
+        "answer_counts": answer_counts,
+        "calibration_version": CALIBRATION_VERSION,
+    }
 
 
 def _calibrate_circuit_breaker_destination(

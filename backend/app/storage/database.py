@@ -206,6 +206,22 @@ class Database:
                     updated_at TEXT NOT NULL
                 );
 
+                -- 匿名风险问卷响应观测表（用于校准行为问卷，不存用户身份）
+                CREATE TABLE IF NOT EXISTS risk_behavior_observations (
+                    id TEXT PRIMARY KEY,
+                    created_at TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    risk_tolerance TEXT NOT NULL,
+                    effective_risk TEXT NOT NULL,
+                    behavior_score REAL,
+                    question_count INTEGER DEFAULT 0,
+                    age_bucket TEXT DEFAULT '',
+                    amount_bucket TEXT DEFAULT '',
+                    horizon TEXT DEFAULT '',
+                    goal_type TEXT DEFAULT '',
+                    answers_json TEXT NOT NULL
+                );
+
                 -- 宏观数据历史表 (月频/季频经济指标缓存)
                 CREATE TABLE IF NOT EXISTS macro_history (
                     indicator TEXT NOT NULL,
@@ -318,6 +334,8 @@ class Database:
                 CREATE INDEX IF NOT EXISTS idx_plans_created ON allocation_plans(created_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_plans_risk ON allocation_plans(risk_profile);
                 CREATE INDEX IF NOT EXISTS idx_plans_owner_created ON allocation_plans(owner_user_id, created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_risk_behavior_created ON risk_behavior_observations(created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_risk_behavior_risk ON risk_behavior_observations(risk_tolerance, created_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_rebalance_date ON rebalance_history(executed_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_rebalance_plan ON rebalance_history(plan_id);
                 CREATE INDEX IF NOT EXISTS idx_rebalance_owner_date ON rebalance_history(owner_user_id, executed_at DESC);
@@ -762,6 +780,129 @@ class MacroCache:
                 (indicator, limit)
             ).fetchall()
             return [(r["date"], r["value"], r["source"]) for r in rows]
+
+
+class RiskBehaviorObservationStore:
+    """Anonymous storage for behavior-questionnaire calibration signals."""
+
+    @staticmethod
+    def record(
+        *,
+        observation_id: str,
+        source: str,
+        risk_tolerance: str,
+        effective_risk: str,
+        behavior_answers: dict[str, Any],
+        behavior_score: float | None,
+        question_count: int,
+        age: int | None = None,
+        amount: float | None = None,
+        horizon: str | None = None,
+        goal_type: str | None = None,
+    ) -> str | None:
+        if not isinstance(behavior_answers, dict) or not behavior_answers:
+            return None
+        sanitized_answers = {
+            str(key): str(value)
+            for key, value in behavior_answers.items()
+            if key is not None and value is not None
+        }
+        if not sanitized_answers:
+            return None
+
+        with get_db() as conn:
+            conn.execute(
+                """INSERT OR REPLACE INTO risk_behavior_observations
+                   (id, created_at, source, risk_tolerance, effective_risk,
+                    behavior_score, question_count, age_bucket, amount_bucket,
+                    horizon, goal_type, answers_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    observation_id,
+                    datetime.now().isoformat(),
+                    source,
+                    risk_tolerance,
+                    effective_risk,
+                    behavior_score,
+                    int(question_count or 0),
+                    RiskBehaviorObservationStore._age_bucket(age),
+                    RiskBehaviorObservationStore._amount_bucket(amount),
+                    horizon or "",
+                    goal_type or "",
+                    json.dumps(sanitized_answers, ensure_ascii=False, sort_keys=True),
+                ),
+            )
+        return observation_id
+
+    @staticmethod
+    def recent(limit: int = 1000) -> list[dict[str, Any]]:
+        safe_limit = max(1, min(int(limit or 1000), 5000))
+        with get_db() as conn:
+            rows = conn.execute(
+                """SELECT * FROM risk_behavior_observations
+                   ORDER BY created_at DESC LIMIT ?""",
+                (safe_limit,),
+            ).fetchall()
+        return [RiskBehaviorObservationStore._row_to_dict(row) for row in rows]
+
+    @staticmethod
+    def count() -> int:
+        with get_db() as conn:
+            row = conn.execute("SELECT COUNT(*) AS cnt FROM risk_behavior_observations").fetchone()
+            return int(row["cnt"] if row else 0)
+
+    @staticmethod
+    def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
+        try:
+            answers = json.loads(row["answers_json"])
+        except Exception:
+            answers = {}
+        return {
+            "id": row["id"],
+            "created_at": row["created_at"],
+            "source": row["source"],
+            "risk_tolerance": row["risk_tolerance"],
+            "effective_risk": row["effective_risk"],
+            "behavior_score": row["behavior_score"],
+            "question_count": row["question_count"],
+            "age_bucket": row["age_bucket"],
+            "amount_bucket": row["amount_bucket"],
+            "horizon": row["horizon"],
+            "goal_type": row["goal_type"],
+            "behavior_answers": answers if isinstance(answers, dict) else {},
+        }
+
+    @staticmethod
+    def _age_bucket(age: int | None) -> str:
+        try:
+            value = int(age)
+        except (TypeError, ValueError):
+            return ""
+        if value < 30:
+            return "under_30"
+        if value < 40:
+            return "30s"
+        if value < 50:
+            return "40s"
+        if value < 60:
+            return "50s"
+        return "60_plus"
+
+    @staticmethod
+    def _amount_bucket(amount: float | None) -> str:
+        try:
+            value = float(amount)
+        except (TypeError, ValueError):
+            return ""
+        if value < 100_000:
+            return "under_100k"
+        if value < 500_000:
+            return "100k_500k"
+        if value < 1_000_000:
+            return "500k_1m"
+        if value < 5_000_000:
+            return "1m_5m"
+        return "5m_plus"
 
 
 # ─── ETF Price Cache ──────────────────────────────────────────────────────────

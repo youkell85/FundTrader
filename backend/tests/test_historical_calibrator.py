@@ -264,8 +264,30 @@ class HistoricalCalibratorTest(unittest.TestCase):
         self.assertEqual(regime["status"], "missing")
         self.assertEqual(regime["observation_counts"]["PMI制造业"], 0)
 
+    def test_p2_defaults_calibrate_risk_questionnaire_from_behavior_observations(self):
+        rows = [
+            {"risk_tolerance": "conservative", "behavior_answers": {"q1_drawdown": "sell", "q2_rally": "all_out", "q3_volatility": "none"}},
+            {"risk_tolerance": "moderate", "behavior_answers": {"q1_drawdown": "reduce", "q2_rally": "partial", "q3_volatility": "low"}},
+            {"risk_tolerance": "balanced", "behavior_answers": {"q1_drawdown": "hold", "q2_rally": "hold", "q3_volatility": "medium"}},
+            {"risk_tolerance": "aggressive", "behavior_answers": {"q1_drawdown": "add", "q2_rally": "chase", "q3_volatility": "high"}},
+            {"risk_tolerance": "radical", "behavior_answers": {"q1_drawdown": "add", "q2_rally": "chase", "q3_volatility": "high"}},
+        ]
+
+        with patch("app.storage.database.RiskBehaviorObservationStore.recent", return_value=rows):
+            result = HistoricalCalibrator(stats_snapshot=_make_long_window_stats()).calibrate_all()
+
+        risk = result["risk_questionnaire"]
+        self.assertEqual(risk["source"], "behavior_response_distribution")
+        self.assertEqual(risk["status"], "partial")
+        self.assertGreater(risk["coverage"], 0)
+        self.assertEqual(risk["sample_size"], 5)
+        self.assertIn("q1_drawdown", risk["params"]["weights"])
+        self.assertIn("sell", risk["params"]["weights"]["q1_drawdown"])
+        self.assertIsInstance(risk["params"]["shift_down_threshold"], float)
+
     def test_p2_defaults_mark_risk_questionnaire_not_calibrated(self):
-        result = HistoricalCalibrator(stats_snapshot=_make_long_window_stats()).calibrate_all()
+        with patch("app.storage.database.RiskBehaviorObservationStore.recent", return_value=[]):
+            result = HistoricalCalibrator(stats_snapshot=_make_long_window_stats()).calibrate_all()
         risk = result["risk_questionnaire"]
 
         self.assertEqual(risk["source"], "not_calibrated")

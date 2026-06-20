@@ -39,7 +39,7 @@ from ..allocation.fee_scorer import batch_analyze_fees
 from ..allocation.backtest import BacktestRequest, BacktestResponse, run_backtest
 from ..allocation.fund_mapper import get_all_rankings
 from ..allocation.rebalancer import run_rebalance_check
-from ..storage.database import Database
+from ..storage.database import Database, RiskBehaviorObservationStore
 
 router = APIRouter(prefix="/allocation", tags=["资产配置"])
 GENERIC_ALLOCATION_ERROR = "配置生成失败，请稍后重试或联系管理员。"
@@ -66,12 +66,46 @@ def _response_payload(result: Any) -> Any:
     return result
 
 
+def _record_behavior_observation(request: AllocationRequest, result: Any, source: str) -> None:
+    answers = request.behavior_answers or {}
+    if not answers:
+        return
+    try:
+        user_profile = getattr(result, "user_profile", None)
+        if user_profile is None and isinstance(result, dict):
+            user_profile = result.get("user_profile")
+        if user_profile is None:
+            return
+
+        def _get(name: str, default: Any = None) -> Any:
+            if isinstance(user_profile, dict):
+                return user_profile.get(name, default)
+            return getattr(user_profile, name, default)
+
+        RiskBehaviorObservationStore.record(
+            observation_id=uuid.uuid4().hex,
+            source=source,
+            risk_tolerance=str(_get("risk_tolerance", request.risk_tolerance)),
+            effective_risk=str(_get("effective_risk", request.risk_tolerance)),
+            behavior_answers=answers,
+            behavior_score=_get("behavior_score"),
+            question_count=int(_get("behavior_question_count", len(answers)) or 0),
+            age=request.age,
+            amount=request.amount,
+            horizon=request.investment_horizon,
+            goal_type=request.goal_type,
+        )
+    except Exception:
+        logger.debug("Risk behavior observation record skipped", exc_info=True)
+
+
 @router.post("/generate", response_model=AllocationResponse)
 async def generate_allocation(request: AllocationRequest, user: dict | None = Depends(get_optional_user)):
     """生成资产配置方案 — 14步量化管线"""
     try:
         result = await run_in_threadpool(run_allocation, request)
         assert_json_finite(_response_payload(result))
+        await run_in_threadpool(_record_behavior_observation, request, result, "allocation_generate")
         return result
     except Exception:
         error_id = uuid.uuid4().hex
@@ -138,6 +172,7 @@ async def generate_allocation_stream(request: AllocationRequest, user: dict | No
             result = run_allocation(request, _progress_callback, cancel_event)
             payload = _response_payload(result)
             assert_json_finite(payload)
+            _record_behavior_observation(request, result, "allocation_generate_stream")
             progress_queue.put({"type": "result", "data": payload})
         except TaskCancelledError as e:
             msg = str(e) if str(e) else "任务已取消"
