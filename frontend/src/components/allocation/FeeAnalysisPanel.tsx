@@ -72,10 +72,16 @@ export default function FeeAnalysisPanel() {
               <div className="text-xs text-white/55">{data.recommendation}</div>
             </div>
 
+            {data.analyses.length === 0 ? (
+              <div className="rounded-lg border border-white/[0.06] bg-white/[0.03] px-4 py-6 text-center text-sm text-white/45">
+                {data.recommendation || '缺少真实管理费/托管费字段，未生成默认费率评分。'}
+              </div>
+            ) : (
+            <>
             {/* TER vs Category Average Chart */}
             {chartData.length > 0 && (
               <div className="rounded-lg border border-white/[0.06] bg-white/[0.03] p-3">
-                <div className="text-xs text-white/50 mb-2">费率 vs 同类平均</div>
+                <div className="text-xs text-white/50 mb-2">费率 vs 样本均值</div>
                 <ResponsiveContainer width="100%" height={220}>
                   <BarChart data={chartData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
                     <CartesianGrid stroke="rgba(255,255,255,0.05)" />
@@ -83,7 +89,7 @@ export default function FeeAnalysisPanel() {
                     <YAxis tick={{ fill: 'rgba(255,255,255,0.4)', fontSize: 11 }} unit="%" />
                     <Tooltip
                       contentStyle={{ background: 'rgba(20,20,30,0.95)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8 }}
-                      formatter={(v: number, name: string) => [`${v.toFixed(2)}%`, name === 'ter' ? '实际费率' : '同类平均']}
+                      formatter={(v: number, name: string) => [`${v.toFixed(2)}%`, name === 'ter' ? '实际费率' : '样本均值']}
                     />
                     <Bar dataKey="ter" name="ter" fill="#F59E0B" radius={[3, 3, 0, 0]} />
                     <Bar dataKey="avg" name="avg" fill="rgba(255,255,255,0.15)" radius={[3, 3, 0, 0]} />
@@ -97,7 +103,7 @@ export default function FeeAnalysisPanel() {
               <table className="w-full text-xs">
                 <thead>
                   <tr className="text-white/55 border-b border-white/[0.06]">
-                    {['代码', '名称', '管理费', '托管费', 'TER', '效率评分', 'vs同类', '1年成本', '3年成本', '5年成本'].map((h) => (
+                    {['代码', '名称', '管理费', '托管费', 'TER', '效率评分', 'vs样本', '1年成本', '3年成本', '5年成本'].map((h) => (
                       <th key={h} className="text-left py-2 px-1.5 font-normal">{h}</th>
                     ))}
                   </tr>
@@ -129,6 +135,8 @@ export default function FeeAnalysisPanel() {
                 </tbody>
               </table>
             </div>
+            </>
+            )}
           </div>
         )}
       </div>

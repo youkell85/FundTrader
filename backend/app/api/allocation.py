@@ -35,7 +35,7 @@ from ..allocation.explainability import generate_explain_report
 from ..allocation.what_if import WhatIfParams, run_what_if
 from ..allocation.share_selector import batch_recommend
 from ..allocation.correlation_checker import check_correlation_constraints, suggest_diversification
-from ..allocation.fee_scorer import batch_analyze_fees, get_fee_recommendation
+from ..allocation.fee_scorer import batch_analyze_fees
 from ..allocation.backtest import BacktestRequest, BacktestResponse, run_backtest
 from ..allocation.fund_mapper import get_all_rankings
 from ..allocation.rebalancer import run_rebalance_check
@@ -528,7 +528,12 @@ async def check_correlation(request: CorrelationCheckRequest):
 async def analyze_fund_fees(request: FeeAnalysisRequest):
     """费率评分分析 — 基金费率对比和效率评分"""
     analyses = batch_analyze_fees(request.funds, request.asset_class)
-    recommendation = get_fee_recommendation(request.asset_class, holding_years=3)
+    missing_count = max(0, len(request.funds) - len(analyses))
+    recommendation = (
+        f"{missing_count}/{len(request.funds)} 只基金缺少真实管理费/托管费字段，未生成默认费率评分。"
+        if missing_count
+        else f"基于 {len(analyses)} 只基金的真实管理费/托管费字段计算，比较基准为本次样本均值。"
+    )
 
     return FeeAnalysisResponse(
         analyses=[

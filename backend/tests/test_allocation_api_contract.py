@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, patch
 from fastapi import HTTPException
 
 from app.api import allocation as allocation_api
-from app.allocation.models import AllocationRequest, ShareSelectorRequest
+from app.allocation.models import AllocationRequest, FeeAnalysisRequest, ShareSelectorRequest
 
 
 class AllocationApiContractTest(unittest.IsolatedAsyncioTestCase):
@@ -58,6 +58,35 @@ class AllocationApiContractTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("缺少真实 A/C 份额费率档案", response.missing_reason or "")
         self.assertIn("未生成默认假设测算", response.missing_reason or "")
         self.assertEqual(response.recommendations, [])
+
+    async def test_fee_analysis_does_not_use_default_fee_assumptions(self):
+        request = FeeAnalysisRequest(
+            funds=[{"code": "510300", "name": "沪深300ETF"}],
+            asset_class="all",
+        )
+
+        response = await allocation_api.analyze_fund_fees(request)
+
+        self.assertEqual(response.analyses, [])
+        self.assertIn("缺少真实管理费/托管费字段", response.recommendation)
+        self.assertIn("未生成默认费率评分", response.recommendation)
+
+    async def test_fee_analysis_uses_verified_sample_average(self):
+        request = FeeAnalysisRequest(
+            funds=[
+                {"code": "510300", "name": "沪深300ETF", "management_fee": 0.0015, "custody_fee": 0.0005},
+                {"code": "159919", "name": "沪深300ETF联接", "management_fee": 0.005, "custody_fee": 0.001},
+            ],
+            asset_class="all",
+        )
+
+        response = await allocation_api.analyze_fund_fees(request)
+
+        self.assertEqual(len(response.analyses), 2)
+        self.assertIn("真实管理费/托管费字段", response.recommendation)
+        self.assertIn("样本均值", response.recommendation)
+        for item in response.analyses:
+            self.assertAlmostEqual(item.category_avg_ter, 0.4)
 
 
 if __name__ == "__main__":
