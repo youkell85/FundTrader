@@ -1022,6 +1022,7 @@ def get_fund_rating(code: str) -> dict | None:
 
     数据源：
       1. tushare fund_rating（如有权限）
+      2. 东方财富 F10 基金评级
       不用同类收益或夏普推算星级；缺少真实评级时由 API 层返回 missing/partial。
     """
     try:
@@ -1050,8 +1051,54 @@ def get_fund_rating(code: str) -> dict | None:
             except Exception:
                 pass
 
+        eastmoney_rating = _fetch_eastmoney_fund_rating(code)
+        if eastmoney_rating:
+            return eastmoney_rating
+
         return None
     except Exception:
+        return None
+
+
+def _fetch_eastmoney_fund_rating(code: str) -> dict | None:
+    url = f"https://api.fund.eastmoney.com/F10/JJPJ/?fundcode={code}&pageIndex=1&pageSize=50"
+    try:
+        req = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": "Mozilla/5.0",
+                "Referer": "https://fundf10.eastmoney.com/",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            payload = json.loads(resp.read().decode("utf-8", errors="ignore"))
+        rows = payload.get("Data") or []
+        if not rows:
+            return None
+        latest = rows[0]
+        shanghai_3y = _safe_int(latest.get("SZPJ3"))
+        shanghai_5y = _safe_int(latest.get("ZSPJ5"))
+        overall_candidates = [
+            ("招商评级", _safe_int(latest.get("ZSPJ"))),
+            ("济安金信评级", _safe_int(latest.get("JAPJ"))),
+            ("晨星评级", _safe_int(latest.get("CXPJ3"))),
+        ]
+        agency, overall = next(((name, value) for name, value in overall_candidates if value is not None), (None, None))
+        if shanghai_3y is None and shanghai_5y is None and overall is None:
+            return None
+        return {
+            "code": code,
+            "rating3y": shanghai_3y,
+            "rating5y": shanghai_5y,
+            "ratingOverall": overall,
+            "ratingAgency": agency,
+            "ratingDate": latest.get("RDATE"),
+            "score": None,
+            "source": "eastmoney:fund_rating",
+            "asOf": latest.get("RDATE"),
+        }
+    except Exception as e:
+        console_error(f"eastmoney fund rating fetch failed for {code}: {e}")
         return None
 
 
@@ -2592,13 +2639,14 @@ def get_fund_manager_history(code: str) -> dict:
         source = rows[-1]["source"] or "fund_manager_history_snapshot"
         has_report_source = any(str(row["source"] or "").startswith("eastmoney:fund_announcement_report") for row in rows)
         has_repeated_report_manager = has_report_source and any(count > 1 for count in name_counts.values())
+        has_rank_snapshot = any(item.get("rank") for item in out)
         snapshot_response = _rows_response(
             code,
             out,
             source=source,
             as_of=rows[-1]["updated_at"],
         )
-        if not has_report_source and not has_repeated_report_manager:
+        if not has_report_source and (len(out) > 1 or has_rank_snapshot):
             return snapshot_response
 
     report_payload = get_fund_manager_report(code)
@@ -2615,6 +2663,20 @@ def get_fund_manager_history(code: str) -> dict:
             as_of=(report_payload or {}).get("period"),
             coverage=0.45,
             missing_reason="\u5b9a\u671f\u62a5\u544a\u62ab\u9732\u5f53\u524d\u57fa\u91d1\u7ecf\u7406\u548c\u4efb\u804c\u65e5\u671f\uff0c\u4efb\u804c\u56de\u62a5\u548c\u540c\u7c7b\u6392\u540d\u5f85\u8865\u5feb\u7167\u8868\u3002",
+        )
+
+    page_rows = _fetch_eastmoney_manager_history_page(code)
+    if page_rows:
+        source = "eastmoney:fund_manager_page"
+        _persist_manager_history_snapshot(code, page_rows, source)
+        return _rows_response(
+            code,
+            page_rows,
+            status=DETAIL_STATUS_PARTIAL,
+            source=source,
+            as_of=date.today().isoformat(),
+            coverage=0.75 if len(page_rows) > 1 else 0.55,
+            missing_reason="东方财富基金经理页披露经理变动和任职回报，同类排名待补快照表。",
         )
 
     try:
@@ -3650,6 +3712,74 @@ def _extract_manager_name(lines: list[str], index: int) -> str | None:
     if next_token and len(next_token) >= 2:
         return next_token
     return None
+
+
+def _clean_html_cell(value: str) -> str:
+    text = re.sub(r"<[^>]+>", " ", value or "")
+    return re.sub(r"\s+", " ", html.unescape(text)).strip()
+
+
+def _parse_pct_text(value: str) -> float | None:
+    text = _clean_html_cell(value).replace("%", "")
+    return _safe_number(text)
+
+
+def _parse_eastmoney_manager_history_html(page_html: str) -> list[dict[str, Any]]:
+    marker = "基金经理变动一览"
+    start = page_html.find(marker)
+    if start < 0:
+        return []
+    tbody_match = re.search(r"<tbody>(.*?)</tbody>", page_html[start:], re.S | re.I)
+    if not tbody_match:
+        return []
+
+    rows: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for row_html in re.findall(r"<tr[^>]*>(.*?)</tr>", tbody_match.group(1), re.S | re.I):
+        cells = re.findall(r"<td[^>]*>(.*?)</td>", row_html, re.S | re.I)
+        if len(cells) < 5:
+            continue
+        start_date = _clean_html_cell(cells[0])
+        end_raw = _clean_html_cell(cells[1])
+        names = [
+            re.sub(r"\s+", "", html.unescape(name)).strip()
+            for name in re.findall(r">([^<>]+)</a>", cells[2], re.S | re.I)
+            if re.sub(r"\s+", "", html.unescape(name)).strip()
+        ]
+        manager_name = "、".join(names) or _clean_html_cell(cells[2])
+        if not start_date or not manager_name:
+            continue
+        key = (manager_name, start_date)
+        if key in seen:
+            continue
+        seen.add(key)
+        rows.append({
+            "managerName": manager_name,
+            "startDate": start_date,
+            "endDate": None if end_raw in {"至今", "至 今"} else end_raw or None,
+            "totalReturn": _parse_pct_text(cells[4]),
+            "annualizedReturn": None,
+            "rank": None,
+        })
+    return rows
+
+
+def _fetch_eastmoney_manager_history_page(code: str) -> list[dict[str, Any]]:
+    url = f"https://fundf10.eastmoney.com/jjjl_{code}.html"
+    try:
+        req = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": "Mozilla/5.0",
+                "Referer": "https://fundf10.eastmoney.com/",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            page_html = resp.read().decode("utf-8", errors="ignore")
+        return _parse_eastmoney_manager_history_html(page_html)
+    except Exception as e:
+        console_error(f"eastmoney manager page fetch failed for {code}: {e}")
+        return []
 
 
 def _parse_manager_history_from_report_text(text: str, report_date: str | None = None) -> list[dict[str, Any]]:

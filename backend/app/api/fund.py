@@ -1129,7 +1129,11 @@ async def fund_rating(code: str = Query(..., min_length=4, max_length=10, descri
     try:
         data = await run_in_threadpool(get_fund_rating, code=code)
         if data:
-            has_rating = data.get("rating3y") is not None or data.get("rating5y") is not None
+            has_rating = (
+                data.get("rating3y") is not None
+                or data.get("rating5y") is not None
+                or data.get("ratingOverall") is not None
+            )
             has_score = data.get("score") is not None
             if not has_rating and has_score:
                 return {
@@ -1141,9 +1145,9 @@ async def fund_rating(code: str = Query(..., min_length=4, max_length=10, descri
                 }
             return {
                 **data,
-                "dataStatus": "available" if data.get("source") == "tushare" else "available" if has_rating else "missing",
+                "dataStatus": "available" if has_rating else "missing",
                 "asOf": data.get("asOf") or None,
-                "coverage": 1.0 if data.get("source") == "tushare" else 0.7 if has_rating else 0.0,
+                "coverage": 1.0 if data.get("source") == "tushare" else 0.8 if has_rating else 0.0,
                 "missingReason": None if has_rating else "缺少真实评级数据",
             }
         fallback = await run_in_threadpool(_rating_score_fallback, code)

@@ -168,6 +168,41 @@ class FundDetailContractTest(unittest.TestCase):
         self.assertEqual(payload["asOf"], "2026-06-09T14:29:41.211873")
         self.assertIn("真实评级星级", payload["missingReason"])
 
+    def test_eastmoney_rating_parser_returns_real_overall_rating(self):
+        response = MagicMock()
+        response.__enter__.return_value.read.return_value = (
+            b'{"Data":[{"FCODE":"019067","RDATE":"2026-03-31",'
+            b'"ZSPJ":"4","SZPJ3":null,"ZSPJ5":null,"JAPJ":null,"CXPJ3":null}],'
+            b'"ErrCode":0,"TotalCount":1}'
+        )
+
+        with patch("urllib.request.urlopen", return_value=response):
+            payload = fund_service._fetch_eastmoney_fund_rating("019067")
+
+        self.assertEqual(payload["ratingOverall"], 4)
+        self.assertEqual(payload["ratingAgency"], "\u62db\u5546\u8bc4\u7ea7")
+        self.assertEqual(payload["asOf"], "2026-03-31")
+        self.assertEqual(payload["source"], "eastmoney:fund_rating")
+
+    def test_rating_endpoint_accepts_real_overall_rating(self):
+        with patch("app.services.fund_service.get_fund_rating", return_value={
+            "code": "019067",
+            "rating3y": None,
+            "rating5y": None,
+            "ratingOverall": 4,
+            "ratingAgency": "\u62db\u5546\u8bc4\u7ea7",
+            "ratingDate": "2026-03-31",
+            "score": None,
+            "source": "eastmoney:fund_rating",
+            "asOf": "2026-03-31",
+        }):
+            payload = asyncio.run(fund_api.fund_rating(code="019067"))
+
+        self.assertEqual(payload["dataStatus"], "available")
+        self.assertEqual(payload["coverage"], 0.8)
+        self.assertEqual(payload["ratingOverall"], 4)
+        self.assertIsNone(payload["missingReason"])
+
     def test_empty_bond_holdings_snapshot_allows_akshare_fallback(self):
         fallback = {
             "bond_holdings": [
@@ -892,6 +927,48 @@ class FundDetailContractTest(unittest.TestCase):
         tushare_manager.assert_not_called()
         self.assertEqual(payload["source"], "eastmoney:fund_announcement_report")
         self.assertEqual(payload["rows"][0]["managerName"], "\u5d14\u857e")
+
+    def test_manager_history_parser_extracts_eastmoney_manager_page_rows(self):
+        page_html = (
+            "<h4>\u57fa\u91d1\u7ecf\u7406\u53d8\u52a8\u4e00\u89c8</h4>"
+            "<table><tbody>"
+            "<tr><td>2024-07-10</td><td>\u81f3\u4eca</td>"
+            "<td><a>\u9648\u9ece</a></td><td>1\u5e74</td><td class='red'>3.30%</td></tr>"
+            "<tr><td>2024-05-07</td><td>2024-07-09</td>"
+            "<td><a>\u9ec4\u6d77\u5cf0</a> <a>\u9648\u9ece</a></td><td>63\u5929</td><td>0.38%</td></tr>"
+            "</tbody></table>"
+        )
+
+        rows = fund_service._parse_eastmoney_manager_history_html(page_html)
+
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0]["managerName"], "\u9648\u9ece")
+        self.assertIsNone(rows[0]["endDate"])
+        self.assertEqual(rows[0]["totalReturn"], 3.3)
+        self.assertEqual(rows[1]["managerName"], "\u9ec4\u6d77\u5cf0\u3001\u9648\u9ece")
+        self.assertEqual(rows[1]["endDate"], "2024-07-09")
+
+    def test_manager_history_uses_eastmoney_manager_page_before_tushare(self):
+        page_rows = [{
+            "managerName": "\u9648\u9ece",
+            "startDate": "2024-07-10",
+            "endDate": None,
+            "totalReturn": 3.3,
+            "annualizedReturn": None,
+            "rank": None,
+        }]
+
+        with patch.object(fund_service, "_safe_table_query", return_value=[]), \
+            patch.object(fund_service, "get_fund_manager_report", return_value={"report": ""}), \
+            patch.object(fund_service, "_fetch_eastmoney_manager_history_page", return_value=page_rows), \
+            patch("app.data.providers.tushare_provider.TushareProvider.get_fund_manager") as tushare_manager, \
+            patch.object(fund_service, "_persist_manager_history_snapshot") as persist:
+            payload = fund_service.get_fund_manager_history("019067")
+
+        tushare_manager.assert_not_called()
+        persist.assert_called_once()
+        self.assertEqual(payload["source"], "eastmoney:fund_manager_page")
+        self.assertEqual(payload["rows"][0]["totalReturn"], 3.3)
 
     def test_manager_history_reparses_repeated_report_snapshot_rows(self):
         snapshot_rows = [

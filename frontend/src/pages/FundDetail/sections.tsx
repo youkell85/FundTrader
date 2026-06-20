@@ -354,6 +354,9 @@ export function MetaSection({
   rating: {
     rating3y: number | null;
     rating5y: number | null;
+    ratingOverall?: number | null;
+    ratingAgency?: string | null;
+    ratingDate?: string | null;
     score: number | null;
     source: string | null;
     asOf?: string | null;
@@ -379,7 +382,7 @@ export function MetaSection({
   navPoints: Array<{ d: string; nav: number }>;
 }) {
   const purchaseMeta = [purchaseInfo?.source, purchaseInfo?.asOf].filter(Boolean).join(" · ");
-  const ratingMeta = [rating?.source, rating?.asOf].filter(Boolean).join(" · ");
+  const ratingMeta = [rating?.source, rating?.ratingAgency, rating?.asOf || rating?.ratingDate].filter(Boolean).join(" · ");
   const purchaseMissingReason = purchaseInfo?.missingReason || "购买信息接口未返回可展示的真实销售状态或费率数据。";
   const ratingMissingReason = rating?.missingReason || "评级接口未返回可展示的真实 3 年或 5 年星级数据。";
 
@@ -428,7 +431,7 @@ export function MetaSection({
       )}
 
       {/* 基金评级 */}
-      {rating && (rating.rating3y !== null || rating.rating5y !== null) ? (
+      {rating && (rating.ratingOverall != null || rating.rating3y !== null || rating.rating5y !== null) ? (
         <Panel
           title="基金评级"
           extra={
@@ -439,9 +442,10 @@ export function MetaSection({
         >
           <div className="space-y-2 text-sm">
             {[
+              { k: "综合", v: rating.ratingOverall },
               { k: "3 年", v: rating.rating3y },
               { k: "5 年", v: rating.rating5y },
-            ].map((row) => (
+            ].filter((row) => row.v != null).map((row) => (
               <div key={row.k} className="flex items-center justify-between">
                 <span className="text-muted-foreground">{row.k}</span>
                 <span className="inline-flex">
