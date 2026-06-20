@@ -20,12 +20,14 @@ export interface AllocationData {
 export function useAllocationData(): AllocationData & { variants: VariantsResponse | null } {
   const storeState = useAllocationStore().state;
   const storeOutput = storeState?.output ?? null;
+  const isMock = isMockOutput(storeOutput);
 
-  if (!storeOutput || isMockOutput(storeOutput)) {
-    throw new Error('Real allocation output is required before rendering allocation result pages.');
+  if (!storeOutput) {
+    throw new Error('Allocation output is required before rendering allocation result pages.');
   }
 
   const d = storeOutput;
+  const isReal = !isMock;
 
   return useMemo(() => ({
     d,
@@ -37,8 +39,8 @@ export function useAllocationData(): AllocationData & { variants: VariantsRespon
     pm: d.portfolio_metrics,
     constraints: d.constraints,
     meta: d.meta,
-    isMock: false,
-    isReal: true,
+    isMock,
+    isReal,
     variants: storeState?.variants ?? null,
   }), [d, storeState?.variants]);
 }

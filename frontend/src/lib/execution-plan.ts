@@ -163,7 +163,12 @@ export function validateExecutionPlan(plan: ExecutionPlan | null): { valid: bool
 
 export function isMockOutput(output: AllocationResponse | null): boolean {
   if (!output) return true;
-  if (output.meta?.generated_at === "2025-01-15T08:30:00Z") return true;
   if (!output.meta?.engine_version) return true;
+  if (!output.meta?.generated_at) return true;
+  if (output.meta.generated_at === "2025-01-15T08:30:00Z") return true;
+  if (output.user_profile?.amount == null || output.user_profile.amount <= 0) return true;
+  if (!Array.isArray(output.funds) || output.funds.length === 0) return true;
+  if (!output.saa || !output.taa || !output.portfolio_metrics) return true;
+
   return false;
 }
