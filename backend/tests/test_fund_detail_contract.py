@@ -416,6 +416,20 @@ class FundDetailContractTest(unittest.TestCase):
         self.assertEqual(rows[0]["sellStockAmount"], 5878949463.92)
         self.assertEqual(rows[0]["calculationStatus"], "missing_average_stock_market_value")
 
+    def test_report_pdf_text_parser_extracts_stock_trading_activity_with_de_particle(self):
+        text = (
+            "8.4.3 \u4e70\u5165\u80a1\u7968\u7684\u6210\u672c\u603b\u989d\u53ca\u5356\u51fa\u80a1\u7968\u7684\u6536\u5165\u603b\u989d\n"
+            "\u5355\u4f4d\uff1a\u4eba\u6c11\u5e01\u5143\n"
+            "\u4e70\u5165\u80a1\u7968\u7684\u6210\u672c\uff08\u6210\u4ea4\uff09\u603b\u989d 122,264,087.58\n"
+            "\u5356\u51fa\u80a1\u7968\u7684\u6536\u5165\uff08\u6210\u4ea4\uff09\u603b\u989d 99,251,973.87\n"
+        )
+
+        rows = fund_service._parse_stock_trading_activity_from_report_text(text, "2025-12-31")
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["buyStockAmount"], 122264087.58)
+        self.assertEqual(rows[0]["sellStockAmount"], 99251973.87)
+
     def test_holder_structure_falls_back_to_report_pdf_and_persists(self):
         report = {
             "report_date": "2025-12-31",
@@ -579,6 +593,32 @@ class FundDetailContractTest(unittest.TestCase):
         self.assertEqual(payload["rows"][0]["sellStockAmount"], 5878949463.92)
         self.assertIn("1/8", payload["missingReason"])
 
+    def test_turnover_history_does_not_persist_scale_derived_turnover(self):
+        report = {
+            "report_date": "2025-12-31",
+            "source": "eastmoney:periodic_report_pdf",
+            "text": (
+                "8.4.3 \u4e70\u5165\u80a1\u7968\u7684\u6210\u672c\u603b\u989d\u53ca\u5356\u51fa\u80a1\u7968\u7684\u6536\u5165\u603b\u989d\n"
+                "\u4e70\u5165\u80a1\u7968\u7684\u6210\u672c\uff08\u6210\u4ea4\uff09\u603b\u989d 100,000,000.00\n"
+                "\u5356\u51fa\u80a1\u7968\u7684\u6536\u5165\uff08\u6210\u4ea4\uff09\u603b\u989d 300,000,000.00\n"
+            ),
+        }
+
+        def fake_query(sql, params=()):
+            if "total_scale" in sql.lower():
+                return [{"total_scale": 2.0, "report_date": "2025-12-31"}]
+            return []
+
+        with patch.object(fund_service, "_safe_table_query", side_effect=fake_query), \
+            patch.object(fund_service, "_fetch_eastmoney_holder_report_pdf_texts", return_value=[report]), \
+            patch.object(fund_service, "_persist_turnover_snapshot") as persist:
+            payload = fund_service.get_fund_turnover_history("000001", periods=2)
+
+        persist.assert_not_called()
+        self.assertEqual(payload["dataStatus"], "partial")
+        self.assertEqual(payload["rows"][0]["calculationStatus"], "estimated_from_total_scale")
+        self.assertIn("\u6d3e\u751f", payload["missingReason"])
+
     def test_turnover_history_with_snapshot_does_not_fetch_reports_for_large_window(self):
         rows = [{"report_date": "2025-12-31", "turnover_rate": 2009.9638, "source": "eastmoney:periodic_report_pdf", "updated_at": "2026-06-19"}]
         with patch.object(fund_service, "_safe_table_query", return_value=rows), \
@@ -624,6 +664,39 @@ class FundDetailContractTest(unittest.TestCase):
         self.assertEqual(payload["rows"][0]["turnoverRate"], 10.0)
         self.assertEqual(payload["rows"][1]["turnoverRate"], 20.0)
         self.assertEqual(persist.call_count, 2)
+
+    def test_turnover_history_marks_bond_fund_not_applicable(self):
+        def fake_query(sql, params=()):
+            sql_lower = sql.lower()
+            if "turnover_rate" in sql_lower or "total_scale" in sql_lower:
+                return []
+            if "fund_master" in sql_lower:
+                return [{"name": "真实债券基金", "fund_type": "债券型"}]
+            return []
+
+        with patch.object(fund_service, "_safe_table_query", side_effect=fake_query), \
+            patch.object(fund_service, "_fetch_eastmoney_holder_report_pdf_texts", return_value=[]):
+            payload = fund_service.get_fund_turnover_history("000001", periods=8)
+
+        self.assertEqual(payload["dataStatus"], "available")
+        self.assertEqual(payload["coverage"], 1.0)
+        self.assertEqual(payload["source"], "fund_master")
+        self.assertEqual(payload["rows"][0]["calculationStatus"], "not_applicable")
+        self.assertIn("不以股票交易换手率", payload["rows"][0]["note"])
+
+    def test_bond_holding_infers_certificate_and_credit_issuer_fields(self):
+        rows = [
+            {"bondName": "26浦发银行CD059", "bondCode": "112609059", "navRatio": 4.34},
+            {"bondName": "25宣城国资SCP005", "bondCode": "012583110", "navRatio": 2.21},
+        ]
+
+        with patch.object(fund_service, "_latest_total_scale", return_value=(1.9437, "20250630", "tushare:fund_share")):
+            enriched, _notes = fund_service._enrich_bond_holdings("000001", rows)
+
+        self.assertEqual(enriched[0]["bondType"], "同业存单")
+        self.assertEqual(enriched[0]["issuer"], "浦发银行")
+        self.assertEqual(enriched[1]["bondType"], "超短期融资券")
+        self.assertEqual(enriched[1]["issuer"], "宣城国资")
 
     def test_cached_analysis_persists_cached_holdings_snapshot(self):
         cached = {
@@ -792,6 +865,33 @@ class FundDetailContractTest(unittest.TestCase):
         self.assertEqual(payload["rows"][0]["startDate"], "2019-07-12")
         self.assertIsNone(payload["rows"][0]["totalReturn"])
         persist.assert_called_once()
+
+    def test_manager_history_prefers_report_text_over_current_tushare_manager(self):
+        report_payload = {
+            "code": "512100",
+            "report": (
+                "4.1 \u57fa\u91d1\u7ecf\u7406\uff08\u6216\u57fa\u91d1\u7ecf\u7406\u5c0f\u7ec4\uff09\u7b80\u4ecb\n"
+                "\u5d14\u857e    \u57fa\u91d1\u7ecf  2019 \u5e74 7          -  11 \u5e74  \u7406\uff1b2019 \u5e74 6 \u6708 28\n"
+                "        \u7406      \u6708 12 \u65e5\n"
+                "4.2 \u7ba1\u7406\u4eba\u5bf9\u62a5\u544a\u671f\u5185\u672c\u57fa\u91d1\u8fd0\u4f5c\u7684\u8bf4\u660e\n"
+            ),
+            "period": "2026-03-31",
+            "source": "eastmoney:fund_announcement_report",
+        }
+
+        with patch.object(fund_service, "_safe_table_query", return_value=[]), \
+            patch("app.data.providers.tushare_provider.TushareProvider.get_fund_manager", return_value={
+                "name": "\u5f53\u524d\u7ecf\u7406",
+                "begin_date": "2024-01-01",
+                "reward": 1.2,
+            }) as tushare_manager, \
+            patch.object(fund_service, "get_fund_manager_report", return_value=report_payload), \
+            patch.object(fund_service, "_persist_manager_history_snapshot"):
+            payload = fund_service.get_fund_manager_history("512100")
+
+        tushare_manager.assert_not_called()
+        self.assertEqual(payload["source"], "eastmoney:fund_announcement_report")
+        self.assertEqual(payload["rows"][0]["managerName"], "\u5d14\u857e")
 
     def test_manager_history_reparses_repeated_report_snapshot_rows(self):
         snapshot_rows = [

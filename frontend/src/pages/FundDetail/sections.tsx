@@ -747,6 +747,7 @@ export type TurnoverRow = {
   buyStockAmount?: number | null;
   sellStockAmount?: number | null;
   calculationStatus?: string | null;
+  note?: string | null;
 };
 
 export function ScaleSection({
@@ -759,8 +760,12 @@ export function ScaleSection({
   const hasScale = scaleRows.length > 0;
   const turnoverRateRows = turnoverRows.filter((r) => typeof r.turnoverRate === "number");
   const hasTurnover = turnoverRateRows.length > 0;
+  const hasEstimatedTurnover = turnoverRateRows.some((r) => r.calculationStatus === "estimated_from_total_scale");
   const tradingActivity = !hasTurnover
     ? turnoverRows.find((r) => r.buyStockAmount != null || r.sellStockAmount != null)
+    : null;
+  const turnoverNotApplicable = !hasTurnover
+    ? turnoverRows.find((r) => r.calculationStatus === "not_applicable")
     : null;
   // 检查 peer25Scale 是否全为 null / 0
   const hasPeerScale = hasScale && scaleRows.some((r) => r.peer25Scale != null && r.peer25Scale !== 0);
@@ -808,6 +813,11 @@ export function ScaleSection({
                 <Line dataKey="turnoverRate" stroke={chartColors[0]} dot={false} name="换手率(%)" />
               </ComposedChart>
             </ResponsiveContainer>
+            {hasEstimatedTurnover && (
+              <div className="mt-1 text-xs text-muted-foreground">
+                定期报告披露买卖股票金额；部分换手率按最新基金规模派生，仍标记为部分可用。
+              </div>
+            )}
           </div>
         ) : tradingActivity ? (
           <div className="flex h-[260px] flex-col justify-center gap-3">
@@ -820,6 +830,15 @@ export function ScaleSection({
             </div>
             <div className="text-xs text-muted-foreground">
               {tradingActivity.quarter || "最新定期报告"} · eastmoney:periodic_report_pdf
+            </div>
+          </div>
+        ) : turnoverNotApplicable ? (
+          <div className="flex h-[260px] flex-col justify-center gap-3">
+            <div className="rounded-md border border-[#16C784]/20 bg-[#16C784]/5 px-3 py-3 text-sm leading-relaxed text-[#8FD9BA]">
+              {turnoverNotApplicable.note || "该基金不以股票交易换手率作为核心披露指标，已确认不适用。"}
+            </div>
+            <div className="text-xs text-muted-foreground">
+              数据状态：已确认不适用 · fund_master
             </div>
           </div>
         ) : (

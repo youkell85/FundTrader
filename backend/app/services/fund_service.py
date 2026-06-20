@@ -1411,13 +1411,15 @@ def _infer_bond_type(name: str | None) -> str | None:
         return "国家债券"
     if any(keyword in text for keyword in ("国开", "农发", "进出", "口行")):
         return "政策性金融债"
-    if any(keyword in text for keyword in ("同业存单", "存单")):
+    if any(keyword in text for keyword in ("同业存单", "存单")) or re.search(r"(?:^|\D)CD\d+", text, re.I):
         return "同业存单"
     if any(keyword in text for keyword in ("地方债", "专项债")):
         return "地方政府债"
     if "金融债" in text:
         return "金融债券"
-    if any(keyword in text for keyword in ("MTN", "中票", "短融", "超短融", "SCP", "CP")):
+    if "SCP" in text:
+        return "超短期融资券"
+    if any(keyword in text for keyword in ("MTN", "中票", "短融", "超短融", "CP")):
         return "信用债"
     return None
 
@@ -1435,6 +1437,12 @@ def _infer_bond_issuer(name: str | None, bond_type: str | None) -> str | None:
         return "中国农业发展银行"
     if "进出" in text or "口行" in text:
         return "中国进出口银行"
+    certificate_match = re.search(r"^\d{2}(.+?银行)CD\d+", text, re.I)
+    if certificate_match:
+        return certificate_match.group(1)
+    credit_match = re.search(r"^\d{2}(.+?)(?:SCP|CP|MTN)\d+", text, re.I)
+    if credit_match:
+        return credit_match.group(1)
     return None
 
 
@@ -2506,7 +2514,17 @@ def get_fund_turnover_history(code: str, periods: int = 40) -> dict:
     if out:
         out = sorted(out, key=lambda item: str(item.get("quarter") or ""))[-periods:]
         coverage = round(min(1.0, len([row for row in out if row.get("turnoverRate") is not None]) / target_periods), 4)
-        status = DETAIL_STATUS_AVAILABLE if coverage >= 0.5 else DETAIL_STATUS_PARTIAL
+        estimated_count = sum(1 for row in out if row.get("calculationStatus") == "estimated_from_total_scale")
+        status = DETAIL_STATUS_AVAILABLE if coverage >= 0.5 and estimated_count == 0 else DETAIL_STATUS_PARTIAL
+        if estimated_count:
+            missing_reason = (
+                f"仅有 {len(out)}/{target_periods} 个报告期可解析；其中 {estimated_count} 期披露买卖股票金额，"
+                "换手率按最新基金规模派生，缺少加权平均股票市值或基金公司标准换手率披露。"
+            )
+        elif status == DETAIL_STATUS_AVAILABLE:
+            missing_reason = None
+        else:
+            missing_reason = f"仅有 {len(out)}/{target_periods} 个季度真实换手率，历史深度不足。"
         return _rows_response(
             code,
             out,
@@ -2514,7 +2532,22 @@ def get_fund_turnover_history(code: str, periods: int = 40) -> dict:
             source=rows[0]["source"] if rows else "eastmoney:periodic_report_pdf",
             as_of=out[-1].get("quarter"),
             coverage=coverage,
-            missing_reason=None if status == DETAIL_STATUS_AVAILABLE else f"仅有 {len(out)}/{target_periods} 个季度真实换手率，历史深度不足。",
+            missing_reason=missing_reason,
+        )
+    not_applicable_reason = _turnover_not_applicable_reason(code)
+    if not_applicable_reason:
+        return _rows_response(
+            code,
+            [{
+                "quarter": None,
+                "turnoverRate": None,
+                "calculationStatus": "not_applicable",
+                "note": not_applicable_reason,
+            }],
+            status=DETAIL_STATUS_AVAILABLE,
+            source="fund_master",
+            as_of=None,
+            coverage=1.0,
         )
     return _rows_response(
         code,
@@ -2568,6 +2601,22 @@ def get_fund_manager_history(code: str) -> dict:
         if not has_report_source and not has_repeated_report_manager:
             return snapshot_response
 
+    report_payload = get_fund_manager_report(code)
+    report_text = (report_payload or {}).get("report") or ""
+    report_rows = _parse_manager_history_from_report_text(report_text, (report_payload or {}).get("period"))
+    if report_rows:
+        source = (report_payload or {}).get("source") or "eastmoney:fund_announcement_report"
+        _persist_manager_history_snapshot(code, report_rows, source)
+        return _rows_response(
+            code,
+            [{k: v for k, v in row.items() if k != "reportDate"} for row in report_rows],
+            status=DETAIL_STATUS_PARTIAL,
+            source=source,
+            as_of=(report_payload or {}).get("period"),
+            coverage=0.45,
+            missing_reason="\u5b9a\u671f\u62a5\u544a\u62ab\u9732\u5f53\u524d\u57fa\u91d1\u7ecf\u7406\u548c\u4efb\u804c\u65e5\u671f\uff0c\u4efb\u804c\u56de\u62a5\u548c\u540c\u7c7b\u6392\u540d\u5f85\u8865\u5feb\u7167\u8868\u3002",
+        )
+
     try:
         from ..data.providers.tushare_provider import TushareProvider
 
@@ -2591,21 +2640,6 @@ def get_fund_manager_history(code: str) -> dict:
     except Exception as e:
         console_error(f"manager history fetch failed for {code}: {e}")
 
-    report_payload = get_fund_manager_report(code)
-    report_text = (report_payload or {}).get("report") or ""
-    report_rows = _parse_manager_history_from_report_text(report_text, (report_payload or {}).get("period"))
-    if report_rows:
-        source = (report_payload or {}).get("source") or "eastmoney:fund_announcement_report"
-        _persist_manager_history_snapshot(code, report_rows, source)
-        return _rows_response(
-            code,
-            [{k: v for k, v in row.items() if k != "reportDate"} for row in report_rows],
-            status=DETAIL_STATUS_PARTIAL,
-            source=source,
-            as_of=(report_payload or {}).get("period"),
-            coverage=0.45,
-            missing_reason="\u5b9a\u671f\u62a5\u544a\u62ab\u9732\u5f53\u524d\u57fa\u91d1\u7ecf\u7406\u548c\u4efb\u804c\u65e5\u671f\uff0c\u4efb\u804c\u56de\u62a5\u548c\u540c\u7c7b\u6392\u540d\u5f85\u8865\u5feb\u7167\u8868\u3002",
-        )
     if snapshot_response:
         return snapshot_response
     return _rows_response(
@@ -3092,11 +3126,13 @@ def _parse_stock_trading_activity_from_report_text(text: str, report_date: str |
         return None
 
     buy_match_patterns = [
+        r"买入股票(?:的)?成本[（(]成交[）)]总额\s*[:：]?\s*([\d,.\-]+(?:亿|万)?)",
         r"买入股票(?:成交)?总额\s*[:：]?\s*([\d,.\-]+(?:亿|万)?)",
         r"买入股票成本[（(]成交[）)]总额\s+([\d,.\-]+(?:亿|万)?)",
         r"买入股票成交金额\s*[\：:]\s*([\d,.\-]+(?:亿|万)?)",
     ]
     sell_match_patterns = [
+        r"卖出股票(?:的)?收入[（(]成交[）)]总额\s*[:：]?\s*([\d,.\-]+(?:亿|万)?)",
         r"卖出股票(?:成交)?总额\s*[:：]?\s*([\d,.\-]+(?:亿|万)?)",
         r"卖出股票收入[（(]成交[）)]总额\s+([\d,.\-]+(?:亿|万)?)",
         r"卖出股票成交金额\s*[\：:]\s*([\d,.\-]+(?:亿|万)?)",
@@ -3194,7 +3230,7 @@ def _backfill_turnover_history_from_reports(code: str, existing: list[dict[str, 
             quarter = str(row.get("quarter") or report.get("report_date") or "")
             if not quarter or quarter in existing_by_quarter:
                 continue
-            if row.get("turnoverRate") is not None:
+            if row.get("turnoverRate") is not None and row.get("calculationStatus") != "estimated_from_total_scale":
                 _persist_turnover_snapshot(
                     code,
                     quarter,
@@ -3205,6 +3241,34 @@ def _backfill_turnover_history_from_reports(code: str, existing: list[dict[str, 
         if len(existing_by_quarter) >= target_periods:
             break
     return sorted(existing_by_quarter.values(), key=lambda item: str(item.get("quarter") or ""))
+
+
+def _turnover_not_applicable_reason(code: str) -> str | None:
+    rows = _safe_table_query(
+        """SELECT name, fund_type
+           FROM fund_master
+           WHERE code = ?
+           LIMIT 1""",
+        (code,),
+    )
+    if not rows:
+        rows = _safe_table_query(
+            """SELECT name, fund_type
+               FROM fund_quote_snapshot
+               WHERE code = ?
+               LIMIT 1""",
+            (code,),
+        )
+    if not rows:
+        return None
+
+    row = rows[0]
+    fund_type = str(row["fund_type"] if "fund_type" in row.keys() else "")
+    name = str(row["name"] if "name" in row.keys() else "")
+    text = f"{fund_type} {name}"
+    if any(keyword in text for keyword in ("债券", "短债", "中短债", "同业存单", "货币", "现金")):
+        return f"{fund_type or '该基金'}不以股票交易换手率作为核心披露指标，未将缺失股票换手率计为数据缺口。"
+    return None
 
 
 def _persist_quarterly_snapshot_field(
