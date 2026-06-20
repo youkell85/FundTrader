@@ -106,12 +106,12 @@ class HistoricalCalibrator:
                 logger.warning("calibrate_all persist failed", exc_info=True)
         return result
 
-    @staticmethod
-    def _p2_defaults() -> dict:
+    def _p2_defaults(self) -> dict:
         """P2 parameter defaults for cache seeding.
 
         When historical_calibration is persisted, these sections ensure
-        calibration audit sees 'assumption' instead of 'missing'.
+        calibration audit sees explicit provenance instead of silently missing
+        calibration slots.
         """
         try:
             from ..regime_detector import RegimeThresholds
@@ -120,17 +120,37 @@ class HistoricalCalibrator:
 
             rt_defaults = {f.name: getattr(RegimeThresholds, f.name) for f in dc_fields(RegimeThresholds)}
             cash_assets = GROUP_MAP.get("cash_equiv", ["money_fund", "cash"])
-            n_cash = len(cash_assets)
-            dest_weights = {a: round(1.0 / n_cash, 4) for a in cash_assets}
+            stats = self._load_stats() or {}
+            long_window = _extract_long_window(stats)
+            vols = long_window.get("vols") or stats.get("vols_long") or stats.get("vols") or {}
+            quality = stats.get("quality") or {}
+            dest_weights, dest_meta = _calibrate_circuit_breaker_destination(vols, quality, cash_assets)
 
             return {
-                "regime_thresholds": {"params": rt_defaults, "source": "static_assumption", "status": "assumption"},
-                "circuit_breaker_destination": {"params": dest_weights, "source": "static_assumption", "status": "assumption"},
-                "risk_questionnaire": {
-                    "params": {"weights": None, "shift_down_threshold": -0.5, "shift_up_threshold": 1.5},
-                    "source": "static_assumption",
-                    "status": "assumption",
+                "regime_thresholds": _not_calibrated_params(
+                    "regime_thresholds",
+                    rt_defaults,
+                    "insufficient_macro_history_for_regime_thresholds",
+                ),
+                "circuit_breaker_destination": {
+                    "params": dest_weights,
+                    "source": dest_meta["source"],
+                    "status": dest_meta["status"],
+                    "data_status": dest_meta["status"],
+                    "as_of": _today(),
+                    "coverage": dest_meta["coverage"],
+                    "valid_assets": dest_meta["valid_assets"],
+                    "invalid_assets": dest_meta["invalid_assets"],
+                    "assumptions_used": dest_meta["assumptions_used"],
+                    "calibration_version": CALIBRATION_VERSION,
                 },
+                "risk_questionnaire": {
+                    **_not_calibrated_params(
+                        "risk_questionnaire",
+                        {"weights": None, "shift_down_threshold": -0.5, "shift_up_threshold": 1.5},
+                        "insufficient_behavior_response_history",
+                    )
+                }
             }
         except Exception:
             logger.warning("_p2_defaults failed", exc_info=True)
@@ -461,6 +481,67 @@ def _load_rolling_stats() -> dict | None:
     except Exception:
         logger.debug("_load_rolling_stats: cache miss", exc_info=True)
         return None
+
+
+def _not_calibrated_params(name: str, params: dict, reason: str) -> dict:
+    return {
+        "params": params,
+        "source": "not_calibrated",
+        "status": "missing",
+        "data_status": "missing",
+        "as_of": _today(),
+        "coverage": 0.0,
+        "valid_assets": [],
+        "invalid_assets": {name: reason},
+        "assumptions_used": [],
+        "missing_reason": reason,
+        "calibration_version": CALIBRATION_VERSION,
+    }
+
+
+def _calibrate_circuit_breaker_destination(
+    vols: Dict[str, Any],
+    quality: Dict[str, dict],
+    cash_assets: List[str],
+) -> tuple[Dict[str, float], dict]:
+    raw: Dict[str, float] = {}
+    invalid: Dict[str, str] = {}
+    for asset in cash_assets:
+        quality_item = quality.get(asset) or {}
+        status = quality_item.get("status")
+        vol = vols.get(asset)
+        if status not in {"available", "synthesized"}:
+            invalid[asset] = quality_item.get("reason") or status or "missing_cash_equiv_signal"
+            continue
+        if not _is_finite_number(vol) or float(vol) < 0:
+            invalid[asset] = "missing_cash_equiv_vol"
+            continue
+        raw[asset] = 1.0 / max(float(vol), 1e-6)
+
+    total = sum(raw.values())
+    if total <= 0:
+        n_cash = len(cash_assets) or 1
+        params = {asset: round(1.0 / n_cash, 4) for asset in cash_assets}
+        return params, {
+            "source": "not_calibrated",
+            "status": "missing",
+            "coverage": 0.0,
+            "valid_assets": [],
+            "invalid_assets": {asset: invalid.get(asset, "missing_cash_equiv_vol") for asset in cash_assets},
+            "assumptions_used": [],
+        }
+
+    params = {asset: round(raw.get(asset, 0.0) / total, 6) for asset in cash_assets}
+    valid_assets = [asset for asset in cash_assets if asset in raw]
+    coverage = round(len(valid_assets) / len(cash_assets), 4) if cash_assets else 0.0
+    return params, {
+        "source": "cash_equiv_volatility",
+        "status": "real" if coverage >= 1.0 and not invalid else "partial",
+        "coverage": coverage,
+        "valid_assets": valid_assets,
+        "invalid_assets": invalid,
+        "assumptions_used": [],
+    }
 
 
 def _load_long_window_cache() -> dict | None:

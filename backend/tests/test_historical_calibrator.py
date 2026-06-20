@@ -211,6 +211,30 @@ class HistoricalCalibratorTest(unittest.TestCase):
         # Bayesian shrinkage blends long-window (index+3) with DMS priors
         self.assertAlmostEqual(result["values"]["a_share_large"], 5.6163, places=2)
 
+    def test_p2_defaults_calibrate_circuit_breaker_destination_from_cash_vols(self):
+        snapshot = _make_long_window_stats()
+        snapshot["quality"]["money_fund"] = {"status": "available", "reason": None}
+        snapshot["quality"]["cash"] = {"status": "available", "reason": None}
+        snapshot["long_window"]["vols"]["money_fund"] = 0.5
+        snapshot["long_window"]["vols"]["cash"] = 0.25
+
+        result = HistoricalCalibrator(stats_snapshot=snapshot).calibrate_all()
+        destination = result["circuit_breaker_destination"]
+
+        self.assertEqual(destination["source"], "cash_equiv_volatility")
+        self.assertEqual(destination["status"], "real")
+        self.assertEqual(destination["coverage"], 1.0)
+        self.assertAlmostEqual(destination["params"]["money_fund"], 1 / 3, places=5)
+        self.assertAlmostEqual(destination["params"]["cash"], 2 / 3, places=5)
+
+    def test_p2_defaults_mark_risk_questionnaire_not_calibrated(self):
+        result = HistoricalCalibrator(stats_snapshot=_make_long_window_stats()).calibrate_all()
+        risk = result["risk_questionnaire"]
+
+        self.assertEqual(risk["source"], "not_calibrated")
+        self.assertEqual(risk["status"], "missing")
+        self.assertIn("missing_reason", risk)
+
     def test_long_window_metadata_not_surfaced_when_absent(self):
         """Metadata keys should not appear when the snapshot lacks them."""
         snapshot = _make_stats_snapshot()
