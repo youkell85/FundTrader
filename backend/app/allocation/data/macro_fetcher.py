@@ -65,15 +65,14 @@ def fetch_all() -> MacroSnapshot:
                 conf = 0.95 if src == "tushare" else 0.9
                 # 财政赤字率: dynamic confidence based on data source
                 # - akshare realized data → high confidence
-                # - akshare gov target → medium confidence
-                # - hardcoded 3.0 fallback → low confidence (0.3)
+                # - official target → medium confidence
                 if name == "财政赤字率":
                     if src.startswith("akshare"):
                         conf = 0.85  # API data
                     elif src == "official_target":
                         conf = 0.75
                     else:
-                        conf = 0.3   # hardcoded fallback
+                        conf = 0.0
                 # DR007: confidence depends on actual data source used
                 # - FR007 (akshare) is best proxy → conf 0.9
                 # - Shibor 1W (tushare) is rough proxy → conf 0.7
@@ -94,10 +93,14 @@ def fetch_all() -> MacroSnapshot:
                     fetch_time=datetime.now().isoformat(), ttl_seconds=ttl,
                 )
             else:
-                indicators[name] = MacroIndicator(name=name, value=None, source="static", confidence=0.3)
+                source = "missing" if name == "财政赤字率" else "static"
+                confidence = 0.0 if name == "财政赤字率" else 0.3
+                indicators[name] = MacroIndicator(name=name, value=None, source=source, confidence=confidence)
         except Exception as e:
             logger.warning(f"Failed to fetch {name}: {e}")
-            indicators[name] = MacroIndicator(name=name, value=None, source="static", confidence=0.3)
+            source = "missing" if name == "财政赤字率" else "static"
+            confidence = 0.0 if name == "财政赤字率" else 0.3
+            indicators[name] = MacroIndicator(name=name, value=None, source=source, confidence=confidence)
 
     confs = [ind.confidence for ind in indicators.values() if ind.value is not None]
     overall = float(np.mean(confs)) if confs else 0.3
@@ -451,7 +454,7 @@ def _fetch_northbound() -> Optional[float]:
     return None
 
 
-# ─── 11. 财政赤字率 (static placeholder; real source needs iFinD/EDB) ──────────
+# ─── 11. 财政赤字率 (real source only; missing when unavailable) ──────────
 
 def _fetch_fiscal_deficit() -> Optional[float]:
     value, _source = _fetch_fiscal_deficit_with_source()
@@ -465,10 +468,10 @@ def _fetch_fiscal_deficit_with_source() -> tuple[Optional[float], str]:
     macro_china_fiscal_deficit endpoint. Falls back to the latest
     government work report target if API data is unavailable.
 
-    Previously hardcoded to 3.0 (2026 target). Now multi-source:
+    Real-source-only resolution order:
       1. akshare macro_china_fiscal_deficit (actual realized deficit)
       2. akshare macro_china_gov_report_target (official target)
-      3. Hardcoded fallback: 3.0 (last known target, confidence=0.3)
+      3. missing when neither source is available
     """
     # 1. Try akshare for realized fiscal deficit
     val = _ak_fiscal_deficit()
@@ -480,9 +483,7 @@ def _fetch_fiscal_deficit_with_source() -> tuple[Optional[float], str]:
     if val is not None:
         return val, "official_target"
 
-    # 3. Fallback: last known target with explicit low confidence
-    # (confidence overridden to 0.3 in fetch_all())
-    return 3.0, "static"
+    return None, "missing"
 
 
 def _ak_fiscal_deficit() -> Optional[float]:

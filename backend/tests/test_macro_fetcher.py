@@ -27,6 +27,14 @@ class MacroFetcherTest(unittest.TestCase):
         self.assertEqual(value, 3.0)
         self.assertEqual(source, "akshare:fiscal_deficit")
 
+    def test_fiscal_deficit_does_not_fall_back_to_static_target(self):
+        with patch.object(macro_fetcher, "_ak_fiscal_deficit", return_value=None), \
+            patch.object(macro_fetcher, "_ak_gov_deficit_target", return_value=None):
+            value, source = macro_fetcher._fetch_fiscal_deficit_with_source()
+
+        self.assertIsNone(value)
+        self.assertEqual(source, "missing")
+
     def test_fetch_all_keeps_api_source_when_fiscal_value_is_three_percent(self):
         patches = [
             patch.object(macro_fetcher, "_get_tushare", return_value=None),
@@ -60,6 +68,40 @@ class MacroFetcherTest(unittest.TestCase):
         self.assertEqual(indicator.value, 3.0)
         self.assertEqual(indicator.source, "akshare:fiscal_deficit")
         self.assertEqual(indicator.confidence, 0.85)
+
+    def test_fetch_all_marks_fiscal_deficit_missing_without_static_value(self):
+        patches = [
+            patch.object(macro_fetcher, "_get_tushare", return_value=None),
+            patch.object(macro_fetcher, "_fetch_pmi", return_value=None),
+            patch.object(macro_fetcher, "_fetch_gdp", return_value=None),
+            patch.object(macro_fetcher, "_fetch_cpi", return_value=None),
+            patch.object(macro_fetcher, "_fetch_ppi", return_value=None),
+            patch.object(macro_fetcher, "_fetch_bond_yield_10y", return_value=None),
+            patch.object(macro_fetcher, "_fetch_dr007", return_value=None),
+            patch.object(macro_fetcher, "_fetch_social_financing", return_value=None),
+            patch.object(macro_fetcher, "_fetch_m2", return_value=None),
+            patch.object(macro_fetcher, "_fetch_margin_balance", return_value=None),
+            patch.object(macro_fetcher, "_fetch_northbound", return_value=None),
+            patch.object(
+                macro_fetcher,
+                "_fetch_fiscal_deficit_with_source",
+                return_value=(None, "missing"),
+            ),
+            patch.object(macro_fetcher, "_fetch_fed_rate", return_value=None),
+            patch.object(macro_fetcher, "_fetch_usd_index", return_value=None),
+        ]
+        for item in patches:
+            item.start()
+        try:
+            snapshot = macro_fetcher.fetch_all()
+        finally:
+            for item in reversed(patches):
+                item.stop()
+
+        indicator = snapshot.indicators["财政赤字率"]
+        self.assertIsNone(indicator.value)
+        self.assertEqual(indicator.source, "missing")
+        self.assertEqual(indicator.confidence, 0.0)
 
     def test_calculate_dxy_from_usd_rates_uses_usd_base_direction(self):
         rates = {
@@ -115,7 +157,7 @@ class MacroFetcherTest(unittest.TestCase):
             patch.object(
                 macro_fetcher,
                 "_fetch_fiscal_deficit_with_source",
-                return_value=(3.0, "static"),
+                return_value=(None, "missing"),
             ),
             patch.object(macro_fetcher, "_fetch_fed_rate", return_value=None),
         ]

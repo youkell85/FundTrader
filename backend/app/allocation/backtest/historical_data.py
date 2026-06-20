@@ -819,13 +819,26 @@ def _fetch_northbound_history(start: str, end: str) -> Optional[pd.Series]:
 
 
 def _fetch_fiscal_deficit_history(start: str, end: str) -> Optional[pd.Series]:
-    """Fetch fiscal deficit rate. Returns static value (3.0%) as proxy.
+    """Fetch fiscal deficit rate history from real cached/provider data only."""
+    cached = _macro_series_from_cache("财政赤字率", start, end)
+    if cached is not None and len(cached) > 0:
+        return cached
 
-    NOTE: This is a placeholder — fiscal deficit data changes yearly.
-    Replace with actual data source (e.g. tushare.fina_indicator) in production.
-    """
-    dates = pd.date_range(start, end, freq="MS")
-    return pd.Series(3.0, index=dates)
+    try:
+        from app.allocation.data import macro_fetcher
+
+        value, source = macro_fetcher._fetch_fiscal_deficit_with_source()
+    except Exception as e:
+        logger.debug(f"Fiscal deficit history fetch failed: {e}")
+        return None
+
+    if value is None or source in {"missing", "static"}:
+        return None
+
+    as_of = pd.Timestamp(datetime.now().date()).replace(day=1)
+    if as_of < pd.Timestamp(start) or as_of > pd.Timestamp(end):
+        return None
+    return pd.Series([float(value)], index=pd.DatetimeIndex([as_of]), name="财政赤字率")
 
 
 # ---------------------------------------------------------------------------
