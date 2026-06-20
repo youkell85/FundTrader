@@ -3,6 +3,15 @@
 ## Current State
 
 PM workflow installed. P1, P2, and P3 allocation calibration tasks are complete.
+The latest production runtime deploy is commit `d9b60e5`
+(`chore(gitnexus): refresh index metadata`). That deploy pulled from Gitee,
+rebuilt the frontend/BFF bundle, restarted `fundtrader-frontend`, and passed
+basic production smoke:
+
+- `/fund/api/health` returned ok
+- `/fund/` returned HTTP 200
+- remote `/opt/fundtrader` HEAD was `d9b60e5`
+- `fundtrader-frontend` was active
 
 Latest accepted scope:
 
@@ -31,9 +40,11 @@ the initial field-provenance handoff.
 - Completed local scope: bond-holding enrichment, market-context cache contract,
   provider/field operations visibility, report evidence narrative, CI coverage,
   and production smoke tooling.
-- Current boundary: implementation is locally validated; final acceptance still
-  requires commit, push to GitHub/Gitee, production deploy, server-side market
-  cache refresh, and production smoke.
+- Current boundary: DSA/GPT runtime code through `d9b60e5` is committed, pushed
+  to GitHub/Gitee, and deployed. If the DSA/GPT track is resumed for formal
+  closeout, run the server-side market-context cache refresh and the DSA-specific
+  production smoke explicitly instead of relying only on the basic app health
+  check. Later documentation-only PM commits do not require app redeploy.
 
 P3 status: closed.
 
@@ -67,6 +78,28 @@ Accepted locally with:
 - `scripts/check-production-allocation.ps1 -BaseUrl http://43.160.226.62/fund/api`
 
 Latest deployment was explicitly approved and completed for P3 commit `e6d8c61`.
+Latest runtime deployment after subsequent allocation/UI/data-truth work was
+completed at commit `d9b60e5`. Documentation-only PM updates after that commit
+do not change the deployed app bundle.
 
 P3 note: unauthenticated production `POST /fund/api/allocation/generate`
 returning HTTP 401 is accepted as WARN, not FAIL, in the current smoke policy.
+
+## Refactor Boundary Notes
+
+Keep future refactors focused and evidence-backed:
+
+- `backend/app/api/fund.py` is the main detail/provenance/report surface. Split
+  it only by stable route families, and keep `detail-completeness` as the
+  contract anchor.
+- `frontend/src/pages/FundDetail.tsx` and `frontend/src/pages/FundDetail/`
+  should preserve explicit `available` / `partial` / `missing` display states.
+- `frontend/src/hooks/useAllocationData.ts` and
+  `frontend/src/lib/execution-plan.ts` are high-impact allocation result gates.
+  Run GitNexus impact/detect-changes before touching them.
+- `frontend/src/components/allocation/RebalancePanel.tsx` must not reintroduce
+  demo current-holding fallbacks; show blocked or missing state until real
+  holdings exist.
+- BFF proxy timeout behavior belongs in `frontend/api/boot.ts` and
+  `frontend/src/lib/api.ts`; do not add separate ad hoc AbortController logic
+  for allocation/backtest paths.
