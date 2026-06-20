@@ -8,7 +8,11 @@ from .config import ASSET_CLASSES
 logger = logging.getLogger(__name__)
 
 FACTOR_NAMES = ["equity_beta", "term_premium", "credit_premium", "inflation", "liquidity"]
-REAL_FACTOR_SOURCES = {"latest_window_regression", "long_window_factor_proxy"}
+REAL_FACTOR_SOURCES = {
+    "latest_window_regression",
+    "latest_window_regression_low_confidence",
+    "long_window_factor_proxy",
+}
 
 
 class FactorCalibrationUnavailable(RuntimeError):

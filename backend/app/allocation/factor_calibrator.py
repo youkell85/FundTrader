@@ -33,6 +33,7 @@ ASSET_PRICE_CANDIDATES = {
 
 CALIBRATION_VERSION = "factor-calibration-v1"
 LONG_WINDOW_FACTOR_SOURCE = "long_window_factor_proxy"
+LOW_CONFIDENCE_FACTOR_SOURCE = "latest_window_regression_low_confidence"
 WINDOW_DAYS = 252
 MIN_PROXY_COUNT = 3
 MIN_OBSERVATIONS = 120
@@ -176,7 +177,7 @@ def _run_long_window_proxy_calibration() -> dict:
                 if live_proxy_bundle is None:
                     live_proxy_bundle = _fetch_factor_proxy_series()
                 live_loadings, live_metadata = _calibrate_asset(asset, live_proxy_bundle)
-                if live_metadata.get("source") == "latest_window_regression":
+                if live_metadata.get("source") in {"latest_window_regression", LOW_CONFIDENCE_FACTOR_SOURCE}:
                     loadings[asset] = live_loadings
                     metadata[asset] = live_metadata
                     valid_assets.append(asset)
@@ -342,6 +343,17 @@ def _calibrate_asset(asset: str, proxy_bundle: dict) -> Tuple[Dict[str, float], 
     loadings, n_obs, r_squared = regression
     window_start, window_end = _window_bounds(n_obs)
     if r_squared < MIN_R_SQUARED:
+        low_confidence_source = asset in ASSET_PRICE_CANDIDATES and n_obs >= MIN_OBSERVATIONS
+        if low_confidence_source:
+            return loadings, {
+                **base_metadata,
+                "source": LOW_CONFIDENCE_FACTOR_SOURCE,
+                "n_obs": n_obs,
+                "r_squared": round(r_squared, 4),
+                "window_start": window_start,
+                "window_end": window_end,
+                "assumption_reason": "low_r_squared",
+            }
         base_metadata.update(
             {
                 "n_obs": n_obs,
