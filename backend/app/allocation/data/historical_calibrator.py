@@ -269,6 +269,13 @@ class HistoricalCalibrator:
             "jump_mean": -0.04,
             "jump_vol": 0.08,
         }
+        if not _has_jump_tail_stats(stats):
+            long_window_stats = _load_long_window_cache()
+            if _has_jump_tail_stats(long_window_stats):
+                stats = long_window_stats
+                self._stats_source = "long_window_cache"
+                long_window = _extract_long_window(stats)
+                self._long_window_meta = _extract_long_window_meta(long_window, "jump_tail")
         calibrated_params = _extract_jump_params_from_stats(stats, static_params)
         source = self._stats_source if calibrated_params.get("sample_size") else "static_assumption"
         coverage = 0.0 if source == "static_assumption" else min(
@@ -588,6 +595,14 @@ def _extract_jump_params_from_stats(
                     "source_assets": list(source_assets) if isinstance(source_assets, list) else [],
                 }
     return dict(defaults)
+
+
+def _has_jump_tail_stats(stats: dict | None) -> bool:
+    if not isinstance(stats, dict):
+        return False
+    long_window = stats.get("long_window") if isinstance(stats.get("long_window"), dict) else {}
+    tail_stats = long_window.get("jump_tail_stats") or stats.get("jump_tail_stats")
+    return isinstance(tail_stats, dict) and bool(tail_stats)
 
 
 def _scale_stress_scenarios_from_stats(

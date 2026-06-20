@@ -412,6 +412,31 @@ class JumpParamsCalibrationTest(unittest.TestCase):
         self.assertEqual(result["window_start"], "2020-01-01")
         self.assertEqual(result["n_observations"], 72)
 
+    def test_injected_stats_without_tail_uses_long_window_cache(self):
+        snapshot = _make_long_window_stats()
+        snapshot["long_window"]["jump_tail_stats"] = {
+            "jump_probability": 0.014,
+            "jump_mean": -0.041,
+            "jump_vol": 0.015,
+            "sample_size": 4200,
+            "tail_count": 58,
+            "source_assets": ["a_share_large", "hk_equity"],
+        }
+        injected = {
+            "returns_long": snapshot["returns_long"],
+            "vols_long": snapshot["vols_long"],
+            "correlation_matrix": snapshot["correlation_matrix"],
+            "quality": snapshot["quality"],
+        }
+        with patch(
+            "app.allocation.data.historical_calibrator._load_long_window_cache",
+            return_value=snapshot,
+        ):
+            result = HistoricalCalibrator(stats_snapshot=injected).calibrate_jump_params()
+        self.assertEqual(result["source"], "long_window_cache")
+        self.assertEqual(result["params"]["jump_probability"], 0.014)
+        self.assertEqual(result["params"]["sample_size"], 4200)
+
 
 class StressScenarioScalingTest(unittest.TestCase):
     """Tests for _scale_stress_scenarios_from_stats config-driven scaling."""
