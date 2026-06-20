@@ -8,14 +8,12 @@ from app.allocation.calibration_audit import (
     _apply_numeric_override,
     _build_section,
     _check_jump_drift,
-    _check_numeric_drift,
     _find_section,
     _resolve_policy,
     _section_status_from_result,
     _summarize_static_section,
     audit_calibration,
 )
-from app.allocation.config import EQUILIBRIUM_RETURNS, EQUILIBRIUM_VOLS
 
 
 class AuditPolicyTest(unittest.TestCase):
@@ -420,51 +418,6 @@ class FindSectionTest(unittest.TestCase):
         self.assertIsNone(found)
 
 
-class NumericDriftTest(unittest.TestCase):
-    def test_return_drift_warns_on_large_deviation(self):
-        calibrated = {"values": {"a_share_large": 15.0}}
-        static = {"a_share_large": 8.0}
-        warnings = _check_numeric_drift(calibrated, static, 3.0, "return")
-        self.assertTrue(len(warnings) > 0)
-        self.assertIn("a_share_large", warnings[0])
-        self.assertIn("delta=", warnings[0])
-
-    def test_return_drift_silent_on_small_deviation(self):
-        calibrated = {"values": {"a_share_large": 9.0}}
-        static = {"a_share_large": 8.0}
-        warnings = _check_numeric_drift(calibrated, static, 3.0, "return")
-        self.assertEqual(warnings, [])
-
-    def test_vol_drift_warns_on_large_deviation(self):
-        calibrated = {"values": {"a_share_large": 30.0}}
-        static = {"a_share_large": 20.0}
-        warnings = _check_numeric_drift(calibrated, static, 5.0, "vol")
-        self.assertTrue(len(warnings) > 0)
-        self.assertIn("a_share_large", warnings[0])
-
-    def test_handles_none_calibrated(self):
-        warnings = _check_numeric_drift(None, EQUILIBRIUM_RETURNS, 3.0, "return")
-        self.assertEqual(warnings, [])
-
-    def test_handles_empty_values(self):
-        warnings = _check_numeric_drift({"values": {}}, EQUILIBRIUM_RETURNS, 3.0, "return")
-        self.assertEqual(warnings, [])
-
-    def test_handles_non_numeric_values(self):
-        calibrated = {"values": {"a_share_large": "n/a"}}
-        warnings = _check_numeric_drift(calibrated, EQUILIBRIUM_RETURNS, 3.0, "return")
-        self.assertEqual(warnings, [])
-
-    def test_custom_threshold_changes_warning_behaviour(self):
-        """Deviation of 4.0 warns at threshold 3.0 but not at threshold 5.0."""
-        calibrated = {"values": {"a_share_large": 12.0}}
-        static = {"a_share_large": 8.0}
-        warnings_strict = _check_numeric_drift(calibrated, static, 3.0, "return")
-        self.assertTrue(len(warnings_strict) > 0)
-        warnings_loose = _check_numeric_drift(calibrated, static, 5.0, "return")
-        self.assertEqual(warnings_loose, [])
-
-
 class JumpDriftTest(unittest.TestCase):
     def test_warns_when_jump_prob_out_of_range(self):
         params = {"params": {"jump_probability": 0.15}}
@@ -620,13 +573,16 @@ class AuditCalibrationTest(unittest.TestCase):
         self.assertEqual(jp["status"], "real")
         self.assertIn("jump_params/jump_probability: missing", jp["warnings"])
 
-    def test_drift_warning_on_large_return_deviation(self):
+    def test_return_calibration_does_not_compare_to_static_baseline(self):
         cache = {
             "equilibrium_returns": {
-                "values": {k: v + 10.0 for k, v in EQUILIBRIUM_RETURNS.items()},
+                "values": {
+                    "a_share_large": 99.0,
+                    "a_share_small": -30.0,
+                },
                 "source": "historical_market_data",
                 "coverage": 1.0,
-                "valid_assets": list(EQUILIBRIUM_RETURNS.keys()),
+                "valid_assets": ["a_share_large", "a_share_small"],
                 "invalid_assets": {},
                 "assumptions_used": [],
             },
@@ -637,15 +593,18 @@ class AuditCalibrationTest(unittest.TestCase):
         sections_by_key = {s["key"]: s for s in result["sections"]}
         eq = sections_by_key["equilibrium_returns"]
         drift_warnings = [w for w in eq["warnings"] if "delta=" in w]
-        self.assertTrue(len(drift_warnings) > 0)
+        self.assertEqual(drift_warnings, [])
 
-    def test_drift_warning_on_large_vol_deviation(self):
+    def test_vol_calibration_does_not_compare_to_static_baseline(self):
         cache = {
             "equilibrium_vols": {
-                "values": {k: v + 15.0 for k, v in EQUILIBRIUM_VOLS.items()},
+                "values": {
+                    "a_share_large": 99.0,
+                    "a_share_small": 88.0,
+                },
                 "source": "historical_market_data",
                 "coverage": 1.0,
-                "valid_assets": list(EQUILIBRIUM_VOLS.keys()),
+                "valid_assets": ["a_share_large", "a_share_small"],
                 "invalid_assets": {},
                 "assumptions_used": [],
             },
@@ -656,7 +615,7 @@ class AuditCalibrationTest(unittest.TestCase):
         sections_by_key = {s["key"]: s for s in result["sections"]}
         eq = sections_by_key["equilibrium_vols"]
         drift_warnings = [w for w in eq["warnings"] if "delta=" in w]
-        self.assertTrue(len(drift_warnings) > 0)
+        self.assertEqual(drift_warnings, [])
 
     def test_all_real_sections_no_warnings_is_healthy(self):
         def _make_real_section(values=None):
@@ -771,17 +730,19 @@ class AuditCalibrationTest(unittest.TestCase):
         eq = sections_by_key["equilibrium_returns"]
         self.assertEqual(eq["status"], "real")
 
-    def test_custom_return_drift_threshold_changes_warning_behaviour(self):
-        """Deviation of 4.0 warns at default 3.0 but not at custom 5.0."""
+    def test_return_drift_threshold_does_not_reintroduce_static_comparison(self):
         cache = {
             "calibration_audit_policy": {
-                "return_drift_threshold": 5.0,
+                "return_drift_threshold": 0.1,
             },
             "equilibrium_returns": {
-                "values": {k: v + 4.0 for k, v in EQUILIBRIUM_RETURNS.items()},
+                "values": {
+                    "a_share_large": 99.0,
+                    "a_share_small": -30.0,
+                },
                 "source": "historical_market_data",
                 "coverage": 1.0,
-                "valid_assets": list(EQUILIBRIUM_RETURNS.keys()),
+                "valid_assets": ["a_share_large", "a_share_small"],
                 "invalid_assets": {},
                 "assumptions_used": [],
             },

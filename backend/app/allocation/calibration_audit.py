@@ -11,8 +11,6 @@ from dataclasses import dataclass, field
 from datetime import date as _date
 from typing import Dict, List, Optional, Tuple
 
-from .config import EQUILIBRIUM_RETURNS, EQUILIBRIUM_VOLS
-
 # --- Known calibration section keys ---
 _SECTION_KEYS = [
     "equilibrium_returns",
@@ -204,35 +202,6 @@ def _section_status_from_result(result: dict, coverage_threshold: float = _DEFAU
     return ("real", [])
 
 
-def _check_numeric_drift(
-    calibrated: Optional[dict],
-    static: Dict[str, float],
-    threshold: float,
-    label: str,
-) -> List[str]:
-    """Return drift warnings when calibrated values deviate too far from static priors."""
-    if not calibrated or not isinstance(calibrated, dict):
-        return []
-    values = calibrated.get("values") or {}
-    if not values:
-        return []
-    warnings: List[str] = []
-    for asset in static:
-        cal_val = values.get(asset)
-        static_val = static.get(asset)
-        if cal_val is None or static_val is None:
-            continue
-        try:
-            diff = abs(float(cal_val) - float(static_val))
-        except (TypeError, ValueError):
-            continue
-        if diff > threshold:
-            warnings.append(
-                f"{label}/{asset}: calibrated={float(cal_val):.1f}% vs static={float(static_val):.1f}% (delta={diff:.1f}%)"
-            )
-    return warnings
-
-
 def _check_jump_drift(params: Optional[dict], jump_prob_range: Tuple[float, float] = (_DEFAULT_JUMP_PROB_MIN, _DEFAULT_JUMP_PROB_MAX)) -> List[str]:
     """Warn if jump params drift outside conservative range."""
     if not params or not isinstance(params, dict):
@@ -341,32 +310,18 @@ def audit_calibration() -> dict:
             )
         sections.append(section)
 
-    # --- Drift checks for numeric sections ---
-    eq_returns = cache.get("equilibrium_returns") if cache else None
-    eq_vols = cache.get("equilibrium_vols") if cache else None
+    # --- Parameter consistency checks ---
     jump_raw = cache.get("jump_params") if cache else None
 
-    # Annotate drift on the matched section items
+    # Annotate parameter checks on the matched section items.
     for section in sections:
         if section.status == "missing":
             continue
         if section.status == "assumption" and "cache entry missing" not in section.warnings:
-            # No drift check for static-only sections
+            # No parameter check for static-only sections.
             continue
 
-    # equilibrium_returns drift
-    eq_ret_section = _find_section(sections, "equilibrium_returns")
-    if eq_ret_section and eq_ret_section.status not in ("missing", "assumption"):
-        d_w = _check_numeric_drift(eq_returns, EQUILIBRIUM_RETURNS, policy.return_drift_threshold, "return")
-        eq_ret_section.warnings.extend(d_w)
-
-    # equilibrium_vols drift
-    eq_vol_section = _find_section(sections, "equilibrium_vols")
-    if eq_vol_section and eq_vol_section.status not in ("missing", "assumption"):
-        v_w = _check_numeric_drift(eq_vols, EQUILIBRIUM_VOLS, policy.vol_drift_threshold, "vol")
-        eq_vol_section.warnings.extend(v_w)
-
-    # jump_params drift
+    # jump_params range validation
     jp_section = _find_section(sections, "jump_params")
     if jp_section and jp_section.status not in ("missing", "assumption"):
         j_w = _check_jump_drift(jump_raw, (policy.jump_probability_min, policy.jump_probability_max))
