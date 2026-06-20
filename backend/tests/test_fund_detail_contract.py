@@ -215,6 +215,7 @@ class FundDetailContractTest(unittest.TestCase):
             ]
         }
         with patch.object(fund_service, "_safe_table_query", return_value=[]), \
+            patch.object(fund_service, "_fetch_chinamoney_bond_info", return_value=None), \
             patch("app.data.akshare_fetcher.get_fund_bond_portfolio", return_value=fallback):
             payload = fund_service.get_fund_bond_holdings("000001")
 
@@ -234,6 +235,7 @@ class FundDetailContractTest(unittest.TestCase):
         }
         scale_row = [{"total_scale": 100.0, "report_date": "2026-03-31", "source": "tushare"}]
         with patch.object(fund_service, "_safe_table_query", side_effect=[[], scale_row]), \
+            patch.object(fund_service, "_fetch_chinamoney_bond_info", return_value=None), \
             patch("app.data.akshare_fetcher.get_fund_bond_portfolio", return_value=fallback):
             payload = fund_service.get_fund_bond_holdings("000001")
 
@@ -725,13 +727,57 @@ class FundDetailContractTest(unittest.TestCase):
             {"bondName": "25宣城国资SCP005", "bondCode": "012583110", "navRatio": 2.21},
         ]
 
-        with patch.object(fund_service, "_latest_total_scale", return_value=(1.9437, "20250630", "tushare:fund_share")):
+        with patch.object(fund_service, "_latest_total_scale", return_value=(1.9437, "20250630", "tushare:fund_share")), \
+            patch.object(fund_service, "_fetch_chinamoney_bond_info", return_value=None):
             enriched, _notes = fund_service._enrich_bond_holdings("000001", rows)
 
         self.assertEqual(enriched[0]["bondType"], "同业存单")
         self.assertEqual(enriched[0]["issuer"], "浦发银行")
         self.assertEqual(enriched[1]["bondType"], "超短期融资券")
         self.assertEqual(enriched[1]["issuer"], "宣城国资")
+
+    def test_bond_holding_enriches_chinamoney_coupon_and_disclosure_status(self):
+        rows = [
+            {"bondName": "26\u6d66\u53d1\u94f6\u884cCD059", "bondCode": "112609059", "navRatio": 4.34},
+            {"bondName": "25\u5ba3\u57ce\u56fd\u8d44SCP005", "bondCode": "012583110", "navRatio": 2.21},
+        ]
+
+        def fake_chinamoney(bond_code, bond_name=None):
+            if bond_code == "112609059":
+                return {
+                    "source": "chinamoney:bond_detail",
+                    "issuer": "\u4e0a\u6d77\u6d66\u4e1c\u53d1\u5c55\u94f6\u884c\u80a1\u4efd\u6709\u9650\u516c\u53f8",
+                    "bondType": "\u540c\u4e1a\u5b58\u5355",
+                    "couponType": "\u8d34\u73b0\u5f0f",
+                    "couponRateStatus": "not_applicable",
+                    "creditRatingStatus": "unavailable",
+                }
+            if bond_code == "012583110":
+                return {
+                    "source": "chinamoney:bond_detail",
+                    "issuer": "\u5ba3\u57ce\u5e02\u56fd\u6709\u8d44\u4ea7\u6295\u8d44\u6709\u9650\u516c\u53f8",
+                    "bondType": "\u8d85\u77ed\u671f\u878d\u8d44\u5238",
+                    "couponType": "\u96f6\u606f\u5f0f",
+                    "couponRate": 1.78,
+                    "creditRatingStatus": "unavailable",
+                }
+            return None
+
+        with patch.object(fund_service, "_latest_total_scale", return_value=(1.9437, "20250630", "tushare:fund_share")), \
+            patch.object(fund_service, "_fetch_chinamoney_bond_info", side_effect=fake_chinamoney):
+            enriched, _notes = fund_service._enrich_bond_holdings("000001", rows)
+
+        self.assertEqual(enriched[0]["issuer"], "\u4e0a\u6d77\u6d66\u4e1c\u53d1\u5c55\u94f6\u884c\u80a1\u4efd\u6709\u9650\u516c\u53f8")
+        self.assertEqual(enriched[0]["couponType"], "\u8d34\u73b0\u5f0f")
+        self.assertEqual(enriched[0]["couponRateStatus"], "not_applicable")
+        self.assertEqual(enriched[0]["creditRatingStatus"], "unavailable")
+        self.assertEqual(enriched[1]["couponRate"], 1.78)
+        self.assertEqual(enriched[1]["bondInfoSource"], "chinamoney:bond_detail")
+
+        quality = fund_service._bond_holdings_quality(enriched)
+        self.assertEqual(quality["status"], "partial")
+        self.assertEqual(quality["coverage"], 0.875)
+        self.assertIn("\u4fe1\u7528\u8bc4\u7ea7\u672a\u62ab\u9732", quality["missingReason"])
 
     def test_cached_analysis_persists_cached_holdings_snapshot(self):
         cached = {

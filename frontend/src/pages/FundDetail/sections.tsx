@@ -1267,15 +1267,36 @@ export function HoldingsSection({
     marketValue?: number | null;
     navRatio?: number | null;
     couponRate?: number | null;
+    couponType?: string | null;
+    couponRateStatus?: string | null;
     issuer?: string | null;
     bondType?: string | null;
     creditRating?: string | null;
+    creditRatingStatus?: string | null;
   }>;
   bondHoldingsStatus?: DetailRowsPayload<any>;
 }) {
   const holdings = (fund.holdings || []) as any[];
   const [showAllStockRows, setShowAllStockRows] = useState(false);
   const [showAllBondRows, setShowAllBondRows] = useState(false);
+  const formatBondCoupon = (bond: typeof bondHoldings[number]) => {
+    if (bond.couponRate != null) {
+      return pct(bond.couponRate);
+    }
+    if (bond.couponRateStatus === "not_applicable") {
+      return bond.couponType || "不适用";
+    }
+    return "—";
+  };
+  const formatBondCreditRating = (bond: typeof bondHoldings[number]) => {
+    if (bond.creditRating) {
+      return bond.creditRating;
+    }
+    if (bond.creditRatingStatus === "unavailable") {
+      return "未披露";
+    }
+    return "—";
+  };
   return (
     <>
       <Panel
@@ -1410,10 +1431,10 @@ export function HoldingsSection({
                       <td className="px-2 py-2 text-right">
                         {bond.navRatio == null ? "—" : pct(bond.navRatio)}
                       </td>
-                      <td className="px-2 py-2 text-right">{pct(bond.couponRate)}</td>
+                      <td className="px-2 py-2 text-right">{formatBondCoupon(bond)}</td>
                       <td className="px-2 py-2 text-muted-foreground">{bond.issuer || "—"}</td>
                       <td className="px-2 py-2 text-muted-foreground">{bond.bondType || "—"}</td>
-                      <td className="px-2 py-2 text-muted-foreground">{bond.creditRating || "—"}</td>
+                      <td className="px-2 py-2 text-muted-foreground">{formatBondCreditRating(bond)}</td>
                     </tr>
                   );
                   return (

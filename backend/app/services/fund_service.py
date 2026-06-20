@@ -15,6 +15,7 @@ import re
 import io
 import html
 import threading
+import urllib.parse
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from datetime import date, datetime, timedelta
@@ -1448,6 +1449,197 @@ def _clean_bond_text(value: Any) -> str | None:
     return text or None
 
 
+_CHINAMONEY_BOND_INFO_CACHE: dict[str, dict[str, Any] | None] = {}
+_CHINAMONEY_BOND_INFO_CACHE_LOCK = threading.Lock()
+
+
+def _clean_chinamoney_value(value: Any) -> str | None:
+    text = _clean_bond_text(value)
+    if not text:
+        return None
+    normalized = text.replace(" ", "").replace("\u3000", "")
+    if normalized in {"-", "--", "---", "----", "N/A", "NA", "nan", "None", "null", "---/---"}:
+        return None
+    return text
+
+
+def _first_chinamoney_value(*values: Any) -> str | None:
+    for value in values:
+        cleaned = _clean_chinamoney_value(value)
+        if cleaned is not None:
+            return cleaned
+    return None
+
+
+def _first_chinamoney_number(*values: Any) -> float | None:
+    for value in values:
+        if _clean_chinamoney_value(value) is None:
+            continue
+        parsed = _safe_number(value)
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _chinamoney_post_json(url: str, payload: dict[str, Any]) -> dict[str, Any] | None:
+    data = urllib.parse.urlencode(payload).encode("utf-8")
+    request = urllib.request.Request(
+        url,
+        data=data,
+        headers={
+            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            "User-Agent": "Mozilla/5.0 FundTrader/1.0",
+            "Origin": "https://www.chinamoney.com.cn",
+            "Referer": "https://www.chinamoney.com.cn/chinese/zqjc/",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=5) as response:
+            raw = response.read().decode("utf-8", errors="ignore")
+        parsed = json.loads(raw)
+        return parsed if isinstance(parsed, dict) else None
+    except Exception as exc:
+        console_error(f"chinamoney bond info fetch failed: {exc}")
+        return None
+
+
+def _extract_chinamoney_rows(payload: dict[str, Any] | None) -> list[dict[str, Any]]:
+    if not isinstance(payload, dict):
+        return []
+    candidates: list[Any] = [
+        payload.get("records"),
+        payload.get("rows"),
+        payload.get("data"),
+        payload.get("resultList"),
+        payload.get("result"),
+    ]
+    data = payload.get("data")
+    if isinstance(data, dict):
+        candidates.extend([data.get("records"), data.get("rows"), data.get("resultList"), data.get("list")])
+    for candidate in candidates:
+        if isinstance(candidate, list) and candidate:
+            return [row for row in candidate if isinstance(row, dict)]
+    return []
+
+
+def _first_chinamoney_detail(payload: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        return {}
+    candidates: list[Any] = [
+        payload.get("bondBaseInfo"),
+        payload.get("data"),
+        payload.get("result"),
+    ]
+    data = payload.get("data")
+    if isinstance(data, dict):
+        candidates.extend([data.get("bondBaseInfo"), data.get("baseInfo")])
+    for candidate in candidates:
+        if isinstance(candidate, dict):
+            nested = candidate.get("bondBaseInfo")
+            if isinstance(nested, dict):
+                return nested
+            return candidate
+    return {}
+
+
+def _fetch_chinamoney_bond_info(bond_code: str | None, bond_name: str | None = None) -> dict[str, Any] | None:
+    code = _clean_bond_text(bond_code)
+    name = _clean_bond_text(bond_name)
+    cache_key = code or name
+    if not cache_key:
+        return None
+    with _CHINAMONEY_BOND_INFO_CACHE_LOCK:
+        if cache_key in _CHINAMONEY_BOND_INFO_CACHE:
+            return _CHINAMONEY_BOND_INFO_CACHE[cache_key]
+
+    list_payload = {
+        "pageNo": "1",
+        "pageSize": "10",
+        "isin": "",
+        "bondCode": code or "",
+        "bondName": "" if code else (name or ""),
+        "bondType": "",
+        "couponType": "",
+        "issueYear": "",
+        "startDate": "",
+        "endDate": "",
+    }
+    list_result = _chinamoney_post_json(
+        "https://www.chinamoney.com.cn/ags/ms/cm-u-bond-md/BondMarketInfoList2",
+        list_payload,
+    )
+    rows = _extract_chinamoney_rows(list_result)
+    selected = None
+    for row in rows:
+        row_code = _clean_chinamoney_value(row.get("bondCode"))
+        row_name = _clean_chinamoney_value(row.get("bondName"))
+        if (code and row_code == code) or (name and row_name == name):
+            selected = row
+            break
+    if not selected and rows:
+        selected = rows[0]
+
+    if not selected:
+        with _CHINAMONEY_BOND_INFO_CACHE_LOCK:
+            _CHINAMONEY_BOND_INFO_CACHE[cache_key] = None
+        return None
+
+    detail: dict[str, Any] = {}
+    defined_code = _clean_chinamoney_value(selected.get("bondDefinedCode"))
+    if defined_code:
+        detail_result = _chinamoney_post_json(
+            "https://www.chinamoney.com.cn/ags/ms/cm-u-bond-md/BondDetailInfo",
+            {"bondDefinedCode": defined_code},
+        )
+        detail = _first_chinamoney_detail(detail_result)
+
+    coupon_type = _first_chinamoney_value(detail.get("couponType"), selected.get("couponType"))
+    coupon_rate = _first_chinamoney_number(
+        detail.get("parCouponRate"),
+        detail.get("couponRate"),
+        detail.get("interestRate"),
+        selected.get("parCouponRate"),
+        selected.get("couponRate"),
+    )
+    debt_rating = _first_chinamoney_value(
+        selected.get("debtRtng"),
+        detail.get("debtRtng"),
+        detail.get("creditRating"),
+        detail.get("bondCreditRating"),
+    )
+    if debt_rating is None and isinstance(detail.get("creditRateEntyList"), list):
+        for rating_row in detail["creditRateEntyList"]:
+            if not isinstance(rating_row, dict):
+                continue
+            debt_rating = _first_chinamoney_value(
+                rating_row.get("debtRtng"),
+                rating_row.get("bondCreditRating"),
+                rating_row.get("creditDebtRating"),
+                rating_row.get("creditSubjectRating"),
+            )
+            if debt_rating:
+                break
+    info: dict[str, Any] = {
+        "source": "chinamoney:bond_detail" if detail else "chinamoney:bond_market_info",
+        "bondName": _first_chinamoney_value(detail.get("bondFullName"), selected.get("bondName")),
+        "bondType": _first_chinamoney_value(detail.get("bondType"), selected.get("bondType")),
+        "issuer": _first_chinamoney_value(detail.get("entyFullName"), selected.get("entyFullName")),
+        "couponType": coupon_type,
+        "couponRate": coupon_rate,
+        "creditRating": debt_rating,
+    }
+    if coupon_rate is None and coupon_type == "贴现式":
+        info["couponRateStatus"] = "not_applicable"
+    if debt_rating is None and (selected.get("debtRtng") is not None or detail.get("creditRateEntyList") is not None):
+        info["creditRatingStatus"] = "unavailable"
+
+    cleaned_info = {key: value for key, value in info.items() if value not in (None, "", [])}
+    with _CHINAMONEY_BOND_INFO_CACHE_LOCK:
+        _CHINAMONEY_BOND_INFO_CACHE[cache_key] = cleaned_info
+    return cleaned_info
+
+
 def _infer_bond_type(name: str | None) -> str | None:
     text = name or ""
     if not text:
@@ -1529,6 +1721,26 @@ def _enrich_bond_holdings(code: str, rows: list[dict[str, Any]]) -> tuple[list[d
     enriched: list[dict[str, Any]] = []
     for row in rows:
         item = dict(row)
+        official_info = _fetch_chinamoney_bond_info(item.get("bondCode"), item.get("bondName"))
+        if official_info:
+            item["bondInfoSource"] = official_info.get("source")
+            if official_info.get("issuer"):
+                item["issuer"] = official_info["issuer"]
+                item["issuerSource"] = "chinamoney"
+            if official_info.get("bondType"):
+                item["bondType"] = official_info["bondType"]
+            if official_info.get("couponType"):
+                item["couponType"] = official_info["couponType"]
+            if official_info.get("couponRate") is not None:
+                item["couponRate"] = official_info["couponRate"]
+                item["couponRateSource"] = official_info.get("source")
+            elif official_info.get("couponRateStatus"):
+                item["couponRateStatus"] = official_info["couponRateStatus"]
+            if official_info.get("creditRating"):
+                item["creditRating"] = official_info["creditRating"]
+                item["creditRatingSource"] = official_info.get("source")
+            elif official_info.get("creditRatingStatus"):
+                item["creditRatingStatus"] = official_info["creditRatingStatus"]
         if not item.get("bondType"):
             item["bondType"] = _infer_bond_type(item.get("bondName"))
         if not item.get("issuer"):
@@ -1588,9 +1800,16 @@ def _normalize_bond_holding_row(item: dict[str, Any]) -> dict[str, Any] | None:
         "marketValue": _safe_number(item.get("marketValue") or item.get("market_value") or item.get("market_value2") or item.get("marketValue1")),
         "navRatio": _safe_float(item.get("navRatio") or item.get("nav_ratio") or item.get("ratio") or item.get("weight") or item.get("nav_ratio_pct")),
         "couponRate": _safe_number(item.get("couponRate") or item.get("coupon_rate") or item.get("coupon") or item.get("interestRate") or item.get("couponRatePct")),
+        "couponType": _clean_bond_text(item.get("couponType") or item.get("coupon_type")),
+        "couponRateStatus": _clean_bond_text(item.get("couponRateStatus") or item.get("coupon_rate_status")),
+        "couponRateSource": _clean_bond_text(item.get("couponRateSource") or item.get("coupon_rate_source")),
         "issuer": issuer,
+        "issuerSource": _clean_bond_text(item.get("issuerSource") or item.get("issuer_source")),
         "bondType": bond_type,
         "creditRating": credit_rating,
+        "creditRatingStatus": _clean_bond_text(item.get("creditRatingStatus") or item.get("credit_rating_status")),
+        "creditRatingSource": _clean_bond_text(item.get("creditRatingSource") or item.get("credit_rating_source")),
+        "bondInfoSource": _clean_bond_text(item.get("bondInfoSource") or item.get("bond_info_source")),
     }
 
 
@@ -1604,12 +1823,18 @@ def _bond_holdings_quality(rows: list[dict[str, Any]]) -> dict[str, Any]:
     for row in rows:
         for field in fields:
             value = row.get(field)
-            if value not in (None, "", []):
+            if field == "couponRate" and row.get("couponRateStatus") == "not_applicable":
+                present += 1
+            elif value not in (None, "", []):
                 present += 1
             else:
-                missing_fields.add(field)
+                if field == "creditRating" and row.get("creditRatingStatus") == "unavailable":
+                    missing_fields.add("creditRatingUnavailable")
+                else:
+                    missing_fields.add(field)
     coverage = round(present / total, 4) if total else 0.0
-    status = DETAIL_STATUS_AVAILABLE if coverage >= 0.85 else DETAIL_STATUS_PARTIAL
+    critical_missing = bool({"creditRating", "creditRatingUnavailable"} & missing_fields)
+    status = DETAIL_STATUS_AVAILABLE if coverage >= 0.85 and not critical_missing else DETAIL_STATUS_PARTIAL
     labels = {
         "bondCode": "债券代码",
         "marketValue": "持仓市值",
@@ -1617,6 +1842,7 @@ def _bond_holdings_quality(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "issuer": "发行主体",
         "bondType": "债券类型",
         "creditRating": "信用评级",
+        "creditRatingUnavailable": "信用评级未披露",
     }
     missing_reason = None
     if status != DETAIL_STATUS_AVAILABLE:
