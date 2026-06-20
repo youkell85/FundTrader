@@ -21,6 +21,7 @@ from ..config import (
     DEFAULT_CORR,
     EQUILIBRIUM_RETURNS,
     EQUILIBRIUM_VOLS,
+    GROUP_MAP,
     STRESS_SCENARIOS,
 )
 
@@ -91,9 +92,11 @@ class HistoricalCalibrator:
             "equilibrium_vols": self.calibrate_equilibrium_vols(),
             "correlation_matrix": self.calibrate_correlation_matrix(),
             "jump_params": self.calibrate_jump_params(),
-           "stress_scenarios": self.calibrate_stress_scenarios(),
-       }
-        result.update(self._p2_defaults())
+            "stress_scenarios": self.calibrate_stress_scenarios(),
+            "scenario_analysis": self.calibrate_scenario_analysis(),
+        }
+        for key, value in self._p2_defaults().items():
+            result.setdefault(key, value)
         if persist:
             try:
                 from app.storage.database import StatsSnapshotCache
@@ -113,7 +116,7 @@ class HistoricalCalibrator:
         try:
             from ..regime_detector import RegimeThresholds
             from dataclasses import fields as dc_fields
-            from ..config import GROUP_MAP, EQUILIBRIUM_RETURNS
+            from ..config import GROUP_MAP
 
             rt_defaults = {f.name: getattr(RegimeThresholds, f.name) for f in dc_fields(RegimeThresholds)}
             cash_assets = GROUP_MAP.get("cash_equiv", ["money_fund", "cash"])
@@ -123,15 +126,6 @@ class HistoricalCalibrator:
             return {
                 "regime_thresholds": {"params": rt_defaults, "source": "static_assumption", "status": "assumption"},
                 "circuit_breaker_destination": {"params": dest_weights, "source": "static_assumption", "status": "assumption"},
-                "scenario_analysis": {
-                    "params": {
-                        "baseline_returns": dict(EQUILIBRIUM_RETURNS),
-                        "probabilities": [0.25, 0.50, 0.25],
-                        "multiplier_overrides": None,
-                    },
-                    "source": "static_assumption",
-                    "status": "assumption",
-                },
                 "risk_questionnaire": {
                     "params": {"weights": None, "shift_down_threshold": -0.5, "shift_up_threshold": 1.5},
                     "source": "static_assumption",
@@ -326,6 +320,69 @@ class HistoricalCalibrator:
             window_end=(self._long_window_meta or {}).get("window_end"),
             n_observations=(self._long_window_meta or {}).get("n_observations"),
             confidence_score=(self._long_window_meta or {}).get("confidence_score"),
+        ).to_dict()
+
+    def calibrate_scenario_analysis(self) -> dict:
+        """Calibrate scenario probabilities and multipliers from long-window data."""
+        stats = self._load_stats()
+        long_window = _extract_long_window(stats)
+        returns = _apply_bayesian_shrinkage(
+            long_window.get("returns") or (stats or {}).get("returns_long") or (stats or {}).get("returns") or {},
+            DMS_PRIOR_RETURNS,
+            stats,
+        )
+        vols = _apply_bayesian_shrinkage(
+            long_window.get("vols") or (stats or {}).get("vols_long") or (stats or {}).get("vols") or {},
+            DMS_PRIOR_VOLS,
+            stats,
+        )
+        quality = (stats or {}).get("quality") or {}
+        self._long_window_meta = _extract_long_window_meta(long_window, "scenario")
+
+        params = _calibrate_scenario_params_from_stats(returns, vols, quality)
+        if params is None:
+            return _static_params_result(
+                "scenario_analysis",
+                {
+                    "baseline_returns": dict(EQUILIBRIUM_RETURNS),
+                    "probabilities": [0.25, 0.50, 0.25],
+                    "multiplier_overrides": None,
+                },
+                "insufficient_scenario_calibration_data",
+            )
+
+        valid_assets = _quality_assets(quality, "available")
+        invalid_assets = _invalid_assets_from_quality(quality)
+        coverage = round(len(valid_assets) / len(ASSET_CLASSES), 4)
+        if coverage <= 0:
+            coverage = round(len([a for a in ASSET_CLASSES if _is_finite_number(returns.get(a)) and _is_finite_number(vols.get(a))]) / len(ASSET_CLASSES), 4)
+        source = self._stats_source if coverage >= MIN_COVERAGE else "static_assumption"
+        if source == "static_assumption":
+            return _static_params_result(
+                "scenario_analysis",
+                params,
+                "insufficient_scenario_calibration_coverage",
+            )
+
+        meta = self._long_window_meta if self._long_window_meta else {}
+        return CalibrationResult(
+            source=source,
+            as_of=_today(),
+            coverage=coverage,
+            valid_assets=valid_assets or [a for a in ASSET_CLASSES if _is_finite_number(returns.get(a))],
+            invalid_assets=invalid_assets,
+            assumptions_used=_assumptions_from_quality(quality),
+            data_status=_calibration_data_status(
+                source,
+                coverage,
+                invalid_assets,
+                _assumptions_from_quality(quality),
+            ),
+            params=params,
+            window_start=meta.get("window_start"),
+            window_end=meta.get("window_end"),
+            n_observations=meta.get("n_observations"),
+            confidence_score=meta.get("confidence_score"),
         ).to_dict()
 
     def _series_result(
@@ -603,6 +660,88 @@ def _has_jump_tail_stats(stats: dict | None) -> bool:
     long_window = stats.get("long_window") if isinstance(stats.get("long_window"), dict) else {}
     tail_stats = long_window.get("jump_tail_stats") or stats.get("jump_tail_stats")
     return isinstance(tail_stats, dict) and bool(tail_stats)
+
+
+def _calibrate_scenario_params_from_stats(
+    returns: Dict[str, Any],
+    vols: Dict[str, Any],
+    quality: Dict[str, dict],
+) -> dict | None:
+    baseline_returns: Dict[str, float] = {}
+    valid_assets: List[str] = []
+    for asset in ASSET_CLASSES:
+        value = returns.get(asset)
+        vol = vols.get(asset)
+        if _is_finite_number(value) and _is_finite_number(vol):
+            baseline_returns[asset] = round(float(value), 4)
+            if (quality.get(asset) or {}).get("status") in {"available", "synthesized"}:
+                valid_assets.append(asset)
+
+    coverage = len(valid_assets) / len(ASSET_CLASSES) if ASSET_CLASSES else 0.0
+    if coverage < MIN_COVERAGE or len(baseline_returns) != len(ASSET_CLASSES):
+        return None
+
+    group_returns = _group_average(baseline_returns)
+    group_vols = _group_average(vols)
+    if not group_returns or not group_vols:
+        return None
+
+    equity_return = group_returns.get("equity", 0.0)
+    defensive_return = float(np.mean([
+        group_returns.get("fixed_income", 0.0),
+        group_returns.get("cash_equiv", 0.0),
+    ]))
+    equity_vol = max(group_vols.get("equity", 0.0), 1.0)
+    median_vol = max(float(np.median([v for v in group_vols.values() if _is_finite_number(v)])), 1.0)
+
+    risk_premium_score = (equity_return - defensive_return) / equity_vol
+    vol_pressure = min(max(equity_vol / median_vol - 1.0, -1.0), 1.0)
+
+    optimistic = _clamp(0.25 + 0.08 * risk_premium_score - 0.03 * vol_pressure, 0.15, 0.45)
+    pessimistic = _clamp(0.25 - 0.05 * risk_premium_score + 0.05 * vol_pressure, 0.15, 0.45)
+    baseline = 1.0 - optimistic - pessimistic
+    if baseline < 0.20:
+        scale = (0.80) / max(optimistic + pessimistic, 1e-9)
+        optimistic *= scale
+        pessimistic *= scale
+        baseline = 0.20
+    total = optimistic + baseline + pessimistic
+    probabilities = [
+        round(optimistic / total, 4),
+        round(baseline / total, 4),
+        round(pessimistic / total, 4),
+    ]
+    probabilities[1] = round(1.0 - probabilities[0] - probabilities[2], 4)
+
+    multiplier_overrides = {"0": {}, "1": {}, "2": {}}
+    median_abs_return = max(float(np.median([abs(v) for v in group_returns.values()])), 1.0)
+    for group in GROUP_MAP:
+        group_return = group_returns.get(group, 0.0)
+        group_vol = max(group_vols.get(group, 0.0), 0.1)
+        return_strength = group_return / median_abs_return
+        vol_strength = group_vol / median_vol
+        multiplier_overrides["0"][group] = round(_clamp(1.0 + 0.10 * vol_strength + 0.06 * max(return_strength, 0.0), 1.02, 1.60), 4)
+        multiplier_overrides["1"][group] = 1.0
+        multiplier_overrides["2"][group] = round(_clamp(1.0 - 0.16 * vol_strength + 0.04 * min(return_strength, 0.0), 0.35, 0.98), 4)
+
+    return {
+        "baseline_returns": baseline_returns,
+        "probabilities": probabilities,
+        "multiplier_overrides": multiplier_overrides,
+    }
+
+
+def _group_average(values: Dict[str, Any]) -> Dict[str, float]:
+    result: Dict[str, float] = {}
+    for group, assets in GROUP_MAP.items():
+        nums = [float(values[a]) for a in assets if _is_finite_number(values.get(a))]
+        if nums:
+            result[group] = float(np.mean(nums))
+    return result
+
+
+def _clamp(value: float, lower: float, upper: float) -> float:
+    return max(lower, min(upper, float(value)))
 
 
 def _scale_stress_scenarios_from_stats(

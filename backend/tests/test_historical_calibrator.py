@@ -438,6 +438,50 @@ class JumpParamsCalibrationTest(unittest.TestCase):
         self.assertEqual(result["params"]["sample_size"], 4200)
 
 
+class ScenarioAnalysisCalibrationTest(unittest.TestCase):
+    def test_calibrate_scenario_analysis_uses_long_window_stats(self):
+        snapshot = _make_long_window_stats()
+        result = HistoricalCalibrator(stats_snapshot=snapshot).calibrate_scenario_analysis()
+
+        self.assertEqual(result["source"], "long_window_snapshot")
+        self.assertIn(result["data_status"], {"partial", "real"})
+        params = result["params"]
+        self.assertEqual(set(params["baseline_returns"]), set(ASSET_CLASSES))
+        self.assertAlmostEqual(sum(params["probabilities"]), 1.0, places=3)
+        self.assertIsInstance(params["multiplier_overrides"], dict)
+        for idx in ("0", "1", "2"):
+            self.assertEqual(
+                set(params["multiplier_overrides"][idx]),
+                {"equity", "fixed_income", "alternative", "cash_equiv"},
+            )
+
+    def test_calibrate_all_does_not_overwrite_real_scenario_with_p2_defaults(self):
+        snapshot = _make_long_window_stats()
+        result = HistoricalCalibrator(stats_snapshot=snapshot).calibrate_all()
+        scenario = result["scenario_analysis"]
+
+        self.assertEqual(scenario["source"], "long_window_snapshot")
+        self.assertNotEqual(scenario["source"], "static_assumption")
+        self.assertIsNotNone(scenario["params"]["multiplier_overrides"])
+
+    def test_scenario_analysis_falls_back_to_assumption_when_coverage_missing(self):
+        with patch(
+            "app.allocation.data.historical_calibrator._load_long_window_cache",
+            return_value=None,
+        ), patch(
+            "app.allocation.data.market_data_fetcher.compute_rolling_stats_ex",
+            return_value=None,
+        ), patch(
+            "app.storage.database.StatsSnapshotCache.get",
+            return_value=None,
+        ):
+            result = HistoricalCalibrator().calibrate_scenario_analysis()
+
+        self.assertEqual(result["source"], "static_assumption")
+        self.assertEqual(result["data_status"], "assumption")
+        self.assertEqual(result["invalid_assets"]["scenario_analysis"], "insufficient_scenario_calibration_data")
+
+
 class StressScenarioScalingTest(unittest.TestCase):
     """Tests for _scale_stress_scenarios_from_stats config-driven scaling."""
 
