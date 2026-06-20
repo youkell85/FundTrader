@@ -604,6 +604,7 @@ class StressScenarioCacheCalibrationTest(unittest.TestCase):
         self.assertEqual(result["data_status"], "real")
         self.assertEqual(result["coverage"], 1.0)
         self.assertEqual(set(result["params"]["rolling_1m_tail_p05"]), set(ASSET_CLASSES))
+        self.assertEqual(result["source_window"], "2024-01-01..2024-11-15")
         self.assertFalse(result["assumptions_used"])
 
     def test_calibrate_stress_scenarios_falls_back_when_cache_insufficient(self):

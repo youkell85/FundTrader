@@ -327,7 +327,7 @@ class HistoricalCalibrator:
         scenarios = rolling["scenarios"]
         coverage = rolling["coverage"]
         invalid_assets = rolling["invalid_assets"]
-        return CalibrationResult(
+        result = CalibrationResult(
             source="etf_cache_rolling_tail",
             as_of=_today(),
             coverage=coverage,
@@ -346,6 +346,9 @@ class HistoricalCalibrator:
             n_observations=rolling.get("n_observations"),
             confidence_score=rolling.get("confidence_score"),
         ).to_dict()
+        if result.get("window_start") and result.get("window_end"):
+            result["source_window"] = f"{result['window_start']}..{result['window_end']}"
+        return result
 
     def calibrate_scenario_analysis(self) -> dict:
         """Calibrate scenario probabilities and multipliers from long-window data."""
