@@ -30,7 +30,7 @@ from .regime_detector import detect_regime, get_regime_status
 from .risk_profiler import RISK_LABELS, profile_user
 from .saa_engine import optimize_saa
 from .scenario_analysis import ScenarioCalibrationUnavailable, analyze_scenarios
-from .stress_test import run_stress_tests
+from .stress_test import StressCalibrationUnavailable, run_stress_tests
 from .taa_engine import adjust_taa
 
 logger = logging.getLogger(__name__)
@@ -307,6 +307,12 @@ def run(
     try:
         stress_results = run_stress_tests(final_alloc)
         d.elapsed_ms = (time.monotonic() - t0) * 1000
+    except StressCalibrationUnavailable as e:
+        stress_results = []
+        d.status = "degraded"
+        d.detail = str(e)[:100]
+        d.elapsed_ms = (time.monotonic() - t0) * 1000
+        warnings.append(f"压力测试缺少真实校准数据，已跳过: {str(e)[:50]}")
     except Exception as e:
         stress_results = []
         d.status = "degraded"
