@@ -106,7 +106,6 @@ export default function PipelineHealthPanel() {
                 return (
                   <div className="text-xs text-white/40 mt-0.5">
                     src {p.policy_source}{p.policy_version ? ` v${p.policy_version}` : ''}{' '}
-                    | ret {fmt(p.return_drift_threshold)} | vol {fmt(p.vol_drift_threshold)}{' '}
                     | jump {fmt(p.jump_probability_min)}-{fmt(p.jump_probability_max)}{' '}
                     | cov {fmt(p.coverage_threshold)}
                   </div>

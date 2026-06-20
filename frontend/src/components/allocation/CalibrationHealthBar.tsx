@@ -139,8 +139,7 @@ export default function CalibrationHealthBar() {
             <div className="text-[10px] text-white/25 mt-1">
               策略: {calibration.policy.policy_source}
               {calibration.policy.policy_version ? ` v${calibration.policy.policy_version}` : ''}
-              {' '}| 收益偏差 {calibration.policy.return_drift_threshold?.toFixed(1)}%
-              {' '}| 波动偏差 {calibration.policy.vol_drift_threshold?.toFixed(1)}%
+              {' '}| 跳跃概率 {calibration.policy.jump_probability_min?.toFixed(2)}-{calibration.policy.jump_probability_max?.toFixed(2)}
               {' '}| 覆盖阈值 {(calibration.policy.coverage_threshold * 100).toFixed(0)}%
             </div>
           )}
