@@ -62,6 +62,35 @@ class CMADataQualityTest(unittest.TestCase):
         self.assertEqual(cma.quality["source"], "historical_anchor")
         self.assertEqual(cma.quality["calibration_version"], "historical-calibrator-v1")
 
+    def test_long_window_anchor_source_is_not_reported_as_static(self):
+        returns = {asset: float(index + 1) for index, asset in enumerate(ASSET_CLASSES)}
+        vols = {asset: float(index + 10) for index, asset in enumerate(ASSET_CLASSES)}
+        snapshot = {
+            "equilibrium_returns": {"values": returns, "source": "long_window_snapshot", "coverage": 1.0},
+            "equilibrium_vols": {"values": vols, "source": "long_window_snapshot", "coverage": 1.0},
+            "correlation_matrix": {"matrix": DEFAULT_CORR, "source": "long_window_snapshot", "coverage": 1.0},
+        }
+
+        with patch("app.allocation.cma_manager._get_signal_layer", return_value=(None, None, None, {})), patch(
+            "app.allocation.cma_manager._load_cached_anchor_snapshot",
+            return_value=snapshot,
+        ):
+            cma = cma_manager.estimate_cma(RegimeState())
+
+        self.assertEqual(cma.quality["anchor_source"], "long_window_snapshot")
+        self.assertEqual(cma.quality["source"], "historical_anchor")
+
+    def test_reits_low_volatility_real_signal_is_allowed(self):
+        ok, reason = cma_manager._validate_signal_value(
+            "reits",
+            -12.48,
+            3.96,
+            {"status": "available", "source": "representative_etf:508006"},
+        )
+
+        self.assertTrue(ok)
+        self.assertIsNone(reason)
+
     def test_rejected_signal_asset_is_reported_and_excluded(self):
         returns = {asset: 4.0 for asset in ASSET_CLASSES}
         vols = {asset: 12.0 for asset in ASSET_CLASSES}

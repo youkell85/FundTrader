@@ -267,6 +267,9 @@ def _validate_signal_value(
     if group == "fixed_income":
         ret_min, ret_max = -30.0, 40.0
         vol_min, vol_max = 0.5, 35.0
+    if asset == "reits":
+        ret_min, ret_max = -60.0, 80.0
+        vol_min, vol_max = 0.5, 80.0
     if group == "cash_equiv" or asset in {"money_fund", "cash"}:
         ret_min, ret_max = -2.0, 8.0
         vol_min, vol_max = 0.0, 3.0
@@ -304,6 +307,10 @@ def _anchor_corr_matrix(matrix: Any, fallback: np.ndarray) -> np.ndarray:
 
 def _anchor_source(sources: set) -> str:
     cleaned = {source for source in sources if source}
+    if "long_window_snapshot" in cleaned:
+        return "long_window_snapshot"
+    if "long_window_cache" in cleaned:
+        return "long_window_cache"
     if "historical_market_data" in cleaned:
         return "historical_market_data"
     if "sqlite_cache" in cleaned:
