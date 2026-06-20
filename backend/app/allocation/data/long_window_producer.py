@@ -118,6 +118,7 @@ def build_long_window_stats(as_of_date: str | None = None, years: int = 3) -> di
     returns_long = _annualized_returns(returns_by_asset)
     vols_long = _annualized_vols(returns_by_asset)
     corr = _correlation_matrix(returns_by_asset)
+    jump_tail_stats = _jump_tail_stats(returns_by_asset, quality)
     n_observations = max((len(v) for v in returns_by_asset.values()), default=0)
     confidence_score = _confidence_score(quality)
     window_start = min(first_dates) if first_dates else start_s
@@ -127,6 +128,7 @@ def build_long_window_stats(as_of_date: str | None = None, years: int = 3) -> di
         "returns": returns_long,
         "vols": vols_long,
         "correlation_matrix": corr,
+        "jump_tail_stats": jump_tail_stats,
         "window_start": window_start,
         "window_end": window_end,
         "n_observations": n_observations,
@@ -137,6 +139,7 @@ def build_long_window_stats(as_of_date: str | None = None, years: int = 3) -> di
         "returns_long": returns_long,
         "vols_long": vols_long,
         "correlation_matrix": corr,
+        "jump_tail_stats": jump_tail_stats,
         "quality": quality,
         "coverage": coverage,
         "long_window": long_window,
@@ -238,6 +241,56 @@ def _correlation_matrix(returns_by_asset: dict[str, np.ndarray]) -> list[list[fl
     corr = np.clip(corr, -1.0, 1.0)
     np.fill_diagonal(corr, 1.0)
     return [[round(float(value), 6) for value in row] for row in corr.tolist()]
+
+
+def _jump_tail_stats(
+    returns_by_asset: dict[str, np.ndarray],
+    quality: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """Estimate jump inputs from real negative daily-return tails."""
+    tail_values: list[float] = []
+    sample_size = 0
+    source_assets: list[str] = []
+
+    for asset, values in returns_by_asset.items():
+        if (quality.get(asset) or {}).get("status") != "available":
+            continue
+        arr = np.asarray(values, dtype=float)
+        arr = arr[np.isfinite(arr)]
+        if len(arr) < MIN_OBSERVATIONS - 1:
+            continue
+        std = float(np.std(arr, ddof=1))
+        if not np.isfinite(std) or std <= 0:
+            continue
+        mean = float(np.mean(arr))
+        q01 = float(np.quantile(arr, 0.01))
+        threshold = min(q01, mean - 2.5 * std, -0.015)
+        tails = arr[arr <= threshold]
+        sample_size += len(arr)
+        source_assets.append(asset)
+        tail_values.extend(float(v) for v in tails.tolist())
+
+    tail_count = len(tail_values)
+    if sample_size <= 0 or tail_count <= 0:
+        return {
+            "sample_size": sample_size,
+            "tail_count": tail_count,
+            "source_assets": source_assets,
+        }
+
+    tail_arr = np.asarray(tail_values, dtype=float)
+    jump_probability = min(max(tail_count / sample_size, 0.0), 0.10)
+    jump_mean = max(min(float(np.mean(tail_arr)), -0.001), -0.30)
+    jump_vol = min(max(float(np.std(tail_arr, ddof=1)) if tail_count > 1 else 0.001, 0.001), 0.30)
+
+    return {
+        "jump_probability": round(jump_probability, 6),
+        "jump_mean": round(jump_mean, 6),
+        "jump_vol": round(jump_vol, 6),
+        "sample_size": sample_size,
+        "tail_count": tail_count,
+        "source_assets": source_assets,
+    }
 
 
 def _confidence_score(quality: dict[str, dict[str, Any]]) -> float:

@@ -257,19 +257,24 @@ class HistoricalCalibrator:
     def calibrate_jump_params(self) -> dict:
         """Calibrate jump diffusion params from historical tail data when available.
 
-        Uses daily return distribution tails from the long-window snapshot to estimate
-        jump probability, mean, and vol. Falls back to static defaults when no data.
+        Uses persisted daily return tail statistics from the long-window snapshot
+        to estimate jump probability, mean, and vol. Falls back to static defaults
+        when no tail statistics are available.
         """
         stats = self._load_stats()
+        long_window = _extract_long_window(stats)
+        self._long_window_meta = _extract_long_window_meta(long_window, "jump_tail")
         static_params = {
             "jump_probability": 0.03,
             "jump_mean": -0.04,
             "jump_vol": 0.08,
         }
-        # Try extracting jump params from long-window returns data
         calibrated_params = _extract_jump_params_from_stats(stats, static_params)
-        source = self._stats_source if calibrated_params != static_params else "static_assumption"
-        coverage = 0.0 if source == "static_assumption" else 0.5
+        source = self._stats_source if calibrated_params.get("sample_size") else "static_assumption"
+        coverage = 0.0 if source == "static_assumption" else min(
+            1.0,
+            round(len(calibrated_params.get("source_assets") or []) / len(ASSET_CLASSES), 4),
+        )
         data_status = "assumption" if source == "static_assumption" else "partial"
         return CalibrationResult(
             source=source,
@@ -549,16 +554,39 @@ def _extract_jump_params_from_stats(
     stats: dict | None,
     defaults: dict,
 ) -> dict:
-    """Fallback-only jump diffusion parameter estimation.
-
-    Jump parameters require daily return time-series data to estimate tail
-    event frequency and severity. The long-window snapshot stores only
-    cross-sectional averages, which cannot support a statistically valid
-    jump calibration. Return static defaults and mark provenance explicitly.
-
-    A future producer that stores per-day return distribution statistics
-    in the long-window snapshot can enable real calibration here.
-    """
+    """Extract jump diffusion params from persisted long-window tail stats."""
+    if isinstance(stats, dict):
+        long_window = stats.get("long_window") if isinstance(stats.get("long_window"), dict) else {}
+        tail_stats = long_window.get("jump_tail_stats") or stats.get("jump_tail_stats") or {}
+        if isinstance(tail_stats, dict):
+            try:
+                sample_size = int(tail_stats.get("sample_size") or 0)
+                tail_count = int(tail_stats.get("tail_count") or 0)
+                jump_probability = float(tail_stats.get("jump_probability"))
+                jump_mean = float(tail_stats.get("jump_mean"))
+                jump_vol = float(tail_stats.get("jump_vol"))
+            except (TypeError, ValueError):
+                sample_size = 0
+                tail_count = 0
+                jump_probability = 0.0
+                jump_mean = 0.0
+                jump_vol = 0.0
+            if (
+                sample_size >= 252
+                and tail_count >= 3
+                and 0.0 <= jump_probability <= 0.10
+                and -0.30 <= jump_mean < 0.0
+                and 0.0 < jump_vol <= 0.30
+            ):
+                source_assets = tail_stats.get("source_assets")
+                return {
+                    "jump_probability": round(jump_probability, 6),
+                    "jump_mean": round(jump_mean, 6),
+                    "jump_vol": round(jump_vol, 6),
+                    "sample_size": sample_size,
+                    "tail_count": tail_count,
+                    "source_assets": list(source_assets) if isinstance(source_assets, list) else [],
+                }
     return dict(defaults)
 
 

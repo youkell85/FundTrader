@@ -333,16 +333,16 @@ class BayesianShrinkageTest(unittest.TestCase):
         self.assertAlmostEqual(result["a_share_large"], expected, places=1)
 
 
-class JumpParamsFallbackTest(unittest.TestCase):
-    """Tests for _extract_jump_params_from_stats fallback-only behavior."""
+class JumpParamsCalibrationTest(unittest.TestCase):
+    """Tests for jump params calibration from long-window tail stats."""
 
-    def test_always_returns_defaults(self):
+    def test_missing_stats_returns_defaults(self):
         from app.allocation.data.historical_calibrator import _extract_jump_params_from_stats
         defaults = {"jump_probability": 0.03, "jump_mean": -0.04, "jump_vol": 0.08}
         result = _extract_jump_params_from_stats(None, defaults)
         self.assertEqual(result, defaults)
 
-    def test_returns_defaults_even_with_stats(self):
+    def test_stats_without_tail_distribution_returns_defaults(self):
         from app.allocation.data.historical_calibrator import _extract_jump_params_from_stats
         defaults = {"jump_probability": 0.03, "jump_mean": -0.04, "jump_vol": 0.08}
         stats = {
@@ -351,6 +351,66 @@ class JumpParamsFallbackTest(unittest.TestCase):
         }
         result = _extract_jump_params_from_stats(stats, defaults)
         self.assertEqual(result, defaults)
+
+    def test_extracts_real_tail_stats_when_available(self):
+        from app.allocation.data.historical_calibrator import _extract_jump_params_from_stats
+        defaults = {"jump_probability": 0.03, "jump_mean": -0.04, "jump_vol": 0.08}
+        stats = {
+            "long_window": {
+                "jump_tail_stats": {
+                    "jump_probability": 0.012345,
+                    "jump_mean": -0.035,
+                    "jump_vol": 0.011,
+                    "sample_size": 5000,
+                    "tail_count": 62,
+                    "source_assets": ["a_share_large", "a_share_small"],
+                },
+                "window_start": "2023-01-01",
+                "window_end": "2026-01-01",
+                "n_observations": 720,
+                "confidence_score": 0.82,
+            }
+        }
+        result = _extract_jump_params_from_stats(stats, defaults)
+        self.assertEqual(result["jump_probability"], 0.012345)
+        self.assertEqual(result["jump_mean"], -0.035)
+        self.assertEqual(result["jump_vol"], 0.011)
+        self.assertEqual(result["sample_size"], 5000)
+        self.assertEqual(result["tail_count"], 62)
+        self.assertEqual(result["source_assets"], ["a_share_large", "a_share_small"])
+
+    def test_rejects_too_few_tail_events(self):
+        from app.allocation.data.historical_calibrator import _extract_jump_params_from_stats
+        defaults = {"jump_probability": 0.03, "jump_mean": -0.04, "jump_vol": 0.08}
+        stats = {
+            "jump_tail_stats": {
+                "jump_probability": 0.001,
+                "jump_mean": -0.02,
+                "jump_vol": 0.01,
+                "sample_size": 5000,
+                "tail_count": 2,
+            }
+        }
+        result = _extract_jump_params_from_stats(stats, defaults)
+        self.assertEqual(result, defaults)
+
+    def test_calibrate_jump_params_uses_real_tail_stats(self):
+        snapshot = _make_long_window_stats()
+        snapshot["long_window"]["jump_tail_stats"] = {
+            "jump_probability": 0.012,
+            "jump_mean": -0.033,
+            "jump_vol": 0.012,
+            "sample_size": 5000,
+            "tail_count": 60,
+            "source_assets": ["a_share_large", "a_share_small", "hk_equity"],
+        }
+        result = HistoricalCalibrator(stats_snapshot=snapshot).calibrate_jump_params()
+        self.assertEqual(result["source"], "long_window_snapshot")
+        self.assertEqual(result["data_status"], "partial")
+        self.assertEqual(result["params"]["jump_probability"], 0.012)
+        self.assertEqual(result["params"]["sample_size"], 5000)
+        self.assertEqual(result["window_start"], "2020-01-01")
+        self.assertEqual(result["n_observations"], 72)
 
 
 class StressScenarioScalingTest(unittest.TestCase):

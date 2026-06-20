@@ -1,3 +1,4 @@
+from datetime import date, timedelta
 from unittest.mock import patch
 
 import numpy as np
@@ -17,6 +18,17 @@ def _prices(count: int = 760, start: float = 1.0, drift: float = 0.0002) -> dict
     for index in range(count):
         price *= 1.0 + drift + (index % 5) * 0.00001
         values[f"2023-01-{(index % 28) + 1:02d}-{index:04d}"] = round(price, 6)
+    return values
+
+
+def _prices_with_tail_events(count: int = 760, start: float = 1.0) -> dict[str, float]:
+    values = {}
+    price = start
+    first_day = date(2023, 1, 1)
+    for index in range(count):
+        shock = -0.04 if index > 0 and index % 95 == 0 else 0.0003
+        price *= 1.0 + shock
+        values[(first_day + timedelta(days=index)).isoformat()] = round(price, 6)
     return values
 
 
@@ -97,6 +109,26 @@ def test_snapshot_compatible_with_historical_calibrator():
     assert result["source"] == "long_window_snapshot"
     assert result["window_start"] == snapshot["long_window"]["window_start"]
     assert result["confidence_score"] == snapshot["long_window"]["confidence_score"]
+
+
+def test_snapshot_includes_real_jump_tail_stats():
+    cache = {
+        code: _prices_with_tail_events(start=1.0 + index * 0.1)
+        for index, (asset, code) in enumerate(REPRESENTATIVE_ETFS.items())
+        if code
+    }
+    with patch("app.allocation.data.long_window_producer.ETFPriceCache") as mock_cache:
+        mock_cache.get_range.side_effect = _get_range_from(cache)
+        snapshot = build_long_window_stats("2026-06-10")
+
+    assert snapshot is not None
+    tail_stats = snapshot["long_window"]["jump_tail_stats"]
+    assert tail_stats["sample_size"] >= 700
+    assert tail_stats["tail_count"] >= 3
+    assert 0 < tail_stats["jump_probability"] <= 0.10
+    assert tail_stats["jump_mean"] < 0
+    assert tail_stats["jump_vol"] > 0
+    assert tail_stats["source_assets"]
 
 
 def test_persist_long_window_stats_calls_cache_key():
