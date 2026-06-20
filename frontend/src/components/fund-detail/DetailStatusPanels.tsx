@@ -80,15 +80,27 @@ function providerTone(provider: SourceCoverageSummary["providers"][number]): str
 }
 
 function providerNote(provider: SourceCoverageSummary["providers"][number]): string {
-  const parts = [provider.status || (provider.available ? "available" : "missing")];
+  const parts = [providerStatusText(provider.status || (provider.available ? "available" : "missing"))];
   const failureCount = provider.failureCount ?? provider.failure_count;
   const cooldownUntil = provider.cooldownUntil || provider.cooldown_until;
   const lastError = provider.lastError || provider.last_error;
-  if (failureCount) parts.push(`fail=${failureCount}`);
-  if (provider.circuitOpen || provider.circuit_open) parts.push("circuit=open");
-  if (cooldownUntil) parts.push(`cooldown=${cooldownUntil}`);
+  if (failureCount) parts.push(`失败=${failureCount}`);
+  if (provider.circuitOpen || provider.circuit_open) parts.push("熔断=开启");
+  if (cooldownUntil) parts.push(`冷却至=${cooldownUntil}`);
   if (lastError) parts.push(lastError);
   return parts.join(" / ");
+}
+
+function providerStatusText(status: string | null | undefined): string {
+  const normalized = String(status || "").toLowerCase();
+  if (normalized === "available" || normalized === "healthy") return "可用";
+  if (normalized === "partial") return "部分可用";
+  if (normalized === "degraded") return "降级";
+  if (normalized === "cooldown") return "冷却中";
+  if (normalized === "stale") return "过期";
+  if (normalized === "missing") return "缺失";
+  if (normalized === "error") return "异常";
+  return status || "未知";
 }
 
 export function DecisionSnapshot({
@@ -114,62 +126,62 @@ export function DecisionSnapshot({
     return1y === null && return3y === null
       ? null
       : return1y !== null && return1y > 0
-        ? { text: "1Y positive", tone: "text-[#16C784]" }
+        ? { text: "近1年为正", tone: "text-[#16C784]" }
         : return3y !== null && return3y > 0
-          ? { text: "3Y positive", tone: "text-[#16C784]" }
-          : { text: "Recent return negative", tone: "text-[#F5384B]" };
+          ? { text: "近3年为正", tone: "text-[#16C784]" }
+          : { text: "近期收益为负", tone: "text-[#F5384B]" };
 
   const riskSignal: Signal | null =
     risk.maxDrawdown === null
       ? null
       : risk.maxDrawdown < -30
-        ? { text: "Large drawdown", tone: "text-[#F5384B]" }
+        ? { text: "回撤偏大", tone: "text-[#F5384B]" }
         : risk.maxDrawdown < -15
-          ? { text: "Medium drawdown", tone: "text-[#FFB800]" }
-          : { text: "Drawdown controlled", tone: "text-[#16C784]" };
+          ? { text: "回撤中等", tone: "text-[#FFB800]" }
+          : { text: "回撤受控", tone: "text-[#16C784]" };
 
   const peerSignal: Signal | null =
     return1y === null || peerReturn1yValue === null
       ? null
       : return1y > peerReturn1yValue
-        ? { text: "Ahead of peer", tone: "text-[#16C784]" }
+        ? { text: "领先同类", tone: "text-[#16C784]" }
         : return1y < peerReturn1yValue
-          ? { text: "Behind peer", tone: "text-[#E9AB60]" }
-          : { text: "In line with peer", tone: "text-white/65" };
+          ? { text: "落后同类", tone: "text-[#E9AB60]" }
+          : { text: "同类持平", tone: "text-white/65" };
 
   const scaleSignal: Signal | null =
     totalScale === null
       ? null
       : totalScale > 50
-        ? { text: `Scale ${totalScale.toFixed(0)}B`, tone: "text-white/65" }
+        ? { text: `规模 ${totalScale.toFixed(0)}亿`, tone: "text-white/65" }
         : totalScale > 5
-          ? { text: `Scale ${totalScale.toFixed(0)}B`, tone: "text-white/65" }
-          : { text: `Scale ${totalScale.toFixed(1)}B small`, tone: "text-[#E9AB60]" };
+          ? { text: `规模 ${totalScale.toFixed(0)}亿`, tone: "text-white/65" }
+          : { text: `规模 ${totalScale.toFixed(1)}亿偏小`, tone: "text-[#E9AB60]" };
 
   const dataBad = coverage.missing + coverage.error + coverage.partial + coverage.stale;
   const dataSignal: Signal =
     dataBad === 0
-      ? { text: "Data complete", tone: "text-[#16C784]" }
+      ? { text: "数据完整", tone: "text-[#16C784]" }
       : dataBad <= 3
-        ? { text: `${dataBad} items need attention`, tone: "text-[#FFB800]" }
-        : { text: `${dataBad} items need attention`, tone: "text-[#E9AB60]" };
+        ? { text: `${dataBad} 项需关注`, tone: "text-[#FFB800]" }
+        : { text: `${dataBad} 项需关注`, tone: "text-[#E9AB60]" };
 
   const nextSection =
     dataBad > 0
-      ? { id: "gaps", label: "Review data gaps" }
+      ? { id: "gaps", label: "查看数据缺口" }
       : return1y === null
-        ? { id: "perf", label: "Review performance" }
-        : { id: "peer", label: "Review peer comparison" };
+        ? { id: "perf", label: "查看业绩" }
+        : { id: "peer", label: "查看同类对比" };
 
   return (
     <div className="mt-3 grid grid-cols-2 gap-2 rounded-lg border border-white/[0.06] bg-white/[0.02] p-3 text-sm sm:grid-cols-3 lg:grid-cols-6">
-      <SnapshotMetric label="Performance" signal={perfSignal} />
-      <SnapshotMetric label="Peer" signal={peerSignal} />
-      <SnapshotMetric label="Risk" signal={riskSignal} />
-      <SnapshotMetric label="Scale" signal={scaleSignal} />
-      <SnapshotMetric label="Data health" signal={dataSignal} />
+      <SnapshotMetric label="业绩" signal={perfSignal} />
+      <SnapshotMetric label="同类" signal={peerSignal} />
+      <SnapshotMetric label="风险" signal={riskSignal} />
+      <SnapshotMetric label="规模" signal={scaleSignal} />
+      <SnapshotMetric label="数据健康" signal={dataSignal} />
       <div className="flex flex-col gap-0.5">
-        <span className="text-[11px] text-white/40">Next</span>
+        <span className="text-[11px] text-white/40">下一步</span>
         {onNavigateSection ? (
           <button
             type="button"
@@ -195,7 +207,7 @@ function SnapshotMetric({ label, signal }: { label: string; signal: Signal | nul
       {signal ? (
         <span className={`font-semibold ${signal.tone}`}>{signal.text}</span>
       ) : (
-        <span className="text-white/25">No data</span>
+        <span className="text-white/25">暂无数据</span>
       )}
     </div>
   );
@@ -204,19 +216,19 @@ function SnapshotMetric({ label, signal }: { label: string; signal: Signal | nul
 export function MarketContextPanel({ context }: { context: any }) {
   const sections = context?.sections || {};
   const rows = [
-    { key: "etfKline", label: "ETF K-line", ...sections.etfKline },
-    { key: "northFlow", label: "Northbound flow", ...sections.northFlow },
-    { key: "sectorFlow", label: "Sector flow", ...sections.sectorFlow },
-    { key: "holdingsFlowMatch", label: "Holdings-flow match", ...sections.holdingsFlowMatch },
-    { key: "holdingsStyle", label: "Holding style", ...sections.holdingsStyle },
+    { key: "etfKline", label: "ETF K线", ...sections.etfKline },
+    { key: "northFlow", label: "北向资金", ...sections.northFlow },
+    { key: "sectorFlow", label: "行业资金流", ...sections.sectorFlow },
+    { key: "holdingsFlowMatch", label: "持仓与资金流匹配", ...sections.holdingsFlowMatch },
+    { key: "holdingsStyle", label: "持仓风格", ...sections.holdingsStyle },
   ];
 
   return (
     <Panel
-      title="Market context"
+      title="市场上下文"
       extra={
         <span className="text-xs text-muted-foreground">
-          Coverage {context?.coverage != null ? `${Math.round(Number(context.coverage) * 100)}%` : "-"}
+          覆盖率 {context?.coverage != null ? `${Math.round(Number(context.coverage) * 100)}%` : "-"}
         </span>
       }
     >
@@ -236,10 +248,10 @@ export function MarketContextPanel({ context }: { context: any }) {
                 </span>
               </div>
               <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                <span>Source {row.source || "-"}</span>
-                <span>Date {row.asOf || context?.asOf || "-"}</span>
-                {signalDirection ? <span>Signal {signalDirection}</span> : null}
-                {matchScore != null ? <span>Match {pctLabel(Number(matchScore))}</span> : null}
+                <span>来源 {row.source || "-"}</span>
+                <span>日期 {row.asOf || context?.asOf || "-"}</span>
+                {signalDirection ? <span>信号 {signalDirection}</span> : null}
+                {matchScore != null ? <span>匹配度 {pctLabel(Number(matchScore))}</span> : null}
               </div>
               {matchedFlowRows.length > 0 ? (
                 <div className="mt-2 flex flex-wrap gap-1">
@@ -248,7 +260,7 @@ export function MarketContextPanel({ context }: { context: any }) {
                       key={`${row.key}-flow-${item.industry}`}
                       className="rounded border border-white/[0.08] px-2 py-0.5 text-xs text-white/55"
                     >
-                      {item.industry} {item.trend || "unknown"}
+                      {item.industry} {item.trend || "未知"}
                     </span>
                   ))}
                 </div>
@@ -287,49 +299,49 @@ export function SourceCoveragePanel({ summary }: { summary: SourceCoverageSummar
         : "available";
   const nextOpsAction =
     summary.missingFields > 0
-      ? "Backfill missing fields first"
+      ? "优先补齐缺失字段"
       : summary.partialFields > 0
-        ? "Review partial field sources"
+        ? "复核部分可用字段来源"
         : summary.availableProviders < summary.totalProviders
-          ? "Check provider health"
-          : "Monitor daily smoke";
+          ? "检查数据源健康"
+          : "持续观察每日巡检";
 
   return (
     <Panel
-      title="Operations coverage"
+      title="运维覆盖"
       extra={<span className={`rounded border px-2 py-0.5 text-xs ${statusTone(healthStatus)}`}>{statusLabel(healthStatus)}</span>}
     >
       <div className="grid grid-cols-1 gap-2 text-sm">
         <div className="rounded-md border border-white/[0.06] bg-white/[0.02] px-3 py-2">
-          <div className="text-[11px] text-white/40">Fields</div>
+          <div className="text-[11px] text-white/40">字段</div>
           <div className="mt-1 data-number text-lg font-semibold text-white/85">
             {hasFields ? `${summary.availableFields}/${summary.totalFields}` : "-"}
           </div>
           <div className="mt-0.5 text-xs text-white/45">
-            coverage {pctLabel(summary.fieldCoverage)}
+            覆盖率 {pctLabel(summary.fieldCoverage)}
           </div>
         </div>
         <div className="rounded-md border border-white/[0.06] bg-white/[0.02] px-3 py-2">
-          <div className="text-[11px] text-white/40">Providers</div>
+          <div className="text-[11px] text-white/40">数据源</div>
           <div className="mt-1 data-number text-lg font-semibold text-white/85">
             {hasProviders ? `${summary.availableProviders}/${summary.totalProviders}` : "-"}
           </div>
           <div className="mt-0.5 truncate text-xs text-white/45" title={summary.updatedAt || undefined}>
-            {summary.providerStatus || "unknown"}
+            {providerStatusText(summary.providerStatus)}
           </div>
         </div>
         <div className="rounded-md border border-white/[0.06] bg-white/[0.02] px-3 py-2">
-          <div className="text-[11px] text-white/40">Next</div>
+          <div className="text-[11px] text-white/40">下一步</div>
           <div className="mt-1 text-sm font-semibold text-white/80">{nextOpsAction}</div>
           <div className="mt-0.5 text-xs text-white/45">
-            {summary.partialFields} partial / {summary.missingFields} missing
+            {summary.partialFields} 个部分可用 / {summary.missingFields} 个缺失
           </div>
         </div>
       </div>
 
       {summary.topSources.length > 0 ? (
         <div className="mt-3">
-          <div className="mb-1.5 text-[11px] text-white/40">Top field sources</div>
+          <div className="mb-1.5 text-[11px] text-white/40">主要字段来源</div>
           <div className="flex flex-wrap gap-1.5">
             {summary.topSources.map((source) => (
               <span key={source.source} className="rounded border border-white/[0.08] bg-white/[0.02] px-2 py-1 text-[11px] text-white/60">
@@ -342,12 +354,12 @@ export function SourceCoveragePanel({ summary }: { summary: SourceCoverageSummar
 
       {summary.providers.length > 0 ? (
         <div className="mt-3 space-y-1.5">
-          <div className="text-[11px] text-white/40">Provider health</div>
+          <div className="text-[11px] text-white/40">数据源健康</div>
           {summary.providers.map((provider) => (
             <div key={provider.name || providerNote(provider)} className={`rounded border px-2.5 py-1.5 text-xs ${providerTone(provider)}`}>
               <div className="flex items-center justify-between gap-2">
-                <span className="font-medium">{provider.name || "unknown"}</span>
-                <span className="shrink-0">{provider.available ? "available" : provider.status || "missing"}</span>
+                <span className="font-medium">{provider.name || "未知"}</span>
+                <span className="shrink-0">{providerStatusText(provider.available ? "available" : provider.status || "missing")}</span>
               </div>
               <div className="mt-1 truncate opacity-65" title={providerNote(provider)}>
                 {(provider.capabilities || []).slice(0, 3).join(", ") || providerNote(provider)}
@@ -359,7 +371,7 @@ export function SourceCoveragePanel({ summary }: { summary: SourceCoverageSummar
 
       {summary.problemFields.length > 0 ? (
         <div className="mt-3 space-y-1.5">
-          <div className="text-[11px] text-white/40">Field gaps</div>
+          <div className="text-[11px] text-white/40">字段缺口</div>
           {summary.problemFields.map((field) => (
             <div key={field.field} className={`rounded border px-2.5 py-1.5 text-xs ${statusTone(field.status)}`}>
               <div className="flex items-center justify-between gap-2">
@@ -367,7 +379,7 @@ export function SourceCoveragePanel({ summary }: { summary: SourceCoverageSummar
                 <span className="shrink-0">{statusLabel(field.status)}</span>
               </div>
               <div className="mt-1 truncate opacity-65" title={field.missingReason || field.source || undefined}>
-                {field.source || "unattributed"}{field.missingReason ? ` / ${field.missingReason}` : ""}
+                {field.source || "未标注来源"}{field.missingReason ? ` / ${field.missingReason}` : ""}
               </div>
             </div>
           ))}
@@ -382,7 +394,7 @@ export function DataGapsPanel({ items }: { items: CoverageEntry[] }) {
   if (gaps.length === 0) {
     return (
       <div className="rounded-md border border-[#16C784]/20 bg-[#16C784]/5 px-4 py-3 text-sm text-[#16C784]">
-        All required detail data is available.
+        详情页必需数据已全部可用。
       </div>
     );
   }
@@ -400,7 +412,7 @@ export function DataGapsPanel({ items }: { items: CoverageEntry[] }) {
       {rest.length > 0 ? (
         <details className="group">
           <summary className="cursor-pointer select-none text-xs text-white/40 hover:text-white/60">
-            Show {rest.length} more gap{rest.length > 1 ? "s" : ""}
+            展开其余 {rest.length} 个缺口
           </summary>
           <div className="mt-2 space-y-2">
             {rest.map((it) => (
@@ -419,7 +431,7 @@ function GapRow({ it }: { it: CoverageEntry }) {
       <span className="inline-flex h-2 w-2 shrink-0 rounded-full bg-current opacity-60" />
       <span className="font-medium">{it.label}</span>
       <span className="ml-1 text-[11px] opacity-70">{statusLabel(it.status)}</span>
-      {it.source ? <span className="text-[10px] opacity-50">via {it.source}</span> : null}
+      {it.source ? <span className="text-[10px] opacity-50">来源 {it.source}</span> : null}
       {it.reason ? <span className="ml-auto text-xs opacity-60">{it.reason}</span> : null}
     </div>
   );
@@ -435,7 +447,7 @@ export function CoverageSummary({ summary }: { summary: CoverageSummaryType }) {
 
   return (
     <section className="relative mb-3 flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-white/[0.04] bg-white/[0.01] px-3 py-1.5 text-xs">
-      <span className="text-white/50">Data coverage</span>
+      <span className="text-white/50">数据覆盖</span>
       <div className="flex flex-wrap gap-1.5">
         {order.map((status) => {
           const count = counts[status] || 0;
@@ -453,7 +465,7 @@ export function CoverageSummary({ summary }: { summary: CoverageSummaryType }) {
       </div>
       <details className="group ml-auto">
         <summary className="cursor-pointer select-none text-[10px] text-white/35 hover:text-white/55">
-          Details
+          详情
         </summary>
         <div className="absolute right-0 z-20 mt-2 w-72 rounded-lg border border-white/[0.08] bg-[#0A0E1A] p-3 shadow-xl">
           <div className="grid grid-cols-1 gap-y-1.5">

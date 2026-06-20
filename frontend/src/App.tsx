@@ -114,7 +114,11 @@ export default function App() {
             <Route path="" element={<Navigate to="/" replace />} />
             <Route path="/ui-preview" element={<Navigate to="/" replace />} />
             <Route path="/login" element={<Login />} />
-            <Route path="/:code" element={<FundDetail />} />
+            <Route path="/market" element={<Navigate to="/" replace />} />
+            <Route path="/dca" element={<Navigate to="/backtest" replace />} />
+            <Route path="/portfolio" element={<Navigate to="/recommend" replace />} />
+            <Route path="/research" element={<Navigate to="/analysis" replace />} />
+            <Route path="/funds" element={<Navigate to="/analysis" replace />} />
 
             {/* 管理员 */}
             <Route path="/admin" element={<RequireAuth roles={['admin']}><AdminDashboard /></RequireAuth>} />
@@ -128,6 +132,8 @@ export default function App() {
               <Route index element={<AllocationWizard />} />
               <Route path="result" element={<AllocationLayout />}>
                 <Route index element={<OverviewPage />} />
+                <Route path="overview" element={<OverviewPage />} />
+                <Route path="diagnosis" element={<Navigate to="/allocation/result/risk" replace />} />
                 <Route path="market" element={<MarketPage />} />
                 <Route path="strategy" element={<StrategyPage />} />
                 <Route path="funds" element={<FundsPage />} />
@@ -141,6 +147,7 @@ export default function App() {
               <Route path=":id" element={<LegacyAllocationDashboard />} />
             </Route>
 
+            <Route path="/:code" element={<FundDetail />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </Suspense>

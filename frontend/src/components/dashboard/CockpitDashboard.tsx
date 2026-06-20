@@ -6,6 +6,9 @@ import { getFundAnalysis } from '@/lib/api'
 
 type FundLike = {
   fundCode?: string
+  code?: string | null
+  fund_code?: string | null
+  tsCode?: string | null
   fundName?: string
   fundAbbr?: string
   fundType?: string
@@ -136,6 +139,12 @@ function metricText(value: unknown, digits = 2) {
 
 function fundName(fund: FundLike) {
   return String(fund.fundName || fund.fundAbbr || fund.fundCode || '未命名基金')
+}
+
+function fundCode(fund: FundLike) {
+  const rawCode = fund.fundCode || fund.code || fund.fund_code || fund.tsCode || ''
+  const match = String(rawCode).match(/\d{6}/)
+  return match ? match[0] : ''
 }
 
 function managerName(fund: FundLike) {
@@ -425,7 +434,7 @@ export function CockpitDashboard({
       if (fundFilter !== 'all' && typeKey(fund) !== fundFilter) return false
       if (!keyword) return true
       const haystack = [
-        fund.fundCode,
+        fundCode(fund),
         fundName(fund),
         managerName(fund),
         typeLabel(fund),
@@ -436,7 +445,7 @@ export function CockpitDashboard({
   }, [fundFilter, query, weighted])
   const visibleCards = filteredWeighted.slice(0, 4)
   const visibleCodes = useMemo(
-    () => visibleCards.map(({ fund }) => String(fund.fundCode || '')).filter((code) => /^\d{6}$/.test(code)),
+    () => visibleCards.map(({ fund }) => fundCode(fund)).filter((code) => /^\d{6}$/.test(code)),
     [visibleCards],
   )
   const visibleCodeKey = visibleCodes.join('|')
@@ -658,8 +667,8 @@ export function CockpitDashboard({
               <span>推荐与对比</span>
               <ChevronRight size={14} className="text-white/36" />
             </Link>
-            {funds.length > 0 && funds[0]?.fundCode && (
-              <Link to={`/${funds[0].fundCode}`} className="workspace-action flex items-center justify-between px-3 py-2 text-sm">
+            {funds.length > 0 && fundCode(funds[0]) && (
+              <Link to={`/${fundCode(funds[0])}`} className="workspace-action flex items-center justify-between px-3 py-2 text-sm">
                 <span>查看 {fundName(funds[0])}</span>
                 <ChevronRight size={14} className="text-white/36" />
               </Link>
@@ -703,13 +712,13 @@ export function CockpitDashboard({
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {visibleCards.map(({ fund, weight, weightSource }) => {
             const returnRate = parseMetric(fund.performance?.return1y ?? fund.performance?.annualizedReturn)
-            const detailPath = fund.fundCode ? `/${fund.fundCode}` : '/analysis'
-            const code = String(fund.fundCode || '')
+            const code = fundCode(fund)
+            const detailPath = code ? `/${code}` : '/analysis'
             const trend = Array.isArray(fund.navTrend) && fund.navTrend.length > 1
               ? fund.navTrend
               : trendByCode[code] || []
             return (
-              <Link key={fund.fundCode || fundName(fund)} to={detailPath} className="block rounded-lg border border-white/[0.075] bg-white/[0.03] p-3 transition hover:border-primary/40 hover:bg-white/[0.05]">
+              <Link key={code || fundName(fund)} to={detailPath} className="block rounded-lg border border-white/[0.075] bg-white/[0.03] p-3 transition hover:border-primary/40 hover:bg-white/[0.05]">
                 <div className="flex items-center justify-between gap-2">
                   <div className="min-w-0">
                     <div className="truncate text-sm font-semibold text-[#fff8ea]">{fundName(fund)}</div>

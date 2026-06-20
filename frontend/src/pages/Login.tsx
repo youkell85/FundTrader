@@ -3,6 +3,46 @@ import { useLocation, useNavigate } from "react-router";
 import { Loader2, LogIn, UserPlus, Mail } from "lucide-react";
 import { trpc } from "@/providers/trpc";
 
+function zodMessages(value: any): string[] {
+  if (!value) return [];
+  if (Array.isArray(value)) {
+    return value.map((item) => item?.message).filter((message): message is string => Boolean(message));
+  }
+  const fieldErrors = value?.fieldErrors;
+  if (fieldErrors && typeof fieldErrors === "object") {
+    return Object.values(fieldErrors)
+      .flatMap((messages) => (Array.isArray(messages) ? messages : []))
+      .filter((message): message is string => typeof message === "string" && message.length > 0);
+  }
+  if (typeof value.message === "string") return [value.message];
+  return [];
+}
+
+function parseErrorMessage(message: string): unknown | null {
+  const trimmed = message.trim();
+  if (!trimmed) return null;
+  const start = ["[", "{"]
+    .map((token) => trimmed.indexOf(token))
+    .filter((index) => index >= 0)
+    .sort((a, b) => a - b)[0];
+  if (start === undefined) return null;
+  try {
+    return JSON.parse(trimmed.slice(start));
+  } catch {
+    return null;
+  }
+}
+
+function formatAuthError(err: any, fallback = "操作失败，请检查输入后重试"): string {
+  const messages = [
+    ...zodMessages(err?.data?.zodError),
+    ...zodMessages(parseErrorMessage(String(err?.message || ""))),
+  ];
+  const unique = Array.from(new Set(messages.map((message) => message.trim()).filter(Boolean)));
+  if (unique.length > 0) return unique.join("；");
+  return String(err?.message || fallback);
+}
+
 export default function Login() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -32,7 +72,7 @@ export default function Login() {
   });
   const forgotPw = trpc.auth.forgotPassword.useMutation({
     onSuccess: (data: any) => setSuccess(data?.message || "新密码已发送"),
-    onError: (err: any) => setError(err.message),
+    onError: (err: any) => setError(formatAuthError(err, "重置邮件发送失败")),
   });
   const pending = login.isPending || register.isPending || forgotPw.isPending;
 
@@ -41,13 +81,13 @@ export default function Login() {
     setError("");
     setSuccess("");
     if (mode === "login") {
-      login.mutate({ username: username.trim(), password }, { onError: (err: any) => setError(err.message) });
+      login.mutate({ username: username.trim(), password }, { onError: (err: any) => setError(formatAuthError(err, "登录失败")) });
     } else if (mode === "register") {
       if (!email.includes("@")) { setError("请输入有效的邮箱地址"); return; }
       register.mutate({
         username: username.trim(), password, email: email.trim(),
         displayName: displayName.trim() || username.trim(),
-      }, { onError: (err: any) => setError(err.message) });
+      }, { onError: (err: any) => setError(formatAuthError(err, "注册失败")) });
     } else {
       forgotPw.mutate({ username: username.trim(), email: email.trim() });
     }
