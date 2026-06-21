@@ -688,6 +688,7 @@ class FundDetailContractTest(unittest.TestCase):
             ),
         }
         with patch.object(fund_service, "_safe_table_query", return_value=[]), \
+            patch.object(fund_service, "_fetch_eastmoney_fund_turnover_history", return_value=None), \
             patch.object(fund_service, "_fetch_eastmoney_holder_report_pdf_texts", return_value=[report]):
             payload = fund_service.get_fund_turnover_history("000001", periods=8)
 
@@ -715,6 +716,7 @@ class FundDetailContractTest(unittest.TestCase):
             return []
 
         with patch.object(fund_service, "_safe_table_query", side_effect=fake_query), \
+            patch.object(fund_service, "_fetch_eastmoney_fund_turnover_history", return_value=None), \
             patch.object(fund_service, "_fetch_eastmoney_holder_report_pdf_texts", return_value=[report]), \
             patch.object(fund_service, "_persist_turnover_snapshot") as persist:
             payload = fund_service.get_fund_turnover_history("000001", periods=2)
@@ -728,6 +730,7 @@ class FundDetailContractTest(unittest.TestCase):
     def test_turnover_history_with_snapshot_does_not_fetch_reports_for_large_window(self):
         rows = [{"report_date": "2025-12-31", "turnover_rate": 2009.9638, "source": "eastmoney:periodic_report_pdf", "data_quality": "standard_turnover", "updated_at": "2026-06-19"}]
         with patch.object(fund_service, "_safe_table_query", return_value=rows), \
+            patch.object(fund_service, "_fetch_eastmoney_fund_turnover_history", return_value=None), \
             patch.object(fund_service, "_fetch_eastmoney_holder_report_pdf_texts") as fetch_reports:
             payload = fund_service.get_fund_turnover_history("000001", periods=8)
 
@@ -748,6 +751,7 @@ class FundDetailContractTest(unittest.TestCase):
             ),
         }
         with patch.object(fund_service, "_safe_table_query", return_value=snapshot_rows), \
+            patch.object(fund_service, "_fetch_eastmoney_fund_turnover_history", return_value=None), \
             patch.object(fund_service, "_fetch_eastmoney_holder_report_pdf_texts", return_value=[report]), \
             patch.object(fund_service, "_persist_turnover_snapshot") as persist:
             payload = fund_service.get_fund_turnover_history("000001", periods=8)
@@ -782,6 +786,7 @@ class FundDetailContractTest(unittest.TestCase):
             },
         ]
         with patch.object(fund_service, "_safe_table_query", return_value=[]), \
+            patch.object(fund_service, "_fetch_eastmoney_fund_turnover_history", return_value=None), \
             patch.object(fund_service, "_fetch_eastmoney_holder_report_pdf_texts", return_value=reports), \
             patch.object(fund_service, "_persist_turnover_snapshot") as persist:
             payload = fund_service.get_fund_turnover_history("000001", periods=2)
@@ -793,6 +798,59 @@ class FundDetailContractTest(unittest.TestCase):
         self.assertEqual(payload["rows"][1]["turnoverRate"], 20.0)
         self.assertEqual(persist.call_count, 2)
 
+    def test_eastmoney_fund_turnover_parser_reads_official_records(self):
+        response = MagicMock()
+        response.__enter__.return_value.read.return_value = (
+            b'{"Data":[{"REPORTDATE":"2025-12-31","STOCKTURNOVER":243.86},'
+            b'{"REPORTDATE":"2025-06-30","STOCKTURNOVER":163.71},'
+            b'{"REPORTDATE":"2024-12-31","STOCKTURNOVER":138.8}],'
+            b'"ErrCode":0,"TotalCount":3}'
+        )
+
+        with patch("urllib.request.urlopen", return_value=response):
+            payload = fund_service._fetch_eastmoney_fund_turnover_history("020983", limit=8)
+
+        self.assertIsNotNone(payload)
+        self.assertEqual(payload["source"], "eastmoney:fund_turnover_api")
+        self.assertEqual(payload["totalCount"], 3)
+        self.assertEqual([row["quarter"] for row in payload["rows"]], ["2024-12-31", "2025-06-30", "2025-12-31"])
+        self.assertEqual(payload["rows"][0]["turnoverRate"], 138.8)
+
+    def test_turnover_history_uses_official_api_total_count_for_coverage(self):
+        legacy_rows = [{
+            "report_date": "2026-03-27",
+            "turnover_rate": 2009.9638,
+            "source": "eastmoney:periodic_report_pdf",
+            "data_quality": "report_pdf",
+            "updated_at": "2026-06-21",
+        }]
+        official_payload = {
+            "source": "eastmoney:fund_turnover_api",
+            "totalCount": 3,
+            "rows": [
+                {"quarter": "2024-12-31", "turnoverRate": 138.8, "calculationStatus": "provider_turnover"},
+                {"quarter": "2025-06-30", "turnoverRate": 163.71, "calculationStatus": "provider_turnover"},
+                {"quarter": "2025-12-31", "turnoverRate": 243.86, "calculationStatus": "provider_turnover"},
+            ],
+        }
+        with patch.object(fund_service, "_safe_table_query", return_value=legacy_rows), \
+            patch.object(fund_service, "_fetch_eastmoney_fund_turnover_history", return_value=official_payload), \
+            patch.object(fund_service, "_fetch_eastmoney_holder_report_pdf_texts") as fetch_reports, \
+            patch.object(fund_service, "_persist_turnover_snapshot") as persist:
+            payload = fund_service.get_fund_turnover_history("020983", periods=8)
+
+        fetch_reports.assert_not_called()
+        self.assertEqual(payload["dataStatus"], "available")
+        self.assertEqual(payload["coverage"], 1.0)
+        self.assertEqual(payload["source"], "eastmoney:fund_turnover_api")
+        self.assertIsNone(payload["missingReason"])
+        self.assertEqual([row["quarter"] for row in payload["rows"]], ["2024-12-31", "2025-06-30", "2025-12-31"])
+        self.assertEqual([row["turnoverRate"] for row in payload["rows"]], [138.8, 163.71, 243.86])
+        self.assertEqual(persist.call_count, 3)
+        for call in persist.call_args_list:
+            self.assertEqual(call.kwargs["source"], "eastmoney:fund_turnover_api")
+            self.assertEqual(call.kwargs["data_quality"], "provider_turnover")
+
     def test_turnover_history_marks_bond_fund_not_applicable(self):
         def fake_query(sql, params=()):
             sql_lower = sql.lower()
@@ -803,6 +861,7 @@ class FundDetailContractTest(unittest.TestCase):
             return []
 
         with patch.object(fund_service, "_safe_table_query", side_effect=fake_query), \
+            patch.object(fund_service, "_fetch_eastmoney_fund_turnover_history", return_value=None), \
             patch.object(fund_service, "_fetch_eastmoney_holder_report_pdf_texts", return_value=[]):
             payload = fund_service.get_fund_turnover_history("000001", periods=8)
 

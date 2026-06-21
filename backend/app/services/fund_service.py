@@ -3026,15 +3026,38 @@ def get_fund_turnover_history(code: str, periods: int = 40) -> dict:
             "turnoverRate": turnover_rate,
             "calculationStatus": data_quality or None,
         })
-    if len(out) < target_periods and (ambiguous_report_snapshots or not out or periods <= 2):
+    official_payload = None
+    if len(out) < target_periods:
+        official_payload = _fetch_eastmoney_fund_turnover_history(code, limit=target_periods)
+        official_rows = official_payload.get("rows") if official_payload else []
+        if official_rows:
+            by_quarter = {str(row.get("quarter") or ""): row for row in out if row.get("quarter")}
+            for row in official_rows:
+                quarter = str(row.get("quarter") or "")
+                if not quarter:
+                    continue
+                by_quarter[quarter] = row
+                if row.get("turnoverRate") is not None:
+                    _persist_turnover_snapshot(
+                        code,
+                        quarter,
+                        turnover_rate=float(row["turnoverRate"]),
+                        source="eastmoney:fund_turnover_api",
+                        data_quality="provider_turnover",
+                    )
+            out = sorted(by_quarter.values(), key=lambda item: str(item.get("quarter") or ""))
+    has_official_turnover_rows = bool(official_payload and official_payload.get("rows"))
+    if len(out) < target_periods and not has_official_turnover_rows and (ambiguous_report_snapshots or not out or periods <= 2):
         backfill_target = target_periods if ambiguous_report_snapshots else min(target_periods, 2)
         out = _backfill_turnover_history_from_reports(code, out, backfill_target)
     if out:
         out = sorted(out, key=lambda item: str(item.get("quarter") or ""))[-periods:]
         valid_count = len([row for row in out if row.get("turnoverRate") is not None])
         activity_count = len([row for row in out if row.get("buyStockAmount") is not None or row.get("sellStockAmount") is not None])
-        coverage = round(min(1.0, valid_count / target_periods), 4)
-        status = DETAIL_STATUS_AVAILABLE if coverage >= 0.5 else DETAIL_STATUS_PARTIAL
+        official_total = _safe_int((official_payload or {}).get("totalCount")) if official_payload else None
+        expected_periods = max(1, min(target_periods, official_total)) if official_total else target_periods
+        coverage = round(min(1.0, valid_count / expected_periods), 4)
+        status = DETAIL_STATUS_AVAILABLE if valid_count > 0 and coverage >= 1.0 else DETAIL_STATUS_PARTIAL
         if valid_count == 0 and activity_count:
             missing_reason = (
                 f"已解析 {activity_count}/{target_periods} 个报告期股票买卖金额，"
@@ -3043,12 +3066,12 @@ def get_fund_turnover_history(code: str, periods: int = 40) -> dict:
         elif status == DETAIL_STATUS_AVAILABLE:
             missing_reason = None
         else:
-            missing_reason = f"仅有 {valid_count}/{target_periods} 个季度真实换手率，历史深度不足。"
+            missing_reason = f"仅有 {valid_count}/{expected_periods} 个报告期真实换手率，历史深度不足。"
         return _rows_response(
             code,
             out,
             status=status,
-            source=rows[0]["source"] if rows and not ambiguous_report_snapshots else "eastmoney:periodic_report_pdf",
+            source="eastmoney:fund_turnover_api" if official_payload and official_payload.get("rows") else rows[0]["source"] if rows and not ambiguous_report_snapshots else "eastmoney:periodic_report_pdf",
             as_of=out[-1].get("quarter"),
             coverage=coverage,
             missing_reason=missing_reason,
@@ -3832,6 +3855,45 @@ def _turnover_not_applicable_reason(code: str) -> str | None:
     if any(keyword in text for keyword in ("债券", "短债", "中短债", "同业存单", "货币", "现金")):
         return f"{fund_type or '该基金'}不以股票交易换手率作为核心披露指标，未将缺失股票换手率计为数据缺口。"
     return None
+
+
+def _fetch_eastmoney_fund_turnover_history(code: str, limit: int = 8) -> dict[str, Any] | None:
+    page_size = max(1, min(limit, 80))
+    url = f"https://api.fund.eastmoney.com/f10/JJHSL/?fundcode={code}&pageindex=1&pagesize={page_size}"
+    try:
+        req = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": "Mozilla/5.0",
+                "Referer": f"https://fundf10.eastmoney.com/ccbdzs_{code}.html",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            payload = json.loads(resp.read().decode("utf-8", errors="ignore"))
+        if _safe_int(payload.get("ErrCode")) != 0:
+            return None
+        rows = []
+        for item in payload.get("Data") or []:
+            if not isinstance(item, dict):
+                continue
+            quarter = str(item.get("REPORTDATE") or "")[:10]
+            turnover_rate = _safe_float(item.get("STOCKTURNOVER"))
+            if not quarter or turnover_rate is None:
+                continue
+            rows.append({
+                "quarter": quarter,
+                "turnoverRate": turnover_rate,
+                "calculationStatus": "provider_turnover",
+            })
+        rows.sort(key=lambda item: str(item.get("quarter") or ""))
+        return {
+            "rows": rows,
+            "totalCount": _safe_int(payload.get("TotalCount")) or len(rows),
+            "source": "eastmoney:fund_turnover_api",
+        }
+    except Exception as e:
+        console_error(f"eastmoney fund turnover fetch failed for {code}: {e}")
+        return None
 
 
 def _persist_quarterly_snapshot_field(
