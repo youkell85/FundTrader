@@ -35,6 +35,7 @@ Qoder_Lighthouse_MCP_*.md
 .claude/
 .browser-profile/
 .agents/
+.superpowers/
 
 # 数据文件与报告
 backend/pdf/
