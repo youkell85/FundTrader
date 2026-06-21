@@ -81,6 +81,11 @@ type MarketIndustryItem = {
   change?: number | string | null
   pct_change?: number | string | null
   change_pct?: number | string | null
+  net_flow?: number | string | null
+  netFlow?: number | string | null
+  amount?: number | string | null
+  date?: string | null
+  source?: string | null
   [key: string]: unknown
 }
 
@@ -306,12 +311,15 @@ function normalizeIndustries(payload?: MarketOverviewPayload | null) {
     .map((item) => {
       const record = item as Record<string, unknown>
       return {
-        name: String(item.name || item.industry || item.board || record.label || '行业板块'),
+        name: String(item.name || item.industry || item.board || record.label || record['板块名称'] || record['名称'] || '行业板块'),
         change: pickNumber(record, ['change', 'pct_change', 'change_pct', '涨跌幅', 'pctChg']),
+        netFlow: pickNumber(record, ['net_flow', 'netFlow', 'amount', '主力净流入-净额', '今日主力净流入-净额', '净流入']),
+        date: String(item.date || record.trade_date || record.as_of || ''),
+        source: String(item.source || record.source || ''),
       }
     })
-    .filter((item) => item.change !== null)
-    .sort((a, b) => (b.change || 0) - (a.change || 0))
+    .filter((item) => item.change !== null || item.netFlow !== null)
+    .sort((a, b) => (b.change ?? b.netFlow ?? 0) - (a.change ?? a.netFlow ?? 0))
 }
 
 function formatIndexValue(value: number | null) {
@@ -329,6 +337,18 @@ function formatDateTime(value?: string | null) {
     hour: '2-digit',
     minute: '2-digit',
   })
+}
+
+function amountYiText(value: number | null) {
+  if (value === null) return '缺失'
+  const yi = value / 100_000_000
+  const digits = Math.abs(yi) >= 10 ? 1 : 2
+  return `${yi >= 0 ? '+' : ''}${yi.toFixed(digits)}亿`
+}
+
+function industrySignalText(item: { change: number | null; netFlow?: number | null }) {
+  if (item.change !== null) return signedPct(item.change)
+  return amountYiText(item.netFlow ?? null)
 }
 
 function healthLabel(status?: MarketDataStatus['health']) {
@@ -405,7 +425,7 @@ function marketPressureConclusion({
   marketLoading?: boolean
   marketError?: string | null
   marketStatus?: MarketDataStatus | null
-  marketIndustries: Array<{ name: string; change: number | null }>
+  marketIndustries: Array<{ name: string; change: number | null; netFlow?: number | null }>
 }) {
   const volRatio = marketStatus?.vol_ratio ?? null
   if (marketLoading) return '市场数据加载中：先不要根据压力指标做筛选结论。'
@@ -413,6 +433,7 @@ function marketPressureConclusion({
   if (volRatio !== null && volRatio >= 1.2) return '波动偏高：筛选时先看回撤和夏普，再看近一年收益；暂不做行业强弱判断。'
   if (marketIndustries.length === 0) return '市场数据可用，但行业热度缺失：先按基金自身收益风险筛选。'
   if (marketIndustries[0]?.change !== null) return `行业信号可参考：${marketIndustries[0].name}相对靠前，但仍需进详情页复核基金指标。`
+  if (marketIndustries[0]?.netFlow !== null && marketIndustries[0]?.netFlow !== undefined) return `行业资金流可参考：${marketIndustries[0].name}主力净流入${amountYiText(marketIndustries[0].netFlow)}，仍需进详情页复核基金指标。`
   return '市场压力正常：可从分类型优选横榜进入详情复核。'
 }
 
@@ -867,7 +888,7 @@ export function CockpitDashboard({
               <div className="flex items-center justify-between py-2">
                 <span className="text-white/45">行业热度</span>
                 <span className="text-right text-[#fff8ea]">
-                  {marketIndustries[0] ? `${marketIndustries[0].name} ${signedPct(marketIndustries[0].change)}` : '暂不可用'}
+                  {marketIndustries[0] ? `${marketIndustries[0].name} ${industrySignalText(marketIndustries[0])}` : '暂不可用'}
                 </span>
               </div>
             </div>

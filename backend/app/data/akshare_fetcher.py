@@ -391,14 +391,72 @@ def get_stock_daily_changes(codes: List[str]) -> Dict[str, float]:
 
 def get_fund_industry_board() -> List[Dict[str, Any]]:
     """获取行业板块数据"""
+    def _to_float(value: Any) -> Optional[float]:
+        try:
+            if value in (None, ""):
+                return None
+            return float(str(value).replace("%", "").replace(",", ""))
+        except (TypeError, ValueError):
+            return None
+
+    def _pick(row: Dict[str, Any], keys: tuple[str, ...]) -> Any:
+        for key in keys:
+            value = row.get(key)
+            if value not in (None, ""):
+                return value
+        return None
+
+    def _normalize_quote_row(row: Dict[str, Any], source: str) -> Optional[Dict[str, Any]]:
+        name = str(_pick(row, ("name", "industry", "board", "板块名称", "名称", "行业")) or "").strip()
+        change = _to_float(_pick(row, ("change", "pct_change", "change_pct", "涨跌幅", "pctChg")))
+        if not name or change is None:
+            return None
+        return {
+            "name": name,
+            "change": round(change, 2),
+            "latest": _to_float(_pick(row, ("latest", "最新价", "close", "price"))),
+            "source": source,
+            "date": datetime.now().date().isoformat(),
+        }
+
     try:
         df = ak.stock_board_industry_name_em()
         if df is None or df.empty:
-            return []
-        return df.to_dict(orient="records")[:20]
+            raise ValueError("empty industry board response")
+        rows = [
+            item
+            for item in (
+                _normalize_quote_row(row, "AkShare stock_board_industry_name_em")
+                for row in df.to_dict(orient="records")[:20]
+            )
+            if item is not None
+        ]
+        if rows:
+            return rows
     except Exception as e:
         console_error(f"AkShare industry board error: {e}")
-        return []
+
+    try:
+        from .market_context_fetcher import _fetch_sector_flow_rows
+
+        sector_rows, source, as_of, warnings = _fetch_sector_flow_rows(20)
+        result = [
+            {
+                "name": name,
+                "net_flow": float(amount),
+                "source": source,
+                "date": as_of,
+                "warnings": warnings,
+            }
+            for name, amount in sector_rows
+            if name and amount is not None
+        ]
+        if result:
+            return result
+    except Exception as e:
+        console_error(f"Industry flow fallback error: {e}")
+
+    return []
 
 
 def get_market_index() -> List[Dict[str, Any]]:
