@@ -1075,6 +1075,20 @@ def _fetch_eastmoney_fund_rating(code: str) -> dict | None:
             payload = json.loads(resp.read().decode("utf-8", errors="ignore"))
         rows = payload.get("Data") or []
         if not rows:
+            if _safe_int(payload.get("ErrCode")) == 0:
+                return {
+                    "code": code,
+                    "rating3y": None,
+                    "rating5y": None,
+                    "ratingOverall": None,
+                    "ratingAgency": "东方财富F10基金评级",
+                    "ratingDate": None,
+                    "ratingStatus": "not_rated",
+                    "score": None,
+                    "source": "eastmoney:fund_rating",
+                    "asOf": date.today().isoformat(),
+                    "missingReason": "东方财富F10基金评级接口当前无该基金评级记录，未使用本地指标分数替代星级。",
+                }
             return None
         latest = rows[0]
         shanghai_3y = _safe_int(latest.get("SZPJ3"))

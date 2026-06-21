@@ -1134,7 +1134,16 @@ async def fund_rating(code: str = Query(..., min_length=4, max_length=10, descri
                 or data.get("rating5y") is not None
                 or data.get("ratingOverall") is not None
             )
+            is_official_not_rated = data.get("ratingStatus") == "not_rated" and data.get("source") == "eastmoney:fund_rating"
             has_score = data.get("score") is not None
+            if is_official_not_rated:
+                return {
+                    **data,
+                    "dataStatus": "available",
+                    "asOf": data.get("asOf"),
+                    "coverage": 1.0,
+                    "missingReason": data.get("missingReason") or "官方评级源当前无该基金评级记录。",
+                }
             if not has_rating and has_score:
                 return {
                     **data,

@@ -218,6 +218,18 @@ class FundDetailContractTest(unittest.TestCase):
         self.assertEqual(payload["asOf"], "2026-03-31")
         self.assertEqual(payload["source"], "eastmoney:fund_rating")
 
+    def test_eastmoney_rating_parser_returns_official_not_rated_status(self):
+        response = MagicMock()
+        response.__enter__.return_value.read.return_value = b'{"Data":[],"ErrCode":0,"TotalCount":0}'
+
+        with patch("urllib.request.urlopen", return_value=response):
+            payload = fund_service._fetch_eastmoney_fund_rating("020983")
+
+        self.assertEqual(payload["ratingStatus"], "not_rated")
+        self.assertEqual(payload["source"], "eastmoney:fund_rating")
+        self.assertIsNone(payload["ratingOverall"])
+        self.assertIn("未使用本地指标分数", payload["missingReason"])
+
     def test_rating_endpoint_accepts_real_overall_rating(self):
         with patch("app.services.fund_service.get_fund_rating", return_value={
             "code": "019067",
@@ -236,6 +248,28 @@ class FundDetailContractTest(unittest.TestCase):
         self.assertEqual(payload["coverage"], 0.8)
         self.assertEqual(payload["ratingOverall"], 4)
         self.assertIsNone(payload["missingReason"])
+
+    def test_rating_endpoint_prefers_official_not_rated_over_metrics_score(self):
+        with patch("app.services.fund_service.get_fund_rating", return_value={
+            "code": "020983",
+            "rating3y": None,
+            "rating5y": None,
+            "ratingOverall": None,
+            "ratingAgency": "\u4e1c\u65b9\u8d22\u5bccF10\u57fa\u91d1\u8bc4\u7ea7",
+            "ratingStatus": "not_rated",
+            "score": None,
+            "source": "eastmoney:fund_rating",
+            "asOf": "2026-06-21",
+            "missingReason": "\u4e1c\u65b9\u8d22\u5bccF10\u57fa\u91d1\u8bc4\u7ea7\u63a5\u53e3\u5f53\u524d\u65e0\u8be5\u57fa\u91d1\u8bc4\u7ea7\u8bb0\u5f55\uff0c\u672a\u4f7f\u7528\u672c\u5730\u6307\u6807\u5206\u6570\u66ff\u4ee3\u661f\u7ea7\u3002",
+        }), patch.object(fund_api, "_rating_score_fallback") as fallback:
+            payload = asyncio.run(fund_api.fund_rating(code="020983"))
+
+        fallback.assert_not_called()
+        self.assertEqual(payload["dataStatus"], "available")
+        self.assertEqual(payload["coverage"], 1.0)
+        self.assertEqual(payload["ratingStatus"], "not_rated")
+        self.assertIsNone(payload["score"])
+        self.assertIn("\u672a\u4f7f\u7528\u672c\u5730\u6307\u6807\u5206\u6570", payload["missingReason"])
 
     def test_empty_bond_holdings_snapshot_allows_akshare_fallback(self):
         fallback = {
