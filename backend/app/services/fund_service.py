@@ -2092,6 +2092,131 @@ def _rank_in_peer_group(fund_return: float | None, peer_samples: list[float]) ->
     return {"rank": better_or_equal + 1, "total": len(peer_samples) + 1}
 
 
+def _peer_return_samples_for_window(code: str, start_date: str | None, end_date: str | None, *, max_peers: int = 500) -> list[float]:
+    start = str(start_date or "")[:10]
+    end = str(end_date or "")[:10] if end_date else date.today().isoformat()
+    if not start or not re.match(r"\d{4}-\d{2}-\d{2}", start):
+        return []
+    if not re.match(r"\d{4}-\d{2}-\d{2}", end):
+        end = date.today().isoformat()
+    type_rows = _safe_table_query(
+        "SELECT fund_type FROM fund_master WHERE code = ? AND fund_type IS NOT NULL",
+        (code,),
+    )
+    try:
+        fund_type = type_rows[0]["fund_type"] if type_rows else None
+    except (KeyError, IndexError, TypeError):
+        return []
+    if not fund_type:
+        return []
+    peer_rows = _safe_table_query(
+        """SELECT DISTINCT n.code
+           FROM fund_nav_history n
+           JOIN fund_master m ON m.code = n.code
+           WHERE m.fund_type = ? AND m.is_active = 1 AND n.code != ?
+           LIMIT ?""",
+        (fund_type, code, max_peers),
+    )
+    peer_codes = [str(row["code"]) for row in peer_rows if row["code"]]
+    if not peer_codes:
+        return []
+    placeholders = ",".join("?" for _ in peer_codes)
+    nav_rows = _safe_table_query(
+        f"""SELECT n.code,
+                   (SELECT nav FROM fund_nav_history
+                    WHERE code = n.code AND nav_date >= ?
+                      AND nav IS NOT NULL AND nav > 0
+                    ORDER BY nav_date ASC LIMIT 1) AS start_nav,
+                   (SELECT nav FROM fund_nav_history
+                    WHERE code = n.code AND nav_date <= ?
+                      AND nav IS NOT NULL AND nav > 0
+                    ORDER BY nav_date DESC LIMIT 1) AS end_nav
+            FROM fund_nav_history n
+            WHERE n.code IN ({placeholders})
+            GROUP BY n.code""",
+        (start, end, *peer_codes),
+    )
+    returns: list[float] = []
+    for row in nav_rows or []:
+        start_nav = _safe_float(row["start_nav"])
+        end_nav = _safe_float(row["end_nav"])
+        if start_nav is None or end_nav is None or start_nav <= 0:
+            continue
+        returns.append((end_nav / start_nav - 1.0) * 100.0)
+    return returns
+
+
+def _manager_row_has_substance(row: dict[str, Any]) -> bool:
+    return bool(row.get("rank")) or _safe_float(row.get("totalReturn")) is not None
+
+
+def _dedupe_manager_history_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if not rows:
+        return []
+    best_by_manager: dict[str, dict[str, Any]] = {}
+    ordered_names: list[str] = []
+    for row in rows:
+        name = str(row.get("managerName") or "").strip()
+        if not name:
+            continue
+        item = dict(row)
+        end_text = str(item.get("endDate") or "").strip()
+        if end_text.lower() in {"none", "nan", "null"}:
+            item["endDate"] = None
+        if name not in best_by_manager:
+            best_by_manager[name] = item
+            ordered_names.append(name)
+            continue
+        current = best_by_manager[name]
+        if _manager_row_has_substance(item) and not _manager_row_has_substance(current):
+            best_by_manager[name] = item
+        elif bool(item.get("rank")) and not bool(current.get("rank")):
+            best_by_manager[name] = item
+    return [best_by_manager[name] for name in ordered_names if name in best_by_manager]
+
+
+def _manager_tenure_peer_rank(code: str, manager_row: dict[str, Any]) -> dict[str, Any] | None:
+    if manager_row.get("rank"):
+        return manager_row.get("rank")
+    total_return = _safe_float(manager_row.get("totalReturn"))
+    if total_return is None:
+        return None
+    start = str(manager_row.get("startDate") or "")[:10]
+    end = str(manager_row.get("endDate") or "")[:10] if manager_row.get("endDate") else None
+    peer_samples = _peer_return_samples_for_window(code, start, end)
+    rank = _rank_in_peer_group(total_return, peer_samples)
+    if not rank:
+        return None
+    return {
+        **rank,
+        "basis": "managerTenureTotalReturn",
+        "startDate": start,
+        "endDate": end or date.today().isoformat(),
+        "source": "fund_nav_history",
+    }
+
+
+def _enrich_manager_history_ranks(
+    code: str,
+    rows: list[dict[str, Any]],
+    source: str | None = None,
+    *,
+    persist: bool = False,
+) -> list[dict[str, Any]]:
+    enriched: list[dict[str, Any]] = []
+    changed = False
+    for row in rows:
+        item = dict(row)
+        rank = _manager_tenure_peer_rank(code, item)
+        if rank and rank != item.get("rank"):
+            item["rank"] = rank
+            changed = True
+        enriched.append(item)
+    if changed and persist and source:
+        _persist_manager_history_snapshot(code, enriched, source)
+    return enriched
+
+
 def _get_peer_avg_returns(
     code: str,
     fund_type: str,
@@ -2980,6 +3105,7 @@ def get_fund_manager_history(code: str) -> dict:
         source = rows[-1]["source"] or "fund_manager_history_snapshot"
         has_report_source = any(str(row["source"] or "").startswith("eastmoney:fund_announcement_report") for row in rows)
         has_repeated_report_manager = has_report_source and any(count > 1 for count in name_counts.values())
+        out = _dedupe_manager_history_rows(_enrich_manager_history_ranks(code, out, source, persist=False))
         has_rank_snapshot = any(item.get("rank") for item in out)
         snapshot_response = _rows_response(
             code,
@@ -2994,15 +3120,16 @@ def get_fund_manager_history(code: str) -> dict:
             page_rows = _fetch_eastmoney_manager_history_page(code)
             if page_rows and any(row.get("totalReturn") is not None for row in page_rows):
                 source = "eastmoney:fund_manager_page"
+                page_rows = _dedupe_manager_history_rows(_enrich_manager_history_ranks(code, page_rows, source))
                 _persist_manager_history_snapshot(code, page_rows, source)
                 return _rows_response(
                     code,
                     page_rows,
-                    status=DETAIL_STATUS_PARTIAL,
+                    status=DETAIL_STATUS_AVAILABLE if any(row.get("rank") for row in page_rows) else DETAIL_STATUS_PARTIAL,
                     source=source,
                     as_of=date.today().isoformat(),
-                    coverage=0.75 if len(page_rows) > 1 else 0.55,
-                    missing_reason="东方财富基金经理页披露经理变动和任职回报，同类排名待补快照表。",
+                    coverage=1.0 if any(row.get("rank") for row in page_rows) else 0.75 if len(page_rows) > 1 else 0.55,
+                    missing_reason=None if any(row.get("rank") for row in page_rows) else "东方财富基金经理页披露经理变动和任职回报，同类排名待补快照表。",
                 )
         if not has_report_source and (len(out) > 1 or has_rank_snapshot):
             return snapshot_response
@@ -3015,40 +3142,45 @@ def get_fund_manager_history(code: str) -> dict:
             page_rows = _fetch_eastmoney_manager_history_page(code)
             if page_rows and any(row.get("totalReturn") is not None for row in page_rows):
                 source = "eastmoney:fund_manager_page"
+                page_rows = _dedupe_manager_history_rows(_enrich_manager_history_ranks(code, page_rows, source))
                 _persist_manager_history_snapshot(code, page_rows, source)
                 return _rows_response(
                     code,
                     page_rows,
-                    status=DETAIL_STATUS_PARTIAL,
+                    status=DETAIL_STATUS_AVAILABLE if any(row.get("rank") for row in page_rows) else DETAIL_STATUS_PARTIAL,
                     source=source,
                     as_of=date.today().isoformat(),
-                    coverage=0.75 if len(page_rows) > 1 else 0.55,
-                    missing_reason="东方财富基金经理页披露经理变动和任职回报，同类排名待补快照表。",
+                    coverage=1.0 if any(row.get("rank") for row in page_rows) else 0.75 if len(page_rows) > 1 else 0.55,
+                    missing_reason=None if any(row.get("rank") for row in page_rows) else "东方财富基金经理页披露经理变动和任职回报，同类排名待补快照表。",
                 )
         source = (report_payload or {}).get("source") or "eastmoney:fund_announcement_report"
+        report_rows = _dedupe_manager_history_rows(_enrich_manager_history_ranks(code, report_rows, source))
         _persist_manager_history_snapshot(code, report_rows, source)
+        has_rank = any(row.get("rank") for row in report_rows)
         return _rows_response(
             code,
             [{k: v for k, v in row.items() if k != "reportDate"} for row in report_rows],
-            status=DETAIL_STATUS_PARTIAL,
+            status=DETAIL_STATUS_AVAILABLE if has_rank else DETAIL_STATUS_PARTIAL,
             source=source,
             as_of=(report_payload or {}).get("period"),
-            coverage=0.45,
-            missing_reason="\u5b9a\u671f\u62a5\u544a\u62ab\u9732\u5f53\u524d\u57fa\u91d1\u7ecf\u7406\u548c\u4efb\u804c\u65e5\u671f\uff0c\u4efb\u804c\u56de\u62a5\u548c\u540c\u7c7b\u6392\u540d\u5f85\u8865\u5feb\u7167\u8868\u3002",
+            coverage=1.0 if has_rank else 0.45,
+            missing_reason=None if has_rank else "\u5b9a\u671f\u62a5\u544a\u62ab\u9732\u5f53\u524d\u57fa\u91d1\u7ecf\u7406\u548c\u4efb\u804c\u65e5\u671f\uff0c\u4efb\u804c\u56de\u62a5\u548c\u540c\u7c7b\u6392\u540d\u5f85\u8865\u5feb\u7167\u8868\u3002",
         )
 
     page_rows = _fetch_eastmoney_manager_history_page(code)
     if page_rows:
         source = "eastmoney:fund_manager_page"
+        page_rows = _dedupe_manager_history_rows(_enrich_manager_history_ranks(code, page_rows, source))
         _persist_manager_history_snapshot(code, page_rows, source)
+        has_rank = any(row.get("rank") for row in page_rows)
         return _rows_response(
             code,
             page_rows,
-            status=DETAIL_STATUS_PARTIAL,
+            status=DETAIL_STATUS_AVAILABLE if has_rank else DETAIL_STATUS_PARTIAL,
             source=source,
             as_of=date.today().isoformat(),
-            coverage=0.75 if len(page_rows) > 1 else 0.55,
-            missing_reason="东方财富基金经理页披露经理变动和任职回报，同类排名待补快照表。",
+            coverage=1.0 if has_rank else 0.75 if len(page_rows) > 1 else 0.55,
+            missing_reason=None if has_rank else "东方财富基金经理页披露经理变动和任职回报，同类排名待补快照表。",
         )
 
     try:
@@ -3056,20 +3188,22 @@ def get_fund_manager_history(code: str) -> dict:
 
         manager = TushareProvider().get_fund_manager(code) or {}
         if manager.get("name"):
+            manager_rows = _dedupe_manager_history_rows(_enrich_manager_history_ranks(code, [{
+                "managerName": manager.get("name"),
+                "startDate": manager.get("begin_date") or None,
+                "endDate": manager.get("end_date") or None,
+                "totalReturn": _safe_float(manager.get("reward")),
+                "annualizedReturn": None,
+                "rank": None,
+            }], "Tushare fund_manager"))
+            has_rank = any(row.get("rank") for row in manager_rows)
             return _rows_response(
                 code,
-                [{
-                    "managerName": manager.get("name"),
-                    "startDate": manager.get("begin_date") or None,
-                    "endDate": manager.get("end_date") or None,
-                    "totalReturn": _safe_float(manager.get("reward")),
-                    "annualizedReturn": None,
-                    "rank": None,
-                }],
-                status=DETAIL_STATUS_PARTIAL,
+                manager_rows,
+                status=DETAIL_STATUS_AVAILABLE if has_rank else DETAIL_STATUS_PARTIAL,
                 source="Tushare fund_manager",
-                coverage=0.35,
-                missing_reason="仅获取到当前/最近基金经理，历任经理和同类排名需补快照表。",
+                coverage=1.0 if has_rank else 0.35,
+                missing_reason=None if has_rank else "仅获取到当前/最近基金经理，历任经理和同类排名需补快照表。",
             )
     except Exception as e:
         console_error(f"manager history fetch failed for {code}: {e}")

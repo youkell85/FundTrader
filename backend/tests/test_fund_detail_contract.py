@@ -1178,6 +1178,33 @@ class FundDetailContractTest(unittest.TestCase):
         self.assertEqual(payload["source"], "eastmoney:fund_manager_page")
         self.assertEqual(payload["rows"][0]["totalReturn"], 3.3)
 
+    def test_manager_history_ranks_manager_tenure_against_peer_nav(self):
+        page_rows = [{
+            "managerName": "\u9648\u9ece",
+            "startDate": "2024-07-10",
+            "endDate": None,
+            "totalReturn": 3.3,
+            "annualizedReturn": None,
+            "rank": None,
+        }]
+
+        with patch.object(fund_service, "_safe_table_query", return_value=[]), \
+            patch.object(fund_service, "get_fund_manager_report", return_value={"report": ""}), \
+            patch.object(fund_service, "_fetch_eastmoney_manager_history_page", return_value=page_rows), \
+            patch.object(fund_service, "_peer_return_samples_for_window", return_value=[1.0, 5.0, 10.0]), \
+            patch("app.data.providers.tushare_provider.TushareProvider.get_fund_manager") as tushare_manager, \
+            patch.object(fund_service, "_persist_manager_history_snapshot") as persist:
+            payload = fund_service.get_fund_manager_history("019067")
+
+        tushare_manager.assert_not_called()
+        persist.assert_called_once()
+        self.assertEqual(payload["dataStatus"], "available")
+        self.assertEqual(payload["coverage"], 1.0)
+        self.assertIsNone(payload["missingReason"])
+        self.assertEqual(payload["rows"][0]["rank"]["rank"], 3)
+        self.assertEqual(payload["rows"][0]["rank"]["total"], 4)
+        self.assertEqual(payload["rows"][0]["rank"]["basis"], "managerTenureTotalReturn")
+
     def test_manager_history_reparses_repeated_report_snapshot_rows(self):
         snapshot_rows = [
             {
