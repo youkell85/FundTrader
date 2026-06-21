@@ -1603,6 +1603,16 @@ def _derive_chinamoney_treasury_code(bond_code: str | None, bond_name: str | Non
     return derived if derived != code else None
 
 
+def _chinamoney_name_matches_query(row_name: str | None, query_name: str | None) -> bool:
+    row_text = _clean_chinamoney_value(row_name)
+    query_text = _clean_chinamoney_value(query_name)
+    if not query_text:
+        return True
+    if not row_text:
+        return False
+    return row_text == query_text or query_text in row_text or row_text in query_text
+
+
 def _fetch_chinamoney_bond_info(bond_code: str | None, bond_name: str | None = None) -> dict[str, Any] | None:
     code = _clean_bond_text(bond_code)
     name = _clean_bond_text(bond_name)
@@ -1645,10 +1655,15 @@ def _fetch_chinamoney_bond_info(bond_code: str | None, bond_name: str | None = N
     for row in rows:
         row_code = _clean_chinamoney_value(row.get("bondCode"))
         row_name = _clean_chinamoney_value(row.get("bondName"))
-        if (query_code and row_code == query_code) or (name and row_name == name):
+        code_matches = bool(query_code and row_code == query_code)
+        name_matches = _chinamoney_name_matches_query(row_name, name)
+        if name and name_matches:
             selected = row
             break
-    if not selected and rows:
+        if not name and code_matches:
+            selected = row
+            break
+    if not selected and rows and not name:
         selected = rows[0]
 
     if not selected:

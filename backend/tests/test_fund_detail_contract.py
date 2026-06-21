@@ -1045,6 +1045,28 @@ class FundDetailContractTest(unittest.TestCase):
         self.assertEqual(quality["coverage"], 1.0)
         self.assertIsNone(quality["missingReason"])
 
+    def test_chinamoney_bond_info_rejects_code_match_with_different_name(self):
+        fund_service._CHINAMONEY_BOND_INFO_CACHE.clear()
+
+        def fake_post(url, payload):
+            if "BondMarketInfoList2" in url:
+                return {
+                    "data": {
+                        "resultList": [{
+                            "bondDefinedCode": "cd118062",
+                            "bondName": "\u534e\u590f\u94f6\u884c\u80a1\u4efd\u6709\u9650\u516c\u53f82021\u5e74\u7b2c062\u671f\u540c\u4e1a\u5b58\u5355",
+                            "bondCode": "118062",
+                            "bondType": "\u540c\u4e1a\u5b58\u5355",
+                        }]
+                    }
+                }
+            return {}
+
+        with patch.object(fund_service, "_chinamoney_post_json", side_effect=fake_post):
+            info = fund_service._fetch_chinamoney_bond_info("118062", "\u5929\u51c6\u8f6c\u503a")
+
+        self.assertIsNone(info)
+
     def test_cached_analysis_persists_cached_holdings_snapshot(self):
         cached = {
             "code": "000001",
