@@ -2838,40 +2838,54 @@ def get_fund_turnover_history(code: str, periods: int = 40) -> dict:
     """基金换手率：只读取真实季报快照。"""
     target_periods = max(1, min(periods, 8))
     rows = _safe_table_query(
-        """SELECT report_date, turnover_rate, source, updated_at
+        """SELECT report_date, turnover_rate, source, data_quality, updated_at
            FROM fund_detail_quarterly_snapshot
            WHERE code = ? AND turnover_rate IS NOT NULL
            ORDER BY report_date DESC
            LIMIT ?""",
         (code, max(1, min(periods, 80))),
     )
-    out = [
-        {"quarter": str(row["report_date"]), "turnoverRate": _safe_float(row["turnover_rate"])}
-        for row in reversed(rows)
-        if _safe_float(row["turnover_rate"]) is not None
-    ]
-    if len(out) < target_periods and (not out or periods <= 2):
-        backfill_target = min(target_periods, 2)
+    out = []
+    ambiguous_report_snapshots = False
+    for row in reversed(rows):
+        turnover_rate = _safe_float(row["turnover_rate"])
+        if turnover_rate is None:
+            continue
+        source = str(row["source"] or "")
+        data_quality = str(row["data_quality"] or "")
+        is_report_pdf = source.startswith("eastmoney:periodic_report_pdf")
+        is_trusted_report_turnover = data_quality in {"standard_turnover", "provider_turnover"}
+        if is_report_pdf and not is_trusted_report_turnover:
+            ambiguous_report_snapshots = True
+            continue
+        out.append({
+            "quarter": str(row["report_date"]),
+            "turnoverRate": turnover_rate,
+            "calculationStatus": data_quality or None,
+        })
+    if len(out) < target_periods and (ambiguous_report_snapshots or not out or periods <= 2):
+        backfill_target = target_periods if ambiguous_report_snapshots else min(target_periods, 2)
         out = _backfill_turnover_history_from_reports(code, out, backfill_target)
     if out:
         out = sorted(out, key=lambda item: str(item.get("quarter") or ""))[-periods:]
-        coverage = round(min(1.0, len([row for row in out if row.get("turnoverRate") is not None]) / target_periods), 4)
-        estimated_count = sum(1 for row in out if row.get("calculationStatus") == "estimated_from_total_scale")
-        status = DETAIL_STATUS_AVAILABLE if coverage >= 0.5 and estimated_count == 0 else DETAIL_STATUS_PARTIAL
-        if estimated_count:
+        valid_count = len([row for row in out if row.get("turnoverRate") is not None])
+        activity_count = len([row for row in out if row.get("buyStockAmount") is not None or row.get("sellStockAmount") is not None])
+        coverage = round(min(1.0, valid_count / target_periods), 4)
+        status = DETAIL_STATUS_AVAILABLE if coverage >= 0.5 else DETAIL_STATUS_PARTIAL
+        if valid_count == 0 and activity_count:
             missing_reason = (
-                f"仅有 {len(out)}/{target_periods} 个报告期可解析；其中 {estimated_count} 期披露买卖股票金额，"
-                "换手率按最新基金规模派生，缺少加权平均股票市值或基金公司标准换手率披露。"
+                f"已解析 {activity_count}/{target_periods} 个报告期股票买卖金额，"
+                "但报告未披露标准换手率或加权平均股票市值，未使用基金总规模派生换手率。"
             )
         elif status == DETAIL_STATUS_AVAILABLE:
             missing_reason = None
         else:
-            missing_reason = f"仅有 {len(out)}/{target_periods} 个季度真实换手率，历史深度不足。"
+            missing_reason = f"仅有 {valid_count}/{target_periods} 个季度真实换手率，历史深度不足。"
         return _rows_response(
             code,
             out,
             status=status,
-            source=rows[0]["source"] if rows else "eastmoney:periodic_report_pdf",
+            source=rows[0]["source"] if rows and not ambiguous_report_snapshots else "eastmoney:periodic_report_pdf",
             as_of=out[-1].get("quarter"),
             coverage=coverage,
             missing_reason=missing_reason,
@@ -3599,21 +3613,10 @@ def _estimate_turnover_from_scale(activity: list[dict[str, Any]], fallback_scale
 
 def _backfill_turnover_history_from_reports(code: str, existing: list[dict[str, Any]], target_periods: int) -> list[dict[str, Any]]:
     existing_by_quarter = {str(row.get("quarter") or ""): row for row in existing if row.get("quarter")}
-    scale_rows = _safe_table_query(
-        """SELECT total_scale, report_date
-           FROM fund_detail_quarterly_snapshot
-           WHERE code = ? AND total_scale IS NOT NULL
-           ORDER BY report_date DESC
-           LIMIT 1""",
-        (code,),
-    )
-    fallback_scale = _safe_float(scale_rows[0]["total_scale"]) if scale_rows else None
-
     for report in _fetch_eastmoney_holder_report_pdf_texts(code, limit=target_periods):
         activity = _parse_stock_trading_activity_from_report_text(report.get("text") or "", report.get("report_date"))
         if not activity:
             continue
-        _estimate_turnover_from_scale(activity, fallback_scale)
         for row in activity:
             quarter = str(row.get("quarter") or report.get("report_date") or "")
             if not quarter or quarter in existing_by_quarter:
@@ -3710,6 +3713,7 @@ def _persist_turnover_snapshot(
     *,
     turnover_rate: float,
     source: str = "eastmoney:periodic_report_pdf",
+    data_quality: str = "standard_turnover",
 ) -> None:
     if not code or not report_date or turnover_rate is None:
         return
@@ -3719,13 +3723,13 @@ def _persist_turnover_snapshot(
             conn.execute(
                 """INSERT INTO fund_detail_quarterly_snapshot
                    (code, report_date, turnover_rate, source, data_quality, updated_at)
-                   VALUES (?, ?, ?, ?, 'report_pdf', ?)
+                   VALUES (?, ?, ?, ?, ?, ?)
                    ON CONFLICT(code, report_date) DO UPDATE SET
                      turnover_rate = excluded.turnover_rate,
                      source = excluded.source,
                      data_quality = excluded.data_quality,
                      updated_at = excluded.updated_at""",
-                (code, report_date, turnover_rate, source, now),
+                (code, report_date, turnover_rate, source, data_quality, now),
             )
     except Exception as e:
         console_error(f"turnover snapshot persist failed for {code}: {e}")

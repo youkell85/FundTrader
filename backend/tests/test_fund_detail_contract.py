@@ -653,11 +653,12 @@ class FundDetailContractTest(unittest.TestCase):
 
         persist.assert_not_called()
         self.assertEqual(payload["dataStatus"], "partial")
-        self.assertEqual(payload["rows"][0]["calculationStatus"], "estimated_from_total_scale")
-        self.assertIn("\u6d3e\u751f", payload["missingReason"])
+        self.assertIsNone(payload["rows"][0]["turnoverRate"])
+        self.assertEqual(payload["rows"][0]["calculationStatus"], "missing_average_stock_market_value")
+        self.assertIn("\u672a\u4f7f\u7528\u57fa\u91d1\u603b\u89c4\u6a21\u6d3e\u751f", payload["missingReason"])
 
     def test_turnover_history_with_snapshot_does_not_fetch_reports_for_large_window(self):
-        rows = [{"report_date": "2025-12-31", "turnover_rate": 2009.9638, "source": "eastmoney:periodic_report_pdf", "updated_at": "2026-06-19"}]
+        rows = [{"report_date": "2025-12-31", "turnover_rate": 2009.9638, "source": "eastmoney:periodic_report_pdf", "data_quality": "standard_turnover", "updated_at": "2026-06-19"}]
         with patch.object(fund_service, "_safe_table_query", return_value=rows), \
             patch.object(fund_service, "_fetch_eastmoney_holder_report_pdf_texts") as fetch_reports:
             payload = fund_service.get_fund_turnover_history("000001", periods=8)
@@ -666,6 +667,28 @@ class FundDetailContractTest(unittest.TestCase):
         self.assertEqual(payload["dataStatus"], "partial")
         self.assertEqual(payload["coverage"], 0.125)
         self.assertIn("1/8", payload["missingReason"])
+
+    def test_turnover_history_rechecks_legacy_report_pdf_snapshot_before_displaying_rate(self):
+        snapshot_rows = [{"report_date": "2025-12-31", "turnover_rate": 2009.9638, "source": "eastmoney:periodic_report_pdf", "data_quality": "report_pdf", "updated_at": "2026-06-19"}]
+        report = {
+            "report_date": "2025-12-31",
+            "source": "eastmoney:periodic_report_pdf",
+            "text": (
+                "8.4.3 \u4e70\u5165\u80a1\u7968\u7684\u6210\u672c\u603b\u989d\u53ca\u5356\u51fa\u80a1\u7968\u7684\u6536\u5165\u603b\u989d\n"
+                "\u4e70\u5165\u80a1\u7968\u6210\u672c\uff08\u6210\u4ea4\uff09\u603b\u989d 100,000,000.00\n"
+                "\u5356\u51fa\u80a1\u7968\u6536\u5165\uff08\u6210\u4ea4\uff09\u603b\u989d 300,000,000.00\n"
+            ),
+        }
+        with patch.object(fund_service, "_safe_table_query", return_value=snapshot_rows), \
+            patch.object(fund_service, "_fetch_eastmoney_holder_report_pdf_texts", return_value=[report]), \
+            patch.object(fund_service, "_persist_turnover_snapshot") as persist:
+            payload = fund_service.get_fund_turnover_history("000001", periods=8)
+
+        persist.assert_not_called()
+        self.assertEqual(payload["dataStatus"], "partial")
+        self.assertEqual(payload["coverage"], 0.0)
+        self.assertIsNone(payload["rows"][0]["turnoverRate"])
+        self.assertEqual(payload["rows"][0]["calculationStatus"], "missing_average_stock_market_value")
 
     def test_turnover_history_backfills_multiple_report_periods(self):
         reports = [
