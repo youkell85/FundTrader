@@ -1817,6 +1817,25 @@ class FundDetailCompletenessTest(unittest.TestCase):
                 f"{key} should NOT be available/stale when no data",
             )
 
+    def test_bond_fund_stock_holdings_are_not_applicable_not_missing(self):
+        result = self._invoke(
+            snapshot={
+                "type": "债券型",
+                "nav_data": [{"date": "2026-01-01", "nav": 1.0}] * 300,
+                "holdings": [],
+                "asset_allocation": [{"type": "债券", "ratio": 95.0}],
+                "nav_date": "2099-01-01T00:00:00",
+                "updated_at": "2099-01-01T00:00:00",
+            },
+        )
+
+        holdings = result["sections"]["holdings"]
+        self.assertEqual(holdings["dataStatus"], "available")
+        self.assertEqual(holdings["source"], "fund_master")
+        self.assertIsNone(holdings["missingReason"])
+        self.assertEqual(result["fieldSources"]["top_holdings"]["status"], "available")
+        self.assertEqual(result["fieldSources"]["industry_exposure"]["status"], "available")
+
     def test_purchase_info_endpoint_overrides_metrics_when_snapshot_missing(self):
         payload = {
             "code": "000001",

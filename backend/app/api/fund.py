@@ -447,6 +447,15 @@ async def fund_detail_completeness(code: str = Query(..., min_length=4, max_leng
     nav_count = len(snapshot.get("nav_data") or []) if snapshot else 0
     holdings_count = len(snapshot.get("holdings") or []) if snapshot else 0
     asset_count = len(snapshot.get("asset_allocation") or []) if snapshot else 0
+    fund_type_text = str(
+        (snapshot or {}).get("type")
+        or (snapshot or {}).get("fund_type")
+        or (snapshot or {}).get("fundType")
+        or ""
+    )
+    stock_holdings_not_applicable = holdings_count == 0 and any(
+        marker in fund_type_text for marker in ("债券", "货币")
+    )
 
     # ---- JSON depth validation -----------------------------------------------
     # SQL counts only check if JSON columns are non-empty strings;
@@ -590,9 +599,9 @@ async def fund_detail_completeness(code: str = Query(..., min_length=4, max_leng
         ),
         # 4. holdings — from snapshot
         "holdings": build(
-            holdings_count > 0,
+            holdings_count > 0 or stock_holdings_not_applicable,
             reason="缺少真实重仓股票",
-            source="fund_portfolio_snapshot",
+            source="fund_portfolio_snapshot" if holdings_count > 0 else "fund_master",
             as_of=holdings_as_of,
         ),
         # 5. bondAllocation
