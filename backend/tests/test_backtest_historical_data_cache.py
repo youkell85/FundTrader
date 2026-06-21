@@ -1,5 +1,6 @@
 import pandas as pd
 
+from app.allocation.backtest import engine
 from app.allocation.backtest import historical_data as h
 from app.storage.database import ETFPriceCache, MacroCache
 
@@ -94,6 +95,26 @@ def test_load_etf_history_passes_network_policy(monkeypatch):
     assert "cash" in prices.columns
     assert "money_fund" in prices.columns
     assert quality["assets_with_full_history"] == 2
+
+
+def test_backtest_history_loader_refills_on_cold_cache(monkeypatch):
+    calls = []
+
+    def fake_load(start_date, end_date, allow_network=True):
+        calls.append(allow_network)
+        if not allow_network:
+            raise ValueError("No ETF data available for the requested date range")
+        dates = pd.date_range("2024-01-02", periods=25, freq="B")
+        prices = pd.DataFrame({"a_share_large": range(1, 26)}, index=dates, dtype=float)
+        return prices, {"assets_with_full_history": 1, "assets_with_partial_history": 0, "missing_assets": []}
+
+    monkeypatch.setattr(engine, "load_etf_history", fake_load)
+
+    prices, quality = engine._load_etf_history_for_backtest("2024-01-01", "2024-03-01")
+
+    assert calls == [False, True]
+    assert "a_share_large" in prices.columns
+    assert quality["assets_with_full_history"] == 1
 
 
 def test_load_macro_history_uses_cache_when_network_disabled(monkeypatch):

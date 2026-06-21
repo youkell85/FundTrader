@@ -43,7 +43,7 @@ def run_backtest(request: BacktestRequest) -> BacktestResponse:
                 f"freq={request.rebalance_frequency}, modes={request.comparison_modes}")
 
     # 1. Load historical data
-    prices_df, quality_info = load_etf_history(request.start_date, request.end_date, allow_network=False)
+    prices_df, quality_info = _load_etf_history_for_backtest(request.start_date, request.end_date)
     returns_df = prices_df.pct_change().fillna(0.0)
 
     # Load macro history for TAA/regime replay
@@ -184,6 +184,21 @@ def run_backtest(request: BacktestRequest) -> BacktestResponse:
         data_quality=data_quality,
         cost_assumption=cost_assumption,
     )
+
+
+def _load_etf_history_for_backtest(start_date: str, end_date: str):
+    """Prefer cached ETF history, then do one live refill on cold-cache misses."""
+    try:
+        return load_etf_history(start_date, end_date, allow_network=False)
+    except ValueError as exc:
+        if "No ETF data available" not in str(exc):
+            raise
+        logger.warning(
+            "ETF history cache miss for backtest %s..%s; retrying with live providers",
+            start_date,
+            end_date,
+        )
+        return load_etf_history(start_date, end_date, allow_network=True)
 
 
 # ---------------------------------------------------------------------------

@@ -323,6 +323,8 @@ async def run_allocation_backtest(request: BacktestRequest, user: dict | None = 
             timeout=180.0,  # 3分钟硬超时
         )
         return result
+    except ValueError as exc:
+        raise HTTPException(status_code=503, detail=str(exc) or "Backtest historical data unavailable")
     except asyncio.TimeoutError:
         raise HTTPException(status_code=504, detail="回测计算超时（3分钟），请缩小回测区间后重试")
 
