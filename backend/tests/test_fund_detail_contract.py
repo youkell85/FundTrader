@@ -171,6 +171,33 @@ class FundDetailContractTest(unittest.TestCase):
         self.assertEqual(payload["rows"][0]["rank"], {"rank": 2, "total": 5})
         self.assertEqual(payload["rows"][1]["rank"], {"rank": 2, "total": 5})
 
+    def test_risk_summary_available_when_nav_metrics_generate_rule_summary(self):
+        context = MagicMock()
+        conn = MagicMock()
+        context.__enter__.return_value = conn
+
+        def query_result(row):
+            result = MagicMock()
+            result.fetchone.return_value = row
+            return result
+
+        conn.execute.side_effect = [
+            query_result({"max_drawdown": -0.12, "volatility": 0.2, "sharpe_ratio": 1.5, "fee_manage": None, "fee_custody": None, "updated_at": "2026-06-01", "source": "fund_metrics_snapshot"}),
+            query_result({"fund_type": "股票型", "name": "测试基金"}),
+            query_result({"avg_max_drawdown_eq": -0.2, "avg_sharpe_eq": 0.8, "as_of_date": "2026-06-01"}),
+        ]
+        nav_rows = [{"nav_date": "2026-01-01", "nav": 1.0 + idx * 0.001} for idx in range(40)]
+
+        with patch.object(fund_service, "get_db_context", return_value=context), \
+            patch.object(fund_service, "_get_nav_history_for_detail", return_value=(nav_rows, "fund_nav_history", "2026-01-01")):
+            payload = fund_service.get_fund_risk_summary("020983", window="1y")
+
+        self.assertEqual(payload["dataStatus"], "available")
+        self.assertEqual(payload["coverage"], 1.0)
+        self.assertEqual(payload["source"], "fund_nav_history")
+        self.assertIsNone(payload["missingReason"])
+        self.assertIn("风险定级", payload["summary"])
+
     def test_missing_holder_structure_returns_missing_not_mock(self):
         with patch.object(fund_service, "_safe_table_query", return_value=[]), \
             patch.object(fund_service, "_fetch_eastmoney_holder_report_pdf_text", return_value=None):

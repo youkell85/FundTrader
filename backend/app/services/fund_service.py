@@ -4156,6 +4156,9 @@ def get_fund_risk_summary(code: str, window: str = "1y") -> dict | None:
             f"【同业对标】与同类（{fund_type}）平均最大回撤 {_format_pct(peer_max_dd)} 相比，{peer_compare}。\n"
             f"【适当性建议】本产品风险等级{level_zh}，{suitability}"
         )
+        risk_status = DETAIL_STATUS_AVAILABLE if nav_metrics else DETAIL_STATUS_PARTIAL if row else DETAIL_STATUS_MISSING
+        risk_coverage = 1.0 if nav_metrics else 0.35 if row else 0.0
+        risk_missing_reason = None if nav_metrics else "缺少足量净值历史，仅能使用指标快照生成摘要。"
         return {
             "code": code,
             "window": window,
@@ -4167,11 +4170,11 @@ def get_fund_risk_summary(code: str, window: str = "1y") -> dict | None:
             "summary": summary,
             "volatility": volatility,
             **_detail_meta(
-                status=DETAIL_STATUS_PARTIAL if nav_metrics else DETAIL_STATUS_PARTIAL if row else DETAIL_STATUS_MISSING,
+                status=risk_status,
                 source=nav_source or (row["source"] if row else None) or "rule-engine",
                 as_of=nav_as_of or (row["updated_at"] if row else None),
-                coverage=0.7 if nav_metrics else 0.35 if row else 0.0,
-                missing_reason=None if nav_metrics else "缺少足量净值历史，仅能使用指标快照生成摘要。",
+                coverage=risk_coverage,
+                missing_reason=risk_missing_reason,
             ),
         }
     except Exception:
