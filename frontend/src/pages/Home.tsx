@@ -100,7 +100,7 @@ export default function Home() {
     isError,
     error,
   } = trpc.fund.list.useQuery(
-    { page: 1, pageSize: 120, withMetrics: true, sortBy: 'sharpeRatio', sortOrder: 'desc' },
+    { page: 1, pageSize: 500, withMetrics: true, sortBy: 'return1y', sortOrder: 'desc' },
     { staleTime: 5 * 60 * 1000, refetchOnWindowFocus: false, retry: 1 },
   )
 
@@ -153,31 +153,37 @@ export default function Home() {
     }
   }, [])
 
-  const { funds, mode, portfolioName, portfolioCreatedAt } = useMemo<{
+  const { funds, mode, portfolioFunds, portfolioName, portfolioCreatedAt, fundUniverseTotal } = useMemo<{
     funds: FundLike[]
     mode: DashboardMode
+    portfolioFunds?: FundLike[]
     portfolioName?: string | null
     portfolioCreatedAt?: string | null
+    fundUniverseTotal?: number | null
   }>(() => {
+    const allFunds = ((listData as any)?.funds || []) as FundLike[]
+    const reliableCandidates = [...allFunds].filter(isReliableDashboardCandidate).sort(bySharpeDesc)
+    const marketFunds = (reliableCandidates.length > 0 ? reliableCandidates : allFunds).slice(0, 120)
+    const fundUniverseTotal = Number((listData as any)?.total || allFunds.length) || null
     const savedPlan = latestSavedRecommendationPlan(userState)
     if (user && savedPlan) {
       return {
-        funds: savedPlan.funds.slice(0, 8),
+        funds: marketFunds,
         mode: 'savedRecommendation',
+        portfolioFunds: savedPlan.funds.slice(0, 12),
         portfolioName: savedPlan.name,
         portfolioCreatedAt: savedPlan.createdAt,
+        fundUniverseTotal,
       }
     }
 
-    const allFunds = ((listData as any)?.funds || []) as FundLike[]
     const sorted = [...allFunds].sort(bySharpeDesc)
-    const reliableCandidates = sorted.filter(isReliableDashboardCandidate)
     if (user) {
       const userFunds = sorted.filter(isUserFund)
-      if (userFunds.length > 0) return { funds: userFunds.slice(0, 8), mode: 'userWatchlist' }
-      return { funds: reliableCandidates.slice(0, 8), mode: 'userEmptyFallback' }
+      if (userFunds.length > 0) return { funds: marketFunds, portfolioFunds: userFunds.slice(0, 12), mode: 'userWatchlist', fundUniverseTotal }
+      return { funds: marketFunds, mode: 'userEmptyFallback', fundUniverseTotal }
     }
-    return { funds: reliableCandidates.slice(0, 8), mode: 'candidatePool' }
+    return { funds: marketFunds, mode: 'candidatePool', fundUniverseTotal }
   }, [listData, user, userState])
 
   return (
@@ -186,9 +192,11 @@ export default function Home() {
         <CockpitDashboard
           funds={funds}
           mode={mode}
+          portfolioFunds={portfolioFunds}
           userName={user?.name || user?.username}
           portfolioName={portfolioName}
           portfolioCreatedAt={portfolioCreatedAt}
+          fundUniverseTotal={fundUniverseTotal}
           loading={isLoading}
           error={isError ? error?.message || '基金数据加载失败' : null}
           marketOverview={marketOverview}

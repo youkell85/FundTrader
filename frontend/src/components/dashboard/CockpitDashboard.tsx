@@ -1,8 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
-import { ChevronRight, Search, UserCircle } from 'lucide-react'
+import { BarChart3, ChevronRight, Search, ShieldCheck, SlidersHorizontal, TrendingUp, UserCircle } from 'lucide-react'
 import type { MarketDataStatus } from '@/types/allocation'
-import { getFundAnalysis } from '@/lib/api'
 
 type FundLike = {
   fundCode?: string
@@ -26,6 +25,18 @@ type FundLike = {
   dailyChange?: string | number | null
   dataQuality?: string | null
   staleLevel?: string | null
+  fee?: string | number | null
+  managementFee?: string | number | null
+  custodyFee?: string | number | null
+  feeManage?: string | number | null
+  feeCustody?: string | number | null
+  manageFee?: string | number | null
+  trusteeFee?: string | number | null
+  expenseRatio?: string | number | null
+  totalScale?: string | number | null
+  scale?: string | number | null
+  aum?: string | number | null
+  stars?: string | number | null
   manager?: { name?: string } | string | null
   performance?: {
     return1y?: string | number | null
@@ -78,6 +89,17 @@ type MarketOverviewPayload = {
   industry?: MarketIndustryItem[]
 }
 
+type SortMode = 'return' | 'sharpe' | 'drawdown' | 'fee'
+
+type TypeWinner = {
+  key: string
+  label: string
+  primary: FundLike
+  topSharpe: FundLike | null
+  topReturn: FundLike | null
+  count: number
+}
+
 const TYPE_LABELS: Record<string, string> = {
   equity: '股票型',
   hybrid: '混合型',
@@ -88,20 +110,10 @@ const TYPE_LABELS: Record<string, string> = {
   money: '货币型',
   fof: 'FOF',
   reits: 'REITs',
+  other: '其他',
 }
 
-const TYPE_COLORS: Record<string, string> = {
-  equity: '#59c993',
-  hybrid: '#d4a15e',
-  bond: '#7ca4d8',
-  index: '#a28b68',
-  etf: '#8d7a64',
-  qdii: '#b8894a',
-  money: '#74706a',
-  fof: '#716c65',
-  reits: '#67604d',
-  other: '#716c65',
-}
+const TYPE_ORDER = ['equity', 'hybrid', 'bond', 'index', 'etf', 'qdii', 'fof', 'money', 'reits']
 
 function classNames(...values: Array<string | false | undefined>) {
   return values.filter(Boolean).join(' ')
@@ -109,17 +121,13 @@ function classNames(...values: Array<string | false | undefined>) {
 
 function parseMetric(value: unknown): number | null {
   if (value === undefined || value === null || value === '' || value === '—' || value === '-') return null
-  const num = parseFloat(String(value).replace('%', ''))
+  const num = parseFloat(String(value).replace(/[%％,，]/g, ''))
   return Number.isFinite(num) ? num : null
 }
 
 function average(values: Array<number | null>) {
   const valid = values.filter((value): value is number => value !== null && Number.isFinite(value))
   return valid.length ? valid.reduce((sum, value) => sum + value, 0) / valid.length : null
-}
-
-function clamp(value: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, value))
 }
 
 function signedPct(value: number | null, digits = 2) {
@@ -132,9 +140,8 @@ function plainPct(value: number | null, digits = 2) {
   return `${value.toFixed(digits)}%`
 }
 
-function metricText(value: unknown, digits = 2) {
-  const num = parseMetric(value)
-  return num === null ? '—' : num.toFixed(digits)
+function decimalText(value: number | null, digits = 2) {
+  return value === null ? '—' : value.toFixed(digits)
 }
 
 function fundName(fund: FundLike) {
@@ -152,7 +159,17 @@ function managerName(fund: FundLike) {
 }
 
 function typeKey(fund: FundLike) {
-  return String(fund.fundType || fund.category || 'other').toLowerCase()
+  const raw = String(fund.fundType || fund.category || 'other').toLowerCase()
+  if (raw.includes('etf')) return 'etf'
+  if (raw.includes('qdii')) return 'qdii'
+  if (raw.includes('fof')) return 'fof'
+  if (raw.includes('reits')) return 'reits'
+  if (raw.includes('stock') || raw.includes('equity') || raw.includes('股票')) return 'equity'
+  if (raw.includes('hybrid') || raw.includes('mixed') || raw.includes('混合')) return 'hybrid'
+  if (raw.includes('bond') || raw.includes('债')) return 'bond'
+  if (raw.includes('index') || raw.includes('指数')) return 'index'
+  if (raw.includes('money') || raw.includes('货币')) return 'money'
+  return raw || 'other'
 }
 
 function typeLabel(fund: FundLike) {
@@ -160,87 +177,158 @@ function typeLabel(fund: FundLike) {
   return TYPE_LABELS[key] || String(fund.category || fund.fundType || '其他')
 }
 
-function Sparkline({
-  points,
-  warm = false,
-  className = 'h-12 w-full',
-}: {
-  points: number[]
-  warm?: boolean
-  className?: string
-}) {
-  if (points.length < 2) {
-    return (
-      <div className={classNames(className, 'grid place-items-center rounded border border-white/[0.055] bg-white/[0.025] text-[10px] text-white/32')}>
-        走势缺失
-      </div>
-    )
-  }
-
-  const width = 120
-  const height = 42
-  const min = Math.min(...points)
-  const max = Math.max(...points)
-  const span = max - min || 1
-  const d = points
-    .map((point, index) => {
-      const x = (index / (points.length - 1)) * width
-      const y = height - ((point - min) / span) * (height - 6) - 3
-      return `${index === 0 ? 'M' : 'L'}${x.toFixed(2)} ${y.toFixed(2)}`
-    })
-    .join(' ')
-  const stroke = warm ? '#d69d63' : '#59c993'
-
-  return (
-    <svg viewBox="0 0 120 42" className={classNames(className, 'overflow-visible')}>
-      <path d={d} fill="none" stroke={stroke} strokeWidth="2" />
-      <path d={d} fill="none" stroke={stroke} strokeOpacity=".2" strokeWidth="5" />
-    </svg>
-  )
+function returnMetric(fund: FundLike) {
+  return parseMetric(fund.performance?.return1y ?? fund.performance?.annualizedReturn)
 }
 
-function normalizeKlineSeries(value: unknown) {
-  if (!Array.isArray(value)) return []
-  return value
-    .map((point) => {
-      const record = point as Record<string, unknown>
-      const open = parseMetric(record.open)
-      const high = parseMetric(record.high)
-      const low = parseMetric(record.low)
-      const close = parseMetric(record.close)
-      if (open === null || high === null || low === null || close === null) return null
+function sharpeMetric(fund: FundLike) {
+  return parseMetric(fund.performance?.sharpeRatio)
+}
+
+function drawdownMetric(fund: FundLike) {
+  return parseMetric(fund.performance?.maxDrawdown)
+}
+
+function normalizeFeeRate(value: number | null) {
+  if (value === null) return null
+  return Math.abs(value) <= 1.5 ? value * 100 : value
+}
+
+function feeMetric(fund: FundLike) {
+  const explicitFee = parseMetric(fund.fee ?? fund.expenseRatio)
+  if (explicitFee !== null) return normalizeFeeRate(explicitFee)
+
+  const management = parseMetric(fund.managementFee ?? fund.feeManage ?? fund.manageFee)
+  const custody = parseMetric(fund.custodyFee ?? fund.feeCustody ?? fund.trusteeFee)
+  if (management === null && custody === null) return null
+  return normalizeFeeRate((management || 0) + (custody || 0))
+}
+
+function scaleText(fund: FundLike) {
+  const scale = parseMetric(fund.totalScale ?? fund.scale ?? fund.aum)
+  if (scale === null) return '缺失'
+  if (Math.abs(scale) >= 10_000) return `${(scale / 10_000).toFixed(1)}亿`
+  return `${scale.toFixed(scale >= 100 ? 1 : 2)}亿`
+}
+
+function dataStatusText(fund: FundLike) {
+  const quality = String(fund.dataQuality || '').toLowerCase()
+  const stale = String(fund.staleLevel || '').toLowerCase()
+  if (quality === 'seeded' || stale === 'missing') return { text: '不可用', tone: 'bad' as const }
+  if (stale === 'stale') return { text: '待详情校验', tone: 'warn' as const }
+  if (quality === 'partial') return { text: '部分真实', tone: 'warn' as const }
+  return { text: '可用', tone: 'ok' as const }
+}
+
+function isDecisionFund(fund: FundLike) {
+  const nav = parseMetric(fund.nav)
+  const quality = String(fund.dataQuality || '').toLowerCase()
+  const stale = String(fund.staleLevel || '').toLowerCase()
+  const hasDecisionMetric = returnMetric(fund) !== null || sharpeMetric(fund) !== null || drawdownMetric(fund) !== null
+  return Boolean(fund.navDate) && nav !== null && nav > 0 && hasDecisionMetric && quality !== 'seeded' && stale !== 'missing'
+}
+
+function sortFunds(funds: FundLike[], sortMode: SortMode) {
+  return [...funds].sort((a, b) => {
+    if (sortMode === 'drawdown') return (drawdownMetric(a) ?? 999) - (drawdownMetric(b) ?? 999)
+    if (sortMode === 'fee') return (feeMetric(a) ?? 999) - (feeMetric(b) ?? 999)
+    if (sortMode === 'sharpe') return (sharpeMetric(b) ?? -999) - (sharpeMetric(a) ?? -999)
+    return (returnMetric(b) ?? -999) - (returnMetric(a) ?? -999)
+  })
+}
+
+function pickNumber(record: Record<string, unknown>, keys: string[]) {
+  for (const key of keys) {
+    const value = record[key]
+    const num = parseMetric(value)
+    if (num !== null) return num
+  }
+  return null
+}
+
+function normalizeMarketIndices(payload?: MarketOverviewPayload | null) {
+  return (payload?.market || [])
+    .map((item) => {
+      const record = item as Record<string, unknown>
       return {
-        date: String(record.date || ''),
-        open,
-        high,
-        low,
-        close,
+        code: String(item.code || record.symbol || record.ts_code || '—'),
+        name: String(item.name || record.index_name || record.short_name || item.code || '市场指数'),
+        close: pickNumber(record, ['close', 'value', 'price', 'latest', '最新价', '收盘']),
+        change: pickNumber(record, ['change', 'pct_change', 'change_pct', '涨跌幅', 'pctChg']),
+        date: String(item.date || record.trade_date || record.as_of || ''),
+        source: String(item.source || record.source || '真实行情接口'),
       }
     })
-    .filter((point): point is { date: string; open: number; high: number; low: number; close: number } => point !== null)
+    .filter((item) => item.close !== null || item.change !== null)
 }
 
-function normalizeNavTrend(value: unknown) {
-  if (!Array.isArray(value)) return []
-  return value
-    .map((point) => {
-      const record = point as Record<string, unknown>
-      return parseMetric(record.nav ?? record.unit_nav ?? record.navValue ?? record.value)
+function normalizeIndustries(payload?: MarketOverviewPayload | null) {
+  return (payload?.industries || payload?.industry || [])
+    .map((item) => {
+      const record = item as Record<string, unknown>
+      return {
+        name: String(item.name || item.industry || item.board || record.label || '行业板块'),
+        change: pickNumber(record, ['change', 'pct_change', 'change_pct', '涨跌幅', 'pctChg']),
+      }
     })
-    .filter((point): point is number => point !== null && point > 0)
-    .slice(-42)
+    .filter((item) => item.change !== null)
+    .sort((a, b) => (b.change || 0) - (a.change || 0))
 }
 
-function Panel({ title, children, action, className }: { title: string; children: React.ReactNode; action?: React.ReactNode; className?: string }) {
-  return (
-    <section className={classNames('workspace-panel p-4', className)}>
-      <div className="workspace-panel-header mb-3 flex items-center justify-between pb-2">
-        <h3 className="text-sm font-semibold text-[#fff8ea]">{title}</h3>
-        {action}
-      </div>
-      {children}
-    </section>
-  )
+function formatIndexValue(value: number | null) {
+  if (value === null) return '—'
+  return value.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+function formatDateTime(value?: string | null) {
+  if (!value) return '—'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString('zh-CN', {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+function healthLabel(status?: MarketDataStatus['health']) {
+  switch (status) {
+    case 'healthy':
+      return 'Healthy'
+    case 'degraded':
+      return '降级可用'
+    case 'critical':
+      return '异常'
+    default:
+      return '未知'
+  }
+}
+
+function macroConfidenceText(status?: MarketDataStatus | null) {
+  if (!status?.macro_available || status.macro_confidence === null || status.macro_confidence === undefined) return '缺失'
+  return `${(status.macro_confidence * 100).toFixed(0)}%`
+}
+
+function buildTypeWinners(funds: FundLike[]) {
+  const rows: TypeWinner[] = []
+  for (const key of TYPE_ORDER) {
+    const candidates = funds.filter((fund) => typeKey(fund) === key && isDecisionFund(fund))
+    if (candidates.length === 0) continue
+    const topSharpe = sortFunds(candidates.filter((fund) => sharpeMetric(fund) !== null), 'sharpe')[0] || null
+    const topReturn = sortFunds(candidates.filter((fund) => returnMetric(fund) !== null), 'return')[0] || null
+    const primary = topSharpe || topReturn
+    if (!primary) continue
+    rows.push({
+      key,
+      label: TYPE_LABELS[key] || key,
+      primary,
+      topSharpe,
+      topReturn,
+      count: candidates.length,
+    })
+  }
+  return rows
 }
 
 function fundWeight(fund: FundLike) {
@@ -269,100 +357,50 @@ function buildWeightedFunds(funds: FundLike[]) {
   }))
 }
 
-function distributionByType(weighted: Array<{ fund: FundLike; weight: number; weightSource: 'real' | 'missing' }>) {
-  const rows = new Map<string, number>()
-  for (const item of weighted) {
-    if (item.weightSource !== 'real' || item.weight <= 0) continue
-    const key = typeKey(item.fund)
-    rows.set(key, (rows.get(key) || 0) + item.weight)
-  }
-  return Array.from(rows.entries())
-    .map(([key, value]) => ({ key, label: TYPE_LABELS[key] || key, value, color: TYPE_COLORS[key] || TYPE_COLORS.other }))
-    .sort((a, b) => b.value - a.value)
+function marketPressureConclusion({
+  marketLoading,
+  marketError,
+  marketStatus,
+  marketIndustries,
+}: {
+  marketLoading?: boolean
+  marketError?: string | null
+  marketStatus?: MarketDataStatus | null
+  marketIndustries: Array<{ name: string; change: number | null }>
+}) {
+  const volRatio = marketStatus?.vol_ratio ?? null
+  if (marketLoading) return '市场数据加载中：先不要根据压力指标做筛选结论。'
+  if (marketError || marketStatus?.health === 'critical') return '市场数据异常：先用基金自身收益、回撤、夏普做保守筛选。'
+  if (volRatio !== null && volRatio >= 1.2) return '波动偏高：筛选时先看回撤和夏普，再看近一年收益；暂不做行业强弱判断。'
+  if (marketIndustries.length === 0) return '市场数据可用，但行业热度缺失：先按基金自身收益风险筛选。'
+  if (marketIndustries[0]?.change !== null) return `行业信号可参考：${marketIndustries[0].name}相对靠前，但仍需进详情页复核基金指标。`
+  return '市场压力正常：可从分类型优选横榜进入详情复核。'
 }
 
-function pickNumber(record: Record<string, unknown>, keys: string[]) {
-  for (const key of keys) {
-    const value = record[key]
-    const num = parseMetric(value)
-    if (num !== null) return num
-  }
-  return null
+function homeConclusion(decisionCount: number, marketStatus?: MarketDataStatus | null) {
+  const volRatio = marketStatus?.vol_ratio ?? null
+  if (decisionCount === 0) return '真实基金指标仍在加载或不足，先等待候选池返回可决策数据。'
+  if (volRatio !== null && volRatio >= 1.2) return '当前波动偏高，优先挑选回撤和夏普稳定的分类型冠军。'
+  return '先用分类型优选横榜缩小范围，再进详情页复核费率、回撤和同类表现。'
 }
 
-function normalizeMarketIndices(payload?: MarketOverviewPayload | null) {
-  return (payload?.market || [])
-    .map((item) => {
-      const record = item as Record<string, unknown>
-      return {
-        code: String(item.code || record.symbol || record.ts_code || '—'),
-        name: String(item.name || record.index_name || record.short_name || item.code || '市场指数'),
-        close: pickNumber(record, ['close', 'value', 'price', 'latest', '最新价', '收盘']),
-        change: pickNumber(record, ['change', 'pct_change', 'change_pct', '涨跌幅', 'pctChg']),
-        date: String(item.date || record.trade_date || record.as_of || ''),
-        source: String(item.source || record.source || '真实行情接口'),
-        series: normalizeKlineSeries(record.series || record.kline || record.bars),
-      }
-    })
-    .filter((item) => item.close !== null || item.change !== null)
-}
-
-function normalizeIndustries(payload?: MarketOverviewPayload | null) {
-  return (payload?.industries || payload?.industry || [])
-    .map((item) => {
-      const record = item as Record<string, unknown>
-      return {
-        name: String(item.name || item.industry || item.board || record.label || '行业板块'),
-        change: pickNumber(record, ['change', 'pct_change', 'change_pct', '涨跌幅', 'pctChg']),
-      }
-    })
-    .filter((item) => item.change !== null)
-    .sort((a, b) => (b.change || 0) - (a.change || 0))
-}
-
-function formatIndexValue(value: number | null) {
-  if (value === null) return '—'
-  return value.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
-
-function formatMacroValue(value: unknown) {
-  const num = parseMetric(value)
-  return num === null ? '缺失' : num.toFixed(2)
-}
-
-function formatConfidence(value: unknown) {
-  const num = parseMetric(value)
-  return num === null ? '置信度 -' : `置信度 ${(num * 100).toFixed(0)}%`
-}
-
-function formatDateTime(value?: string | null) {
-  if (!value) return '—'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleString('zh-CN', {
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-}
-
-function healthLabel(status?: MarketDataStatus['health']) {
-  switch (status) {
-    case 'healthy':
-      return '健康'
-    case 'degraded':
-      return '降级可用'
-    case 'critical':
-      return '异常'
-    default:
-      return '未知'
-  }
+function Panel({ title, children, action, className }: { title: string; children: React.ReactNode; action?: React.ReactNode; className?: string }) {
+  return (
+    <section className={classNames('workspace-panel p-4', className)}>
+      <div className="workspace-panel-header mb-3 flex items-center justify-between gap-3 pb-2">
+        <h3 className="text-sm font-semibold text-[#fff8ea]">{title}</h3>
+        {action}
+      </div>
+      {children}
+    </section>
+  )
 }
 
 export function CockpitDashboard({
   funds,
   mode,
+  portfolioFunds,
+  fundUniverseTotal,
   userName,
   portfolioName,
   portfolioCreatedAt,
@@ -375,6 +413,8 @@ export function CockpitDashboard({
 }: {
   funds: FundLike[]
   mode: DashboardMode
+  portfolioFunds?: FundLike[]
+  fundUniverseTotal?: number | null
   userName?: string | null
   portfolioName?: string | null
   portfolioCreatedAt?: string | null
@@ -388,116 +428,80 @@ export function CockpitDashboard({
   const navigate = useNavigate()
   const [query, setQuery] = useState('')
   const [fundFilter, setFundFilter] = useState('all')
-  const [trendByCode, setTrendByCode] = useState<Record<string, number[] | null>>({})
-  const pendingTrendCodes = useRef(new Set<string>())
-  const loadedTrendCodes = useRef(new Set<string>())
-  const weighted = buildWeightedFunds(funds)
-  const hasRealWeights = weighted.some((item) => item.weightSource === 'real')
-  const assetMix = distributionByType(weighted)
-  const avgDay = average(funds.map((fund) => parseMetric(fund.dailyChange)))
-  const avgYear = average(funds.map((fund) => parseMetric(fund.performance?.return1y ?? fund.performance?.annualizedReturn)))
-  const avgAnnual = average(funds.map((fund) => parseMetric(fund.performance?.annualizedReturn ?? fund.performance?.return1y)))
-  const avgSharpe = average(funds.map((fund) => parseMetric(fund.performance?.sharpeRatio)))
-  const avgDrawdown = average(funds.map((fund) => parseMetric(fund.performance?.maxDrawdown)))
-  const hasRiskInputs = avgSharpe !== null && avgDrawdown !== null
-  const riskScore = hasRiskInputs ? clamp(Math.round(62 + avgSharpe * 8 - Math.abs(avgDrawdown) * 0.45), 15, 92) : null
-  const latestDate = funds.map((fund) => fund.navDate).filter(Boolean).sort().at(-1) || null
+  const [sortMode, setSortMode] = useState<SortMode>('return')
+
   const marketIndices = useMemo(() => normalizeMarketIndices(marketOverview), [marketOverview])
   const marketIndustries = useMemo(() => normalizeIndustries(marketOverview), [marketOverview])
-  const risingCount = marketIndices.filter((item) => (item.change || 0) > 0).length
-  const fallingCount = marketIndices.filter((item) => (item.change || 0) < 0).length
+  const decisionFunds = useMemo(() => funds.filter(isDecisionFund), [funds])
+  const fundPool = decisionFunds.length > 0 ? decisionFunds : funds
+  const typeWinners = useMemo(() => buildTypeWinners(funds), [funds])
+  const latestDate = funds.map((fund) => fund.navDate).filter(Boolean).sort().at(-1) || null
   const marketAsOf = marketStatus?.last_refresh ? formatDateTime(marketStatus.last_refresh) : (marketIndices.find((item) => item.date)?.date || latestDate || '缺失')
-  const macroIndicators = marketStatus?.macro_indicators || {}
-  const macroRows = [
-    { label: 'PMI', key: 'PMI制造业' },
-    { label: 'CPI', key: 'CPI同比' },
-    { label: 'M2', key: 'M2增速' },
-  ].map((item) => ({ ...item, data: macroIndicators[item.key] }))
-  const strongestIndustry = marketIndustries[0]
-  const sourceLabel = mode === 'savedRecommendation'
-    ? `最近生成方案${portfolioName ? `：${portfolioName}` : ''}`
-    : mode === 'userWatchlist'
-      ? '自选基金池：未设置组合权重'
-      : mode === 'userEmptyFallback'
-        ? '用户暂无自选，展示真实候选池'
-        : '未登录：真实候选池'
-  const fundTypeTabs = useMemo(() => {
-    const typeOrder = ['all', 'equity', 'hybrid', 'bond', 'index', 'etf', 'qdii', 'fof']
-    const available = new Set(weighted.map(({ fund }) => typeKey(fund)))
-    return typeOrder
-      .filter((key) => key === 'all' || available.has(key))
-      .map((key) => ({ key, label: key === 'all' ? '全部' : TYPE_LABELS[key] || key.toUpperCase() }))
-  }, [weighted])
-  const filteredWeighted = useMemo(() => {
-    const keyword = query.trim().toLowerCase()
-    return weighted.filter(({ fund }) => {
-      if (fundFilter !== 'all' && typeKey(fund) !== fundFilter) return false
-      if (!keyword) return true
-      const haystack = [
-        fundCode(fund),
-        fundName(fund),
-        managerName(fund),
-        typeLabel(fund),
-        fund.company,
-      ].filter(Boolean).join(' ').toLowerCase()
-      return haystack.includes(keyword)
-    })
-  }, [fundFilter, query, weighted])
-  const visibleCards = filteredWeighted.slice(0, 4)
-  const visibleCodes = useMemo(
-    () => visibleCards.map(({ fund }) => fundCode(fund)).filter((code) => /^\d{6}$/.test(code)),
-    [visibleCards],
-  )
-  const visibleCodeKey = visibleCodes.join('|')
-
-  useEffect(() => {
-    const codes = visibleCodeKey.split('|').filter(Boolean)
-    const missingCodes = codes.filter((code) => !loadedTrendCodes.current.has(code) && !pendingTrendCodes.current.has(code))
-    if (missingCodes.length === 0) return
-
-    missingCodes.forEach((code) => {
-      pendingTrendCodes.current.add(code)
-      getFundAnalysis(code)
-        .then((analysis) => normalizeNavTrend(analysis?.nav_data || analysis?.navHistory || analysis?.navHistoryFull))
-        .catch(() => null)
-        .then((trend) => {
-          pendingTrendCodes.current.delete(code)
-          loadedTrendCodes.current.add(code)
-          setTrendByCode((current) => ({ ...current, [code]: trend }))
-        })
-    })
-  }, [visibleCodeKey])
-
   const trimmedQuery = query.trim()
   const queryLooksLikeFundCode = /^\d{6}$/.test(trimmedQuery)
-  const showNoMatches = trimmedQuery.length > 0 && filteredWeighted.length === 0
+  const showNoMatches = trimmedQuery.length > 0
+
+  const availableTabs = useMemo(() => {
+    const available = new Set(fundPool.map(typeKey))
+    return [
+      { key: 'all', label: '全部' },
+      ...TYPE_ORDER.filter((key) => available.has(key)).map((key) => ({ key, label: TYPE_LABELS[key] || key })),
+    ]
+  }, [fundPool])
+
+  const filteredFunds = useMemo(() => {
+    const keyword = query.trim().toLowerCase()
+    return sortFunds(
+      fundPool.filter((fund) => {
+        if (fundFilter !== 'all' && typeKey(fund) !== fundFilter) return false
+        if (!keyword) return true
+        const haystack = [
+          fundCode(fund),
+          fundName(fund),
+          managerName(fund),
+          typeLabel(fund),
+          fund.company,
+        ].filter(Boolean).join(' ').toLowerCase()
+        return haystack.includes(keyword)
+      }),
+      sortMode,
+    )
+  }, [fundFilter, fundPool, query, sortMode])
+
+  const portfolioWeighted = useMemo(() => buildWeightedFunds(portfolioFunds || []), [portfolioFunds])
+  const hasPortfolioWeights = portfolioWeighted.some((item) => item.weightSource === 'real')
+  const portfolioAvgReturn = average((portfolioFunds || []).map(returnMetric))
+  const portfolioAvgSharpe = average((portfolioFunds || []).map(sharpeMetric))
+  const avgReturn = average(decisionFunds.map(returnMetric))
+  const avgSharpe = average(decisionFunds.map(sharpeMetric))
+  const avgDrawdown = average(decisionFunds.map(drawdownMetric))
+  const reliableRatio = funds.length > 0 ? decisionFunds.length / funds.length : 0
+  const topFund = filteredFunds[0]
+  const pressureText = marketPressureConclusion({ marketLoading, marketError, marketStatus, marketIndustries })
+  const conclusion = homeConclusion(decisionFunds.length, marketStatus)
+  const volRatio = marketStatus?.vol_ratio ?? null
+
   const openQueryFund = () => {
     if (queryLooksLikeFundCode) navigate(`/${trimmedQuery}`)
   }
-  const dashboardMetrics = [
-    [hasRealWeights ? '持仓数量' : '候选数量', `${funds.length}只`],
-    ['日涨跌均值', signedPct(avgDay)],
-    ['近一年均值', signedPct(avgYear)],
-    ['最大回撤均值', plainPct(avgDrawdown)],
-    ['年化收益均值', plainPct(avgAnnual)],
-    ['夏普均值', avgSharpe === null ? '缺失' : avgSharpe.toFixed(2)],
+
+  const sortOptions: Array<{ key: SortMode; label: string }> = [
+    { key: 'return', label: '收益' },
+    { key: 'sharpe', label: '夏普' },
+    { key: 'drawdown', label: '回撤' },
+    { key: 'fee', label: '费率' },
   ]
 
   return (
     <section className="workspace-shell space-y-4">
-      {/* Top bar: identity, source, freshness, user */}
       <header className="workspace-panel-strong flex flex-wrap items-center justify-between gap-3 px-4 py-3">
-        <div className="flex flex-wrap items-baseline gap-3">
-          <h2 className="text-xl font-bold tracking-tight text-[#fff8ea]">决策桌面</h2>
-          <span className="workspace-pill px-3 py-0.5 text-xs">{sourceLabel}</span>
-          <span className="text-xs text-white/42">
-            {portfolioCreatedAt
-              ? `方案生成于 ${formatDateTime(portfolioCreatedAt)}`
-              : marketLoading ? '行情加载中…' : `数据截至 ${marketAsOf}`}
-          </span>
+        <div className="flex min-w-0 flex-wrap items-baseline gap-3">
+          <h2 className="text-xl font-bold tracking-tight text-[#fff8ea]">基金市场</h2>
+          <span className="workspace-pill px-3 py-0.5 text-xs">市场首页 / 真实候选池</span>
+          <span className="text-xs text-white/42">数据截至 {marketAsOf}</span>
         </div>
         <div className="flex flex-wrap items-center gap-3 text-xs text-white/52">
-          <label className="workspace-input flex h-8 min-w-[240px] items-center gap-2 px-3">
+          <label className="workspace-input flex h-8 min-w-[260px] items-center gap-2 px-3">
             <Search size={14} />
             <input
               value={query}
@@ -517,258 +521,364 @@ export function CockpitDashboard({
         </div>
       </header>
 
-      {showNoMatches && (
+      {(loading || error || (showNoMatches && filteredFunds.length === 0)) && (
         <div className="workspace-warning flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-sm">
-          <span>没有匹配“{trimmedQuery}”的桌面候选基金。</span>
-          <div className="flex items-center gap-2">
-            {queryLooksLikeFundCode && (
-              <button
-                type="button"
-                onClick={openQueryFund}
-                className="workspace-action px-3 py-1.5 text-xs font-medium"
-              >
-                打开 {trimmedQuery}
+          <span>
+            {loading
+              ? '正在加载基金数据...'
+              : error
+                ? `数据加载异常：${error}`
+                : `没有匹配“${trimmedQuery}”的市场候选基金。`}
+          </span>
+          {!loading && !error && (
+            <div className="flex items-center gap-2">
+              {queryLooksLikeFundCode && (
+                <button type="button" onClick={openQueryFund} className="workspace-action px-3 py-1.5 text-xs font-medium">
+                  打开 {trimmedQuery}
+                </button>
+              )}
+              <button type="button" onClick={() => setQuery('')} className="workspace-action px-3 py-1.5 text-xs font-medium">
+                清除搜索
               </button>
-            )}
-            <button
-              type="button"
-              onClick={() => setQuery('')}
-              className="workspace-action px-3 py-1.5 text-xs font-medium"
-            >
-              清除搜索
-            </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(0,1.65fr)_repeat(4,minmax(120px,.55fr))]">
+        <div className="workspace-panel-strong p-4 md:col-span-2 xl:col-span-1">
+          <div className="mb-2 flex items-center gap-2 text-xs text-[#8FD9BA]">
+            <TrendingUp size={14} />
+            <span>今日筛选结论</span>
+          </div>
+          <p className="text-lg font-semibold leading-snug text-[#fff8ea]">{conclusion}</p>
+          <div className="mt-3 flex flex-wrap gap-2 text-xs text-white/42">
+            <span>基金池 {fundUniverseTotal || funds.length} 只</span>
+            <span>可决策 {decisionFunds.length} 只</span>
+            <span>最新净值日 {latestDate || '缺失'}</span>
           </div>
         </div>
-      )}
+        {[
+          ['真实覆盖', `${Math.round(reliableRatio * 100)}%`, `${decisionFunds.length}/${funds.length || 0} 可用`],
+          ['近一年均值', signedPct(avgReturn), '按可决策基金'],
+          ['夏普均值', decimalText(avgSharpe), '风险收益'],
+          ['回撤均值', plainPct(avgDrawdown), '越低越稳'],
+        ].map(([label, value, hint]) => (
+          <div key={label} className="workspace-panel p-4">
+            <div className="text-xs text-white/38">{label}</div>
+            <div className="data-number mt-1 text-xl font-semibold text-[#fff8ea]">{value}</div>
+            <div className="mt-2 text-xs text-white/34">{hint}</div>
+          </div>
+        ))}
+      </section>
 
-      {/* Loading / error banner */}
-      {(loading || error) && (
-        <div className="workspace-warning px-4 py-3 text-sm">
-          {loading ? '正在加载基金数据…' : `数据加载异常：${error}`}
-        </div>
-      )}
-
-      {/* Main decision row: market state, portfolio health, next actions */}
-      <div className="grid gap-4 lg:grid-cols-3">
-        {/* Market state panel */}
-        <Panel
-          title="市场状态"
-          action={marketLoading ? <span className="text-xs text-white/36">加载中…</span> : <span className="text-xs text-white/36">截至 {marketAsOf}</span>}
-        >
-          {(marketLoading || marketError || marketIndices.length === 0) && (
-            <div className="workspace-warning mb-3 px-3 py-2 text-xs">
-              {marketLoading
-                ? '正在加载市场指数数据…'
-                : marketError
-                  ? `市场数据加载异常：${marketError}`
-                  : '市场行情暂不可用'}
-            </div>
-          )}
-          {marketIndices.length > 0 ? (
-            <div className="space-y-3">
-              {marketIndices.slice(0, 3).map((item) => (
-                <div key={item.code || item.name} className="grid grid-cols-[minmax(0,1fr)_96px_auto] items-center gap-3">
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-medium text-white/82">{item.name}</div>
-                    <div className="text-xs text-white/34">{item.code}</div>
-                  </div>
-                  <Sparkline
-                    points={item.series.map((point) => point.close)}
-                    warm={(item.change || 0) >= 0}
-                    className="h-8 w-24"
-                  />
-                  <div className="text-right">
-                    <div className="data-number text-sm font-semibold text-[#fff8ea]">{formatIndexValue(item.close)}</div>
-                    <span className={classNames('data-number text-xs font-medium', (item.change || 0) >= 0 ? 'text-danger' : 'text-success')}>
-                      {signedPct(item.change)}
-                    </span>
-                  </div>
-                </div>
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_380px]">
+        <div className="space-y-4">
+          <Panel
+            title="基金市场"
+            action={
+              <div className="flex items-center gap-2 text-xs text-white/42">
+                <SlidersHorizontal size={14} />
+                <span>{sortOptions.find((item) => item.key === sortMode)?.label}优先</span>
+              </div>
+            }
+          >
+            <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
+              {availableTabs.map((tab) => (
+                <button
+                  key={tab.key}
+                  type="button"
+                  onClick={() => setFundFilter(tab.key)}
+                  className={classNames(
+                    'rounded-full px-3 py-1 transition',
+                    fundFilter === tab.key ? 'workspace-pill' : 'workspace-pill-muted hover:text-white',
+                  )}
+                >
+                  {tab.label}
+                </button>
               ))}
-              <div className="border-t border-white/[0.07] pt-2">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-white/45">上涨 {risingCount} / 下跌 {fallingCount}</span>
-                  <span className="text-white/45">数据健康：{healthLabel(marketStatus?.health)}</span>
-                </div>
-                <div className="mt-2 rounded border border-white/[0.065] bg-white/[0.025] px-2 py-2">
-                  <div className="mb-1 flex items-center justify-between text-[11px] text-white/42">
-                    <span>宏观数据</span>
-                    <span>{marketStatus?.macro_available ? `置信度 ${(marketStatus.macro_confidence * 100).toFixed(0)}%` : '缺失'}</span>
-                  </div>
-                  <div className="grid grid-cols-3 gap-1">
-                    {macroRows.map((item) => (
-                      <div key={item.key} className="rounded border border-white/[0.045] bg-white/[0.035] px-2 py-1 text-xs">
-                        <div className="font-medium text-white/70">{item.label}</div>
-                        <div className={classNames('data-number text-sm font-semibold', item.data?.value != null ? 'text-[#fff8ea]' : 'text-white/35')}>
-                          {formatMacroValue(item.data?.value)}
-                        </div>
-                        <div className="truncate text-[10px] text-white/32" title={item.data?.source || '来源缺失'}>
-                          {formatConfidence(item.data?.confidence)} · {item.data?.source || '来源缺失'}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                {strongestIndustry && (
-                  <div className="mt-1 flex items-center justify-between text-xs">
-                    <span className="text-white/45">强势行业</span>
-                    <span className="font-medium text-white/72">{strongestIndustry.name} {signedPct(strongestIndustry.change)}</span>
-                  </div>
-                )}
+              <div className="ml-auto flex flex-wrap items-center gap-1">
+                {sortOptions.map((option) => (
+                  <button
+                    key={option.key}
+                    type="button"
+                    onClick={() => setSortMode(option.key)}
+                    className={classNames(
+                      'rounded px-2.5 py-1 transition',
+                      sortMode === option.key ? 'workspace-action-active' : 'workspace-action',
+                    )}
+                  >
+                    {option.label}
+                  </button>
+                ))}
               </div>
             </div>
-          ) : (
-            <div className="py-4 text-sm text-white/38">市场全景等待指数数据返回。</div>
-          )}
-        </Panel>
 
-        {/* Portfolio health / candidate quality panel */}
-        <Panel
-          title={hasRealWeights ? '组合健康' : '候选池质量'}
-          action={<Link to="/analysis" className="text-xs text-[#8FD9BA] hover:text-white">诊断 →</Link>}
-        >
-          {funds.length === 0 ? (
-            <div className="py-4 text-sm text-white/38">暂无基金数据。</div>
-          ) : (
-            <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                {dashboardMetrics.map(([label, value]) => (
-                  <div key={label}>
-                    <div className="text-xs text-white/36">{label}</div>
-                    <div className="data-number text-lg font-semibold text-[#fff8ea]">{value}</div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[860px] text-left text-sm">
+                <thead className="border-y border-white/[0.07] text-xs text-white/38">
+                  <tr>
+                    <th className="py-2 pr-3 font-medium">基金</th>
+                    <th className="px-3 py-2 font-medium">类型</th>
+                    <th className="px-3 py-2 text-right font-medium">近一年</th>
+                    <th className="px-3 py-2 text-right font-medium">夏普</th>
+                    <th className="px-3 py-2 text-right font-medium">最大回撤</th>
+                    <th className="px-3 py-2 text-right font-medium">费率</th>
+                    <th className="px-3 py-2 font-medium">净值日</th>
+                    <th className="px-3 py-2 font-medium">状态</th>
+                    <th className="py-2 pl-3 text-right font-medium">操作</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/[0.055]">
+                  {filteredFunds.slice(0, 10).map((fund) => {
+                    const code = fundCode(fund)
+                    const status = dataStatusText(fund)
+                    const fee = feeMetric(fund)
+                    const yearlyReturn = returnMetric(fund)
+                    return (
+                      <tr key={code || fundName(fund)} className="transition hover:bg-white/[0.025]">
+                        <td className="py-3 pr-3">
+                          <Link to={code ? `/${code}` : '/analysis'} className="block min-w-0">
+                            <div className="max-w-[260px] truncate font-semibold text-[#fff8ea]">{fundName(fund)}</div>
+                            <div className="mt-0.5 flex items-center gap-2 text-xs text-white/36">
+                              <span>{code || '代码缺失'}</span>
+                              <span className="truncate">{managerName(fund)}</span>
+                            </div>
+                          </Link>
+                        </td>
+                        <td className="px-3 py-3">
+                          <span className="workspace-pill-muted rounded px-2 py-0.5 text-xs">{typeLabel(fund)}</span>
+                        </td>
+                        <td className={classNames('data-number px-3 py-3 text-right font-semibold', (yearlyReturn || 0) >= 0 ? 'text-danger' : 'text-success')}>
+                          {signedPct(yearlyReturn)}
+                        </td>
+                        <td className="data-number px-3 py-3 text-right text-[#fff8ea]">{decimalText(sharpeMetric(fund))}</td>
+                        <td className="data-number px-3 py-3 text-right text-white/72">{plainPct(drawdownMetric(fund))}</td>
+                        <td className="data-number px-3 py-3 text-right text-white/72">{fee === null ? '缺失' : `${fee.toFixed(2)}%`}</td>
+                        <td className="px-3 py-3 text-xs text-white/50">{fund.navDate || '缺失'}</td>
+                        <td className="px-3 py-3">
+                          <span
+                            className={classNames(
+                              'rounded px-2 py-0.5 text-xs',
+                              status.tone === 'ok' && 'border border-[#59c993]/25 bg-[#59c993]/10 text-[#8FD9BA]',
+                              status.tone === 'warn' && 'border border-[#d4a15e]/25 bg-[#d4a15e]/10 text-[#f0c58b]',
+                              status.tone === 'bad' && 'border border-red-400/25 bg-red-400/10 text-red-200',
+                            )}
+                          >
+                            {status.text}
+                          </span>
+                        </td>
+                        <td className="py-3 pl-3 text-right">
+                          <Link to={code ? `/${code}` : '/analysis'} className="workspace-action inline-flex items-center gap-1 px-2.5 py-1 text-xs">
+                            详情 <ChevronRight size={12} />
+                          </Link>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {filteredFunds.length === 0 && (
+              <div className="mt-3 rounded border border-white/[0.075] bg-white/[0.025] p-4 text-sm text-white/40">
+                当前条件下没有可展示基金，清除搜索或切换类型后再试。
+              </div>
+            )}
+
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-white/[0.07] pt-3 text-xs text-white/42">
+              <span>规则：仅把有净值日、净值、真实/非种子指标的基金纳入可决策样本。</span>
+              <span>{filteredFunds.length > 10 ? `已显示前 10 / ${filteredFunds.length} 只` : `当前 ${filteredFunds.length} 只`}</span>
+            </div>
+          </Panel>
+
+          <Panel
+            title="分类型优选横榜"
+            action={<span className="text-xs text-white/36">每类优先看夏普，收益冠军作复核</span>}
+          >
+            {typeWinners.length > 0 ? (
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {typeWinners.map((item) => {
+                  const primary = item.primary
+                  const code = fundCode(primary)
+                  const returnChampion = item.topReturn && fundCode(item.topReturn) !== code ? item.topReturn : null
+                  return (
+                    <Link
+                      key={item.key}
+                      to={code ? `/${code}` : '/analysis'}
+                      className="block rounded-lg border border-white/[0.075] bg-white/[0.03] p-3 transition hover:border-primary/40 hover:bg-white/[0.05]"
+                    >
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <span className="workspace-pill px-2 py-0.5 text-xs">{item.label}</span>
+                        <span className="text-xs text-white/34">{item.count} 只可比</span>
+                      </div>
+                      <div className="truncate text-sm font-semibold text-[#fff8ea]">{fundName(primary)}</div>
+                      <div className="mt-0.5 text-xs text-white/36">{code || '代码缺失'} / {managerName(primary)}</div>
+                      <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+                        <div>
+                          <div className="text-white/32">近一年</div>
+                          <div className="data-number font-semibold text-danger">{signedPct(returnMetric(primary))}</div>
+                        </div>
+                        <div>
+                          <div className="text-white/32">夏普</div>
+                          <div className="data-number font-semibold text-[#fff8ea]">{decimalText(sharpeMetric(primary))}</div>
+                        </div>
+                        <div>
+                          <div className="text-white/32">费率</div>
+                          <div className="data-number font-semibold text-white/72">{feeMetric(primary) === null ? '缺失' : `${feeMetric(primary)?.toFixed(2)}%`}</div>
+                        </div>
+                      </div>
+                      {returnChampion && (
+                        <div className="mt-2 rounded border border-white/[0.055] bg-white/[0.025] px-2 py-1 text-xs text-white/44">
+                          收益冠军：{fundName(returnChampion)} {signedPct(returnMetric(returnChampion))}
+                        </div>
+                      )}
+                    </Link>
+                  )
+                })}
+              </div>
+            ) : (
+              <div className="rounded border border-white/[0.075] bg-white/[0.025] p-4 text-sm text-white/40">
+                当前基金池缺少可决策指标，暂不能生成分类型横榜。
+              </div>
+            )}
+          </Panel>
+        </div>
+
+        <aside className="space-y-4">
+          <Panel
+            title="组合 / 自选摘要"
+            action={<Link to="/analysis" className="text-xs text-[#8FD9BA] hover:text-white">打开分析</Link>}
+          >
+            {portfolioFunds && portfolioFunds.length > 0 ? (
+              <div className="space-y-3">
+                <div className="rounded border border-white/[0.065] bg-white/[0.025] p-3">
+                  <div className="text-xs text-white/38">
+                    {mode === 'savedRecommendation' ? '最近生成方案' : '自选基金池'}
+                  </div>
+                  <div className="mt-1 font-semibold text-[#fff8ea]">{portfolioName || `${portfolioFunds.length} 只基金`}</div>
+                  <div className="mt-1 text-xs text-white/36">
+                    {portfolioCreatedAt ? `生成于 ${formatDateTime(portfolioCreatedAt)}` : hasPortfolioWeights ? '含真实权重' : '未设置真实权重'}
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-2 text-xs">
+                  <div className="rounded border border-white/[0.055] bg-white/[0.025] p-2">
+                    <div className="text-white/32">数量</div>
+                    <div className="data-number text-base font-semibold text-[#fff8ea]">{portfolioFunds.length}</div>
+                  </div>
+                  <div className="rounded border border-white/[0.055] bg-white/[0.025] p-2">
+                    <div className="text-white/32">收益均值</div>
+                    <div className="data-number text-base font-semibold text-danger">{signedPct(portfolioAvgReturn)}</div>
+                  </div>
+                  <div className="rounded border border-white/[0.055] bg-white/[0.025] p-2">
+                    <div className="text-white/32">夏普均值</div>
+                    <div className="data-number text-base font-semibold text-[#fff8ea]">{decimalText(portfolioAvgSharpe)}</div>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  {portfolioWeighted.slice(0, 4).map(({ fund, weight, weightSource }) => (
+                    <Link key={fundCode(fund) || fundName(fund)} to={fundCode(fund) ? `/${fundCode(fund)}` : '/analysis'} className="workspace-action flex items-center justify-between gap-3 px-3 py-2 text-xs">
+                      <span className="min-w-0 truncate">{fundName(fund)}</span>
+                      <span className="data-number shrink-0 text-white/50">{weightSource === 'real' ? `${weight.toFixed(1)}%` : scaleText(fund)}</span>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3 text-sm text-white/42">
+                <div className="rounded border border-white/[0.065] bg-white/[0.025] p-3">
+                  {mode === 'userEmptyFallback'
+                    ? '当前账号暂无自选基金。首页先展示市场候选池，生成配置后这里会显示组合摘要。'
+                    : mode === 'candidatePool'
+                      ? '未登录状态下只展示市场候选池，不生成个人组合摘要。'
+                      : '暂无组合或自选数据。'}
+                </div>
+                <Link to="/recommend" className="workspace-action flex items-center justify-between px-3 py-2 text-sm">
+                  <span>生成推荐方案</span>
+                  <ChevronRight size={14} />
+                </Link>
+              </div>
+            )}
+          </Panel>
+
+          <Panel
+            title="市场压力"
+            action={<span className="text-xs text-white/36">{healthLabel(marketStatus?.health)}</span>}
+          >
+            <div className="workspace-warning mb-3 rounded px-3 py-3 text-sm leading-relaxed">
+              {pressureText}
+            </div>
+            <div className="divide-y divide-white/[0.055] text-sm">
+              <div className="flex items-center justify-between py-2">
+                <span className="text-white/45">市场数据</span>
+                <span className={classNames('font-medium', marketStatus?.health === 'healthy' ? 'text-[#8FD9BA]' : 'text-[#f0c58b]')}>
+                  {healthLabel(marketStatus?.health)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between py-2">
+                <span className="text-white/45">宏观置信度</span>
+                <span className="data-number text-[#fff8ea]">{macroConfidenceText(marketStatus)}</span>
+              </div>
+              <div className="flex items-center justify-between py-2">
+                <span className="text-white/45">波动率比值</span>
+                <span className={classNames('data-number', volRatio !== null && volRatio >= 1.2 ? 'text-danger' : 'text-[#8FD9BA]')}>
+                  {volRatio === null ? '缺失' : volRatio.toFixed(2)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between py-2">
+                <span className="text-white/45">行业热度</span>
+                <span className="text-right text-[#fff8ea]">
+                  {marketIndustries[0] ? `${marketIndustries[0].name} ${signedPct(marketIndustries[0].change)}` : '暂不可用'}
+                </span>
+              </div>
+            </div>
+          </Panel>
+
+          <Panel title="市场指数">
+            {marketIndices.length > 0 ? (
+              <div className="space-y-2">
+                {marketIndices.slice(0, 3).map((item) => (
+                  <div key={item.code || item.name} className="flex items-center justify-between gap-3 rounded border border-white/[0.055] bg-white/[0.025] px-3 py-2">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-medium text-[#fff8ea]">{item.name}</div>
+                      <div className="text-xs text-white/34">{item.code}</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="data-number text-sm text-white/74">{formatIndexValue(item.close)}</div>
+                      <div className={classNames('data-number text-xs font-semibold', (item.change || 0) >= 0 ? 'text-danger' : 'text-success')}>
+                        {signedPct(item.change)}
+                      </div>
+                    </div>
                   </div>
                 ))}
               </div>
-              <div className="border-t border-white/[0.07] pt-2">
-                <div className="flex items-center justify-between text-xs">
-                  <span className="text-white/45">{hasRealWeights ? '风险评级' : '组合权重'}</span>
-                  <span className="font-medium text-white/72">
-                    {!hasRealWeights
-                      ? '缺失（尚未生成或导入真实权重）'
-                      : riskScore === null ? '缺失（缺少夏普/回撤）' : `${riskScore >= 70 ? '偏低' : riskScore >= 50 ? '中等' : '偏高'} (${riskScore})`}
-                  </span>
-                </div>
+            ) : (
+              <div className="rounded border border-white/[0.075] bg-white/[0.025] p-3 text-sm text-white/40">
+                {marketLoading ? '正在加载指数数据...' : marketError || '指数数据暂不可用'}
               </div>
-            </div>
-          )}
-        </Panel>
-
-        {/* Next actions panel */}
-        <Panel
-          title="下一步"
-          action={null}
-        >
-          <div className="space-y-2">
-            <Link to="/analysis" className="workspace-action flex items-center justify-between px-3 py-2 text-sm">
-              <span>组合诊断</span>
-              <ChevronRight size={14} className="text-white/36" />
-            </Link>
-            <Link to="/recommend" className="workspace-action flex items-center justify-between px-3 py-2 text-sm">
-              <span>推荐与对比</span>
-              <ChevronRight size={14} className="text-white/36" />
-            </Link>
-            {funds.length > 0 && fundCode(funds[0]) && (
-              <Link to={`/${fundCode(funds[0])}`} className="workspace-action flex items-center justify-between px-3 py-2 text-sm">
-                <span>查看 {fundName(funds[0])}</span>
-                <ChevronRight size={14} className="text-white/36" />
-              </Link>
             )}
-            <div className="rounded border border-white/[0.055] bg-white/[0.025] px-3 py-2 text-xs text-white/42">
-              {mode === 'savedRecommendation'
-                ? '使用最近一次生成的配置方案权重，展示真实方案层面的配置和诊断入口。'
-                : mode === 'userWatchlist'
-                  ? '当前自选池没有真实组合权重。生成配置方案后，这里会切换为组合视图。'
-                  : mode === 'userEmptyFallback'
-                    ? '您暂无自选基金，当前只展示真实候选池，不生成组合权重。'
-                    : '未登录，展示基金池中夏普靠前的真实候选，不生成组合权重。'}
-            </div>
-          </div>
-        </Panel>
-      </div>
+          </Panel>
 
-      {/* Fund list section */}
-      <Panel
-        title={hasRealWeights ? '方案基金' : mode === 'userWatchlist' ? '自选基金' : '优选基金'}
-        action={<Link to="/analysis" className="flex items-center gap-1 text-xs text-[#8FD9BA] hover:text-white">研究 <ChevronRight size={14} /></Link>}
-      >
-        <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
-          {fundTypeTabs.map((tabItem) => (
-            <button
-              key={tabItem.key}
-              type="button"
-              onClick={() => setFundFilter(tabItem.key)}
-              className={classNames(
-                'rounded-full px-3 py-1 transition',
-                fundFilter === tabItem.key ? 'workspace-pill' : 'workspace-pill-muted hover:text-white',
-              )}
-            >
-              {tabItem.label}
-            </button>
-          ))}
-          <span className="ml-auto text-white/36">
-            {hasRealWeights ? '按方案权重 · 真实指标' : '按夏普排序 · 无组合权重'}
-          </span>
-        </div>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {visibleCards.map(({ fund, weight, weightSource }) => {
-            const returnRate = parseMetric(fund.performance?.return1y ?? fund.performance?.annualizedReturn)
-            const code = fundCode(fund)
-            const detailPath = code ? `/${code}` : '/analysis'
-            const trend = Array.isArray(fund.navTrend) && fund.navTrend.length > 1
-              ? fund.navTrend
-              : trendByCode[code] || []
-            return (
-              <Link key={code || fundName(fund)} to={detailPath} className="block rounded-lg border border-white/[0.075] bg-white/[0.03] p-3 transition hover:border-primary/40 hover:bg-white/[0.05]">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold text-[#fff8ea]">{fundName(fund)}</div>
-                    <div className="mt-0.5 text-xs text-white/36">{managerName(fund)}</div>
-                  </div>
-                  <span className="workspace-pill-muted shrink-0 px-2 py-0.5 text-[10px]">{typeLabel(fund)}</span>
-                </div>
-                <div className="mt-2 flex items-end justify-between">
-                  <div>
-                    <div className={classNames('data-number text-lg font-bold', (returnRate || 0) >= 0 ? 'text-danger' : 'text-success')}>{signedPct(returnRate)}</div>
-                    <div className="text-xs text-white/36">近一年/年化</div>
-                  </div>
-                  <Sparkline points={trend} warm={(returnRate || 0) >= 0} className="h-8 w-20" />
-                </div>
-                <div className="mt-2 flex items-center justify-between text-xs">
-                  {weightSource === 'real' ? (
-                    <span className="rounded bg-white/[0.055] px-2 py-0.5 text-white/45">权重 {weight.toFixed(2)}%</span>
-                  ) : (
-                    <span className="rounded bg-white/[0.055] px-2 py-0.5 text-white/45">权重缺失</span>
-                  )}
-                  <span className="data-number text-white/70">{metricText(fund.nav, 4)}<span className="ml-1 text-white/35">净值</span></span>
-                </div>
+          <Panel title="下一步">
+            <div className="space-y-2">
+              <Link to="/analysis" className="workspace-action flex items-center justify-between px-3 py-2 text-sm">
+                <span className="flex items-center gap-2"><BarChart3 size={14} /> 打开专业分析对比</span>
+                <ChevronRight size={14} />
               </Link>
-            )
-          })}
-          {visibleCards.length === 0 && (
-            <div className="rounded-lg border border-white/[0.075] bg-white/[0.025] p-4 text-sm text-white/38 sm:col-span-2 lg:col-span-4">
-              {showNoMatches ? '没有匹配的基金，请清除搜索或直接打开代码详情。' : '没有匹配的基金，请调整搜索条件。'}
+              <Link to="/recommend" className="workspace-action flex items-center justify-between px-3 py-2 text-sm">
+                <span className="flex items-center gap-2"><ShieldCheck size={14} /> 生成配置方案</span>
+                <ChevronRight size={14} />
+              </Link>
+              {topFund && fundCode(topFund) && (
+                <Link to={`/${fundCode(topFund)}`} className="workspace-action flex items-center justify-between px-3 py-2 text-sm">
+                  <span className="min-w-0 truncate">复核 {fundName(topFund)}</span>
+                  <ChevronRight size={14} />
+                </Link>
+              )}
             </div>
-          )}
-        </div>
-      </Panel>
-
-      {/* Asset mix summary row */}
-      {assetMix.length > 0 && (
-        <Panel title="资产配置概览">
-          <div className="mb-3 text-xs text-white/40">
-            基于接口或最近生成方案返回的权重字段汇总；没有权重时不展示配置图。
-          </div>
-          <div className="flex flex-wrap gap-4">
-            {assetMix.slice(0, 6).map((item) => (
-              <div key={item.key} className="flex items-center gap-2 text-xs">
-                <i className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: item.color }} />
-                <span className="text-white/55">{item.label}</span>
-                <span className="data-number font-medium text-[#fff8ea]">{item.value.toFixed(1)}%</span>
-              </div>
-            ))}
-          </div>
-        </Panel>
-      )}
+          </Panel>
+        </aside>
+      </section>
     </section>
   )
 }
