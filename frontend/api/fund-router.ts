@@ -94,6 +94,11 @@ function getCached<T>(key: string): T | null {
   return null;
 }
 
+function getCachedNonEmptyArray<T = any>(key: string): T[] | null {
+  const cached = getCached<T[]>(key);
+  return Array.isArray(cached) && cached.length > 0 ? cached : null;
+}
+
 function setCache<T>(key: string, data: T, ttlMs = BFF_CACHE_TTL): void {
   // LRU eviction: remove oldest entries when cache grows too large
   if (bffCache.size >= MAX_BFF_CACHE_SIZE) {
@@ -316,7 +321,7 @@ function dedupe<T>(key: string, fn: () => Promise<T>, timeoutMs = 30_000): Promi
 
 function scheduleHomeFundsPrewarm() {
   const now = Date.now();
-  if (getCached<any[]>("homeFunds")) return;
+  if (getCachedNonEmptyArray("homeFunds")) return;
   if (now - homeFundsPrewarmStartedAt < 60 * 1000) return;
   homeFundsPrewarmStartedAt = now;
   setTimeout(() => {
@@ -447,7 +452,7 @@ async function fetchHomeFundSummaries() {
         );
 
     // TTL 5min（净值日频，排名数据下一个交易日才更新）
-    setCache("homeFundSummaries", enriched, dailyCacheTtl());
+    if (enriched.length > 0) setCache("homeFundSummaries", enriched, dailyCacheTtl());
     return enriched;
   }, 8_000);
 }
@@ -457,7 +462,7 @@ async function fetchHomeFundSummaries() {
  * 用于 marketOverview 统计聚合与后台预热，不阻塞首屏渲染
  */
 async function fetchHomeFunds() {
-  const cached = getCached<any[]>("homeFunds");
+  const cached = getCachedNonEmptyArray("homeFunds");
   if (cached) return cached;
 
   return dedupe("homeFunds", async () => {
@@ -475,7 +480,7 @@ async function fetchHomeFunds() {
     // Page-facing data stays on local snapshots. Deep analysis is filled by
     // background jobs and detail pages, not by homepage prewarm fanout.
     const summaryOnly = Array.from(fundsByCode.values());
-    setCache("homeFunds", summaryOnly, dailyCacheTtl());
+    if (summaryOnly.length > 0) setCache("homeFunds", summaryOnly, dailyCacheTtl());
     return summaryOnly;
   }, 8_000);
 }
@@ -778,10 +783,10 @@ export const fundRouter = createRouter({
         }
 
         // 完整指标路径：优先缓存，冷启动时用 fetchHomeFundSummaries 并预热
-        let rawFunds = getCached<any[]>("homeFunds");
+        let rawFunds = getCachedNonEmptyArray("homeFunds");
         if (!rawFunds) {
           rawFunds = await fetchHomeFundSummaries();
-          setCache("homeFunds", rawFunds, dailyCacheTtl());
+          if (rawFunds.length > 0) setCache("homeFunds", rawFunds, dailyCacheTtl());
           if (opts.withMetrics) scheduleHomeFundsPrewarm();
         }
         let result = rawFunds.map(mapFundItem).filter(Boolean);
@@ -848,7 +853,7 @@ export const fundRouter = createRouter({
     .input(z.object({ id: z.number() }))
     .query(async ({ input }) => {
       try {
-        let rawFunds = getCached<any[]>("homeFunds") || getCached<any[]>("homeFundSummaries");
+        let rawFunds = getCachedNonEmptyArray("homeFunds") || getCachedNonEmptyArray("homeFundSummaries");
         if (!rawFunds) {
           rawFunds = await fetchHomeFundSummaries().catch((err) => {
             console.error("[fundRouter.detail] fetchHomeFundSummaries failed:", err);
@@ -929,7 +934,7 @@ export const fundRouter = createRouter({
         const cachedAnalysis = getCached<any>(cacheKey);
         if (cachedAnalysis && hasDetailPayload(cachedAnalysis)) return mapFundDetail(cachedAnalysis);
 
-        const cachedHomeFunds = getCached<any[]>("homeFunds");
+        const cachedHomeFunds = getCachedNonEmptyArray("homeFunds");
         const cachedHomeFund = cachedHomeFunds?.find((fund: any) => fund?.code === input.code);
         if (cachedHomeFund && hasRiskMetrics(cachedHomeFund) && Array.isArray(cachedHomeFund.nav_data)) {
           setCache(cacheKey, cachedHomeFund, hasDetailPayload(cachedHomeFund) ? dailyCacheTtl() : PARTIAL_DETAIL_TTL);
@@ -1024,7 +1029,7 @@ export const fundRouter = createRouter({
     .input(z.object({ code: z.string().regex(/^\d{6}$/) }))
     .query(async ({ input }) => {
       try {
-        const cachedHomeFunds = getCached<any[]>("homeFunds") || getCached<any[]>("homeFundSummaries") || [];
+        const cachedHomeFunds = getCachedNonEmptyArray("homeFunds") || getCachedNonEmptyArray("homeFundSummaries") || [];
         const cachedFund = cachedHomeFunds.find((fund: any) => String(fund?.code || fund?.fundCode || "") === input.code);
         const [analysis, analysisDetail] = await Promise.all([
           getFundSnapshot(input.code, true).catch(() => null),
@@ -1141,7 +1146,7 @@ export const fundRouter = createRouter({
     .input(z.object({ id: z.number() }))
     .query(async ({ input }) => {
       try {
-        const rawFunds = getCached<any[]>("homeFunds") || await fetchHomeFunds();
+        const rawFunds = getCachedNonEmptyArray("homeFunds") || await fetchHomeFunds();
         const allFunds = rawFunds.map(mapFundItem).filter(Boolean);
         const managerFund = allFunds.find((f: any) => f.managerId === input.id);
         if (!managerFund || !managerFund.manager) return null;
@@ -1181,7 +1186,7 @@ export const fundRouter = createRouter({
       const categories = Array.isArray(ftCats?.categories)
         ? ftCats.categories
         : Object.values(ftCats?.categories || {}).flat();
-      const rawFunds = getCached<any[]>("homeFunds") || getCached<any[]>("homeFundSummaries") || await fetchHomeFundSummaries();
+      const rawFunds = getCachedNonEmptyArray("homeFunds") || getCachedNonEmptyArray("homeFundSummaries") || await fetchHomeFundSummaries();
       const companies = Array.from(new Set(rawFunds
         .map((fund: any) => fund?.company || fund?.management)
         .filter((company: unknown) => company && company !== "—")
@@ -1230,7 +1235,7 @@ export const fundRouter = createRouter({
         const opts = input || {};
         // 优先用已预热的 homeFunds 缓存（含风险指标）；冷启动时用轻量摘要，
         // 避免 fetchHomeFunds 的批量分析请求超时导致整个推荐卡住
-        const rawFunds = getCached<any[]>("homeFunds") || await fetchHomeFundSummaries();
+        const rawFunds = getCachedNonEmptyArray("homeFunds") || await fetchHomeFundSummaries();
         const parseMetric = (value: unknown) => {
           if (value === null || value === undefined || value === "" || value === "—") return null;
           const num = parseFloat(String(value).replace("%", ""));
@@ -1782,7 +1787,7 @@ export const fundRouter = createRouter({
       const cached = getCached<any>(cacheKey);
       if (cached) return cached;
 
-      const funds = getCached<any[]>("homeFunds") || await fetchHomeFunds();
+      const funds = getCachedNonEmptyArray("homeFunds") || await fetchHomeFunds();
       const mapped = funds.map(mapFundItem).filter(Boolean);
       const result = buildMarketOverview(mapped);
       setCache(cacheKey, result, dailyCacheTtl());
