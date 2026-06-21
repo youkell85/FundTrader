@@ -58,6 +58,24 @@ function isUsableFundName(name: unknown, code: string): boolean {
   return Boolean(value) && value !== code && !/^\d{6}$/.test(value);
 }
 
+function pickFundName(item: any, code: string): string {
+  const candidates = [
+    item?.name,
+    item?.fundName,
+    item?.fund_name,
+    item?.fundAbbr,
+    item?.fund_abbr,
+    item?.shortName,
+    item?.short_name,
+    item?.["基金名称"],
+    item?.["基金简称"],
+    item?.["名称"],
+    item?.["简称"],
+  ];
+  const found = candidates.find((value) => isUsableFundName(value, code));
+  return found ? String(found).trim() : "";
+}
+
 function inferFundType(code: string, name: string, rawType: string): string {
   const text = `${rawType || ""}${name || ""}`.toUpperCase();
   if (/REIT/.test(text) || /^508\d{3}$/.test(code)) return "REITs";
@@ -212,9 +230,8 @@ function calcPerformanceFromNav(navData: any[]) {
 export function mapFundItem(item: any): any {
   try {
     if (!item || typeof item !== "object") return null;
-    const code = item.code || "";
-    const rawName = item.name || "";
-    const name = isUsableFundName(rawName, code) ? String(rawName).trim() : "";
+    const code = String(item.code || item.fundCode || item.fund_code || "").trim();
+    const name = pickFundName(item, code);
     const type = inferFundType(code, name, item.type || "");
     const perf = item.performance || {};
     const navPerformance = calcPerformanceFromNav(item.nav_data || item.navHistory || []);

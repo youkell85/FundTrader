@@ -236,6 +236,31 @@ describe('fund detail contract fallbacks', () => {
     expect(result.assetAllocation[0].name).toBe('股票');
   });
 
+  test('detailByCode resolves product name from fund_name alias', async () => {
+    vi.mocked(fundClient.getFundSnapshot).mockResolvedValueOnce({
+      code: '000005',
+      fund_name: '别名详情基金',
+      type: '混合型',
+      nav: 1.23,
+      holdings: [
+        {
+          stockCode: '600000.SH',
+          stockName: '浦发银行',
+          ratio: 8.5,
+          industry: '银行',
+          quarter: '20260331',
+        },
+      ],
+    } as any);
+    vi.mocked(fundClient.getFundAnalysis).mockResolvedValueOnce({});
+    vi.mocked(fundQuote.fetchFundQuote).mockResolvedValueOnce(null as any);
+
+    const result = await caller.detailByCode({ code: '000005' }) as any;
+
+    expect(result.fundName).toBe('别名详情基金');
+    expect(result.nameAvailable).toBe(true);
+  });
+
   test('detailByCode uses analysis holdings when snapshot is light', async () => {
     vi.mocked(fundClient.getFundSnapshot).mockResolvedValueOnce({
       code: '000004',

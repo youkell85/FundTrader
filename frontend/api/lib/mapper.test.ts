@@ -31,6 +31,20 @@ describe("mapFundItem", () => {
       annualizedReturn: "—",
     });
   });
+
+  test("uses backend fund name aliases before falling back to code", () => {
+    expect(mapFundItem({ fund_code: "000002", fund_name: "别名基金A" })).toMatchObject({
+      fundCode: "000002",
+      fundName: "别名基金A",
+      nameAvailable: true,
+    });
+
+    expect(mapFundItem({ fundCode: "000003", name: "000003", fundAbbr: "简称基金C" })).toMatchObject({
+      fundCode: "000003",
+      fundName: "简称基金C",
+      nameAvailable: true,
+    });
+  });
 });
 
 describe("mapBacktestResult", () => {

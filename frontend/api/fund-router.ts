@@ -227,6 +227,24 @@ function isUsableFundName(name: unknown, code: string) {
   return Boolean(value) && value !== code && !/^\d{6}$/.test(value);
 }
 
+function pickFundName(source: any, code: string) {
+  const candidates = [
+    source?.name,
+    source?.fundName,
+    source?.fund_name,
+    source?.fundAbbr,
+    source?.fund_abbr,
+    source?.shortName,
+    source?.short_name,
+    source?.["基金名称"],
+    source?.["基金简称"],
+    source?.["名称"],
+    source?.["简称"],
+  ];
+  const found = candidates.find((value) => isUsableFundName(value, code));
+  return found ? String(found).trim() : "";
+}
+
 function chooseFundName(preferred: unknown, fallback: unknown, code: string) {
   if (isUsableFundName(preferred, code)) return String(preferred).trim();
   if (isUsableFundName(fallback, code)) return String(fallback).trim();
@@ -489,7 +507,7 @@ async function fetchHomeFunds() {
 }
 
 function needsFundName(fund: any, code: string) {
-  const name = String(fund?.name || fund?.fundName || "").trim();
+  const name = pickFundName(fund, code);
   return /^\d{6}$/.test(code) && (!name || name === code);
 }
 
@@ -503,7 +521,7 @@ async function enrichFundSummary(fund: any) {
   return {
     ...fund,
     code,
-    name: chooseFundName(fund?.name, quote.name, code),
+    name: chooseFundName(pickFundName(fund, code), quote.name, code),
     nav: isExchangeFundCode(code) ? (quote.nav ?? fund?.nav) : (fund?.nav ?? quote.nav),
     accum_nav: fund?.accum_nav ?? quote.accumNav,
     nav_date: isExchangeFundCode(code) ? (quote.navDate ?? fund?.nav_date) : (fund?.nav_date ?? quote.navDate),
@@ -520,7 +538,7 @@ async function enrichFundAnalysis(analysis: any, code: string) {
   return {
     ...analysis,
     code,
-    name: chooseFundName(analysis?.name, quote.name, code),
+    name: chooseFundName(pickFundName(analysis, code), quote.name, code),
     nav: isExchangeFundCode(code) ? (quote.nav ?? analysis?.nav) : (analysis?.nav ?? quote.nav),
     accum_nav: analysis?.accum_nav ?? quote.accumNav,
     nav_date: isExchangeFundCode(code) ? (quote.navDate ?? analysis?.nav_date) : (analysis?.nav_date ?? quote.navDate),
@@ -591,7 +609,7 @@ function preferExchangeQuoteScalars(
   return {
     ...detail,
     code,
-    name: chooseFundName(detail?.name, quote?.name ?? snapshot?.name, code),
+    name: chooseFundName(pickFundName(detail, code), quote?.name ?? pickFundName(snapshot, code), code),
     nav: quote?.nav ?? snapshot?.nav ?? detail.nav,
     navDate: quote?.navDate ?? snapshot?.nav_date ?? detail.navDate,
     accumNav: quote?.accumNav ?? snapshot?.accum_nav ?? detail.accumNav,
