@@ -1623,7 +1623,8 @@ def _fetch_chinamoney_bond_info(bond_code: str | None, bond_name: str | None = N
         if cache_key in _CHINAMONEY_BOND_INFO_CACHE:
             return _CHINAMONEY_BOND_INFO_CACHE[cache_key]
 
-    query_code = _derive_chinamoney_treasury_code(code, name) or code
+    derived_query_code = _derive_chinamoney_treasury_code(code, name)
+    query_code = derived_query_code or code
     list_payload = {
         "pageNo": "1",
         "pageSize": "10",
@@ -1657,6 +1658,9 @@ def _fetch_chinamoney_bond_info(bond_code: str | None, bond_name: str | None = N
         row_name = _clean_chinamoney_value(row.get("bondName"))
         code_matches = bool(query_code and row_code == query_code)
         name_matches = _chinamoney_name_matches_query(row_name, name)
+        if derived_query_code and code_matches:
+            selected = row
+            break
         if name and name_matches:
             selected = row
             break
