@@ -264,6 +264,91 @@ class FundHoldingsSnapshotTest(unittest.TestCase):
         self.assertEqual(after["holdings"][0]["stockName"], "浦发银行")
         self.assertEqual(after["asset_allocation"][0]["name"], "股票")
 
+    def test_snapshot_facade_prefers_real_metadata_cache(self):
+        with patch("app.storage.database.DB_PATH", self.db_path):
+            from app.storage.database import get_db, _qcache
+
+            FundDataStore.save_quote_batch([
+                {
+                    "code": "014915",
+                    "name": "014915",
+                    "type": "",
+                    "company": "",
+                    "nav": 1.23,
+                    "near_1y": 12.3,
+                    "updated_at": "2026-01-01T00:00:00",
+                }
+            ])
+            with get_db() as conn:
+                conn.execute(
+                    """INSERT INTO fund_metadata_cache
+                       (code, name, fund_type, company, aum, management_fee, custody_fee,
+                        metadata_as_of, source, raw_json, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        "014915",
+                        "\u8d22\u901a\u5320\u5fc3\u4f18\u9009\u4e00\u5e74\u6301\u6709\u6df7\u5408A",
+                        "\u6df7\u5408\u578b-\u504f\u80a1",
+                        "\u8d22\u901a\u57fa\u91d1",
+                        2.4258,
+                        0.012,
+                        0.002,
+                        "2026-06-21",
+                        "eastmoney_fundmob_f10_fee",
+                        "{}",
+                        "2026-06-21T10:00:00",
+                    ),
+                )
+            _qcache.invalidate()
+
+            snapshot = FundDataStore.get_snapshot("014915")
+            self.assertEqual(snapshot["name"], "\u8d22\u901a\u5320\u5fc3\u4f18\u9009\u4e00\u5e74\u6301\u6709\u6df7\u5408A")
+            self.assertEqual(snapshot["type"], "\u6df7\u5408\u578b-\u504f\u80a1")
+            self.assertEqual(snapshot["company"], "\u8d22\u901a\u57fa\u91d1")
+            self.assertAlmostEqual(snapshot["total_scale"], 2.4258)
+            self.assertAlmostEqual(snapshot["feeManage"], 0.012)
+            self.assertAlmostEqual(snapshot["feeCustody"], 0.002)
+
+    def test_snapshot_facade_ignores_sales_rate_metadata_as_management_fee(self):
+        with patch("app.storage.database.DB_PATH", self.db_path):
+            from app.storage.database import get_db, _qcache
+
+            FundDataStore.save_quote_batch([
+                {
+                    "code": "006502",
+                    "name": "006502",
+                    "type": "",
+                    "company": "",
+                    "nav": 1.23,
+                    "updated_at": "2026-01-01T00:00:00",
+                }
+            ])
+            with get_db() as conn:
+                conn.execute(
+                    """INSERT INTO fund_metadata_cache
+                       (code, name, fund_type, company, aum, management_fee, custody_fee,
+                        metadata_as_of, source, raw_json, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        "006502",
+                        "\u8d22\u901a\u96c6\u6210\u7535\u8def\u4ea7\u4e1a\u80a1\u7968A",
+                        "\u80a1\u7968\u578b",
+                        "\u8d22\u901a\u57fa\u91d1",
+                        5.0498,
+                        0.15,
+                        None,
+                        "2026-06-21",
+                        "eastmoney",
+                        '{"RATE":"0.15%"}',
+                        "2026-06-21T10:00:00",
+                    ),
+                )
+            _qcache.invalidate()
+
+            snapshot = FundDataStore.get_snapshot("006502")
+            self.assertEqual(snapshot["name"], "\u8d22\u901a\u96c6\u6210\u7535\u8def\u4ea7\u4e1a\u80a1\u7968A")
+            self.assertIsNone(snapshot["feeManage"])
+
     def test_exchange_fund_snapshot_is_backfilled_from_nav_history(self):
         nav_records = [
             {"date": "2025-01-02", "nav": 1.0, "acc_nav": 1.0},
@@ -304,7 +389,7 @@ class FundHoldingsSnapshotTest(unittest.TestCase):
             before = FundDataStore.get_snapshot("512100")
             snapshot = ensure_exchange_fund_snapshot("512100")
 
-        self.assertEqual(before["nav"], 0)
+        self.assertIsNone(before["nav"])
         self.assertEqual(before["nav_date"], "2026-01-01")
         self.assertEqual(snapshot["nav"], 1.2)
         self.assertEqual(snapshot["nav_date"], "2099-01-02")

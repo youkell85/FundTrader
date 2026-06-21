@@ -2,6 +2,8 @@
 import asyncio
 import json
 import logging
+import os
+import re
 from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Query, Response
@@ -42,6 +44,8 @@ DEFAULT_CATEGORY = "全部"
 DEFAULT_SORT_BY = "今年来"
 DEFAULT_SORT_ORDER = "desc"
 DEFAULT_TAG = "鑫基荟"
+SNAPSHOT_METADATA_REFRESH_LIMIT = int(os.getenv("FUNDTRADER_SNAPSHOT_METADATA_REFRESH_LIMIT", "60"))
+SNAPSHOT_METADATA_REFRESH_TIMEOUT_SECONDS = float(os.getenv("FUNDTRADER_SNAPSHOT_METADATA_REFRESH_TIMEOUT_SECONDS", "30"))
 
 FUND_DETAIL_FIELD_GROUPS = {
     "basic": {
@@ -119,6 +123,80 @@ def _field_sources_from_sections(sections: dict[str, dict]) -> dict[str, dict]:
                 "missingReason": section.get("missingReason"),
             }
     return field_sources
+
+
+def _snapshot_codes_needing_metadata_refresh(funds: list[dict], limit: int) -> list[str]:
+    codes: list[str] = []
+    needs_fee: set[str] = set()
+    seen: set[str] = set()
+    for fund in funds:
+        code = str(fund.get("code") or "").strip()
+        if not re.fullmatch(r"\d{6}", code) or code in seen:
+            continue
+        seen.add(code)
+        codes.append(code)
+        if fund.get("feeManage") is None or fund.get("feeCustody") is None:
+            needs_fee.add(code)
+        if len(codes) >= limit:
+            break
+    if not codes:
+        return []
+
+    today = datetime.now().date().isoformat()
+    try:
+        from ..storage.database import get_db_context
+
+        placeholders = ",".join("?" for _ in codes)
+        with get_db_context() as conn:
+            rows = conn.execute(
+                f"""SELECT code,
+                           MAX(CASE WHEN NULLIF(name, '') IS NOT NULL AND NULLIF(company, '') IS NOT NULL THEN 1 ELSE 0 END) AS has_meta,
+                           MAX(CASE
+                                 WHEN source IN ('efinance', 'eastmoney_f10_fee', 'eastmoney_fundmob_f10_fee')
+                                      AND (management_fee IS NOT NULL OR custody_fee IS NOT NULL)
+                                 THEN 1 ELSE 0
+                               END) AS has_fee
+                    FROM fund_metadata_cache
+                    WHERE code IN ({placeholders}) AND metadata_as_of >= ?
+                    GROUP BY code""",
+                [*codes, today],
+            ).fetchall()
+        status = {
+            str(row["code"]): {
+                "has_meta": bool(row["has_meta"]),
+                "has_fee": bool(row["has_fee"]),
+            }
+            for row in rows
+        }
+        return [
+            code
+            for code in codes
+            if not status.get(code, {}).get("has_meta")
+            or (code in needs_fee and not status.get(code, {}).get("has_fee"))
+        ]
+    except Exception as exc:
+        logger.debug("snapshot metadata freshness check failed: %s", exc)
+        return codes[: min(len(codes), 12)]
+
+
+def _refresh_snapshot_metadata_for_page(funds: list[dict]) -> dict | None:
+    if SNAPSHOT_METADATA_REFRESH_LIMIT <= 0:
+        return None
+    codes = _snapshot_codes_needing_metadata_refresh(funds, SNAPSHOT_METADATA_REFRESH_LIMIT)
+    if not codes:
+        return None
+    try:
+        from ..allocation.fund_pool_refresher import refresh_live_metadata_cache
+
+        profiles = {code: object() for code in codes}
+        summary = refresh_live_metadata_cache(
+            profiles,
+            timeout_s=SNAPSHOT_METADATA_REFRESH_TIMEOUT_SECONDS,
+        )
+        return {**summary, "codes": len(codes)}
+    except Exception as exc:
+        logger.warning("snapshot metadata refresh failed: %s", exc)
+        return {"status": "failed", "codes": len(codes), "error": str(exc)}
 
 
 def _detail_rows_payload(code: str, data, *, default_reason: str = "") -> dict:
@@ -263,11 +341,24 @@ async def fund_snapshot_list(
         sort_by,
         sort_order,
     )
+    metadata_refresh = await run_in_threadpool(_refresh_snapshot_metadata_for_page, result["funds"])
+    if metadata_refresh and metadata_refresh.get("saved"):
+        result = await run_in_threadpool(
+            FundDataStore.list_snapshots,
+            category,
+            keyword,
+            xinjihui_only,
+            page_size,
+            (page - 1) * page_size,
+            sort_by,
+            sort_order,
+        )
     return {
         "total": result["total"],
         "page": page,
         "page_size": page_size,
         "funds": result["funds"],
+        "metadata_refresh": metadata_refresh,
     }
 
 

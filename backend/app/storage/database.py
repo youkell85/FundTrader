@@ -1589,6 +1589,26 @@ def _fund_tags(value: Any) -> list[str]:
     return []
 
 
+def _row_value(row: sqlite3.Row, key: str, default: Any = None) -> Any:
+    return row[key] if key in row.keys() else default
+
+
+def _valid_text(value: Any) -> str:
+    text = str(value or "").strip()
+    return "" if text in {"", "-", "--", "—"} else text
+
+
+def _valid_fund_name(value: Any, code: str) -> str:
+    text = _valid_text(value)
+    if not text or text == code or re.fullmatch(r"\d{6}", text):
+        return ""
+    return text
+
+
+def _prefer_text(primary: Any, fallback: Any) -> str:
+    return _valid_text(primary) or _valid_text(fallback)
+
+
 def _stale_level(updated_at: str | None) -> str:
     if not updated_at:
         return "missing"
@@ -1790,6 +1810,27 @@ class FundDataStore:
         where = " AND ".join(clauses)
         limit = max(1, min(int(limit or 20), 5000))
         offset = max(0, int(offset or 0))
+        metadata_join = """
+                   LEFT JOIN (
+                     SELECT code,
+                            MAX(NULLIF(name, '')) as meta_name,
+                            MAX(NULLIF(fund_type, '')) as meta_type,
+                            MAX(NULLIF(company, '')) as meta_company,
+                            MAX(aum) as meta_aum,
+                            MAX(CASE
+                                  WHEN source IN ('efinance', 'eastmoney_f10_fee', 'eastmoney_fundmob_f10_fee')
+                                  THEN management_fee
+                                END) as meta_management_fee,
+                            MAX(CASE
+                                  WHEN source IN ('efinance', 'eastmoney_f10_fee', 'eastmoney_fundmob_f10_fee')
+                                  THEN custody_fee
+                                END) as meta_custody_fee,
+                            MAX(metadata_as_of) as meta_as_of,
+                            MAX(source) as meta_source
+                     FROM fund_metadata_cache
+                     GROUP BY code
+                   ) mc ON mc.code = m.code
+        """
         with get_db() as conn:
             total = conn.execute(f"SELECT COUNT(*) as c FROM fund_master m WHERE {where}", params).fetchone()["c"]
             rows = conn.execute(
@@ -1800,10 +1841,14 @@ class FundDataStore:
                           q.data_quality, q.stale_level,
                           ms.sharpe_ratio, ms.max_drawdown, ms.volatility,
                           ms.annualized_return, ms.score, ms.fee_manage, ms.fee_custody,
-                          ms.total_scale, ms.updated_at as metrics_updated_at
+                          ms.total_scale, ms.updated_at as metrics_updated_at,
+                          mc.meta_name, mc.meta_type, mc.meta_company, mc.meta_aum,
+                          mc.meta_management_fee, mc.meta_custody_fee,
+                          mc.meta_as_of, mc.meta_source
                    FROM fund_master m
                    LEFT JOIN fund_quote_snapshot q ON q.code = m.code
                    LEFT JOIN fund_metrics_snapshot ms ON ms.code = m.code
+                   {metadata_join}
                    WHERE {where}
                    ORDER BY COALESCE(q.{sort_sql}, 0) {order_sql}, m.code
                    LIMIT ? OFFSET ?""",
@@ -1819,6 +1864,27 @@ class FundDataStore:
         cached = _qcache.get(cache_key, 120)
         if cached is not None:
             return cached
+        metadata_join = """
+                   LEFT JOIN (
+                     SELECT code,
+                            MAX(NULLIF(name, '')) as meta_name,
+                            MAX(NULLIF(fund_type, '')) as meta_type,
+                            MAX(NULLIF(company, '')) as meta_company,
+                            MAX(aum) as meta_aum,
+                            MAX(CASE
+                                  WHEN source IN ('efinance', 'eastmoney_f10_fee', 'eastmoney_fundmob_f10_fee')
+                                  THEN management_fee
+                                END) as meta_management_fee,
+                            MAX(CASE
+                                  WHEN source IN ('efinance', 'eastmoney_f10_fee', 'eastmoney_fundmob_f10_fee')
+                                  THEN custody_fee
+                                END) as meta_custody_fee,
+                            MAX(metadata_as_of) as meta_as_of,
+                            MAX(source) as meta_source
+                     FROM fund_metadata_cache
+                     GROUP BY code
+                   ) mc ON mc.code = m.code
+        """
         with get_db() as conn:
             row = conn.execute(
                 """SELECT m.code, m.name, m.fund_type as type, m.company, m.tags_json,
@@ -1828,10 +1894,14 @@ class FundDataStore:
                           q.data_quality, q.stale_level,
                           ms.sharpe_ratio, ms.max_drawdown, ms.volatility,
                           ms.annualized_return, ms.score, ms.fee_manage, ms.fee_custody,
-                          ms.total_scale, ms.updated_at as metrics_updated_at
+                          ms.total_scale, ms.updated_at as metrics_updated_at,
+                          mc.meta_name, mc.meta_type, mc.meta_company, mc.meta_aum,
+                          mc.meta_management_fee, mc.meta_custody_fee,
+                          mc.meta_as_of, mc.meta_source
                    FROM fund_master m
                    LEFT JOIN fund_quote_snapshot q ON q.code = m.code
                    LEFT JOIN fund_metrics_snapshot ms ON ms.code = m.code
+                   """ + metadata_join + """
                    WHERE m.code = ?""",
                 (code,),
             ).fetchone()
@@ -1924,11 +1994,16 @@ class FundDataStore:
     @staticmethod
     def _row_to_fund(row: sqlite3.Row) -> dict[str, Any]:
         tags = _fund_tags(row["tags_json"])
+        code = row["code"]
+        meta_name = _valid_fund_name(_row_value(row, "meta_name"), code)
+        base_name = _valid_fund_name(row["name"], code)
+        meta_fee_manage = _row_value(row, "meta_management_fee")
+        meta_fee_custody = _row_value(row, "meta_custody_fee")
         return {
-            "code": row["code"],
-            "name": row["name"],
-            "type": row["type"] or "",
-            "company": row["company"] or "",
+            "code": code,
+            "name": meta_name or base_name or row["name"],
+            "type": _prefer_text(_row_value(row, "meta_type"), row["type"]),
+            "company": _prefer_text(_row_value(row, "meta_company"), row["company"]),
             "tags": tags,
             "is_xinjihui": bool(row["is_xinjihui"]),
             "is_preferred": bool(row["is_preferred"]),
@@ -1950,10 +2025,12 @@ class FundDataStore:
             "annualized_return": row["annualized_return"],
             "volatility": row["volatility"],
             "score": row["score"],
-            "feeManage": row["fee_manage"],
-            "feeCustody": row["fee_custody"],
-            "total_scale": row["total_scale"],
+            "feeManage": row["fee_manage"] if row["fee_manage"] is not None else meta_fee_manage,
+            "feeCustody": row["fee_custody"] if row["fee_custody"] is not None else meta_fee_custody,
+            "total_scale": row["total_scale"] if row["total_scale"] is not None else _row_value(row, "meta_aum"),
             "metrics_updated_at": row["metrics_updated_at"],
+            "metadata_as_of": _row_value(row, "meta_as_of"),
+            "metadata_source": _row_value(row, "meta_source"),
         }
 
     @staticmethod

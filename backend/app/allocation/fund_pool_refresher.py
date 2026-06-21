@@ -31,6 +31,7 @@ _ENABLE_LIVE_PROVIDER_META = os.environ.get(
     "FUNDTRADER_ENABLE_LIVE_PROVIDER_META", ""
 ).lower() in {"1", "true", "yes"}
 _LIVE_METADATA_TIMEOUT_S = float(os.environ.get("FUNDTRADER_LIVE_METADATA_TIMEOUT_S", "35"))
+_LIVE_FEE_REFRESH_LIMIT = int(os.environ.get("FUNDTRADER_LIVE_FEE_REFRESH_LIMIT", "24"))
 
 
 def _profile_cache_signature(profile) -> tuple:
@@ -80,12 +81,19 @@ def refresh_live_metadata_cache(profiles: Dict, timeout_s: Optional[float] = Non
         return {"status": "skipped", "total": 0, "saved": 0, "source": None, "error": None}
 
     timeout = timeout_s if timeout_s is not None else _LIVE_METADATA_TIMEOUT_S
+    started = time.monotonic()
     try:
         rows = _fetch_eastmoney_meta_batch(codes, timeout_s=timeout)
         source = "eastmoney"
         if not rows:
             rows = _fetch_efinance_meta_batch(codes, timeout_s=timeout)
             source = "efinance"
+        fee_timeout = max(0.0, timeout - (time.monotonic() - started))
+        if fee_timeout > 1.0:
+            fee_rows = _fetch_eastmoney_fee_batch(codes[:_LIVE_FEE_REFRESH_LIMIT], timeout_s=fee_timeout)
+            if fee_rows:
+                rows = _merge_fee_rows(rows, fee_rows)
+                source = f"{source}+eastmoney_f10_fee" if rows else "eastmoney_f10_fee"
     except Exception as exc:
         logger.warning("Live fund metadata refresh failed: %s", exc)
         return {"status": "failed", "total": len(codes), "saved": 0, "source": None, "error": str(exc)}
@@ -287,18 +295,15 @@ def _fetch_eastmoney_meta_batch(codes: list[str], timeout_s: float) -> list[dict
             return None
         aum_raw = parse_float(data.get("ENDNAV"))
         aum = round(aum_raw / 100000000, 4) if aum_raw is not None else None
-        management_fee = parse_float(data.get("RATE"))
-        if management_fee is not None and management_fee > 1:
-            management_fee = management_fee / 100
         return {
             "code": str(data.get("FCODE") or code).strip().zfill(6),
             "name": str(data.get("SHORTNAME") or "").strip(),
             "fund_type": str(data.get("FTYPE") or "").strip(),
             "company": str(data.get("JJGS") or "").strip(),
             "aum": aum,
-            "management_fee": management_fee,
+            "management_fee": None,
             "custody_fee": None,
-            "_source": "eastmoney",
+            "_source": "eastmoney_fundmob",
             "raw": data,
         }
 
@@ -318,11 +323,89 @@ def _fetch_eastmoney_meta_batch(codes: list[str], timeout_s: float) -> list[dict
     return rows
 
 
+def _fetch_eastmoney_fee_batch(codes: list[str], timeout_s: float) -> list[dict]:
+    """Fetch real annual management/custody fees from Eastmoney F10 pages."""
+    import concurrent.futures
+    import urllib.request
+    from app.data.efinance_fetcher import _extract_fee_cell
+
+    started = time.monotonic()
+    request_timeout = max(1.0, min(10.0, timeout_s / 3))
+
+    def fetch_one(code: str) -> Optional[dict]:
+        remaining = timeout_s - (time.monotonic() - started)
+        if remaining <= 0:
+            return None
+        per_request_timeout = min(request_timeout, max(0.5, remaining))
+        req = urllib.request.Request(
+            f"https://fundf10.eastmoney.com/jbgk_{code}.html",
+            headers={"User-Agent": "Mozilla/5.0", "Referer": "https://fundf10.eastmoney.com/"},
+        )
+        with urllib.request.urlopen(req, timeout=per_request_timeout) as resp:
+            raw = resp.read()
+        text = ""
+        for encoding in ("utf-8", "gb18030"):
+            try:
+                text = raw.decode(encoding)
+                if text:
+                    break
+            except UnicodeDecodeError:
+                continue
+        if not text:
+            return None
+        fees = {
+            "feeManage": _extract_fee_cell(text, "\u7ba1\u7406\u8d39\u7387"),
+            "feeCustody": _extract_fee_cell(text, "\u6258\u7ba1\u8d39\u7387"),
+        }
+        if all(value is None for value in fees.values()):
+            return None
+        return {
+            "code": str(code).strip().zfill(6),
+            "management_fee": fees.get("feeManage"),
+            "custody_fee": fees.get("feeCustody"),
+            "_source": "eastmoney_f10_fee",
+            "raw": {"fee_source": "eastmoney:fundf10_fee_page", "fees": fees},
+        }
+
+    rows: list[dict] = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(6, max(1, len(codes)))) as executor:
+        future_to_code = {executor.submit(fetch_one, code): code for code in codes}
+        try:
+            for future in concurrent.futures.as_completed(future_to_code, timeout=timeout_s):
+                try:
+                    row = future.result()
+                    if row:
+                        rows.append(row)
+                except Exception as exc:
+                    logger.debug("Eastmoney F10 fee fetch failed for %s: %s", future_to_code[future], exc)
+        except concurrent.futures.TimeoutError:
+            logger.warning("Eastmoney F10 fee batch timed out after %.1fs", timeout_s)
+    return rows
+
+
+def _merge_fee_rows(rows: list[dict], fee_rows: list[dict]) -> list[dict]:
+    by_code = {str(row.get("code") or "").zfill(6): dict(row) for row in rows if row.get("code")}
+    for fee in fee_rows:
+        code = str(fee.get("code") or "").zfill(6)
+        if not code:
+            continue
+        row = by_code.get(code, {"code": code, "raw": {}})
+        row["management_fee"] = fee.get("management_fee")
+        row["custody_fee"] = fee.get("custody_fee")
+        row["_source"] = "eastmoney_fundmob_f10_fee" if code in by_code else "eastmoney_f10_fee"
+        raw = row.get("raw") if isinstance(row.get("raw"), dict) else {}
+        raw["fee_source"] = "eastmoney:fundf10_fee_page"
+        raw["fee"] = fee.get("raw") or fee
+        row["raw"] = raw
+        by_code[code] = row
+    return list(by_code.values())
+
+
 def _save_metadata_cache(rows: list[dict]) -> int:
     """Persist provider metadata rows into SQLite."""
     if not rows:
         return 0
-    from app.storage.database import get_db
+    from app.storage.database import get_db, _qcache
 
     as_of = datetime.now().date().isoformat()
     updated_at = datetime.now().isoformat()
@@ -352,6 +435,7 @@ def _save_metadata_cache(rows: list[dict]) -> int:
                 ),
             )
             saved += 1
+    _qcache.invalidate()
     return saved
 
 

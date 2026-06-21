@@ -10,6 +10,7 @@ from app.allocation.fund_pool_refresher import (
     refresh_live_metadata_cache,
     _compute_stale_days,
     _fetch_sqlite_meta,
+    _merge_fee_rows,
     _update_profile,
 )
 
@@ -196,6 +197,7 @@ class FundPoolRefresherTest(unittest.TestCase):
             fund_pool_refresher._meta_cache["518880"] = (0, profile, ("assumption", "static_fund_pool", None, None))
 
         with patch("app.allocation.fund_pool_refresher._fetch_eastmoney_meta_batch", return_value=rows) as fetch, \
+             patch("app.allocation.fund_pool_refresher._fetch_eastmoney_fee_batch", return_value=[]), \
              patch("app.allocation.fund_pool_refresher._save_metadata_cache", return_value=1) as save:
             summary = refresh_live_metadata_cache(pool, timeout_s=5)
 
@@ -214,6 +216,7 @@ class FundPoolRefresherTest(unittest.TestCase):
 
         with patch("app.allocation.fund_pool_refresher._fetch_eastmoney_meta_batch", return_value=[]), \
              patch("app.allocation.fund_pool_refresher._fetch_efinance_meta_batch", return_value=rows) as fetch, \
+             patch("app.allocation.fund_pool_refresher._fetch_eastmoney_fee_batch", return_value=[]), \
              patch("app.allocation.fund_pool_refresher._save_metadata_cache", return_value=1):
             summary = refresh_live_metadata_cache(pool, timeout_s=5)
 
@@ -221,6 +224,18 @@ class FundPoolRefresherTest(unittest.TestCase):
         self.assertEqual(summary["status"], "ok")
         self.assertEqual(summary["source"], "efinance")
         self.assertEqual(summary["saved"], 1)
+
+    def test_merge_fee_rows_combines_real_f10_fees_with_metadata(self):
+        rows = [{"code": "014915", "name": "Fund A", "fund_type": "hybrid", "_source": "eastmoney_fundmob", "raw": {"a": 1}}]
+        fee_rows = [{"code": "014915", "management_fee": 0.012, "custody_fee": 0.002, "raw": {"fee_source": "eastmoney:fundf10_fee_page"}}]
+
+        merged = _merge_fee_rows(rows, fee_rows)
+
+        self.assertEqual(len(merged), 1)
+        self.assertEqual(merged[0]["name"], "Fund A")
+        self.assertEqual(merged[0]["_source"], "eastmoney_fundmob_f10_fee")
+        self.assertEqual(merged[0]["management_fee"], 0.012)
+        self.assertEqual(merged[0]["custody_fee"], 0.002)
 
 if __name__ == "__main__":
     unittest.main()
