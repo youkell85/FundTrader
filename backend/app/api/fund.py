@@ -323,6 +323,7 @@ async def fund_snapshot_list(
     xinjihui_only: bool = Query(True),
     sort_by: str = Query("ytd"),
     sort_order: str = Query(DEFAULT_SORT_ORDER),
+    refresh_metadata: bool = Query(True),
 ):
     if sort_by not in ALLOWED_SORT_FIELDS:
         raise HTTPException(400, f"不支持的排序字段: {sort_by}")
@@ -341,7 +342,11 @@ async def fund_snapshot_list(
         sort_by,
         sort_order,
     )
-    metadata_refresh = await run_in_threadpool(_refresh_snapshot_metadata_for_page, result["funds"])
+    metadata_refresh = (
+        await run_in_threadpool(_refresh_snapshot_metadata_for_page, result["funds"])
+        if refresh_metadata
+        else None
+    )
     if metadata_refresh and metadata_refresh.get("saved"):
         result = await run_in_threadpool(
             FundDataStore.list_snapshots,

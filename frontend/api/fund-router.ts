@@ -68,6 +68,7 @@ const DAILY_PREWARM_MINUTE = Number(process.env.FUNDTRADER_PREWARM_MINUTE ?? 20)
 const DAILY_CACHE_FLOOR_TTL = 60 * 60 * 1000;
 const DAILY_CACHE_MAX_TTL = 24 * 60 * 60 * 1000;
 const HOME_ANALYSIS_LIMIT = Number(process.env.FUNDTRADER_HOME_ANALYSIS_LIMIT ?? 80);
+const HOME_SUMMARY_TIMEOUT_MS = Number(process.env.FUNDTRADER_HOME_SUMMARY_TIMEOUT_MS ?? 45_000);
 const HOLDINGS_TTL = 6 * 60 * 60 * 1000;                   // 持仓/行业 6小时（季报级别）
 const DETAIL_STATIC_TTL = DAILY_CACHE_MAX_TTL;
 const DETAIL_QUARTERLY_TTL = HOLDINGS_TTL;
@@ -369,6 +370,7 @@ async function fetchAllFundList(params: Record<string, any>) {
       category: params.category,
       keyword: params.keyword,
       xinjihui_only: params.guoyuan_only !== false && !params.use_watchlist,
+      refresh_metadata: params.refresh_metadata ?? true,
       sort_by: params.sort_by || "ytd",
       sort_order: params.sort_order || "desc",
       page: params.page,
@@ -385,6 +387,7 @@ async function fetchAllFundList(params: Record<string, any>) {
       category: params.category,
       keyword: params.keyword,
       xinjihui_only: params.guoyuan_only !== false && !params.use_watchlist,
+      refresh_metadata: params.refresh_metadata ?? page === 1,
       sort_by: params.sort_by || "ytd",
       sort_order: params.sort_order || "desc",
       page,
@@ -413,7 +416,7 @@ async function fetchHomeFundSummaries() {
 
     for (const fund of await withTimeout(
       fetchAllFundList({ guoyuan_only: true }),
-      8_000,
+      HOME_SUMMARY_TIMEOUT_MS,
       () => [] as any[],
     )) {
       if (fund?.code) fundsByCode.set(fund.code, { ...fund, _source: "xinjihui", is_xinjihui: true });
@@ -424,7 +427,7 @@ async function fetchHomeFundSummaries() {
     if (watchlistFunds.length > 0) {
       const watchlistResult = await withTimeout(
         fetchAllFundList({ use_watchlist: true }).catch(() => [] as any[]),
-        5_000,
+        Math.min(HOME_SUMMARY_TIMEOUT_MS, 15_000),
         () => [] as any[],
       );
       for (const fund of watchlistResult) {
