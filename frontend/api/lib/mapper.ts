@@ -50,8 +50,12 @@ function generateTags(name: string, _type: string): string[] {
   if (name.includes("价值") || name.includes("低估")) tags.push("价值投资");
   if (name.includes("指数") || name.includes("ETF")) tags.push("指数核心");
   if (name.includes("新能源")) tags.push("新能源");
-  if (tags.length === 0) tags.push("稳健增长");
   return tags.slice(0, 2);
+}
+
+function isUsableFundName(name: unknown, code: string): boolean {
+  const value = String(name || "").trim();
+  return Boolean(value) && value !== code && !/^\d{6}$/.test(value);
 }
 
 function inferFundType(code: string, name: string, rawType: string): string {
@@ -209,7 +213,8 @@ export function mapFundItem(item: any): any {
   try {
     if (!item || typeof item !== "object") return null;
     const code = item.code || "";
-    const name = item.name || "";
+    const rawName = item.name || "";
+    const name = isUsableFundName(rawName, code) ? String(rawName).trim() : "";
     const type = inferFundType(code, name, item.type || "");
     const perf = item.performance || {};
     const navPerformance = calcPerformanceFromNav(item.nav_data || item.navHistory || []);
@@ -233,23 +238,24 @@ export function mapFundItem(item: any): any {
     return {
       id,
       fundCode: code,
-      fundName: name,
-      fundAbbr: name.replace(/混合型|股票型|债券型|指数型|证券投资基金|A类|C类/g, "").trim(),
+      fundName: name || code,
+      fundAbbr: name ? name.replace(/混合型|股票型|债券型|指数型|证券投资基金|A类|C类/g, "").trim() : code,
+      nameAvailable: Boolean(name),
       fundType: typeMap[type] || type.toLowerCase().replace(/型/g, ""),
       category: type || "其他",
       company: item.company || item.management || item.fund_company || item.company_name || item.manager_company || "—",
-      riskLevel: riskMap[item.risk_level || item.riskLevel] || "medium",
+      riskLevel: riskMap[item.risk_level || item.riskLevel] || "unknown",
       isContinuousMarketing: isXinjihui ? 1 : item.isContinuousMarketing ?? 0,
       isXinjihui,
       nav: item.nav != null ? String(item.nav) : "—",
       navDate: item.nav_date || item.navDate || null,
       accumNav: item.accum_nav != null ? String(item.accum_nav) : item.accumNav != null ? String(item.accumNav) : item.nav != null ? String(item.nav) : "—",
-      dailyChange: item.day_growth != null ? String(item.day_growth) : item.dailyChange != null ? String(item.dailyChange) : "0",
+      dailyChange: item.day_growth != null ? String(item.day_growth) : item.dailyChange != null ? String(item.dailyChange) : "—",
       totalScale: item.total_scale != null ? String(item.total_scale) : item.scale != null ? String(item.scale) : "—",
       benchmark: item.benchmark || "—",
       feeManage: item.feeManage ?? item.fee_rate ?? "—",
       feeCustody: item.feeCustody ?? "—",
-      stars: item.stars || (item.rating ? Math.min(5, Math.max(1, item.rating)) : 4),
+      stars: item.stars ?? (item.rating ? Math.min(5, Math.max(1, item.rating)) : null),
       managerId: mgrName ? codeToId(mgrName) : null,
       tags,
       trackingIndex: item.trackingIndex || null,
@@ -261,16 +267,16 @@ export function mapFundItem(item: any): any {
       _partial: item._partial || false,
       performance: {
         return1w: perf.near_1w != null ? String(perf.near_1w) : item.near_1w != null ? String(item.near_1w) : navPerformance.return1w || "—",
-        return1m: perf.near_1m != null ? String(perf.near_1m) : item.near_1m != null ? String(item.near_1m) : navPerformance.return1m || "0",
-        return3m: perf.near_3m != null ? String(perf.near_3m) : item.near_3m != null ? String(item.near_3m) : navPerformance.return3m || "0",
-        return6m: perf.near_6m != null ? String(perf.near_6m) : item.near_6m != null ? String(item.near_6m) : navPerformance.return6m || "0",
-        return1y: perf.near_1y != null ? String(perf.near_1y) : item.near_1y != null ? String(item.near_1y) : item.return1y != null ? String(item.return1y) : navPerformance.return1y || "0",
-        return2y: perf.near_2y != null ? String(perf.near_2y) : navPerformance.return2y || "0",
-        return3y: perf.near_3y != null ? String(perf.near_3y) : item.near_3y != null ? String(item.near_3y) : item.return3y != null ? String(item.return3y) : navPerformance.return3y || "0",
-        return5y: perf.near_5y != null ? String(perf.near_5y) : item.return5y != null ? String(item.return5y) : navPerformance.return5y || "0",
-        return10y: perf.near_10y != null ? String(perf.near_10y) : item.near_10y != null ? String(item.near_10y) : item.return10y != null ? String(item.return10y) : navPerformance.return10y || "0",
-        returnThisYear: perf.ytd != null ? String(perf.ytd) : item.ytd != null ? String(item.ytd) : navPerformance.returnThisYear || "0",
-        annualizedReturn: pickMetric(perf.annualizedReturn, perf.annualized_return, item.annualizedReturn, item.annualized_return, navPerformance.annualizedReturn, perf.near_1y, item.near_1y, item.return1y) || "0",
+        return1m: perf.near_1m != null ? String(perf.near_1m) : item.near_1m != null ? String(item.near_1m) : navPerformance.return1m || "—",
+        return3m: perf.near_3m != null ? String(perf.near_3m) : item.near_3m != null ? String(item.near_3m) : navPerformance.return3m || "—",
+        return6m: perf.near_6m != null ? String(perf.near_6m) : item.near_6m != null ? String(item.near_6m) : navPerformance.return6m || "—",
+        return1y: perf.near_1y != null ? String(perf.near_1y) : item.near_1y != null ? String(item.near_1y) : item.return1y != null ? String(item.return1y) : navPerformance.return1y || "—",
+        return2y: perf.near_2y != null ? String(perf.near_2y) : navPerformance.return2y || "—",
+        return3y: perf.near_3y != null ? String(perf.near_3y) : item.near_3y != null ? String(item.near_3y) : item.return3y != null ? String(item.return3y) : navPerformance.return3y || "—",
+        return5y: perf.near_5y != null ? String(perf.near_5y) : item.return5y != null ? String(item.return5y) : navPerformance.return5y || "—",
+        return10y: perf.near_10y != null ? String(perf.near_10y) : item.near_10y != null ? String(item.near_10y) : item.return10y != null ? String(item.return10y) : navPerformance.return10y || "—",
+        returnThisYear: perf.ytd != null ? String(perf.ytd) : item.ytd != null ? String(item.ytd) : navPerformance.returnThisYear || "—",
+        annualizedReturn: pickMetric(perf.annualizedReturn, perf.annualized_return, item.annualizedReturn, item.annualized_return, navPerformance.annualizedReturn, perf.near_1y, item.near_1y, item.return1y) || "—",
         annualizedVolatility: pickMetric(perf.annualizedVolatility, navPerformance.annualizedVolatility) || "—",
         // 夏普/回撤需净值历史计算，轻量摘要模式下无此数据 → 展示 "—"
         // 后台预热完成后再次查询即可获得真实值
@@ -289,13 +295,13 @@ export function mapFundItem(item: any): any {
         name: mgrName,
         gender: mgr.gender || null,
         education: mgr.education || null,
-        careerStart: mgr.begin_date || mgr.career_start || "2010-01-01",
-        manageYears: mgr.tenure_days ? (mgr.tenure_days / 365).toFixed(2) : "5.00",
+        careerStart: mgr.begin_date || mgr.career_start || null,
+        manageYears: mgr.tenure_days ? (mgr.tenure_days / 365).toFixed(2) : null,
         totalScale: mgr.total_scale != null ? String(mgr.total_scale) : "—",
-        fundCount: mgr.fund_count ?? 1,
+        fundCount: mgr.fund_count ?? null,
         company: item.company || item.management || item.fund_company || "—",
-        investmentStyle: mgr.style_analysis || mgr.investment_style || "均衡配置",
-        philosophy: mgr.philosophy || "坚持价值投资，精选优质企业",
+        investmentStyle: mgr.style_analysis || mgr.investment_style || "",
+        philosophy: mgr.philosophy || "",
         styleDescription: mgr.style_description || "",
         bestReturn: mgr.best_return != null ? String(mgr.best_return) : "—",
         worstReturn: mgr.worst_return != null ? String(mgr.worst_return) : "—",

@@ -1,5 +1,37 @@
 import { describe, expect, test } from "vitest";
-import { mapBacktestResult } from "./mapper";
+import { mapBacktestResult, mapFundItem } from "./mapper";
+
+describe("mapFundItem", () => {
+  test("keeps missing homepage metrics explicit instead of fabricating zeroes", () => {
+    const fund = mapFundItem({
+      code: "000001",
+      name: "000001",
+      type: "混合型",
+      nav: null,
+      day_growth: null,
+      near_1m: null,
+      near_1y: null,
+      ytd: null,
+      feeManage: null,
+      feeCustody: null,
+    });
+
+    expect(fund).toMatchObject({
+      fundCode: "000001",
+      fundName: "000001",
+      nameAvailable: false,
+      dailyChange: "—",
+      stars: null,
+      tags: [],
+    });
+    expect(fund.performance).toMatchObject({
+      return1m: "—",
+      return1y: "—",
+      returnThisYear: "—",
+      annualizedReturn: "—",
+    });
+  });
+});
 
 describe("mapBacktestResult", () => {
   test("does not count new DCA cashflows as portfolio return for Sharpe", () => {

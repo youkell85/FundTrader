@@ -10,6 +10,7 @@ type FundLike = {
   tsCode?: string | null
   fundName?: string
   fundAbbr?: string
+  nameAvailable?: boolean
   fundType?: string
   category?: string
   company?: string
@@ -144,6 +145,11 @@ function decimalText(value: number | null, digits = 2) {
   return value === null ? '—' : value.toFixed(digits)
 }
 
+function signedToneClass(value: number | null) {
+  if (value === null) return 'text-white/45'
+  return value >= 0 ? 'text-danger' : 'text-success'
+}
+
 function fundName(fund: FundLike) {
   return String(fund.fundName || fund.fundAbbr || fund.fundCode || '未命名基金')
 }
@@ -155,7 +161,22 @@ function fundCode(fund: FundLike) {
 }
 
 function managerName(fund: FundLike) {
-  return typeof fund.manager === 'string' ? fund.manager : fund.manager?.name || fund.company || '基金经理待补'
+  const value = typeof fund.manager === 'string' ? fund.manager : fund.manager?.name
+  return value ? String(value) : null
+}
+
+function companyName(fund: FundLike) {
+  const value = fund.company ? String(fund.company).trim() : ''
+  return value && value !== '—' ? value : null
+}
+
+function fundSubline(fund: FundLike) {
+  const code = fundCode(fund) || '代码缺失'
+  const manager = managerName(fund)
+  const company = companyName(fund)
+  if (manager) return `${code} / 经理 ${manager}`
+  if (company) return `${code} / 公司 ${company}`
+  return `${code} / 经理缺失`
 }
 
 function typeKey(fund: FundLike) {
@@ -178,7 +199,7 @@ function typeLabel(fund: FundLike) {
 }
 
 function returnMetric(fund: FundLike) {
-  return parseMetric(fund.performance?.return1y ?? fund.performance?.annualizedReturn)
+  return parseMetric(fund.performance?.return1y)
 }
 
 function sharpeMetric(fund: FundLike) {
@@ -194,14 +215,32 @@ function normalizeFeeRate(value: number | null) {
   return Math.abs(value) <= 1.5 ? value * 100 : value
 }
 
-function feeMetric(fund: FundLike) {
+function feeSummary(fund: FundLike) {
   const explicitFee = parseMetric(fund.fee ?? fund.expenseRatio)
-  if (explicitFee !== null) return normalizeFeeRate(explicitFee)
+  if (explicitFee !== null) {
+    const value = normalizeFeeRate(explicitFee)
+    return value === null ? { value: null, text: '缺失' } : { value, text: `${value.toFixed(2)}%` }
+  }
 
   const management = parseMetric(fund.managementFee ?? fund.feeManage ?? fund.manageFee)
   const custody = parseMetric(fund.custodyFee ?? fund.feeCustody ?? fund.trusteeFee)
-  if (management === null && custody === null) return null
-  return normalizeFeeRate((management || 0) + (custody || 0))
+  if (management !== null && custody !== null) {
+    const value = normalizeFeeRate(management + custody)
+    return value === null ? { value: null, text: '缺失' } : { value, text: `${value.toFixed(2)}%` }
+  }
+  if (management !== null) {
+    const value = normalizeFeeRate(management)
+    return value === null ? { value: null, text: '缺失' } : { value, text: `管 ${value.toFixed(2)}%` }
+  }
+  if (custody !== null) {
+    const value = normalizeFeeRate(custody)
+    return value === null ? { value: null, text: '缺失' } : { value, text: `托 ${value.toFixed(2)}%` }
+  }
+  return { value: null, text: '缺失' }
+}
+
+function feeMetric(fund: FundLike) {
+  return feeSummary(fund).value
 }
 
 function scaleText(fund: FundLike) {
@@ -459,8 +498,8 @@ export function CockpitDashboard({
           fundCode(fund),
           fundName(fund),
           managerName(fund),
+          companyName(fund),
           typeLabel(fund),
-          fund.company,
         ].filter(Boolean).join(' ').toLowerCase()
         return haystack.includes(keyword)
       }),
@@ -633,7 +672,7 @@ export function CockpitDashboard({
                   {filteredFunds.slice(0, 10).map((fund) => {
                     const code = fundCode(fund)
                     const status = dataStatusText(fund)
-                    const fee = feeMetric(fund)
+                    const fee = feeSummary(fund)
                     const yearlyReturn = returnMetric(fund)
                     return (
                       <tr key={code || fundName(fund)} className="transition hover:bg-white/[0.025]">
@@ -641,20 +680,20 @@ export function CockpitDashboard({
                           <Link to={code ? `/${code}` : '/analysis'} className="block min-w-0">
                             <div className="max-w-[260px] truncate font-semibold text-[#fff8ea]">{fundName(fund)}</div>
                             <div className="mt-0.5 flex items-center gap-2 text-xs text-white/36">
-                              <span>{code || '代码缺失'}</span>
-                              <span className="truncate">{managerName(fund)}</span>
+                              {!fund.nameAvailable && <span className="text-[#f0c58b]">名称缺失</span>}
+                              <span className="truncate">{fundSubline(fund)}</span>
                             </div>
                           </Link>
                         </td>
                         <td className="px-3 py-3">
                           <span className="workspace-pill-muted rounded px-2 py-0.5 text-xs">{typeLabel(fund)}</span>
                         </td>
-                        <td className={classNames('data-number px-3 py-3 text-right font-semibold', (yearlyReturn || 0) >= 0 ? 'text-danger' : 'text-success')}>
+                        <td className={classNames('data-number px-3 py-3 text-right font-semibold', signedToneClass(yearlyReturn))}>
                           {signedPct(yearlyReturn)}
                         </td>
                         <td className="data-number px-3 py-3 text-right text-[#fff8ea]">{decimalText(sharpeMetric(fund))}</td>
                         <td className="data-number px-3 py-3 text-right text-white/72">{plainPct(drawdownMetric(fund))}</td>
-                        <td className="data-number px-3 py-3 text-right text-white/72">{fee === null ? '缺失' : `${fee.toFixed(2)}%`}</td>
+                        <td className="data-number px-3 py-3 text-right text-white/72">{fee.text}</td>
                         <td className="px-3 py-3 text-xs text-white/50">{fund.navDate || '缺失'}</td>
                         <td className="px-3 py-3">
                           <span
@@ -713,11 +752,11 @@ export function CockpitDashboard({
                         <span className="text-xs text-white/34">{item.count} 只可比</span>
                       </div>
                       <div className="truncate text-sm font-semibold text-[#fff8ea]">{fundName(primary)}</div>
-                      <div className="mt-0.5 text-xs text-white/36">{code || '代码缺失'} / {managerName(primary)}</div>
+                      <div className="mt-0.5 text-xs text-white/36">{fundSubline(primary)}</div>
                       <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
                         <div>
                           <div className="text-white/32">近一年</div>
-                          <div className="data-number font-semibold text-danger">{signedPct(returnMetric(primary))}</div>
+                          <div className={classNames('data-number font-semibold', signedToneClass(returnMetric(primary)))}>{signedPct(returnMetric(primary))}</div>
                         </div>
                         <div>
                           <div className="text-white/32">夏普</div>
@@ -725,7 +764,7 @@ export function CockpitDashboard({
                         </div>
                         <div>
                           <div className="text-white/32">费率</div>
-                          <div className="data-number font-semibold text-white/72">{feeMetric(primary) === null ? '缺失' : `${feeMetric(primary)?.toFixed(2)}%`}</div>
+                          <div className="data-number font-semibold text-white/72">{feeSummary(primary).text}</div>
                         </div>
                       </div>
                       {returnChampion && (
@@ -768,7 +807,7 @@ export function CockpitDashboard({
                   </div>
                   <div className="rounded border border-white/[0.055] bg-white/[0.025] p-2">
                     <div className="text-white/32">收益均值</div>
-                    <div className="data-number text-base font-semibold text-danger">{signedPct(portfolioAvgReturn)}</div>
+                    <div className={classNames('data-number text-base font-semibold', signedToneClass(portfolioAvgReturn))}>{signedPct(portfolioAvgReturn)}</div>
                   </div>
                   <div className="rounded border border-white/[0.055] bg-white/[0.025] p-2">
                     <div className="text-white/32">夏普均值</div>
@@ -845,7 +884,7 @@ export function CockpitDashboard({
                     </div>
                     <div className="text-right">
                       <div className="data-number text-sm text-white/74">{formatIndexValue(item.close)}</div>
-                      <div className={classNames('data-number text-xs font-semibold', (item.change || 0) >= 0 ? 'text-danger' : 'text-success')}>
+                      <div className={classNames('data-number text-xs font-semibold', signedToneClass(item.change))}>
                         {signedPct(item.change)}
                       </div>
                     </div>
