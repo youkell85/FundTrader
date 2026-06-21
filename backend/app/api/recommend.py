@@ -35,12 +35,16 @@ async def market_overview():
     """市场行情概览"""
     from ..data.akshare_fetcher import get_market_index, get_fund_industry_board
     from ..data.cache_manager import cache
-    market = cache.get("market_index", 1800)
-    if market is None:
-        market = get_market_index()
-        cache.set("market_index", market)
-    industries = cache.get("industry_board", 1800)
-    if industries is None:
-        industries = get_fund_industry_board()
-        cache.set("industry_board", industries)
+    def load_non_empty_list(key, fetcher):
+        cached = cache.get(key, 1800)
+        if isinstance(cached, list) and cached:
+            return cached
+        value = fetcher()
+        if isinstance(value, list) and value:
+            cache.set(key, value)
+            return value
+        return value if isinstance(value, list) else []
+
+    market = load_non_empty_list("market_index", get_market_index)
+    industries = load_non_empty_list("industry_board", get_fund_industry_board)
     return {"market": market, "industries": industries}
