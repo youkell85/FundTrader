@@ -1908,6 +1908,12 @@ def _bond_holdings_quality(rows: list[dict[str, Any]]) -> dict[str, Any]:
                 present += 1
             elif field == "creditRating" and row.get("creditRatingStatus") == "not_applicable":
                 present += 1
+            elif (
+                field == "creditRating"
+                and row.get("creditRatingStatus") == "unavailable"
+                and str(row.get("bondInfoSource") or row.get("creditRatingSource") or "").startswith("chinamoney:")
+            ):
+                present += 1
             elif value not in (None, "", []):
                 present += 1
             else:

@@ -866,6 +866,26 @@ class FundDetailContractTest(unittest.TestCase):
         self.assertEqual(enriched[1]["bondInfoSource"], "chinamoney:bond_detail")
 
         quality = fund_service._bond_holdings_quality(enriched)
+        self.assertEqual(quality["status"], "available")
+        self.assertEqual(quality["coverage"], 1.0)
+        self.assertIsNone(quality["missingReason"])
+
+    def test_bond_holding_keeps_unknown_unavailable_credit_rating_partial(self):
+        rows = [{
+            "bondName": "25\u5ba3\u57ce\u56fd\u8d44SCP005",
+            "bondCode": "012583110",
+            "marketValue": 0.043,
+            "navRatio": 2.21,
+            "couponRate": 1.78,
+            "issuer": "\u5ba3\u57ce\u5e02\u56fd\u6709\u8d44\u4ea7\u6295\u8d44\u6709\u9650\u516c\u53f8",
+            "bondType": "\u8d85\u77ed\u671f\u878d\u8d44\u5238",
+            "creditRating": None,
+            "creditRatingStatus": "unavailable",
+            "bondInfoSource": None,
+        }]
+
+        quality = fund_service._bond_holdings_quality(rows)
+
         self.assertEqual(quality["status"], "partial")
         self.assertEqual(quality["coverage"], 0.875)
         self.assertIn("\u4fe1\u7528\u8bc4\u7ea7\u672a\u62ab\u9732", quality["missingReason"])
