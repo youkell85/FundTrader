@@ -2944,6 +2944,20 @@ def get_fund_manager_history(code: str) -> dict:
             coverage=1.0 if has_rank_snapshot else 0.75 if len(out) > 1 else 0.45,
             missing_reason=None if has_rank_snapshot else "基金经理变动和任职回报已入库，同类排名待补快照表。",
         )
+        if has_report_source and len(out) == 1 and out[0].get("totalReturn") is None:
+            page_rows = _fetch_eastmoney_manager_history_page(code)
+            if page_rows and any(row.get("totalReturn") is not None for row in page_rows):
+                source = "eastmoney:fund_manager_page"
+                _persist_manager_history_snapshot(code, page_rows, source)
+                return _rows_response(
+                    code,
+                    page_rows,
+                    status=DETAIL_STATUS_PARTIAL,
+                    source=source,
+                    as_of=date.today().isoformat(),
+                    coverage=0.75 if len(page_rows) > 1 else 0.55,
+                    missing_reason="东方财富基金经理页披露经理变动和任职回报，同类排名待补快照表。",
+                )
         if not has_report_source and (len(out) > 1 or has_rank_snapshot):
             return snapshot_response
 
@@ -2951,6 +2965,20 @@ def get_fund_manager_history(code: str) -> dict:
     report_text = (report_payload or {}).get("report") or ""
     report_rows = _parse_manager_history_from_report_text(report_text, (report_payload or {}).get("period"))
     if report_rows:
+        if len(report_rows) == 1 and report_rows[0].get("totalReturn") is None:
+            page_rows = _fetch_eastmoney_manager_history_page(code)
+            if page_rows and any(row.get("totalReturn") is not None for row in page_rows):
+                source = "eastmoney:fund_manager_page"
+                _persist_manager_history_snapshot(code, page_rows, source)
+                return _rows_response(
+                    code,
+                    page_rows,
+                    status=DETAIL_STATUS_PARTIAL,
+                    source=source,
+                    as_of=date.today().isoformat(),
+                    coverage=0.75 if len(page_rows) > 1 else 0.55,
+                    missing_reason="东方财富基金经理页披露经理变动和任职回报，同类排名待补快照表。",
+                )
         source = (report_payload or {}).get("source") or "eastmoney:fund_announcement_report"
         _persist_manager_history_snapshot(code, report_rows, source)
         return _rows_response(

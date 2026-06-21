@@ -1006,6 +1006,7 @@ class FundDetailContractTest(unittest.TestCase):
         with patch.object(fund_service, "_safe_table_query", return_value=[]), \
             patch("app.data.providers.tushare_provider.TushareProvider.get_fund_manager", return_value={}), \
             patch.object(fund_service, "get_fund_manager_report", return_value=report_payload), \
+            patch.object(fund_service, "_fetch_eastmoney_manager_history_page", return_value=[]), \
             patch.object(fund_service, "_persist_manager_history_snapshot") as persist:
             payload = fund_service.get_fund_manager_history("512100")
 
@@ -1036,6 +1037,7 @@ class FundDetailContractTest(unittest.TestCase):
                 "reward": 1.2,
             }) as tushare_manager, \
             patch.object(fund_service, "get_fund_manager_report", return_value=report_payload), \
+            patch.object(fund_service, "_fetch_eastmoney_manager_history_page", return_value=[]), \
             patch.object(fund_service, "_persist_manager_history_snapshot"):
             payload = fund_service.get_fund_manager_history("512100")
 
@@ -1128,6 +1130,7 @@ class FundDetailContractTest(unittest.TestCase):
         with patch.object(fund_service, "_safe_table_query", return_value=snapshot_rows), \
             patch("app.data.providers.tushare_provider.TushareProvider.get_fund_manager", return_value={}), \
             patch.object(fund_service, "get_fund_manager_report", return_value=report_payload), \
+            patch.object(fund_service, "_fetch_eastmoney_manager_history_page", return_value=[]), \
             patch.object(fund_service, "_persist_manager_history_snapshot") as persist:
             payload = fund_service.get_fund_manager_history("512100")
 
@@ -1172,6 +1175,68 @@ class FundDetailContractTest(unittest.TestCase):
 
         self.assertEqual(payload["rows"][0]["startDate"], "2019-07-12")
         persist.assert_called_once()
+
+    def test_manager_history_refreshes_single_report_snapshot_from_manager_page(self):
+        snapshot_rows = [{
+            "manager_name": "\u674e\u5e86\u9633",
+            "start_date": "2024-04-23",
+            "end_date": "",
+            "total_return": None,
+            "annualized_return": None,
+            "rank_json": "{}",
+            "source": "eastmoney:fund_announcement_report",
+            "updated_at": "2026-06-21T00:00:00",
+        }]
+        page_rows = [{
+            "managerName": "\u674e\u5e86\u9633",
+            "startDate": "2024-04-23",
+            "endDate": None,
+            "totalReturn": 163.14,
+            "annualizedReturn": None,
+            "rank": None,
+        }]
+
+        with patch.object(fund_service, "_safe_table_query", return_value=snapshot_rows), \
+            patch.object(fund_service, "_fetch_eastmoney_manager_history_page", return_value=page_rows), \
+            patch.object(fund_service, "_persist_manager_history_snapshot") as persist, \
+            patch.object(fund_service, "get_fund_manager_report") as report:
+            payload = fund_service.get_fund_manager_history("020983")
+
+        report.assert_not_called()
+        persist.assert_called_once_with("020983", page_rows, "eastmoney:fund_manager_page")
+        self.assertEqual(payload["source"], "eastmoney:fund_manager_page")
+        self.assertEqual(payload["coverage"], 0.55)
+        self.assertEqual(payload["rows"][0]["totalReturn"], 163.14)
+
+    def test_manager_history_prefers_manager_page_over_single_report_row_without_return(self):
+        report_payload = {
+            "code": "020983",
+            "report": (
+                "4.1 \u57fa\u91d1\u7ecf\u7406\uff08\u6216\u57fa\u91d1\u7ecf\u7406\u5c0f\u7ec4\uff09\u7b80\u4ecb\n"
+                "\u674e\u5e86\u9633 \u57fa\u91d1\u7ecf\u7406 2024 \u5e74 4 \u6708 23 \u65e5 - 8 \u5e74\n"
+                "4.2 \u7ba1\u7406\u4eba\u5bf9\u62a5\u544a\u671f\u5185\u672c\u57fa\u91d1\u8fd0\u4f5c\u7684\u8bf4\u660e\n"
+            ),
+            "period": "2026-03-31",
+            "source": "eastmoney:fund_announcement_report",
+        }
+        page_rows = [{
+            "managerName": "\u674e\u5e86\u9633",
+            "startDate": "2024-04-23",
+            "endDate": None,
+            "totalReturn": 163.14,
+            "annualizedReturn": None,
+            "rank": None,
+        }]
+
+        with patch.object(fund_service, "_safe_table_query", return_value=[]), \
+            patch.object(fund_service, "get_fund_manager_report", return_value=report_payload), \
+            patch.object(fund_service, "_fetch_eastmoney_manager_history_page", return_value=page_rows), \
+            patch.object(fund_service, "_persist_manager_history_snapshot") as persist:
+            payload = fund_service.get_fund_manager_history("020983")
+
+        persist.assert_called_once_with("020983", page_rows, "eastmoney:fund_manager_page")
+        self.assertEqual(payload["source"], "eastmoney:fund_manager_page")
+        self.assertEqual(payload["rows"][0]["totalReturn"], 163.14)
 
 
 class FundDetailCompletenessTest(unittest.TestCase):
