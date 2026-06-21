@@ -29,6 +29,8 @@ export default function DiagnosisTab({ detail }: FundDetailTabProps) {
           risk={detail.risk}
           navSeries={detail.navSeries}
           riskSummary={detail.riskSummaryQ.data}
+          peerRisk={detail.peerRiskQ.data}
+          performance={(detail.fund as any)?.performance}
         />
       </ReportSection>
 

@@ -44,6 +44,7 @@ _TYPE_BUCKET_MAP: dict[str, str] = {
 HS300_BENCHMARK_CODE = "000300"
 PEER_PERFORMANCE_DEFAULT_WINDOW_DAYS = 365 * 5 + 2
 PEER_PERFORMANCE_DEFAULT_MAX_POINTS = 420
+PEER_RISK_DEFAULT_MAX_PEERS = 160
 BOND_HOLDINGS_FALLBACK_TIMEOUT_SECONDS = 8
 EXCHANGE_FUND_CODE_RE = re.compile(r"^(5\d{5}|508\d{3}|15\d{4}|16\d{4}|18\d{4})$")
 
@@ -2872,6 +2873,442 @@ def get_fund_peer_performance(
             **_detail_meta(
                 status=DETAIL_STATUS_MISSING,
                 missing_reason="同期收益读取失败。",
+            ),
+        }
+
+
+PEER_RISK_WINDOWS: dict[str, int | None] = {
+    "1y": 365,
+    "3y": 365 * 3,
+    "5y": 365 * 5,
+    "inception": None,
+}
+
+PEER_RISK_WINDOW_LABELS = {
+    "1y": "近1年",
+    "3y": "近3年",
+    "5y": "近5年",
+    "inception": "成立以来",
+}
+
+PEER_RISK_METRICS = (
+    "annualizedReturn",
+    "annualizedVolatility",
+    "maxDrawdown",
+    "downsideRisk",
+    "worstMonth",
+    "sharpeRatio",
+    "sortinoRatio",
+    "calmarRatio",
+    "informationRatio",
+    "alpha",
+    "beta",
+    "trackingError",
+    "winRate",
+    "recoveryDays",
+)
+
+
+def _nav_points_from_rows(nav_rows: list[dict[str, Any]]) -> list[tuple[date, float]]:
+    points: list[tuple[date, float]] = []
+    for row in nav_rows:
+        d = _to_date(row.get("nav_date") or row.get("date"))
+        nav = _safe_float(row.get("nav"))
+        if d and nav is not None and nav > 0:
+            points.append((d, nav))
+    points.sort(key=lambda item: item[0])
+    deduped: list[tuple[date, float]] = []
+    for d, nav in points:
+        if deduped and deduped[-1][0] == d:
+            deduped[-1] = (d, nav)
+        else:
+            deduped.append((d, nav))
+    return deduped
+
+
+def _clip_risk_points(
+    points: list[tuple[date, float]],
+    *,
+    as_of: date,
+    window_key: str,
+    inception_start: date,
+    require_full_window: bool,
+) -> list[tuple[date, float]]:
+    window_days = PEER_RISK_WINDOWS.get(window_key)
+    start = inception_start if window_days is None else as_of - timedelta(days=window_days)
+    clipped = [(d, nav) for d, nav in points if start <= d <= as_of]
+    if len(clipped) < 30:
+        return []
+    if clipped[-1][0] < as_of - timedelta(days=45):
+        return []
+    if require_full_window:
+        tolerance_days = 45 if window_days is None else max(45, min(90, window_days // 12))
+        if clipped[0][0] > start + timedelta(days=tolerance_days):
+            return []
+    return clipped
+
+
+def _daily_return_map(points: list[tuple[date, float]]) -> dict[date, float]:
+    returns: dict[date, float] = {}
+    for idx in range(1, len(points)):
+        prev = points[idx - 1][1]
+        cur = points[idx][1]
+        if prev > 0:
+            value = cur / prev - 1.0
+            if math.isfinite(value):
+                returns[points[idx][0]] = value
+    return returns
+
+
+def _month_returns(points: list[tuple[date, float]]) -> list[float]:
+    month_map: dict[str, tuple[float, float]] = {}
+    for d, nav in points:
+        key = f"{d.year:04d}-{d.month:02d}"
+        first, _last = month_map.get(key, (nav, nav))
+        month_map[key] = (first, nav)
+    out: list[float] = []
+    for first, last in month_map.values():
+        if first > 0:
+            value = (last / first - 1.0) * 100.0
+            if math.isfinite(value):
+                out.append(value)
+    return out
+
+
+def _max_recovery_days(points: list[tuple[date, float]]) -> int | None:
+    if not points:
+        return None
+    peak_nav = points[0][1]
+    underwater_start: date | None = None
+    max_days = 0
+    for d, nav in points:
+        if nav >= peak_nav:
+            peak_nav = nav
+            underwater_start = None
+            continue
+        if underwater_start is None:
+            underwater_start = d
+        max_days = max(max_days, (d - underwater_start).days)
+    return max_days
+
+
+def _finite_round(value: Any, digits: int = 4) -> float | None:
+    f = _safe_float(value)
+    if f is None or not math.isfinite(f):
+        return None
+    return round(float(f), digits)
+
+
+def _risk_metrics_from_points(
+    points: list[tuple[date, float]],
+    *,
+    benchmark_points: list[tuple[date, float]] | None = None,
+    risk_free_rate: float = 0.02,
+) -> dict[str, float | int | None] | None:
+    import numpy as np
+
+    if len(points) < 30:
+        return None
+    first_date, first_nav = points[0]
+    latest_date, latest_nav = points[-1]
+    elapsed_days = max(1, (latest_date - first_date).days)
+    if first_nav <= 0 or latest_nav <= 0:
+        return None
+
+    return_map = _daily_return_map(points)
+    returns = np.array(list(return_map.values()), dtype=np.float64)
+    if len(returns) < 20:
+        return None
+    returns = np.nan_to_num(returns, nan=0.0, posinf=0.0, neginf=0.0)
+    mean_daily = float(np.mean(returns))
+    vol = float(np.std(returns, ddof=1) * np.sqrt(252)) if len(returns) > 1 else 0.0
+    downside = returns[returns < 0]
+    downside_risk = float(np.std(downside, ddof=1) * np.sqrt(252)) if len(downside) > 1 else 0.0
+
+    navs = np.array([nav for _d, nav in points], dtype=np.float64)
+    peak = np.maximum.accumulate(navs)
+    drawdowns = (navs - peak) / peak
+    max_drawdown = float(np.min(drawdowns)) if len(drawdowns) else 0.0
+
+    annualized_return = (math.pow(latest_nav / first_nav, 365.0 / elapsed_days) - 1.0) * 100.0
+    annualized_volatility = vol * 100.0
+    downside_risk_pct = downside_risk * 100.0
+    sharpe = ((annualized_return / 100.0) - risk_free_rate) / vol if vol > 0 else None
+    sortino = ((annualized_return / 100.0) - risk_free_rate) / downside_risk if downside_risk > 0 else None
+    max_drawdown_pct = max_drawdown * 100.0
+    calmar = annualized_return / abs(max_drawdown_pct) if max_drawdown_pct < 0 else None
+    monthly = _month_returns(points)
+    worst_month = min(monthly) if monthly else None
+    win_rate = float(np.sum(returns > 0) / len(returns) * 100.0) if len(returns) else None
+
+    alpha = None
+    beta = None
+    tracking_error = None
+    information_ratio = None
+    if benchmark_points:
+        benchmark_returns = _daily_return_map(benchmark_points)
+        common_dates = sorted(set(return_map).intersection(benchmark_returns))
+        if len(common_dates) >= 30:
+            fund_arr = np.array([return_map[d] for d in common_dates], dtype=np.float64)
+            bench_arr = np.array([benchmark_returns[d] for d in common_dates], dtype=np.float64)
+            bench_var = float(np.var(bench_arr, ddof=1)) if len(bench_arr) > 1 else 0.0
+            if bench_var > 0:
+                cov = float(np.cov(fund_arr, bench_arr, ddof=1)[0, 1])
+                beta = cov / bench_var
+                rf_daily = risk_free_rate / 252.0
+                alpha = float((np.mean(fund_arr - rf_daily) - beta * np.mean(bench_arr - rf_daily)) * 252.0 * 100.0)
+            excess = fund_arr - bench_arr
+            if len(excess) > 1:
+                tracking_error_value = float(np.std(excess, ddof=1) * np.sqrt(252))
+                tracking_error = tracking_error_value * 100.0
+                if tracking_error_value > 0:
+                    information_ratio = float(np.mean(excess) * 252.0 / tracking_error_value)
+
+    return {
+        "annualizedReturn": _finite_round(annualized_return),
+        "annualizedVolatility": _finite_round(annualized_volatility),
+        "maxDrawdown": _finite_round(max_drawdown_pct),
+        "downsideRisk": _finite_round(downside_risk_pct),
+        "worstMonth": _finite_round(worst_month),
+        "sharpeRatio": _finite_round(sharpe),
+        "sortinoRatio": _finite_round(sortino),
+        "calmarRatio": _finite_round(calmar),
+        "informationRatio": _finite_round(information_ratio),
+        "alpha": _finite_round(alpha),
+        "beta": _finite_round(beta),
+        "trackingError": _finite_round(tracking_error),
+        "winRate": _finite_round(win_rate),
+        "recoveryDays": _max_recovery_days(points),
+    }
+
+
+def _trimmed_mean_for_metric(values: list[float], *, min_sample: int = 3) -> float | None:
+    clean = [float(v) for v in values if math.isfinite(float(v))]
+    if len(clean) < min_sample:
+        return None
+    clean.sort()
+    n = len(clean)
+    k = max(1, n // 10)
+    trimmed = clean[k : n - k] if n - k > k else clean
+    return round(sum(trimmed) / len(trimmed), 4)
+
+
+def _aggregate_peer_risk(metrics: list[dict[str, float | int | None]]) -> tuple[dict[str, float | None], dict[str, int]]:
+    aggregated: dict[str, float | None] = {}
+    sample_sizes: dict[str, int] = {}
+    for key in PEER_RISK_METRICS:
+        values = [_safe_float(item.get(key)) for item in metrics]
+        clean = [v for v in values if v is not None and math.isfinite(v)]
+        sample_sizes[key] = len(clean)
+        aggregated[key] = _trimmed_mean_for_metric(clean)
+    return aggregated, sample_sizes
+
+
+def _peer_nav_maps_for_risk(
+    code: str,
+    fund_type: str,
+    *,
+    as_of: date,
+    max_peers: int,
+) -> dict[str, list[dict[str, Any]]]:
+    if not fund_type:
+        return {}
+    bounded_max_peers = max(20, min(int(max_peers or PEER_RISK_DEFAULT_MAX_PEERS), 300))
+    as_of_text = as_of.isoformat()
+    stale_cutoff = (as_of - timedelta(days=45)).isoformat()
+    peer_rows = _safe_table_query(
+        """SELECT n.code, COUNT(*) AS nav_count, MIN(n.nav_date) AS min_date, MAX(n.nav_date) AS max_date
+           FROM fund_nav_history n
+           JOIN fund_master m ON m.code = n.code
+           WHERE m.fund_type = ? AND m.is_active = 1 AND n.code != ? AND n.nav_date <= ?
+           GROUP BY n.code
+           HAVING COUNT(*) >= 60 AND MAX(n.nav_date) >= ?
+           ORDER BY MAX(n.nav_date) DESC, COUNT(*) DESC
+           LIMIT ?""",
+        (fund_type, code, as_of_text, stale_cutoff, bounded_max_peers),
+    )
+    peer_codes = [str(row["code"]) for row in peer_rows if row["code"]]
+    if not peer_codes:
+        return {}
+    placeholders = ",".join("?" for _ in peer_codes)
+    rows = _safe_table_query(
+        f"""SELECT code, nav_date, nav
+            FROM fund_nav_history
+            WHERE code IN ({placeholders}) AND nav_date <= ?
+            ORDER BY code, nav_date ASC""",
+        (*peer_codes, as_of_text),
+    )
+    nav_map: dict[str, list[dict[str, Any]]] = {}
+    for row in rows or []:
+        c = str(row["code"] or "")
+        if c:
+            nav_map.setdefault(c, []).append({
+                "code": c,
+                "nav_date": str(row["nav_date"]),
+                "nav": _safe_float(row["nav"]),
+            })
+    return nav_map
+
+
+def _empty_peer_risk_window() -> dict[str, Any]:
+    return {
+        "fund": None,
+        "peer": None,
+        "peerSampleSize": 0,
+        "peerMetricSampleSize": {},
+        "missingReason": None,
+    }
+
+
+def get_fund_peer_risk(code: str, max_peers: int = PEER_RISK_DEFAULT_MAX_PEERS) -> dict:
+    """多周期风险矩阵：本基金、同类真实净值均值、沪深300 Alpha/Beta。"""
+    try:
+        with get_db_context() as conn:
+            master = conn.execute(
+                "SELECT fund_type, name FROM fund_master WHERE code = ?",
+                (code,),
+            ).fetchone()
+        if not master:
+            return {
+                "code": code,
+                "windows": {key: _empty_peer_risk_window() for key in PEER_RISK_WINDOWS},
+                **_detail_meta(
+                    status=DETAIL_STATUS_MISSING,
+                    missing_reason="基金主数据不存在，无法计算风险矩阵。",
+                ),
+            }
+
+        fund_type = master["fund_type"] or ""
+        nav_rows, nav_source, nav_as_of = _get_nav_history_for_detail(code)
+        fund_points = _nav_points_from_rows(nav_rows)
+        if len(fund_points) < 30:
+            return {
+                "code": code,
+                "fundType": fund_type,
+                "windows": {key: _empty_peer_risk_window() for key in PEER_RISK_WINDOWS},
+                **_detail_meta(
+                    status=DETAIL_STATUS_MISSING,
+                    source=nav_source,
+                    as_of=nav_as_of,
+                    coverage=0.0,
+                    missing_reason="本基金净值历史不足，无法计算风险矩阵。",
+                ),
+            }
+
+        as_of = _to_date(nav_as_of) or fund_points[-1][0]
+        inception_start = fund_points[0][0]
+        benchmark_points = _nav_points_from_rows(_get_index_nav_history(HS300_BENCHMARK_CODE))
+        peer_nav_maps = _peer_nav_maps_for_risk(
+            code,
+            fund_type,
+            as_of=as_of,
+            max_peers=max_peers,
+        )
+
+        windows: dict[str, dict[str, Any]] = {}
+        missing_items: list[str] = []
+        fund_window_count = 0
+        peer_window_count = 0
+
+        for window_key, window_days in PEER_RISK_WINDOWS.items():
+            label = PEER_RISK_WINDOW_LABELS[window_key]
+            require_full = window_days is not None
+            clipped_fund = _clip_risk_points(
+                fund_points,
+                as_of=as_of,
+                window_key=window_key,
+                inception_start=inception_start,
+                require_full_window=require_full,
+            )
+            clipped_benchmark = _clip_risk_points(
+                benchmark_points,
+                as_of=as_of,
+                window_key=window_key,
+                inception_start=inception_start,
+                require_full_window=False,
+            ) if benchmark_points else []
+            fund_metrics = _risk_metrics_from_points(
+                clipped_fund,
+                benchmark_points=clipped_benchmark,
+            ) if clipped_fund else None
+            if fund_metrics:
+                fund_window_count += 1
+            else:
+                missing_items.append(f"本基金{label}净值历史不足")
+
+            peer_metrics: list[dict[str, float | int | None]] = []
+            for rows in peer_nav_maps.values():
+                peer_points = _nav_points_from_rows(rows)
+                clipped_peer = _clip_risk_points(
+                    peer_points,
+                    as_of=as_of,
+                    window_key=window_key,
+                    inception_start=inception_start,
+                    require_full_window=True,
+                )
+                if not clipped_peer:
+                    continue
+                metrics = _risk_metrics_from_points(
+                    clipped_peer,
+                    benchmark_points=clipped_benchmark,
+                )
+                if metrics:
+                    peer_metrics.append(metrics)
+
+            peer_agg, peer_sample_sizes = _aggregate_peer_risk(peer_metrics)
+            peer_has_value = any(value is not None for value in peer_agg.values())
+            if peer_has_value:
+                peer_window_count += 1
+            else:
+                missing_items.append(f"同类{label}风险样本不足")
+
+            windows[window_key] = {
+                "fund": fund_metrics,
+                "peer": peer_agg if peer_has_value else None,
+                "peerSampleSize": len(peer_metrics),
+                "peerMetricSampleSize": peer_sample_sizes,
+                "missingReason": None if fund_metrics and peer_has_value else " / ".join(
+                    item for item in (
+                        f"本基金{label}净值历史不足" if not fund_metrics else None,
+                        f"同类{label}风险样本不足" if not peer_has_value else None,
+                    ) if item
+                ),
+            }
+
+        if fund_window_count == 0 and peer_window_count == 0:
+            status = DETAIL_STATUS_MISSING
+        elif fund_window_count == len(PEER_RISK_WINDOWS) and peer_window_count == len(PEER_RISK_WINDOWS):
+            status = DETAIL_STATUS_AVAILABLE
+        else:
+            status = DETAIL_STATUS_PARTIAL
+
+        coverage = round((fund_window_count + peer_window_count) / (len(PEER_RISK_WINDOWS) * 2), 4)
+        source_parts = ["fund_nav_history"]
+        if benchmark_points:
+            source_parts.append("fund_benchmark_nav_history")
+        if peer_nav_maps:
+            source_parts.append("peer_nav_history")
+        return {
+            "code": code,
+            "fundType": fund_type,
+            "benchmark": HS300_BENCHMARK_CODE,
+            "windows": windows,
+            **_detail_meta(
+                status=status,
+                source="+".join(source_parts),
+                as_of=as_of.isoformat(),
+                coverage=coverage,
+                missing_reason=None if status == DETAIL_STATUS_AVAILABLE else "；".join(dict.fromkeys(missing_items[:6])),
+            ),
+        }
+    except Exception as exc:
+        console_error(f"peer risk calc failed for {code}: {exc}")
+        return {
+            "code": code,
+            "windows": {key: _empty_peer_risk_window() for key in PEER_RISK_WINDOWS},
+            **_detail_meta(
+                status=DETAIL_STATUS_MISSING,
+                missing_reason="同类风险矩阵读取失败。",
             ),
         }
 

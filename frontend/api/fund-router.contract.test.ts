@@ -65,6 +65,23 @@ describe('fund detail contract fallbacks', () => {
     );
   });
 
+  test('peerRisk fallback returns dataStatus missing', async () => {
+    const result = await caller.peerRisk({ code: '000001' });
+    expectMissingFallback(result);
+  });
+
+  test('peerRisk requests bounded backend sample size', async () => {
+    const ftFetchMock = vi.mocked(fundClient.ftFetch);
+    ftFetchMock.mockResolvedValueOnce({ code: '000002', windows: {} });
+
+    const result = await caller.peerRisk({ code: '000002', maxPeers: 120 });
+
+    expect(result.code).toBe('000002');
+    expect(ftFetchMock).toHaveBeenLastCalledWith(
+      '/fund/peer-risk?code=000002&max_peers=120',
+    );
+  });
+
   test('riskSummary fallback returns dataStatus missing', async () => {
     const result = await caller.riskSummary({ code: '000001' });
     expectMissingFallback(result);

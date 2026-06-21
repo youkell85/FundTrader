@@ -1325,6 +1325,45 @@ async def fund_peer_performance(
         }
 
 
+@router.get("/peer-risk")
+async def fund_peer_risk(
+    code: str = Query(..., min_length=4, max_length=10, description="基金代码"),
+    max_peers: int = Query(160, ge=20, le=300, description="同类样本最多基金数"),
+):
+    """多周期风险矩阵：本基金 / 同类均值 / 沪深300 Alpha-Beta。"""
+    from ..services.fund_service import get_fund_peer_risk
+
+    try:
+        data = await run_in_threadpool(get_fund_peer_risk, code=code, max_peers=max_peers)
+        return {"code": code, **(data or {})}
+    except Exception as e:
+        logger.error(f"fund.peerRisk failed for {code}: {e}")
+        empty_window = {
+            "fund": None,
+            "peer": None,
+            "peerSampleSize": 0,
+            "peerMetricSampleSize": {},
+            "missingReason": "同类风险矩阵读取失败",
+        }
+        return {
+            "code": code,
+            "fundType": None,
+            "benchmark": None,
+            "windows": {
+                "1y": empty_window.copy(),
+                "3y": empty_window.copy(),
+                "5y": empty_window.copy(),
+                "inception": empty_window.copy(),
+            },
+            "dataStatus": "missing",
+            "source": None,
+            "asOf": None,
+            "coverage": 0.0,
+            "missingReason": "同类风险矩阵读取失败",
+            "error": str(e)[:120],
+        }
+
+
 # ============================================================
 #  P2: 历年规模变化 / 基金换手率 / 基金经理变更
 # ============================================================

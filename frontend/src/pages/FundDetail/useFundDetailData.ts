@@ -91,6 +91,10 @@ export function useFundDetailData() {
     { code },
     { enabled, staleTime: DETAIL_QUARTERLY_STALE_MS, refetchOnWindowFocus: false },
   );
+  const peerRiskQ = trpc.fund.peerRisk.useQuery(
+    { code },
+    { enabled, staleTime: DETAIL_QUARTERLY_STALE_MS, refetchOnWindowFocus: false },
+  );
   const scaleHistoryQ = trpc.fund.scaleHistory.useQuery(
     { code, periods: 40 },
     { enabled, staleTime: DETAIL_QUARTERLY_STALE_MS, refetchOnWindowFocus: false },
@@ -520,6 +524,7 @@ export function useFundDetailData() {
     holderStructureQ,
     yearReturnsQ,
     peerPerformanceQ,
+    peerRiskQ,
     scaleHistoryQ,
     turnoverHistoryQ,
     managerHistoryQ,

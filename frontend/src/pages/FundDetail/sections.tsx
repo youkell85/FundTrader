@@ -855,10 +855,104 @@ export function ScaleSection({
 
 // ===================== 风险分析 =====================
 
+type RiskWindowKey = "1y" | "3y" | "5y" | "inception";
+type RiskMetricKey =
+  | "annualizedVolatility"
+  | "maxDrawdown"
+  | "downsideRisk"
+  | "worstMonth"
+  | "sharpeRatio"
+  | "sortinoRatio"
+  | "calmarRatio"
+  | "informationRatio"
+  | "alpha"
+  | "beta"
+  | "winRate"
+  | "recoveryDays";
+
+type PeerRiskMetricSet = Partial<Record<RiskMetricKey, number | null>>;
+type PeerRiskWindow = {
+  fund?: PeerRiskMetricSet | null;
+  peer?: PeerRiskMetricSet | null;
+  peerSampleSize?: number | null;
+  missingReason?: string | null;
+};
+type PeerRiskPayload = {
+  windows?: Partial<Record<RiskWindowKey, PeerRiskWindow>>;
+  dataStatus?: string | null;
+  asOf?: string | null;
+  missingReason?: string | null;
+} | null;
+
+type RiskCompareMode = "higher" | "lower" | "lowerAbs";
+type RiskRowConfig = {
+  label: string;
+  metric: RiskMetricKey;
+  fallback?: number | null;
+  suffix: string;
+  digits: number;
+  compare: RiskCompareMode;
+};
+
+const RISK_WINDOW_COLUMNS: Array<{ key: RiskWindowKey; label: string }> = [
+  { key: "1y", label: "近 1 年" },
+  { key: "3y", label: "近 3 年" },
+  { key: "5y", label: "近 5 年" },
+  { key: "inception", label: "成立以来" },
+];
+
+function riskWindowMetric(
+  peerRisk: PeerRiskPayload,
+  windowKey: RiskWindowKey,
+  target: "fund" | "peer",
+  metric: RiskMetricKey,
+): number | null {
+  return num(peerRisk?.windows?.[windowKey]?.[target]?.[metric]);
+}
+
+function formatRiskValue(value: number | null, row: Pick<RiskRowConfig, "digits" | "suffix">, signed = false): string {
+  const x = num(value);
+  if (x === null) return "—";
+  const prefix = signed && x > 0 ? "+" : "";
+  return `${prefix}${x.toFixed(row.digits)}${row.suffix}`;
+}
+
+function peerAdvantage(fundValue: number | null, peerValue: number | null, compare: RiskCompareMode): number | null {
+  const fund = num(fundValue);
+  const peer = num(peerValue);
+  if (fund === null || peer === null) return null;
+  if (compare === "lowerAbs") return Math.abs(peer) - Math.abs(fund);
+  if (compare === "lower") return peer - fund;
+  return fund - peer;
+}
+
+function RiskValueCell({ value, row }: { value: number | null; row: RiskRowConfig }) {
+  const x = num(value);
+  if (x === null) {
+    return <span className="text-muted-foreground">—</span>;
+  }
+  const tone =
+    row.metric === "maxDrawdown" || row.metric === "worstMonth" || row.metric === "alpha"
+      ? getChangeTextClass(x)
+      : "text-white/80";
+  return <span className={`data-number ${tone}`}>{formatRiskValue(x, row)}</span>;
+}
+
+function PeerAdvantageCell({ value, row }: { value: number | null; row: RiskRowConfig }) {
+  const x = num(value);
+  if (x === null) {
+    return <span className="text-muted-foreground">—</span>;
+  }
+  const tone = x > 0 ? "text-[#16C784]" : x < 0 ? "text-[#F5384B]" : "text-white/60";
+  return <span className={`data-number ${tone}`}>{formatRiskValue(x, row, true)}</span>;
+}
+
 export function RiskSection({
   risk,
   navSeries,
   riskSummary,
+  peerRisk,
+  performance,
 }: {
   risk: {
     sharpe: number | null;
@@ -875,6 +969,8 @@ export function RiskSection({
     level: "low" | "medium" | "high" | null;
     summary: string | null;
   } | null;
+  peerRisk?: PeerRiskPayload;
+  performance?: Record<string, unknown> | null;
 }) {
   // 基础风险指标（已有）
   const maxDD = risk.maxDrawdown;
@@ -883,9 +979,9 @@ export function RiskSection({
   const level: "low" | "medium" | "high" =
     maxDD === null || vol === null
       ? "low"
-      : maxDD > 30 || vol > 25
+      : Math.abs(maxDD) > 30 || vol > 25
         ? "high"
-        : maxDD > 15 || vol > 18
+        : Math.abs(maxDD) > 15 || vol > 18
           ? "medium"
           : "low";
   const levelColor = {
@@ -894,24 +990,20 @@ export function RiskSection({
     high: "#F5384B",
   }[level];
 
-  // 1y 数据：前端可算
-  // 3y / 5y / 成立以来：后端未提供
-  const peerCols = [
-    { key: "1y", label: "近 1 年" },
-    { key: "3y", label: "近 3 年" },
-    { key: "5y", label: "近 5 年" },
-    { key: "inception", label: "成立以来" },
-  ] as const;
-
-  // 7 个核心风险指标；3y/5y/成立以来 全 null
-  const rows: Array<{ label: string; values: Array<number | null> }> = [
-    { label: "年化波动率", values: [vol, null, null, null] },
-    { label: "最大回撤率", values: [maxDD, null, null, null] },
-    { label: "下行风险", values: [risk.downsideRisk, null, null, null] },
-    { label: "最低单月回报", values: [risk.worstMonth, null, null, null] },
-    { label: "阿尔法（年化）", values: [null, null, null, null] },
-    { label: "贝塔", values: [null, null, null, null] },
-    { label: "回撤修复天数", values: [null, null, null, null] },
+  const perf = performance || {};
+  const rows: RiskRowConfig[] = [
+    { label: "年化波动率", metric: "annualizedVolatility", fallback: vol, suffix: "%", digits: 2, compare: "lower" },
+    { label: "最大回撤率", metric: "maxDrawdown", fallback: maxDD, suffix: "%", digits: 2, compare: "lowerAbs" },
+    { label: "下行风险", metric: "downsideRisk", fallback: risk.downsideRisk, suffix: "%", digits: 2, compare: "lower" },
+    { label: "最低单月回报", metric: "worstMonth", fallback: risk.worstMonth, suffix: "%", digits: 2, compare: "higher" },
+    { label: "夏普比率", metric: "sharpeRatio", fallback: risk.sharpe ?? num(perf.sharpeRatio), suffix: "", digits: 2, compare: "higher" },
+    { label: "索提诺比率", metric: "sortinoRatio", fallback: risk.sortino ?? num(perf.sortinoRatio), suffix: "", digits: 2, compare: "higher" },
+    { label: "卡玛比率", metric: "calmarRatio", fallback: num(perf.calmarRatio), suffix: "", digits: 2, compare: "higher" },
+    { label: "信息比率", metric: "informationRatio", fallback: num(perf.informationRatio), suffix: "", digits: 2, compare: "higher" },
+    { label: "阿尔法（年化）", metric: "alpha", fallback: num(perf.alpha), suffix: "%", digits: 2, compare: "higher" },
+    { label: "贝塔", metric: "beta", fallback: num(perf.beta), suffix: "", digits: 2, compare: "lower" },
+    { label: "胜率", metric: "winRate", fallback: risk.monthWinRate ?? num(perf.winRate), suffix: "%", digits: 2, compare: "higher" },
+    { label: "回撤修复天数", metric: "recoveryDays", fallback: num(perf.recoveryPeriod), suffix: "天", digits: 0, compare: "lower" },
   ];
 
   return (
@@ -1029,7 +1121,7 @@ export function RiskSection({
             <thead>
               <tr className="border-b border-white/[0.06] text-[11px] uppercase tracking-wider text-white/45">
                 <th className="px-2 py-2 text-left">指标</th>
-                {peerCols.map((c) => (
+                {RISK_WINDOW_COLUMNS.map((c) => (
                   <th key={c.key} className="px-2 py-2 text-right">
                     {c.label}
                   </th>
@@ -1041,34 +1133,49 @@ export function RiskSection({
                 <Fragment key={r.label}>
                   <tr className="border-b">
                     <td className="px-2 py-2">{r.label}</td>
-                    {r.values.map((v, i) => (
-                      <td key={i} className="px-2 py-2 text-right">
-                        {v === null ? (
-                          <span className="text-muted-foreground">—</span>
-                        ) : (
-                          <ChangeCell value={v} />
-                        )}
-                      </td>
-                    ))}
+                    {RISK_WINDOW_COLUMNS.map((c) => {
+                      const fundValue =
+                        riskWindowMetric(peerRisk || null, c.key, "fund", r.metric) ??
+                        (c.key === "1y" ? r.fallback ?? null : null);
+                      return (
+                        <td key={c.key} className="px-2 py-2 text-right">
+                          <RiskValueCell value={fundValue} row={r} />
+                        </td>
+                      );
+                    })}
                   </tr>
                   <tr className="border-b border-white/[0.04] bg-white/[0.02] text-xs text-white/45">
-                    <td className="px-2 py-1.5 pl-4">±同类</td>
-                    {r.values.map((_, i) => (
-                      <td
-                        key={i}
-                        className="px-2 py-1.5 text-right text-muted-foreground"
-                      >
-                        —
-                      </td>
-                    ))}
+                    <td className="px-2 py-1.5 pl-4">同类均值</td>
+                    {RISK_WINDOW_COLUMNS.map((c) => {
+                      const fundValue =
+                        riskWindowMetric(peerRisk || null, c.key, "fund", r.metric) ??
+                        (c.key === "1y" ? r.fallback ?? null : null);
+                      const peerValue = riskWindowMetric(peerRisk || null, c.key, "peer", r.metric);
+                      const advantage = peerAdvantage(fundValue, peerValue, r.compare);
+                      return (
+                        <td key={c.key} className="px-2 py-1.5 text-right">
+                          <div className="flex flex-col items-end gap-0.5">
+                            <RiskValueCell value={peerValue} row={r} />
+                            {advantage !== null ? (
+                              <span className="text-[10px]">
+                                <PeerAdvantageCell value={advantage} row={r} />
+                              </span>
+                            ) : null}
+                          </div>
+                        </td>
+                      );
+                    })}
                   </tr>
                 </Fragment>
               ))}
             </tbody>
           </table>
         </div>
-        <div className="mt-2 text-[10px] text-muted-foreground/80">
-          🛈 多周期窗口（3y / 5y / 成立以来）+ ±同类 全部依赖后端补全（fund.peerRisk）
+        <div className="mt-2 space-y-1 text-[10px] text-muted-foreground/80">
+          <div>
+            来源：fund_nav_history / fund_benchmark_nav_history / peer_nav_history；同类均值为真实同类净值样本截尾均值。
+          </div>
+          {peerRisk?.missingReason ? <div>{peerRisk.missingReason}</div> : null}
         </div>
       </Panel>
     </>

@@ -2055,6 +2055,32 @@ export const fundRouter = createRouter({
       }
     }),
 
+  peerRisk: publicQuery
+    .input(_codeOnlySchema.extend({ maxPeers: z.number().min(20).max(300).optional() }))
+    .query(async ({ input }) => {
+      try {
+        const maxPeers = input.maxPeers ?? 160;
+        return await cachedFtFetch(
+          `detail_peerRisk_${input.code}_${maxPeers}`,
+          DETAIL_QUARTERLY_TTL,
+          () => ftFetch<any>(
+            `/fund/peer-risk?code=${encodeURIComponent(input.code)}&max_peers=${maxPeers}`,
+          ),
+        );
+      } catch (err) {
+        console.warn(`[fundRouter] peer 风险失败 ${input.code}:`, err);
+        return {
+          code: input.code,
+          windows: {},
+          dataStatus: "missing",
+          source: null,
+          asOf: null,
+          coverage: 0.0,
+          missingReason: "同类风险矩阵读取失败",
+        };
+      }
+    }),
+
   scaleHistory: publicQuery
     .input(_codeOnlySchema.extend({ periods: z.number().min(1).max(80).optional() }))
     .query(async ({ input }) => {
