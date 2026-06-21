@@ -126,8 +126,8 @@ class FundDetailContractTest(unittest.TestCase):
             return_value=[],
         ), patch.object(
             fund_service,
-            "_peer_year_return",
-            return_value=None,
+            "_peer_year_return_samples",
+            return_value=[],
         ):
             payload = fund_service.get_fund_year_returns("000001")
 
@@ -136,6 +136,40 @@ class FundDetailContractTest(unittest.TestCase):
         self.assertEqual(payload["rows"][1]["fundReturn"], 25.0)
         self.assertIsNone(payload["rows"][0]["hs300Return"])
         self.assertIn("真实净值", payload["missingReason"])
+
+    def test_year_returns_available_when_peer_rank_is_computed(self):
+        nav_rows = [
+            {"nav_date": "2024-01-02", "nav": 1.0},
+            {"nav_date": "2024-12-31", "nav": 1.2},
+            {"nav_date": "2025-01-02", "nav": 1.2},
+            {"nav_date": "2025-12-31", "nav": 1.5},
+        ]
+        index_rows = [
+            {"nav_date": "2024-01-02", "nav": 1.0},
+            {"nav_date": "2024-12-31", "nav": 1.1},
+            {"nav_date": "2025-01-02", "nav": 1.1},
+            {"nav_date": "2025-12-31", "nav": 1.21},
+        ]
+        with patch.object(
+            fund_service,
+            "_get_nav_history_for_detail",
+            return_value=(nav_rows, "unit-test", "2025-12-31"),
+        ), patch.object(
+            fund_service,
+            "_get_index_nav_history",
+            return_value=index_rows,
+        ), patch.object(
+            fund_service,
+            "_peer_year_return_samples",
+            return_value=[5.0, 10.0, 15.0, 30.0],
+        ):
+            payload = fund_service.get_fund_year_returns("000001")
+
+        self.assertEqual(payload["dataStatus"], "available")
+        self.assertEqual(payload["coverage"], 1.0)
+        self.assertIsNone(payload["missingReason"])
+        self.assertEqual(payload["rows"][0]["rank"], {"rank": 2, "total": 5})
+        self.assertEqual(payload["rows"][1]["rank"], {"rank": 2, "total": 5})
 
     def test_missing_holder_structure_returns_missing_not_mock(self):
         with patch.object(fund_service, "_safe_table_query", return_value=[]), \

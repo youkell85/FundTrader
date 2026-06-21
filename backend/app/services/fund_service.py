@@ -2210,19 +2210,37 @@ def get_fund_year_returns(code: str) -> dict:
         })
     has_hs300 = any(r["hs300Return"] is not None for r in rows)
     has_peer = any(r["peerReturn"] is not None for r in rows)
-    coverage = 0.5 if has_hs300 else 0.35
+    valid_rows = [row for row in rows if row.get("fundReturn") is not None]
+    rows_with_rank = [row for row in valid_rows if row.get("rank")]
+    has_rank = bool(rows_with_rank)
+    has_complete_rank = bool(valid_rows) and len(rows_with_rank) == len(valid_rows)
+    coverage = 0.45
+    if has_hs300:
+        coverage += 0.2
     if has_peer:
-        coverage = min(1.0, coverage + 0.2)
-    if has_hs300 and has_peer:
-        missing_reason = "本基金/沪深300/同类均值均按真实数据计算；排名需补基准/同类历史表。"
+        coverage += 0.2
+    if has_rank:
+        coverage += 0.15 if has_complete_rank else 0.08
+    coverage = round(min(1.0, coverage), 4)
+    if has_hs300 and has_peer and has_complete_rank:
+        status = DETAIL_STATUS_AVAILABLE
+        missing_reason = None
+    elif has_hs300 and has_peer and has_rank:
+        status = DETAIL_STATUS_PARTIAL
+        missing_reason = "本基金/沪深300/同类均值均按真实数据计算；部分年度缺少同类排名样本。"
+    elif has_hs300 and has_peer:
+        status = DETAIL_STATUS_PARTIAL
+        missing_reason = "本基金/沪深300/同类均值均按真实数据计算；同类排名样本不足。"
     elif has_peer:
-        missing_reason = "本基金年度收益已按真实净值计算；沪深300 同期收益缺失，排名需补同类历史表。"
+        status = DETAIL_STATUS_PARTIAL
+        missing_reason = "本基金年度收益和同类均值已按真实净值计算；沪深300同期收益缺失，排名样本不足。"
     else:
+        status = DETAIL_STATUS_PARTIAL
         missing_reason = "本基金年度收益已按真实净值计算；沪深300同期收益来自指数净值；同类均值、排名需补基准/同类历史表。"
     return _rows_response(
         code,
         rows,
-        status=DETAIL_STATUS_PARTIAL,
+        status=status,
         source=source,
         as_of=as_of,
         coverage=coverage,
