@@ -18,7 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import API_PREFIX, CORS_ORIGINS, MARKET_DATA_REFRESH_INTERVAL
 
-from .api import fund, analysis, recommend, dca, professional, settings, allocation, storage, auth, admin_api, health, sales, marketplace
+from .api import fund, analysis, recommend, dca, professional, settings, allocation, storage, auth, admin_api, health, sales, marketplace, workspace
 
 from .storage.database import init_db, get_db_context
 
@@ -561,6 +561,8 @@ app.include_router(health.router)
 app.include_router(sales.router)
 
 app.include_router(marketplace.router)
+
+app.include_router(workspace.router)
 
 
 

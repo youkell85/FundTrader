@@ -580,6 +580,37 @@ export async function getModelPortfolios(limit = 6) {
   return fetchJson<import("@/types/portfolio").ModelPortfolioListResponse>(`/marketplace/model-portfolios?limit=${limit}`);
 }
 
+// ==================== Institution workspace ====================
+export async function getWorkspaceFeatures() {
+  return fetchJson<import("@/types/workspace").WorkspaceFeatures>("/workspace/features");
+}
+
+export async function getClient360(params: import("@/types/workspace").Client360Request) {
+  return fetchJson<import("@/types/workspace").Client360Response>("/workspace/client-360", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
+
+export async function getNbaSuggestions(params: {
+  client_360?: import("@/types/workspace").Client360Profile;
+  client?: import("@/types/workspace").Client360Request["client"];
+  holdings?: import("@/types/workspace").ClientHoldingInput[];
+  context?: Record<string, unknown>;
+}) {
+  return fetchJson<import("@/types/workspace").NbaResponse>("/workspace/nba", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
+
+export async function getTaskDrafts(suggestions: import("@/types/workspace").NbaSuggestion[]) {
+  return fetchJson<import("@/types/workspace").TaskDraftResponse>("/workspace/task-drafts", {
+    method: "POST",
+    body: JSON.stringify({ suggestions }),
+  });
+}
+
 // ==================== 棰勮閫氱煡 ====================
 export interface AlertItem {
   id: string;
