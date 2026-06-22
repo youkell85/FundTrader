@@ -16,6 +16,7 @@ const Backtest = lazy(() => import('./pages/Backtest'))
 const Recommend = lazy(() => import('./pages/Recommend'))
 const Analysis = lazy(() => import('./pages/Analysis'))
 const AllocationWizard = lazy(() => import('./pages/AllocationWizard'))
+const SalesWorkbench = lazy(() => import('./pages/SalesWorkbench'))
 
 // 资产配置结果页 — 侧边导航布局 + 子路由
 const AllocationLayout = lazy(() => import('./components/layout/AllocationLayout'))
@@ -128,6 +129,7 @@ export default function App() {
             <Route path="/backtest" element={<RequireAuth><Backtest /></RequireAuth>} />
             <Route path="/recommend" element={<RequireAuth><Recommend /></RequireAuth>} />
             <Route path="/analysis" element={<Analysis />} />
+            <Route path="/sales" element={<RequireAuth><SalesWorkbench /></RequireAuth>} />
             {/* AllocationProvider 共享同一个实例，Wizard → Result 状态不丢失 */}
             <Route path="/allocation" element={<AllocationProvider><RequireAuth><Outlet /></RequireAuth></AllocationProvider>}>
               <Route index element={<AllocationWizard />} />
