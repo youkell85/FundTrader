@@ -12,10 +12,13 @@ import DrawdownChart from '@/components/backtest/DrawdownChart';
 import RegimeTimeline from '@/components/backtest/RegimeTimeline';
 import BacktestMetricsTable from '@/components/backtest/BacktestMetricsTable';
 import BacktestCostAssumptionPanel from '@/components/backtest/BacktestCostAssumptionPanel';
+import DcaStrategyScorecard from '@/components/backtest/DcaStrategyScorecard';
 import { runAllocationBacktestStream } from '@/lib/api';
+import { runDcaStrategyLab } from '@/lib/dca-lab-api';
 import AllocationProgress, { type StepState } from '@/components/allocation/AllocationProgress';
 import type { BacktestRequest, BacktestResponse, BacktestMetrics, ComparisonMode } from '@/types/backtest';
 import { MODE_LABELS, MODE_COLORS } from '@/types/backtest';
+import type { DcaStrategyLabResponse } from '@/types/dca-lab';
 import type { ParsedDcaResult } from '@/lib/execution-plan';
 
 /** 缺值兜底 */
@@ -96,6 +99,9 @@ export default function BacktestPage() {
   const [currentBacktestStep, setCurrentBacktestStep] = useState(0);
   const [backtestElapsed, setBacktestElapsed] = useState(0);
   const [backtestWaitingNotice, setBacktestWaitingNotice] = useState<string | null>(null);
+  const [dcaLabResult, setDcaLabResult] = useState<DcaStrategyLabResponse | null>(null);
+  const [dcaLabLoading, setDcaLabLoading] = useState(false);
+  const [dcaLabError, setDcaLabError] = useState<string | null>(null);
   const backtestStartTime = useRef(0);
   const backtestTimerRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
   const backtestCancelRef = useRef<{ cancel: () => void } | null>(null);
@@ -108,6 +114,30 @@ export default function BacktestPage() {
   const hasAllocationBacktest = backtestResult != null && backtestResult.metrics != null;
   const hasDcaBacktest = dcaResult != null;
   const hasAnyResult = hasAllocationBacktest || hasDcaBacktest;
+
+  const handleDcaStrategyLab = async () => {
+    const fundCode = d?.funds?.[0]?.code || dcaConfig?.codes?.[0] || '';
+    if (!fundCode) {
+      setDcaLabError('缺少真实基金代码，无法进行定投策略实验室评分。');
+      return;
+    }
+    setDcaLabLoading(true);
+    setDcaLabError(null);
+    try {
+      const result = await runDcaStrategyLab({
+        fund_codes: [fundCode],
+        start_date: '2020-01-01',
+        end_date: new Date().toISOString().slice(0, 10),
+        monthly_amount: dcaConfig?.investAmount || 1000,
+        strategy_types: ['fixed', 'ratio', 'ma', 'martingale'],
+      });
+      setDcaLabResult(result);
+    } catch (err) {
+      setDcaLabError(err instanceof Error ? err.message : '定投策略实验室运行失败');
+    } finally {
+      setDcaLabLoading(false);
+    }
+  };
 
   useEffect(() => {
     return () => {
@@ -693,6 +723,21 @@ export default function BacktestPage() {
       )}
 
       {/* ===== 再平衡面板 ===== */}
+      <section className="workspace-panel p-5">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-white">定投策略实验室</h2>
+            <p className="mt-1 text-xs text-white/45">历史区间适配度分析，不构成收益承诺。</p>
+          </div>
+          <button type="button" onClick={handleDcaStrategyLab} disabled={dcaLabLoading} className="workspace-action-active inline-flex h-10 items-center px-4 text-sm disabled:opacity-60">
+            {dcaLabLoading ? '评分中' : '运行策略评分'}
+          </button>
+        </div>
+        {dcaLabError ? <div className="mt-3 rounded-lg border border-red-400/20 bg-red-500/10 p-3 text-sm text-red-100">{dcaLabError}</div> : null}
+      </section>
+
+      <DcaStrategyScorecard result={dcaLabResult} />
+
       <RebalancePanel />
     </div>
   );

@@ -28,6 +28,7 @@ from ..allocation.models import (
     CorrelationCheckRequest, CorrelationCheckResponse, CorrelationPairItem,
     FeeAnalysisRequest, FeeAnalysisResponse, FeeAnalysisItem,
     LifecyclePolicyRequest, LifecyclePolicyResponse,
+    DcaStrategyLabRequest, DcaStrategyLabResponse,
 )
 from ..allocation.orchestrator import run as run_allocation
 from ..allocation.orchestrator import TaskCancelledError, generate_variants, get_pipeline_health
@@ -40,6 +41,7 @@ from ..allocation.fee_scorer import batch_analyze_fees
 from ..allocation.backtest import BacktestRequest, BacktestResponse, run_backtest
 from ..allocation.fund_mapper import get_all_rankings
 from ..allocation.lifecycle_policy import build_lifecycle_policy
+from ..allocation.dca_strategy_lab import run_dca_strategy_lab
 from ..allocation.rebalancer import run_rebalance_check
 from ..storage.database import Database, RiskBehaviorObservationStore, get_db
 
@@ -697,3 +699,13 @@ async def generate_lifecycle_plan(request: LifecyclePolicyRequest, user: dict | 
                 "error_id": error_id,
             },
         )
+
+
+@router.post("/dca-strategy-lab", response_model=DcaStrategyLabResponse)
+async def dca_strategy_lab(request: DcaStrategyLabRequest, user: dict | None = Depends(get_optional_user)):
+    """Score DCA strategies without replacing /dca/backtest."""
+    if user and not request.owner_user_id:
+        request.owner_user_id = str(user.get("id") or "")
+    result = await run_in_threadpool(run_dca_strategy_lab, request)
+    assert_json_finite(_response_payload(result))
+    return result
