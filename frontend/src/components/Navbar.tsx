@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router'
 import {
   BarChart3,
   Bell,
+  BriefcaseBusiness,
   Calculator,
   Lightbulb,
   LogIn,
@@ -23,6 +24,7 @@ const navItems = [
   { path: '/recommend', label: '组合', icon: Lightbulb },
   { path: '/allocation', label: '配置', icon: PieChart },
   { path: '/analysis', label: '研究', icon: Search },
+  { path: '/workspace', label: '机构', icon: BriefcaseBusiness },
 ]
 
 function isRouteActive(pathname: string, itemPath: string) {
@@ -153,7 +155,7 @@ export default function Navbar() {
       </nav>
 
       <div className="fixed bottom-0 left-0 right-0 z-50 border-t border-white/[0.075] bg-[#050706]/94 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl md:hidden">
-        <div className="grid grid-cols-5 px-1 py-1.5">
+        <div className="grid grid-cols-6 px-1 py-1.5">
           {navItems.map((item) => {
             const Icon = item.icon
             const isActive = isRouteActive(location.pathname, item.path)
