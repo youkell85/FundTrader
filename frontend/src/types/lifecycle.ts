@@ -60,6 +60,19 @@ export interface IpsSummary {
   suitability_notes: string[];
 }
 
+export interface LifecycleGoalSummary {
+  total_goals: number;
+  total_target_amount: number;
+  total_current_balance: number;
+  total_monthly_contribution: number;
+  funding_gap: number;
+  primary_goal_id?: string | null;
+  required_monthly_contribution?: number | null;
+  target_success_rate: number;
+  fallback_used: boolean;
+  fallback_reason?: string | null;
+}
+
 export interface LifecyclePolicyRequest {
   client_id?: string | null;
   base_request: AllocationRequest;
@@ -67,15 +80,18 @@ export interface LifecyclePolicyRequest {
   current_age: number;
   retirement_age?: number | null;
   review_frequency: "quarterly" | "semiannual" | "annual";
+  target_success_rate: number;
   owner_user_id?: string | null;
 }
 
 export interface LifecyclePolicyResponse {
   plan_id?: string | null;
   allocation: AllocationResponse;
+  goal_summary: LifecycleGoalSummary;
   glide_path: GlidePathPoint[];
   policy_bands: PolicyBand[];
   ips_summary: IpsSummary;
+  required_monthly_contribution?: number | null;
   data_quality: FusionDataQuality;
   suitability_status: "approved" | "review_required" | "rejected";
   evidence_refs: EvidenceRef[];

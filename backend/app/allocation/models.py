@@ -674,6 +674,19 @@ class IpsSummary(BaseModel):
     suitability_notes: List[str] = Field(default_factory=list)
 
 
+class LifecycleGoalSummary(BaseModel):
+    total_goals: int = 0
+    total_target_amount: float = 0
+    total_current_balance: float = 0
+    total_monthly_contribution: float = 0
+    funding_gap: float = 0
+    primary_goal_id: Optional[str] = None
+    required_monthly_contribution: Optional[float] = None
+    target_success_rate: float = Field(default=0.8, ge=0, le=1)
+    fallback_used: bool = False
+    fallback_reason: Optional[str] = None
+
+
 class LifecyclePolicyRequest(BaseModel):
     client_id: Optional[str] = None
     base_request: AllocationRequest
@@ -681,15 +694,18 @@ class LifecyclePolicyRequest(BaseModel):
     current_age: int = Field(ge=18, le=120)
     retirement_age: Optional[int] = Field(default=None, ge=40, le=80)
     review_frequency: Literal["quarterly", "semiannual", "annual"] = "annual"
+    target_success_rate: float = Field(default=0.8, ge=0.5, le=0.99)
     owner_user_id: Optional[str] = None
 
 
 class LifecyclePolicyResponse(BaseModel):
     plan_id: Optional[str] = None
     allocation: AllocationResponse
+    goal_summary: LifecycleGoalSummary = Field(default_factory=LifecycleGoalSummary)
     glide_path: List[GlidePathPoint] = Field(default_factory=list)
     policy_bands: List[PolicyBand] = Field(default_factory=list)
     ips_summary: IpsSummary
+    required_monthly_contribution: Optional[float] = None
     data_quality: FusionDataQuality = Field(default_factory=FusionDataQuality)
     suitability_status: Literal["approved", "review_required", "rejected"] = "review_required"
     evidence_refs: List[EvidenceRef] = Field(default_factory=list)

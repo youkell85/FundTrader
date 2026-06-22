@@ -24,6 +24,7 @@ const MarketPage = lazy(() => import('./pages/allocation/MarketPage'))
 const StrategyPage = lazy(() => import('./pages/allocation/StrategyPage'))
 const FundsPage = lazy(() => import('./pages/allocation/FundsPage'))
 const RiskPage = lazy(() => import('./pages/allocation/RiskPage'))
+const LifecyclePage = lazy(() => import('./pages/allocation/LifecyclePage'))
 
 // 独立工具页面
 const OpsPage = lazy(() => import('./pages/allocation/OpsPage'))
@@ -138,6 +139,7 @@ export default function App() {
                 <Route path="strategy" element={<StrategyPage />} />
                 <Route path="funds" element={<FundsPage />} />
                 <Route path="risk" element={<RiskPage />} />
+                <Route path="lifecycle" element={<LifecyclePage />} />
                 <Route path="ops" element={<OpsPage />} />
                 <Route path="plans" element={<PlansPage />} />
                 <Route path="simulator" element={<SimulatorPage />} />

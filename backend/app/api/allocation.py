@@ -27,6 +27,7 @@ from ..allocation.models import (
     ShareSelectorRequest, ShareSelectorResponse, ShareRecommendationItem,
     CorrelationCheckRequest, CorrelationCheckResponse, CorrelationPairItem,
     FeeAnalysisRequest, FeeAnalysisResponse, FeeAnalysisItem,
+    LifecyclePolicyRequest, LifecyclePolicyResponse,
 )
 from ..allocation.orchestrator import run as run_allocation
 from ..allocation.orchestrator import TaskCancelledError, generate_variants, get_pipeline_health
@@ -38,6 +39,7 @@ from ..allocation.correlation_checker import check_correlation_constraints, sugg
 from ..allocation.fee_scorer import batch_analyze_fees
 from ..allocation.backtest import BacktestRequest, BacktestResponse, run_backtest
 from ..allocation.fund_mapper import get_all_rankings
+from ..allocation.lifecycle_policy import build_lifecycle_policy
 from ..allocation.rebalancer import run_rebalance_check
 from ..storage.database import Database, RiskBehaviorObservationStore, get_db
 
@@ -675,3 +677,23 @@ async def dual_engine_compare(request: AllocationRequest):
     """双引擎对比 — v3 vs v4 并行运行，输出差异分析"""
     result = await run_in_threadpool(run_dual_comparison, request)
     return result
+
+
+@router.post("/lifecycle-plan", response_model=LifecyclePolicyResponse)
+async def generate_lifecycle_plan(request: LifecyclePolicyRequest, user: dict | None = Depends(get_optional_user)):
+    """Generate a lifecycle policy wrapper without changing /allocation/generate."""
+    try:
+        result = await run_in_threadpool(build_lifecycle_policy, request)
+        assert_json_finite(_response_payload(result))
+        return result
+    except Exception:
+        error_id = uuid.uuid4().hex
+        logger.exception("Lifecycle policy wrapper crashed")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": "lifecycle_policy_failed",
+                "message": GENERIC_ALLOCATION_ERROR,
+                "error_id": error_id,
+            },
+        )
