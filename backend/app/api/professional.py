@@ -3,6 +3,7 @@ import re
 from fastapi import APIRouter, Query, HTTPException
 from typing import List
 from ..services.professional_service import professional_analysis, calc_correlation_matrix
+from ..services.professional_score_service import augment_professional_analysis
 
 router = APIRouter(prefix="/professional", tags=["专业分析"])
 
@@ -19,7 +20,7 @@ def _validate_fund_code(code: str) -> None:
 async def fund_professional(code: str):
     """专业分析维度数据"""
     _validate_fund_code(code)
-    return professional_analysis(code)
+    return augment_professional_analysis(code, professional_analysis(code))
 
 
 @router.post("/correlation")
