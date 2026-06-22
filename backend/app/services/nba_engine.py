@@ -24,9 +24,9 @@ def generate_nba_suggestions(client_360: dict[str, Any], context: dict[str, Any]
         suggestions.append(
             _suggestion(
                 "complete_risk_profile",
-                "Complete client risk profile",
+                "补全客户风险画像",
                 "high",
-                "Risk level is missing, so suitability checks cannot be finalized.",
+                "客户风险等级缺失，无法完成适当性复核。",
                 ["risk_level", "investment_horizon", "loss_tolerance"],
             )
         )
@@ -35,9 +35,9 @@ def generate_nba_suggestions(client_360: dict[str, Any], context: dict[str, Any]
         suggestions.append(
             _suggestion(
                 "confirm_holdings",
-                "Confirm current fund holdings",
+                "确认当前基金持仓",
                 "high",
-                "No current holdings were supplied for portfolio review.",
+                "当前未提供持仓数据，无法进行组合复核。",
                 ["current_holdings", "position_weights"],
             )
         )
@@ -46,9 +46,9 @@ def generate_nba_suggestions(client_360: dict[str, Any], context: dict[str, Any]
         suggestions.append(
             _suggestion(
                 "suitability_review",
-                "Review suitability and drawdown exposure",
+                "复核适当性与回撤暴露",
                 "high",
-                "Client risk level may be inconsistent with higher-volatility assets.",
+                "客户风险等级可能与较高波动资产暴露不匹配。",
                 ["risk_level", "holding_assets", "drawdown_metrics"],
             )
         )
@@ -57,9 +57,9 @@ def generate_nba_suggestions(client_360: dict[str, Any], context: dict[str, Any]
         suggestions.append(
             _suggestion(
                 "dca_evidence_review",
-                "Refresh DCA backtest evidence",
+                "补充定投回测证据",
                 "medium",
-                "DCA evidence is not complete enough for a strategy recommendation.",
+                "定投证据不完整，暂不足以支持策略推荐。",
                 ["historical_nav", "dca_backtest"],
             )
         )
@@ -68,9 +68,9 @@ def generate_nba_suggestions(client_360: dict[str, Any], context: dict[str, Any]
         suggestions.append(
             _suggestion(
                 "professional_evidence_review",
-                "Complete professional product evidence",
+                "补全产品专业评价证据",
                 "medium",
-                "Product evaluation is incomplete and should be reviewed before recommendation.",
+                "产品评价证据不完整，推荐前需要补充核验。",
                 ["professional_score", "data_quality", "fund_evidence"],
             )
         )
@@ -79,9 +79,9 @@ def generate_nba_suggestions(client_360: dict[str, Any], context: dict[str, Any]
         suggestions.append(
             _suggestion(
                 "periodic_review",
-                "Prepare periodic portfolio review",
+                "准备定期组合复核",
                 "low",
-                "Client profile has enough baseline data for a scheduled review.",
+                "客户画像已有基础数据，可进入定期组合复核。",
                 ["client_profile", "holding_assets", "market_context"],
             )
         )
@@ -107,7 +107,7 @@ def build_task_drafts(suggestions: list[dict[str, Any]]) -> dict[str, Any]:
             {
                 "id": f"task_{index:02d}_{suggestion.get('id', 'review')}",
                 "source_suggestion_id": suggestion.get("id"),
-                "title": suggestion.get("title") or "Manual client review",
+                "title": suggestion.get("title") or "人工客户复核",
                 "note": suggestion.get("rationale") or "",
                 "status": "draft",
                 "requires_manual_approval": True,

@@ -1,4 +1,4 @@
-"""Client 360 assembly without direct-contact persistence."""
+"""客户 360 画像组装，不持久化直接联系方式。"""
 from __future__ import annotations
 
 from datetime import datetime
@@ -18,7 +18,7 @@ DIRECT_CONTACT_KEYS = {
 
 
 def build_client_360(payload: dict[str, Any], owner_user_id: str | None = None) -> dict[str, Any]:
-    """Build an in-memory client profile and strip direct contact fields."""
+    """组装内存态客户画像，并剔除直接联系方式字段。"""
     sanitized, removed = _strip_direct_contact(payload)
     client = sanitized.get("client") if isinstance(sanitized.get("client"), dict) else sanitized
     holdings = sanitized.get("holdings") if isinstance(sanitized.get("holdings"), list) else []
@@ -27,11 +27,9 @@ def build_client_360(payload: dict[str, Any], owner_user_id: str | None = None) 
     contact_authorized = bool(client.get("contact_authorized"))
     warnings = []
     if removed:
-        warnings.append(
-            "Direct contact fields were stripped from the workspace payload and are not persisted."
-        )
+        warnings.append("已从工作台请求中剔除直接联系方式字段，且不会持久化保存。")
     if contact_authorized:
-        warnings.append("Contact authorization is noted, but direct contact values are still not persisted in PR-07.")
+        warnings.append("已记录客户授权标记，但本阶段仍不会持久化保存直接联系方式。")
     profile = {
         "client_ref": str(client.get("client_ref") or client.get("client_id") or "anonymous_client"),
         "display_name": str(client.get("display_name") or client.get("name") or "客户"),
@@ -52,7 +50,7 @@ def build_client_360(payload: dict[str, Any], owner_user_id: str | None = None) 
             "source": "workspace_request",
             "coverage": _coverage(risk_level, holdings, goals),
             "confidence": 0.75,
-            "missing_reason": None if risk_level != "unknown" else "Client risk level is missing.",
+            "missing_reason": None if risk_level != "unknown" else "客户风险等级缺失。",
         },
         "warnings": warnings,
         "generated_at": datetime.now().isoformat(),
