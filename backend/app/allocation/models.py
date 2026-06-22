@@ -614,3 +614,268 @@ class FeeAnalysisResponse(BaseModel):
     analyses: List[FeeAnalysisItem]
     asset_class: str
     recommendation: str
+
+
+# PR-01 fusion contracts: lifecycle, portfolio, DCA lab, professional score, sales.
+
+class EvidenceRef(BaseModel):
+    """Traceable source reference used by professional and sales-facing outputs."""
+    source: str
+    as_of: Optional[str] = None
+    description: str = ""
+    url: Optional[str] = None
+    confidence: float = Field(default=0.0, ge=0, le=1)
+
+
+class FusionDataQuality(BaseModel):
+    status: DataStatus = "missing"
+    source: str = ""
+    as_of: Optional[str] = None
+    coverage: float = Field(default=0.0, ge=0, le=1)
+    confidence: float = Field(default=0.0, ge=0, le=1)
+    missing_reason: Optional[str] = None
+    warnings: List[str] = Field(default_factory=list)
+
+
+class LifecycleGoalItem(BaseModel):
+    id: str
+    name: str
+    goal_type: GoalType = "wealth"
+    target_amount: float = Field(gt=0)
+    horizon_years: int = Field(ge=1, le=80)
+    priority: int = Field(default=1, ge=1, le=5)
+    current_balance: float = Field(default=0, ge=0)
+    monthly_contribution: float = Field(default=0, ge=0)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class GlidePathPoint(BaseModel):
+    age: int = Field(ge=18, le=120)
+    equity_weight: float = Field(ge=0, le=1)
+    bond_weight: float = Field(ge=0, le=1)
+    cash_weight: float = Field(default=0, ge=0, le=1)
+    alternative_weight: float = Field(default=0, ge=0, le=1)
+    note: str = ""
+
+
+class PolicyBand(BaseModel):
+    asset_class: str
+    target_weight: float = Field(ge=0, le=1)
+    min_weight: float = Field(ge=0, le=1)
+    max_weight: float = Field(ge=0, le=1)
+    rebalance_trigger: float = Field(default=0.05, ge=0, le=1)
+
+
+class IpsSummary(BaseModel):
+    investor_profile: str
+    objectives: List[str] = Field(default_factory=list)
+    constraints: List[str] = Field(default_factory=list)
+    risk_budget: Dict[str, Any] = Field(default_factory=dict)
+    suitability_notes: List[str] = Field(default_factory=list)
+
+
+class LifecyclePolicyRequest(BaseModel):
+    client_id: Optional[str] = None
+    base_request: AllocationRequest
+    goals: List[LifecycleGoalItem] = Field(default_factory=list)
+    current_age: int = Field(ge=18, le=120)
+    retirement_age: Optional[int] = Field(default=None, ge=40, le=80)
+    review_frequency: Literal["quarterly", "semiannual", "annual"] = "annual"
+    owner_user_id: Optional[str] = None
+
+
+class LifecyclePolicyResponse(BaseModel):
+    plan_id: Optional[str] = None
+    allocation: AllocationResponse
+    glide_path: List[GlidePathPoint] = Field(default_factory=list)
+    policy_bands: List[PolicyBand] = Field(default_factory=list)
+    ips_summary: IpsSummary
+    data_quality: FusionDataQuality = Field(default_factory=FusionDataQuality)
+    suitability_status: Literal["approved", "review_required", "rejected"] = "review_required"
+    evidence_refs: List[EvidenceRef] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+
+
+PortfolioRole = Literal["core", "satellite", "defensive", "liquidity", "alternative"]
+
+
+class PortfolioCandidate(BaseModel):
+    fund_code: str
+    fund_name: str = ""
+    asset_class: str = ""
+    role: PortfolioRole = "core"
+    min_weight: float = Field(default=0, ge=0, le=1)
+    max_weight: float = Field(default=1, ge=0, le=1)
+    metadata_status: DataStatus = "missing"
+    missing_reason: Optional[str] = None
+
+
+class PortfolioConstraint(BaseModel):
+    max_single_fund_weight: float = Field(default=0.3, ge=0, le=1)
+    max_same_company_weight: float = Field(default=0.5, ge=0, le=1)
+    min_fund_count: int = Field(default=3, ge=1)
+    max_fund_count: int = Field(default=12, ge=1)
+    target_asset_weights: Dict[str, float] = Field(default_factory=dict)
+
+
+class PortfolioHoldingItem(BaseModel):
+    fund_code: str
+    fund_name: str
+    weight: float = Field(ge=0, le=1)
+    role: PortfolioRole = "core"
+    rationale: str = ""
+    data_quality: FusionDataQuality = Field(default_factory=FusionDataQuality)
+
+
+class PortfolioXRay(BaseModel):
+    asset_weights: Dict[str, float] = Field(default_factory=dict)
+    fund_count: int = 0
+    concentration_top3: float = Field(default=0, ge=0, le=1)
+    estimated_fee: Optional[float] = None
+    overlap_warnings: List[str] = Field(default_factory=list)
+
+
+class PortfolioBuildRequest(BaseModel):
+    candidates: List[PortfolioCandidate]
+    constraints: PortfolioConstraint = Field(default_factory=PortfolioConstraint)
+    risk_tolerance: RiskTolerance = "balanced"
+    amount: float = Field(default=100000, gt=0)
+    owner_user_id: Optional[str] = None
+
+
+class PortfolioBuildResponse(BaseModel):
+    portfolio_id: Optional[str] = None
+    holdings: List[PortfolioHoldingItem]
+    xray: PortfolioXRay = Field(default_factory=PortfolioXRay)
+    suitability_status: Literal["approved", "review_required", "rejected"] = "review_required"
+    data_quality: FusionDataQuality = Field(default_factory=FusionDataQuality)
+    evidence_refs: List[EvidenceRef] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+
+
+DcaStrategyType = Literal[
+    "fixed",
+    "ratio",
+    "ma",
+    "martingale",
+    "valuation",
+    "ma_deviation",
+    "drawdown_boost",
+    "target_value",
+]
+
+
+class DcaStrategyScore(BaseModel):
+    strategy_id: str
+    strategy_type: DcaStrategyType
+    annualized_return: Optional[float] = None
+    volatility: Optional[float] = None
+    max_drawdown: Optional[float] = None
+    sharpe_ratio: Optional[float] = None
+    hit_rate: Optional[float] = None
+    score: float = Field(default=0, ge=0, le=100)
+    rank: Optional[int] = None
+    data_quality: FusionDataQuality = Field(default_factory=FusionDataQuality)
+
+
+class DcaStrategyLabRequest(BaseModel):
+    fund_codes: List[str]
+    start_date: str
+    end_date: str
+    monthly_amount: float = Field(gt=0)
+    strategy_types: List[DcaStrategyType] = Field(default_factory=lambda: ["fixed"])
+    benchmark_code: Optional[str] = None
+    owner_user_id: Optional[str] = None
+
+
+class DcaStrategyLabResponse(BaseModel):
+    run_id: Optional[str] = None
+    scores: List[DcaStrategyScore] = Field(default_factory=list)
+    best_strategy_id: Optional[str] = None
+    data_quality: FusionDataQuality = Field(default_factory=FusionDataQuality)
+    evidence_refs: List[EvidenceRef] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+
+
+class ProfessionalPillarScore(BaseModel):
+    pillar: str
+    score: float = Field(ge=0, le=100)
+    status: DataStatus = "missing"
+    evidence_refs: List[EvidenceRef] = Field(default_factory=list)
+    missing_reason: Optional[str] = None
+
+
+class ProfessionalScoreResponse(BaseModel):
+    fund_code: str
+    fund_name: str = ""
+    total_score: Optional[float] = Field(default=None, ge=0, le=100)
+    pillars: List[ProfessionalPillarScore] = Field(default_factory=list)
+    evidence_completeness: float = Field(default=0, ge=0, le=1)
+    data_quality: FusionDataQuality = Field(default_factory=FusionDataQuality)
+    warnings: List[str] = Field(default_factory=list)
+
+
+SalesScene = Literal[
+    "first_meeting",
+    "portfolio_review",
+    "product_recommendation",
+    "risk_explanation",
+    "after_sales_followup",
+]
+
+
+class SalesFact(BaseModel):
+    key: str
+    value: str
+    source: str
+    as_of: Optional[str] = None
+    status: DataStatus = "missing"
+
+
+class SuitabilityResultModel(BaseModel):
+    decision: Literal["approved", "review_required", "rejected"] = "review_required"
+    reasons: List[str] = Field(default_factory=list)
+    required_disclosures: List[str] = Field(default_factory=list)
+
+
+class ComplianceResultModel(BaseModel):
+    level: Literal["pass", "review", "block"] = "review"
+    issues: List[str] = Field(default_factory=list)
+    forbidden_claims: List[str] = Field(default_factory=list)
+
+
+class SalesNarrativeRequest(BaseModel):
+    scene: SalesScene
+    client_profile: Dict[str, Any] = Field(default_factory=dict)
+    fund_code: Optional[str] = None
+    portfolio_id: Optional[str] = None
+    plan_id: Optional[str] = None
+    facts: List[SalesFact] = Field(default_factory=list)
+    tone: Literal["professional", "concise", "educational"] = "professional"
+    length_type: Literal["short", "standard", "long"] = "standard"
+    owner_user_id: Optional[str] = None
+
+
+class SalesNarrativeResponse(BaseModel):
+    generation_id: Optional[str] = None
+    content: str
+    suitability: SuitabilityResultModel = Field(default_factory=SuitabilityResultModel)
+    compliance: ComplianceResultModel = Field(default_factory=ComplianceResultModel)
+    data_quality: FusionDataQuality = Field(default_factory=FusionDataQuality)
+    evidence_refs: List[EvidenceRef] = Field(default_factory=list)
+    missing_reason: Optional[str] = None
+
+
+class PitchBookSection(BaseModel):
+    key: str
+    title: str
+    content: str
+    data_quality: FusionDataQuality = Field(default_factory=FusionDataQuality)
+
+
+class PitchBookResponse(BaseModel):
+    title: str
+    sections: List[PitchBookSection] = Field(default_factory=list)
+    suitability: SuitabilityResultModel = Field(default_factory=SuitabilityResultModel)
+    compliance: ComplianceResultModel = Field(default_factory=ComplianceResultModel)
+    evidence_refs: List[EvidenceRef] = Field(default_factory=list)

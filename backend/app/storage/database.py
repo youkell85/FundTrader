@@ -111,6 +111,33 @@ def get_db():
         raise
 
 
+_SQL_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _quote_identifier(identifier: str) -> str:
+    if not _SQL_IDENTIFIER_RE.match(identifier):
+        raise ValueError(f"Invalid SQL identifier: {identifier}")
+    return f'"{identifier}"'
+
+
+def _ensure_columns(
+    conn: sqlite3.Connection,
+    table: str,
+    columns: list[tuple[str, str]],
+) -> None:
+    """Add missing columns to an existing table without replaying full DDL."""
+    table_name = _quote_identifier(table)
+    existing = {
+        row["name"]
+        for row in conn.execute(f"PRAGMA table_info({table_name})").fetchall()
+    }
+    for column_name, column_ddl in columns:
+        if column_name in existing:
+            continue
+        quoted_column = _quote_identifier(column_name)
+        conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {quoted_column} {column_ddl}")
+
+
 class Database:
     """High-level database operations."""
 
@@ -319,26 +346,155 @@ class Database:
                     company TEXT DEFAULT '',
                     updated_at TEXT NOT NULL
                 );
+
+                -- Lifecycle / portfolio / DCA / sales capability tables.
+                CREATE TABLE IF NOT EXISTS suitability_audit_log (
+                    id TEXT PRIMARY KEY,
+                    event_type TEXT NOT NULL,
+                    actor_user_id TEXT DEFAULT NULL,
+                    target_client_id TEXT DEFAULT NULL,
+                    owner_user_id TEXT DEFAULT NULL,
+                    plan_id TEXT DEFAULT NULL,
+                    payload_json TEXT NOT NULL,
+                    compliance_audit_id TEXT DEFAULT NULL,
+                    data_status TEXT NOT NULL DEFAULT 'real',
+                    created_at TEXT NOT NULL,
+                    retention_until TEXT DEFAULT NULL,
+                    FOREIGN KEY (plan_id) REFERENCES allocation_plans(id) ON DELETE SET NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS sales_talk_templates (
+                    id TEXT PRIMARY KEY,
+                    scenario TEXT NOT NULL,
+                    length_type TEXT NOT NULL DEFAULT 'standard',
+                    tone TEXT NOT NULL DEFAULT 'professional',
+                    content_template TEXT NOT NULL,
+                    variables_json TEXT NOT NULL DEFAULT '{}',
+                    status TEXT NOT NULL DEFAULT 'draft',
+                    compliance_level TEXT NOT NULL DEFAULT 'review',
+                    version INTEGER NOT NULL DEFAULT 1,
+                    approved_by TEXT DEFAULT NULL,
+                    approved_at TEXT DEFAULT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS sales_talk_generations (
+                    id TEXT PRIMARY KEY,
+                    template_id TEXT DEFAULT NULL,
+                    plan_id TEXT DEFAULT NULL,
+                    fund_code TEXT DEFAULT NULL,
+                    portfolio_id TEXT DEFAULT NULL,
+                    owner_user_id TEXT DEFAULT NULL,
+                    scenario TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    data_status TEXT NOT NULL DEFAULT 'missing',
+                    missing_reason TEXT DEFAULT NULL,
+                    evidence_refs_json TEXT NOT NULL DEFAULT '[]',
+                    compliance_level TEXT NOT NULL DEFAULT 'review',
+                    compliance_issues_json TEXT NOT NULL DEFAULT '[]',
+                    suitability_decision TEXT NOT NULL DEFAULT 'review_required',
+                    llm_model TEXT DEFAULT NULL,
+                    llm_temperature REAL DEFAULT NULL,
+                    audit_id TEXT DEFAULT NULL,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (template_id) REFERENCES sales_talk_templates(id) ON DELETE SET NULL,
+                    FOREIGN KEY (plan_id) REFERENCES allocation_plans(id) ON DELETE SET NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS model_portfolios (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    risk_level INTEGER NOT NULL CHECK (risk_level BETWEEN 1 AND 5),
+                    target_return REAL DEFAULT NULL,
+                    max_drawdown REAL DEFAULT NULL,
+                    description TEXT DEFAULT '',
+                    risk_disclaimer TEXT NOT NULL DEFAULT 'Market risk exists. Invest prudently.',
+                    created_by TEXT DEFAULT NULL,
+                    owner_user_id TEXT DEFAULT NULL,
+                    status TEXT NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'published', 'archived')),
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS model_portfolio_holdings (
+                    id TEXT PRIMARY KEY,
+                    portfolio_id TEXT NOT NULL,
+                    fund_code TEXT NOT NULL,
+                    fund_name TEXT NOT NULL DEFAULT '',
+                    weight REAL NOT NULL,
+                    role TEXT NOT NULL DEFAULT '',
+                    metadata_status TEXT NOT NULL DEFAULT 'missing',
+                    missing_reason TEXT DEFAULT NULL,
+                    evidence_refs_json TEXT NOT NULL DEFAULT '[]',
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (portfolio_id) REFERENCES model_portfolios(id) ON DELETE CASCADE
+                );
+
+                CREATE TABLE IF NOT EXISTS dca_strategy_runs (
+                    id TEXT PRIMARY KEY,
+                    owner_user_id TEXT DEFAULT NULL,
+                    plan_id TEXT DEFAULT NULL,
+                    codes_json TEXT NOT NULL,
+                    request_json TEXT NOT NULL,
+                    result_summary_json TEXT NOT NULL,
+                    data_status TEXT NOT NULL DEFAULT 'missing',
+                    missing_reason TEXT DEFAULT NULL,
+                    evidence_refs_json TEXT NOT NULL DEFAULT '[]',
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY (plan_id) REFERENCES allocation_plans(id) ON DELETE SET NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS professional_score_snapshots (
+                    id TEXT PRIMARY KEY,
+                    fund_code TEXT NOT NULL,
+                    score_json TEXT NOT NULL,
+                    evidence_refs_json TEXT NOT NULL DEFAULT '[]',
+                    evidence_completeness REAL NOT NULL DEFAULT 0,
+                    data_status TEXT NOT NULL DEFAULT 'missing',
+                    missing_reason TEXT DEFAULT NULL,
+                    created_at TEXT NOT NULL
+                );
             """)
-            # ─── Schema migration: add owner_user_id if missing ───
-            try:
-                conn.execute("ALTER TABLE allocation_plans ADD COLUMN owner_user_id TEXT DEFAULT NULL")
-            except sqlite3.OperationalError:
-                pass  # Column already exists
-            try:
-                conn.execute("ALTER TABLE rebalance_history ADD COLUMN owner_user_id TEXT DEFAULT NULL")
-            except sqlite3.OperationalError:
-                pass  # Column already exists
+            # Schema migrations for existing SQLite files.
+            _ensure_columns(
+                conn,
+                "allocation_plans",
+                [
+                    ("owner_user_id", "TEXT DEFAULT NULL"),
+                    ("plan_type", "TEXT NOT NULL DEFAULT 'standard'"),
+                    ("client_profile_json", "TEXT NOT NULL DEFAULT '{}'"),
+                    ("policy_bands_json", "TEXT NOT NULL DEFAULT '[]'"),
+                    ("glide_path_json", "TEXT NOT NULL DEFAULT '[]'"),
+                    ("suitability_status", "TEXT NOT NULL DEFAULT 'review_required'"),
+                    ("data_status", "TEXT NOT NULL DEFAULT 'missing'"),
+                    ("evidence_refs_json", "TEXT NOT NULL DEFAULT '[]'"),
+                ],
+            )
+            _ensure_columns(
+                conn,
+                "rebalance_history",
+                [("owner_user_id", "TEXT DEFAULT NULL")],
+            )
             conn.executescript("""
                 -- 索引
                 CREATE INDEX IF NOT EXISTS idx_plans_created ON allocation_plans(created_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_plans_risk ON allocation_plans(risk_profile);
                 CREATE INDEX IF NOT EXISTS idx_plans_owner_created ON allocation_plans(owner_user_id, created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_plans_type_owner ON allocation_plans(plan_type, owner_user_id);
                 CREATE INDEX IF NOT EXISTS idx_risk_behavior_created ON risk_behavior_observations(created_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_risk_behavior_risk ON risk_behavior_observations(risk_tolerance, created_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_rebalance_date ON rebalance_history(executed_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_rebalance_plan ON rebalance_history(plan_id);
                 CREATE INDEX IF NOT EXISTS idx_rebalance_owner_date ON rebalance_history(owner_user_id, executed_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_suitability_audit_created ON suitability_audit_log(created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_suitability_audit_owner ON suitability_audit_log(owner_user_id, created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_sales_talk_templates_scenario ON sales_talk_templates(scenario, status);
+                CREATE INDEX IF NOT EXISTS idx_sales_talk_generations_owner ON sales_talk_generations(owner_user_id, created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_model_portfolios_status ON model_portfolios(status, risk_level);
+                CREATE INDEX IF NOT EXISTS idx_model_portfolio_holdings_portfolio ON model_portfolio_holdings(portfolio_id);
+                CREATE INDEX IF NOT EXISTS idx_dca_strategy_runs_owner ON dca_strategy_runs(owner_user_id, created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_professional_score_code ON professional_score_snapshots(fund_code, created_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_macro_indicator ON macro_history(indicator, date DESC);
                 CREATE INDEX IF NOT EXISTS idx_etf_code_date ON etf_daily_prices(code, trade_date);
                 CREATE INDEX IF NOT EXISTS idx_fund_nav_code ON fund_nav_cache(code);
