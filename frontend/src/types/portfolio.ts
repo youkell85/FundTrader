@@ -56,3 +56,42 @@ export interface PortfolioBuildResponse {
   evidence_refs: EvidenceRef[];
   warnings: string[];
 }
+
+export interface ModelPortfolioHolding {
+  fund_code: string;
+  fund_name: string;
+  weight: number;
+  role: PortfolioRole;
+  metadata_status: DataStatus;
+  missing_reason?: string | null;
+}
+
+export interface ModelPortfolioItem {
+  id: string;
+  name: string;
+  risk_level: number;
+  description: string;
+  target_return?: number | null;
+  max_drawdown?: number | null;
+  target_basis: "historical_measurement_target" | string;
+  risk_threshold_label: string;
+  risk_disclaimer: string;
+  holdings: ModelPortfolioHolding[];
+  xray: PortfolioXRay;
+  data_quality: FusionDataQuality;
+  evidence_refs: EvidenceRef[];
+  warnings: string[];
+}
+
+export interface ModelPortfolioListResponse {
+  items: ModelPortfolioItem[];
+  data_quality: FusionDataQuality;
+  warnings: string[];
+}
+
+export interface PortfolioCandidatesResponse {
+  candidates: PortfolioCandidate[];
+  data_quality: FusionDataQuality;
+  evidence_refs: EvidenceRef[];
+  warnings: string[];
+}

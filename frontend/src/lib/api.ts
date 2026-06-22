@@ -564,6 +564,22 @@ export async function getRebalanceStats() {
   return fetchJson<import("@/types/allocation").RebalanceStatsResponse>("/storage/rebalance/stats");
 }
 
+// ==================== 组合构建与模型组合超市 ====================
+export async function getPortfolioCandidates(limit = 80) {
+  return fetchJson<import("@/types/portfolio").PortfolioCandidatesResponse>(`/marketplace/candidates?limit=${limit}`);
+}
+
+export async function buildPortfolio(params: import("@/types/portfolio").PortfolioBuildRequest) {
+  return fetchJson<import("@/types/portfolio").PortfolioBuildResponse>("/marketplace/portfolio-build", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
+}
+
+export async function getModelPortfolios(limit = 6) {
+  return fetchJson<import("@/types/portfolio").ModelPortfolioListResponse>(`/marketplace/model-portfolios?limit=${limit}`);
+}
+
 // ==================== 棰勮閫氱煡 ====================
 export interface AlertItem {
   id: string;

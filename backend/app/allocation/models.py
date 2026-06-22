@@ -769,6 +769,38 @@ class PortfolioBuildResponse(BaseModel):
     warnings: List[str] = Field(default_factory=list)
 
 
+class ModelPortfolioHolding(BaseModel):
+    fund_code: str
+    fund_name: str
+    weight: float = Field(ge=0, le=1)
+    role: PortfolioRole = "core"
+    metadata_status: DataStatus = "missing"
+    missing_reason: Optional[str] = None
+
+
+class ModelPortfolioItem(BaseModel):
+    id: str
+    name: str
+    risk_level: int = Field(ge=1, le=5)
+    description: str = ""
+    target_return: Optional[float] = None
+    max_drawdown: Optional[float] = None
+    target_basis: str = "historical_measurement_target"
+    risk_threshold_label: str = "historical risk threshold"
+    risk_disclaimer: str = "Historical measurements are not return promises."
+    holdings: List[ModelPortfolioHolding] = Field(default_factory=list)
+    xray: PortfolioXRay = Field(default_factory=PortfolioXRay)
+    data_quality: FusionDataQuality = Field(default_factory=FusionDataQuality)
+    evidence_refs: List[EvidenceRef] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+
+
+class ModelPortfolioListResponse(BaseModel):
+    items: List[ModelPortfolioItem] = Field(default_factory=list)
+    data_quality: FusionDataQuality = Field(default_factory=FusionDataQuality)
+    warnings: List[str] = Field(default_factory=list)
+
+
 DcaStrategyType = Literal[
     "fixed",
     "ratio",

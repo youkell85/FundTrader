@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react'
 import { matchPath, NavLink, useLocation } from 'react-router'
 import {
+  Boxes,
   ChevronLeft,
   ChevronRight,
   FolderOpen,
@@ -41,6 +42,7 @@ const NAV_ITEMS: NavItem[] = [
   { label: '方案模拟', path: '/allocation/result/simulator', icon: FlaskConical },
   { label: '回测中心', path: '/allocation/result/backtest', icon: TrendingUp },
   { label: '生命周期', path: '/allocation/result/lifecycle', icon: Route },
+  { label: '组合构建', path: '/allocation/result/portfolio', icon: Boxes },
 ]
 
 function isActive(parentPath: string, pathname: string): boolean {

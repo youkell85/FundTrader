@@ -17,6 +17,7 @@ const Recommend = lazy(() => import('./pages/Recommend'))
 const Analysis = lazy(() => import('./pages/Analysis'))
 const AllocationWizard = lazy(() => import('./pages/AllocationWizard'))
 const SalesWorkbench = lazy(() => import('./pages/SalesWorkbench'))
+const Marketplace = lazy(() => import('./pages/Marketplace'))
 
 // 资产配置结果页 — 侧边导航布局 + 子路由
 const AllocationLayout = lazy(() => import('./components/layout/AllocationLayout'))
@@ -26,6 +27,7 @@ const StrategyPage = lazy(() => import('./pages/allocation/StrategyPage'))
 const FundsPage = lazy(() => import('./pages/allocation/FundsPage'))
 const RiskPage = lazy(() => import('./pages/allocation/RiskPage'))
 const LifecyclePage = lazy(() => import('./pages/allocation/LifecyclePage'))
+const PortfolioBuilderPage = lazy(() => import('./pages/allocation/PortfolioBuilderPage'))
 
 // 独立工具页面
 const OpsPage = lazy(() => import('./pages/allocation/OpsPage'))
@@ -130,6 +132,7 @@ export default function App() {
             <Route path="/recommend" element={<RequireAuth><Recommend /></RequireAuth>} />
             <Route path="/analysis" element={<Analysis />} />
             <Route path="/sales" element={<RequireAuth><SalesWorkbench /></RequireAuth>} />
+            <Route path="/marketplace" element={<RequireAuth><Marketplace /></RequireAuth>} />
             {/* AllocationProvider 共享同一个实例，Wizard → Result 状态不丢失 */}
             <Route path="/allocation" element={<AllocationProvider><RequireAuth><Outlet /></RequireAuth></AllocationProvider>}>
               <Route index element={<AllocationWizard />} />
@@ -142,6 +145,7 @@ export default function App() {
                 <Route path="funds" element={<FundsPage />} />
                 <Route path="risk" element={<RiskPage />} />
                 <Route path="lifecycle" element={<LifecyclePage />} />
+                <Route path="portfolio" element={<PortfolioBuilderPage />} />
                 <Route path="ops" element={<OpsPage />} />
                 <Route path="plans" element={<PlansPage />} />
                 <Route path="simulator" element={<SimulatorPage />} />
